@@ -10,3 +10,9 @@ export const PORT = Number(process.env.PORT ?? 8787);
  */
 export const SESSIONS_ROOT =
   process.env.SESSIONS_ROOT ?? path.resolve(process.cwd(), ".sessions");
+
+/**
+ * Executable used to spawn the Pi coding agent. Overridable so the binary can
+ * be pinned in environments where `pi` is not on PATH.
+ */
+export const PI_BIN = process.env.PI_BIN ?? "pi";

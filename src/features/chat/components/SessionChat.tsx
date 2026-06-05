@@ -8,7 +8,7 @@ interface SessionChatProps {
 }
 
 export function SessionChat({ sessionId }: SessionChatProps) {
-  const { messages, connected, currentAuthorId, send } =
+  const { messages, connected, agentBusy, currentAuthorId, send } =
     useSessionChat(sessionId);
 
   return (
@@ -25,9 +25,14 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         <span className="text-xs text-muted-foreground">
           {connected ? "Connected" : "Connecting..."}
         </span>
+        {agentBusy ? (
+          <span className="ml-auto text-xs text-muted-foreground">
+            Pi is responding...
+          </span>
+        ) : null}
       </div>
       <ChatMessageList messages={messages} currentAuthorId={currentAuthorId} />
-      <ChatInput disabled={!connected} onSubmit={send} />
+      <ChatInput disabled={!connected || agentBusy} onSubmit={send} />
     </div>
   );
 }

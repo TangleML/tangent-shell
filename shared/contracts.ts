@@ -31,6 +31,13 @@ export interface ChatAuthor {
   name: string;
 }
 
+/** The Pi coding agent's identity, shared across every session's replies. */
+export const PI_AGENT: ChatAuthor = {
+  id: "pi",
+  kind: "agent",
+  name: "Pi",
+};
+
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
@@ -67,12 +74,43 @@ export interface TerminalDataPayload {
   chunk: string;
 }
 
+/**
+ * Emitted when the Pi agent begins a reply. Carries an empty-content
+ * `ChatMessage` that the client appends and then fills in via deltas.
+ */
+export interface AgentStartPayload {
+  message: ChatMessage;
+}
+
+/** A streamed chunk of the agent's reply, keyed by the message it extends. */
+export interface AgentDeltaPayload {
+  sessionId: string;
+  messageId: string;
+  delta: string;
+}
+
+/** Emitted when the agent finishes; carries the final, complete message. */
+export interface AgentEndPayload {
+  message: ChatMessage;
+}
+
+/** Emitted when the agent fails to produce (or finish) a reply. */
+export interface AgentErrorPayload {
+  sessionId: string;
+  messageId?: string;
+  message: string;
+}
+
 /** Socket.IO event names shared by client and server. */
 export const SocketEvents = {
   ChatJoin: "chat:join",
   ChatHistory: "chat:history",
   ChatMessage: "chat:message",
   TerminalData: "terminal:data",
+  AgentStart: "agent:start",
+  AgentDelta: "agent:delta",
+  AgentEnd: "agent:end",
+  AgentError: "agent:error",
 } as const;
 
 export type SocketEvent = (typeof SocketEvents)[keyof typeof SocketEvents];

@@ -1,4 +1,8 @@
 import {
+  type AgentDeltaPayload,
+  type AgentEndPayload,
+  type AgentErrorPayload,
+  type AgentStartPayload,
   type ChatAuthor,
   type ChatMessage,
   type ChatMessagePayload,
@@ -17,6 +21,7 @@ import { io, type Socket } from "socket.io-client";
 export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
   // One author identity per mounted chat (a stand-in for real auth in Phase 1).
@@ -37,15 +42,47 @@ export function useSessionChat(sessionId: string) {
       // don't trigger cascading renders; history will repopulate via ChatHistory.
       setMessages([]);
       setConnected(true);
+      setAgentBusy(false);
       socket.emit(SocketEvents.ChatJoin, { sessionId });
     });
-    socket.on("disconnect", () => setConnected(false));
+    socket.on("disconnect", () => {
+      setConnected(false);
+      setAgentBusy(false);
+    });
 
     socket.on(SocketEvents.ChatHistory, (history: ChatMessage[]) => {
       setMessages(history);
     });
     socket.on(SocketEvents.ChatMessage, (message: ChatMessage) => {
       setMessages((prev) => [...prev, message]);
+    });
+
+    // Pi begins a reply: append an empty placeholder we fill in via deltas.
+    socket.on(SocketEvents.AgentStart, ({ message }: AgentStartPayload) => {
+      setAgentBusy(true);
+      setMessages((prev) => [...prev, message]);
+    });
+    // Streamed token: append it to the matching in-flight message.
+    socket.on(
+      SocketEvents.AgentDelta,
+      ({ messageId, delta }: AgentDeltaPayload) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId ? { ...m, content: m.content + delta } : m,
+          ),
+        );
+      },
+    );
+    // Pi finished: replace the placeholder content with the final message.
+    socket.on(SocketEvents.AgentEnd, ({ message }: AgentEndPayload) => {
+      setAgentBusy(false);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === message.id ? message : m)),
+      );
+    });
+    socket.on(SocketEvents.AgentError, ({ message }: AgentErrorPayload) => {
+      setAgentBusy(false);
+      console.error("[chat] agent error:", message);
     });
 
     return () => {
@@ -64,5 +101,5 @@ export function useSessionChat(sessionId: string) {
     socket.emit(SocketEvents.ChatMessage, payload);
   }
 
-  return { messages, connected, currentAuthorId: author.id, send };
+  return { messages, connected, agentBusy, currentAuthorId: author.id, send };
 }
