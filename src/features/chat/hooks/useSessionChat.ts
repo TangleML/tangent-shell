@@ -3,6 +3,7 @@ import {
   type AgentEndPayload,
   type AgentErrorPayload,
   type AgentStartPayload,
+  type AgentThinkingPayload,
   type ChatAuthor,
   type ChatMessage,
   type ChatMessagePayload,
@@ -69,6 +70,19 @@ export function useSessionChat(sessionId: string) {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === messageId ? { ...m, content: m.content + delta } : m,
+          ),
+        );
+      },
+    );
+    // Streamed reasoning token: append it to the matching message's thinking.
+    socket.on(
+      SocketEvents.AgentThinking,
+      ({ messageId, delta }: AgentThinkingPayload) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId
+              ? { ...m, thinking: (m.thinking ?? "") + delta }
+              : m,
           ),
         );
       },

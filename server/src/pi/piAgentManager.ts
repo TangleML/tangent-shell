@@ -13,7 +13,8 @@ import { type AgentConfig, getDefaultAgentConfig } from "./agentConfig.ts";
 export type AgentEvent =
   | { type: "start"; messageId: string }
   | { type: "delta"; messageId: string; delta: string }
-  | { type: "end"; messageId: string; content: string }
+  | { type: "thinking"; messageId: string; delta: string }
+  | { type: "end"; messageId: string; content: string; thinking: string }
   | { type: "error"; messageId?: string; message: string };
 
 export type AgentEventHandler = (
@@ -28,6 +29,8 @@ interface AgentProcess {
   currentMessageId: string | null;
   /** Accumulated text for the in-flight assistant message. */
   accum: string;
+  /** Accumulated reasoning for the in-flight assistant message. */
+  thinkingAccum: string;
 }
 
 /**
@@ -118,6 +121,7 @@ export class PiAgentManager {
       busy: false,
       currentMessageId: null,
       accum: "",
+      thinkingAccum: "",
     };
     this.agents.set(sessionId, agent);
 
@@ -208,6 +212,7 @@ export class PiAgentManager {
         const messageId = randomUUID();
         agent.currentMessageId = messageId;
         agent.accum = "";
+        agent.thinkingAccum = "";
         this.onAgentEvent(sessionId, { type: "start", messageId });
         return;
       }
@@ -221,6 +226,17 @@ export class PiAgentManager {
           agent.accum += delta.delta;
           this.onAgentEvent(sessionId, {
             type: "delta",
+            messageId: agent.currentMessageId,
+            delta: delta.delta,
+          });
+        } else if (
+          delta?.type === "thinking_delta" &&
+          typeof delta.delta === "string"
+        ) {
+          if (!agent.currentMessageId) return;
+          agent.thinkingAccum += delta.delta;
+          this.onAgentEvent(sessionId, {
+            type: "thinking",
             messageId: agent.currentMessageId,
             delta: delta.delta,
           });
@@ -238,10 +254,17 @@ export class PiAgentManager {
           extractLastAssistantText(event as { messages?: unknown }) ||
           "";
         const messageId = agent.currentMessageId;
+        const thinking = agent.thinkingAccum;
         agent.currentMessageId = null;
         agent.accum = "";
+        agent.thinkingAccum = "";
         agent.busy = false;
-        this.onAgentEvent(sessionId, { type: "end", messageId, content });
+        this.onAgentEvent(sessionId, {
+          type: "end",
+          messageId,
+          content,
+          thinking,
+        });
         return;
       }
 
@@ -262,6 +285,7 @@ export class PiAgentManager {
     const messageId = agent.currentMessageId ?? undefined;
     agent.currentMessageId = null;
     agent.accum = "";
+    agent.thinkingAccum = "";
     agent.busy = false;
     this.onAgentEvent(sessionId, { type: "error", messageId, message });
   }

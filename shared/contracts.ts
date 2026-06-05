@@ -44,6 +44,11 @@ export interface ChatMessage {
   sessionId: string;
   author: ChatAuthor;
   content: string;
+  /**
+   * The agent's reasoning (markdown), streamed before/alongside `content`.
+   * Only present on agent replies that surfaced a thinking process.
+   */
+  thinking?: string;
   /** ISO-8601 timestamp. */
   createdAt: string;
 }
@@ -89,6 +94,13 @@ export interface AgentDeltaPayload {
   delta: string;
 }
 
+/** A streamed chunk of the agent's reasoning, keyed by the message it extends. */
+export interface AgentThinkingPayload {
+  sessionId: string;
+  messageId: string;
+  delta: string;
+}
+
 /** Emitted when the agent finishes; carries the final, complete message. */
 export interface AgentEndPayload {
   message: ChatMessage;
@@ -109,6 +121,7 @@ export const SocketEvents = {
   TerminalData: "terminal:data",
   AgentStart: "agent:start",
   AgentDelta: "agent:delta",
+  AgentThinking: "agent:thinking",
   AgentEnd: "agent:end",
   AgentError: "agent:error",
 } as const;

@@ -1,6 +1,7 @@
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 
+import { AgentThinking } from "./AgentThinking";
 import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
 
 interface ChatMessageProps {
@@ -23,7 +24,13 @@ export function ChatMessage({ message, isOwn }: ChatMessageProps) {
         {isAgent ? " (agent)" : ""}
       </span>
       {isAgent ? (
-        <div className="text-sm break-words min-w-0 overflow-x-auto">
+        <div className="flex flex-col gap-1 text-sm break-words min-w-0 overflow-x-auto">
+          {message.thinking ? (
+            <AgentThinking
+              thinking={message.thinking}
+              done={message.content.length > 0}
+            />
+          ) : null}
           <Markdown>{message.content}</Markdown>
         </div>
       ) : (

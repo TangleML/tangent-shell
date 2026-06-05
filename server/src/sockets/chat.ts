@@ -5,6 +5,7 @@ import {
   type AgentEndPayload,
   type AgentErrorPayload,
   type AgentStartPayload,
+  type AgentThinkingPayload,
   type ChatAuthor,
   type ChatJoinPayload,
   type ChatMessage,
@@ -26,12 +27,14 @@ function buildMessage(
   sessionId: string,
   author: ChatAuthor,
   content: string,
+  thinking?: string,
 ): ChatMessage {
   return {
     id,
     sessionId,
     author,
     content,
+    ...(thinking ? { thinking } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -66,12 +69,23 @@ export function createAgentEventHandler(
         return;
       }
 
+      case "thinking": {
+        const payload: AgentThinkingPayload = {
+          sessionId,
+          messageId: event.messageId,
+          delta: event.delta,
+        };
+        io.to(room).emit(SocketEvents.AgentThinking, payload);
+        return;
+      }
+
       case "end": {
         const message = buildMessage(
           event.messageId,
           sessionId,
           PI_AGENT,
           event.content,
+          event.thinking,
         );
         void store.appendMessage(message).then(() => {
           const payload: AgentEndPayload = { message };
