@@ -5,6 +5,8 @@ import { env } from "@/shared/config/env";
 
 import { HomePage } from "./home/HomePage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
+import { SessionChatPage } from "./sessions/SessionChatPage";
+import { SessionsPage } from "./sessions/SessionsPage";
 
 function RootLayout() {
   return (
@@ -26,4 +28,20 @@ const indexRoute = createRoute({
   component: HomePage,
 });
 
-export const routeTree = rootRoute.addChildren([indexRoute]);
+const sessionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sessions",
+  component: SessionsPage,
+});
+
+const sessionChatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sessions/$sessionId",
+  component: SessionChatPage,
+});
+
+export const routeTree = rootRoute.addChildren([
+  indexRoute,
+  sessionsRoute,
+  sessionChatRoute,
+]);

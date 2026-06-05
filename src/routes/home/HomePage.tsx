@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+
 import { Button } from "@/shared/ui/button";
 
 export function HomePage() {
@@ -7,7 +9,9 @@ export function HomePage() {
       <p className="text-muted-foreground">
         Vite + React 19 + slim FSD scaffold, compiled with React Compiler.
       </p>
-      <Button>Get started</Button>
+      <Button asChild>
+        <Link to="/sessions">Open sessions</Link>
+      </Button>
     </main>
   );
 }
