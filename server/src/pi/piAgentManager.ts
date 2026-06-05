@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 
 import { PI_BIN } from "../config.ts";
+import { type AgentConfig, getDefaultAgentConfig } from "./agentConfig.ts";
 
 /**
  * Event surfaced to the chat layer as Pi streams a reply. `messageId`
@@ -79,8 +80,14 @@ export class PiAgentManager {
     this.onAgentEvent = onAgentEvent;
   }
 
-  /** Spawns the session's Pi process if it isn't already running. */
-  ensure(sessionId: string, rootPath: string): void {
+  /**
+   * Spawns the session's Pi process if it isn't already running.
+   *
+   * `config` selects the tool allowlist and appended system prompt for the
+   * session. In Phase 3 every session uses {@link getDefaultAgentConfig}; the
+   * parameter is the seam for per-session configs later.
+   */
+  ensure(sessionId: string, rootPath: string, config?: AgentConfig): void {
     if (this.agents.has(sessionId)) return;
 
     if (!process.env.PI_PROXY_API_KEY) {
@@ -90,9 +97,19 @@ export class PiAgentManager {
       );
     }
 
+    const { tools, appendSystemPrompt } = config ?? getDefaultAgentConfig();
+
     const child = spawn(
       PI_BIN,
-      ["--mode", "rpc", "--no-tools", "--no-session"],
+      [
+        "--mode",
+        "rpc",
+        "--no-session",
+        "--tools",
+        tools.join(","),
+        "--append-system-prompt",
+        appendSystemPrompt,
+      ],
       { cwd: rootPath, env: process.env, stdio: ["pipe", "pipe", "pipe"] },
     ) as ChildProcessWithoutNullStreams;
 
@@ -131,8 +148,13 @@ export class PiAgentManager {
    * Relays a user message to the session's Pi process. If the agent is already
    * streaming, the message is queued with `followUp` so nothing is dropped.
    */
-  prompt(sessionId: string, rootPath: string, text: string): void {
-    this.ensure(sessionId, rootPath);
+  prompt(
+    sessionId: string,
+    rootPath: string,
+    text: string,
+    config?: AgentConfig,
+  ): void {
+    this.ensure(sessionId, rootPath, config);
     const agent = this.agents.get(sessionId);
     if (!agent) {
       this.onAgentEvent(sessionId, {
