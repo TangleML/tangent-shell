@@ -1,0 +1,14 @@
+---
+description: Always use pnpm as the package manager
+alwaysApply: true
+---
+
+# Use pnpm
+
+This project uses **pnpm** exclusively. Never use `npm` or `yarn`.
+
+- `pnpm install`, `pnpm add`, `pnpm remove` for dependency management
+- `pnpm run <script>` or `pnpm <script>` for running scripts
+- `pnpm exec` instead of `npx`
+
+If any other rule or skill references `npm` commands, treat those as outdated — substitute `pnpm` instead.
