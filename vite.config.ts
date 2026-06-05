@@ -23,6 +23,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: [".tunnel.shopifycloud.tech"],
     proxy: {
       "/api": {
         target: "http://localhost:8787",
