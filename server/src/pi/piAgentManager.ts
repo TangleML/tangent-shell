@@ -1,10 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
-import { StringDecoder } from "node:string_decoder";
 
 import {
-  type AgentRole,
   type ChatAuthor,
   PI_AGENT,
   type SubagentInfo,
@@ -18,123 +15,36 @@ import {
   resolveSubagentConfig,
   type SubagentSpawnRequest,
 } from "./agentConfig.ts";
+import {
+  type AgentDescriptor,
+  type AgentProcess,
+  type AssistantDelta,
+  type PiAgentHandlers,
+  type PiStdoutEvent,
+  PRIME_AGENT_ID,
+  type SessionAgents,
+} from "./types.ts";
+import {
+  attachJsonlReader,
+  extractLastAssistantText,
+  ORCHESTRATOR_EXTENSION,
+  parsePiEvent,
+  readDelta,
+  toDescriptor,
+  toSubagentInfo,
+} from "./utils.ts";
 
-/** Fixed id of the session's Prime agent (one per session). */
-export const PRIME_AGENT_ID = "prime";
-
-/**
- * Event surfaced to the chat layer as an agent streams a reply. `messageId`
- * correlates the `start`/`delta`/`end` of a single assistant message so the
- * client can build it up incrementally.
- */
-export type AgentEvent =
-  | { type: "start"; messageId: string }
-  | { type: "delta"; messageId: string; delta: string }
-  | { type: "thinking"; messageId: string; delta: string }
-  | { type: "end"; messageId: string; content: string; thinking: string }
-  | { type: "error"; messageId?: string; message: string };
-
-/** Identifies which agent in a session produced an {@link AgentEvent}. */
-export interface AgentDescriptor {
-  agentId: string;
-  role: AgentRole;
-  name: string;
-}
-
-export type AgentEventHandler = (
-  sessionId: string,
-  agent: AgentDescriptor,
-  event: AgentEvent,
-) => void;
-
-export type SubagentUpdateHandler = (
-  sessionId: string,
-  subagent: SubagentInfo,
-) => void;
-
-/**
- * Surfaces a directed message (e.g. a task Prime sends a sub-agent) into a
- * specific conversation's transcript. `conversationId` is the owning agent's
- * id; `author` is the sender to attribute it to.
- */
-export type AgentMessageHandler = (
-  sessionId: string,
-  conversationId: string,
-  author: ChatAuthor,
-  content: string,
-) => void;
-
-export interface PiAgentHandlers {
-  /** Relays an agent's streaming events to the session's room. */
-  onAgentEvent: AgentEventHandler;
-  /** Relays a sub-agent's spawn or status change to the session's room. */
-  onSubagentUpdate: SubagentUpdateHandler;
-  /** Surfaces a directed message into a sub-agent's transcript. */
-  onAgentMessage: AgentMessageHandler;
-}
-
-interface AgentProcess {
-  agentId: string;
-  role: AgentRole;
-  name: string;
-  template?: string;
-  status: SubagentStatus;
-  createdAt: string;
-  child: ChildProcessWithoutNullStreams;
-  busy: boolean;
-  /** The id of the assistant message currently streaming, if any. */
-  currentMessageId: string | null;
-  /** Accumulated text for the in-flight assistant message. */
-  accum: string;
-  /** Accumulated reasoning for the in-flight assistant message. */
-  thinkingAccum: string;
-}
-
-interface SessionAgents {
-  rootPath: string;
-  agents: Map<string, AgentProcess>;
-}
-
-/**
- * Reads a stream as strict JSONL: records are delimited by LF only, with an
- * optional trailing CR stripped. Node's `readline` is intentionally avoided
- * because it also splits on U+2028/U+2029, which are valid inside JSON strings.
- */
-function attachJsonlReader(
-  stream: NodeJS.ReadableStream,
-  onLine: (line: string) => void,
-): void {
-  const decoder = new StringDecoder("utf8");
-  let buffer = "";
-
-  stream.on("data", (chunk: Buffer | string) => {
-    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
-
-    while (true) {
-      const newlineIndex = buffer.indexOf("\n");
-      if (newlineIndex === -1) break;
-
-      let line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line.length > 0) onLine(line);
-    }
-  });
-
-  stream.on("end", () => {
-    buffer += decoder.end();
-    if (buffer.length > 0) {
-      onLine(buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer);
-    }
-  });
-}
-
-/** Absolute path to the orchestrator extension loaded into every Pi process. */
-const ORCHESTRATOR_EXTENSION = path.join(
-  import.meta.dirname,
-  "extensions",
-  "orchestrator.ts",
-);
+// Re-exported so existing consumers (sockets, routes, index) keep importing
+// these from `piAgentManager.ts` even though they now live in `types.ts`.
+export { PRIME_AGENT_ID };
+export type {
+  AgentDescriptor,
+  AgentEvent,
+  AgentEventHandler,
+  AgentMessageHandler,
+  PiAgentHandlers,
+  SubagentUpdateHandler,
+} from "./types.ts";
 
 /**
  * Manages a roster of long-lived `pi --mode rpc` child processes per session:
@@ -273,8 +183,10 @@ export class PiAgentManager {
    */
   killAgent(sessionId: string, agentId: string, completed = false): void {
     const session = this.sessions.get(sessionId);
-    const agent = session?.agents.get(agentId);
-    if (!session || !agent || agent.role === "prime") return;
+    if (!session) return;
+
+    const agent = session.agents.get(agentId);
+    if (!agent || agent.role === "prime") return;
 
     agent.status = completed ? "completed" : "killed";
     session.agents.delete(agentId);
@@ -383,104 +295,122 @@ export class PiAgentManager {
     return agent;
   }
 
+  /** Dispatches one parsed stdout line to the matching per-event handler. */
   private handleStdoutLine(
     sessionId: string,
     agent: AgentProcess,
     line: string,
   ): void {
-    let event: { type?: string; [key: string]: unknown };
-    try {
-      event = JSON.parse(line);
-    } catch {
+    const event = parsePiEvent(line);
+    if (!event) {
       console.error(`[pi:${sessionId}:${agent.agentId}] unparseable: ${line}`);
       return;
     }
 
-    const descriptor: AgentDescriptor = {
-      agentId: agent.agentId,
-      role: agent.role,
-      name: agent.name,
-    };
-
+    const descriptor = toDescriptor(agent);
     switch (event.type) {
-      case "agent_start": {
-        const messageId = randomUUID();
-        agent.currentMessageId = messageId;
-        agent.accum = "";
-        agent.thinkingAccum = "";
-        this.handlers.onAgentEvent(sessionId, descriptor, {
-          type: "start",
-          messageId,
-        });
-        return;
-      }
-
-      case "message_update": {
-        const delta = event.assistantMessageEvent as
-          | { type?: string; delta?: string }
-          | undefined;
-        if (delta?.type === "text_delta" && typeof delta.delta === "string") {
-          if (!agent.currentMessageId) return;
-          agent.accum += delta.delta;
-          this.handlers.onAgentEvent(sessionId, descriptor, {
-            type: "delta",
-            messageId: agent.currentMessageId,
-            delta: delta.delta,
-          });
-        } else if (
-          delta?.type === "thinking_delta" &&
-          typeof delta.delta === "string"
-        ) {
-          if (!agent.currentMessageId) return;
-          agent.thinkingAccum += delta.delta;
-          this.handlers.onAgentEvent(sessionId, descriptor, {
-            type: "thinking",
-            messageId: agent.currentMessageId,
-            delta: delta.delta,
-          });
-        }
-        return;
-      }
-
-      case "agent_end": {
-        if (!agent.currentMessageId) {
-          agent.busy = false;
-          return;
-        }
-        const content =
-          agent.accum ||
-          extractLastAssistantText(event as { messages?: unknown }) ||
-          "";
-        const messageId = agent.currentMessageId;
-        const thinking = agent.thinkingAccum;
-        agent.currentMessageId = null;
-        agent.accum = "";
-        agent.thinkingAccum = "";
-        agent.busy = false;
-        this.handlers.onAgentEvent(sessionId, descriptor, {
-          type: "end",
-          messageId,
-          content,
-          thinking,
-        });
-
-        // Keep Prime in the loop: a sub-agent's reply is fed back so Prime can
-        // react. (Sub-agents are directed only by Prime; this closes the loop.)
-        if (agent.role === "subagent" && content.trim()) {
-          this.sendToAgent(
-            sessionId,
-            PRIME_AGENT_ID,
-            `Sub-agent "${agent.name}" replied:\n\n${content}`,
-          );
-        }
-        return;
-      }
-
+      case "agent_start":
+        return this.onAgentStart(sessionId, agent, descriptor);
+      case "message_update":
+        return this.onMessageDelta(
+          sessionId,
+          agent,
+          descriptor,
+          event.assistantMessageEvent,
+        );
+      case "agent_end":
+        return this.onAgentEnd(sessionId, agent, descriptor, event);
       default:
         // response / message_start / message_end / turn_* /
         // extension_ui_request etc. are not needed for chat-only relay.
         return;
     }
+  }
+
+  /** Opens a fresh in-flight assistant message and resets accumulators. */
+  private onAgentStart(
+    sessionId: string,
+    agent: AgentProcess,
+    descriptor: AgentDescriptor,
+  ): void {
+    const messageId = randomUUID();
+    agent.currentMessageId = messageId;
+    agent.accum = "";
+    agent.thinkingAccum = "";
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      type: "start",
+      messageId,
+    });
+  }
+
+  /** Accumulates and relays a streaming text/thinking delta. */
+  private onMessageDelta(
+    sessionId: string,
+    agent: AgentProcess,
+    descriptor: AgentDescriptor,
+    raw: AssistantDelta | undefined,
+  ): void {
+    const delta = readDelta(raw);
+    if (!delta || !agent.currentMessageId) return;
+
+    if (delta.kind === "delta") {
+      agent.accum += delta.text;
+    } else {
+      agent.thinkingAccum += delta.text;
+    }
+
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      type: delta.kind,
+      messageId: agent.currentMessageId,
+      delta: delta.text,
+    });
+  }
+
+  /** Finalizes the in-flight message and (for sub-agents) loops Prime in. */
+  private onAgentEnd(
+    sessionId: string,
+    agent: AgentProcess,
+    descriptor: AgentDescriptor,
+    event: PiStdoutEvent,
+  ): void {
+    if (!agent.currentMessageId) {
+      agent.busy = false;
+      return;
+    }
+
+    const content = agent.accum || extractLastAssistantText(event) || "";
+    const messageId = agent.currentMessageId;
+    const thinking = agent.thinkingAccum;
+    agent.currentMessageId = null;
+    agent.accum = "";
+    agent.thinkingAccum = "";
+    agent.busy = false;
+
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      type: "end",
+      messageId,
+      content,
+      thinking,
+    });
+
+    this.relaySubagentReply(sessionId, agent, content);
+  }
+
+  /**
+   * Keeps Prime in the loop: a sub-agent's reply is fed back so Prime can
+   * react. (Sub-agents are directed only by Prime; this closes the loop.)
+   */
+  private relaySubagentReply(
+    sessionId: string,
+    agent: AgentProcess,
+    content: string,
+  ): void {
+    if (agent.role !== "subagent" || !content.trim()) return;
+    this.sendToAgent(
+      sessionId,
+      PRIME_AGENT_ID,
+      `Sub-agent "${agent.name}" replied:\n\n${content}`,
+    );
   }
 
   /** Emits an error (and resets state) for an in-flight assistant message. */
@@ -522,36 +452,4 @@ export class PiAgentManager {
       this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     }
   }
-}
-
-function toSubagentInfo(agent: AgentProcess): SubagentInfo {
-  return {
-    id: agent.agentId,
-    name: agent.name,
-    status: agent.status,
-    ...(agent.template ? { template: agent.template } : {}),
-    createdAt: agent.createdAt,
-  };
-}
-
-/** Pulls the last assistant message's text out of an `agent_end` event. */
-function extractLastAssistantText(event: {
-  messages?: unknown;
-}): string | undefined {
-  if (!Array.isArray(event.messages)) return undefined;
-  for (let i = event.messages.length - 1; i >= 0; i--) {
-    const message = event.messages[i] as {
-      role?: string;
-      content?: Array<{ type?: string; text?: string }>;
-    };
-    if (message?.role !== "assistant" || !Array.isArray(message.content)) {
-      continue;
-    }
-    const text = message.content
-      .filter((part) => part?.type === "text" && typeof part.text === "string")
-      .map((part) => part.text)
-      .join("");
-    if (text) return text;
-  }
-  return undefined;
 }

@@ -6,7 +6,10 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  // The orchestrator extension is authored against Pi's runtime (not this
+  // repo's deps), is `@ts-nocheck`, and is excluded from the server tsconfig,
+  // so it is excluded from linting too.
+  { ignores: ["dist", "server/src/pi/extensions/**"] },
   {
     extends: [
       js.configs.recommended,
@@ -38,6 +41,19 @@ export default tseslint.config(
     files: ["src/shared/ui/**/*.tsx", "src/routes/routeTree.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
+    },
+  },
+  {
+    // Backend code runs under Node and has no React/Fast-Refresh concerns.
+    // Enforce a low cyclomatic-complexity ceiling to keep functions readable.
+    files: ["server/**/*.ts"],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: {
+      complexity: ["error", 6],
+      "max-depth": ["warn", 3],
+      "max-lines-per-function": ["warn", 60],
     },
   },
 );

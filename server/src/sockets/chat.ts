@@ -61,10 +61,89 @@ function authorFor(agent: AgentDescriptor): ChatAuthor {
   };
 }
 
+/** Shared context for emitting one agent event into its session room. */
+interface EmitContext {
+  room: string;
+  sessionId: string;
+  conversationId: string;
+  author: ChatAuthor;
+}
+
+function emitStart(io: Server, ctx: EmitContext, messageId: string): void {
+  const message = buildMessage(
+    messageId,
+    ctx.sessionId,
+    ctx.conversationId,
+    ctx.author,
+    "",
+  );
+  const payload: AgentStartPayload = { message };
+  io.to(ctx.room).emit(SocketEvents.AgentStart, payload);
+}
+
+function emitDelta(
+  io: Server,
+  ctx: EmitContext,
+  event: { messageId: string; delta: string },
+): void {
+  const payload: AgentDeltaPayload = {
+    sessionId: ctx.sessionId,
+    messageId: event.messageId,
+    delta: event.delta,
+  };
+  io.to(ctx.room).emit(SocketEvents.AgentDelta, payload);
+}
+
+function emitThinking(
+  io: Server,
+  ctx: EmitContext,
+  event: { messageId: string; delta: string },
+): void {
+  const payload: AgentThinkingPayload = {
+    sessionId: ctx.sessionId,
+    messageId: event.messageId,
+    delta: event.delta,
+  };
+  io.to(ctx.room).emit(SocketEvents.AgentThinking, payload);
+}
+
+function emitEnd(
+  io: Server,
+  store: SessionStore,
+  ctx: EmitContext,
+  event: { messageId: string; content: string; thinking: string },
+): void {
+  const message = buildMessage(
+    event.messageId,
+    ctx.sessionId,
+    ctx.conversationId,
+    ctx.author,
+    event.content,
+    event.thinking,
+  );
+  // Persist before broadcasting so reconnecting clients see it in history.
+  void store.appendMessage(message).then(() => {
+    const payload: AgentEndPayload = { message };
+    io.to(ctx.room).emit(SocketEvents.AgentEnd, payload);
+  });
+}
+
+function emitError(
+  io: Server,
+  ctx: EmitContext,
+  event: { messageId?: string; message: string },
+): void {
+  const payload: AgentErrorPayload = {
+    sessionId: ctx.sessionId,
+    messageId: event.messageId,
+    message: event.message,
+  };
+  io.to(ctx.room).emit(SocketEvents.AgentError, payload);
+}
+
 /**
  * Builds the handler that relays agents' streaming events to the matching
- * session room. The final assistant message is persisted before the
- * `agent:end` event is broadcast so reconnecting clients see it in history.
+ * session room, dispatching each event variant to its emit helper.
  *
  * Each message is tagged with the producing agent's id as its `conversationId`
  * so the client can bucket it into the right transcript (Prime's main thread or
@@ -75,69 +154,24 @@ export function createAgentEventHandler(
   store: SessionStore,
 ): AgentEventHandler {
   return (sessionId, agent, event) => {
-    const room = roomFor(sessionId);
-    const author = authorFor(agent);
-    const conversationId = agent.agentId;
+    const ctx: EmitContext = {
+      room: roomFor(sessionId),
+      sessionId,
+      conversationId: agent.agentId,
+      author: authorFor(agent),
+    };
 
     switch (event.type) {
-      case "start": {
-        const message = buildMessage(
-          event.messageId,
-          sessionId,
-          conversationId,
-          author,
-          "",
-        );
-        const payload: AgentStartPayload = { message };
-        io.to(room).emit(SocketEvents.AgentStart, payload);
-        return;
-      }
-
-      case "delta": {
-        const payload: AgentDeltaPayload = {
-          sessionId,
-          messageId: event.messageId,
-          delta: event.delta,
-        };
-        io.to(room).emit(SocketEvents.AgentDelta, payload);
-        return;
-      }
-
-      case "thinking": {
-        const payload: AgentThinkingPayload = {
-          sessionId,
-          messageId: event.messageId,
-          delta: event.delta,
-        };
-        io.to(room).emit(SocketEvents.AgentThinking, payload);
-        return;
-      }
-
-      case "end": {
-        const message = buildMessage(
-          event.messageId,
-          sessionId,
-          conversationId,
-          author,
-          event.content,
-          event.thinking,
-        );
-        void store.appendMessage(message).then(() => {
-          const payload: AgentEndPayload = { message };
-          io.to(room).emit(SocketEvents.AgentEnd, payload);
-        });
-        return;
-      }
-
-      case "error": {
-        const payload: AgentErrorPayload = {
-          sessionId,
-          messageId: event.messageId,
-          message: event.message,
-        };
-        io.to(room).emit(SocketEvents.AgentError, payload);
-        return;
-      }
+      case "start":
+        return emitStart(io, ctx, event.messageId);
+      case "delta":
+        return emitDelta(io, ctx, event);
+      case "thinking":
+        return emitThinking(io, ctx, event);
+      case "end":
+        return emitEnd(io, store, ctx, event);
+      case "error":
+        return emitError(io, ctx, event);
     }
   };
 }

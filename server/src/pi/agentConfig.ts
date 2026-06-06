@@ -115,6 +115,30 @@ function parseToolList(raw: string | undefined): string[] | undefined {
 
 let cachedTemplates: Map<string, AgentTemplate> | null = null;
 
+/** Lists `*.md` template files in `dir`, or `[]` if the directory is missing. */
+function readTemplateDir(dir: string): string[] {
+  try {
+    return readdirSync(dir).filter((entry) => entry.endsWith(".md"));
+  } catch {
+    return [];
+  }
+}
+
+/** Parses one `agents/<name>.md` file into a template, or `null` if unnamed. */
+function parseTemplateFile(dir: string, entry: string): AgentTemplate | null {
+  const { frontmatter, body } = parseFrontmatter(
+    readFileSync(path.join(dir, entry), "utf8"),
+  );
+  const name = frontmatter.name?.trim();
+  if (!name) return null;
+  return {
+    name,
+    description: frontmatter.description?.trim() ?? "",
+    tools: parseToolList(frontmatter.tools),
+    systemPrompt: body,
+  };
+}
+
 /**
  * Loads sub-agent templates from `agents/*.md`, caching the result. Each file
  * carries `name`/`description`/`tools` frontmatter and a markdown body used as
@@ -123,30 +147,12 @@ let cachedTemplates: Map<string, AgentTemplate> | null = null;
 export function loadAgentTemplates(): Map<string, AgentTemplate> {
   if (cachedTemplates) return cachedTemplates;
 
-  const templates = new Map<string, AgentTemplate>();
   const dir = path.join(import.meta.dirname, "agents");
+  const templates = new Map<string, AgentTemplate>();
 
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    cachedTemplates = templates;
-    return templates;
-  }
-
-  for (const entry of entries) {
-    if (!entry.endsWith(".md")) continue;
-    const { frontmatter, body } = parseFrontmatter(
-      readFileSync(path.join(dir, entry), "utf8"),
-    );
-    const name = frontmatter.name?.trim();
-    if (!name) continue;
-    templates.set(name, {
-      name,
-      description: frontmatter.description?.trim() ?? "",
-      tools: parseToolList(frontmatter.tools),
-      systemPrompt: body,
-    });
+  for (const entry of readTemplateDir(dir)) {
+    const template = parseTemplateFile(dir, entry);
+    if (template) templates.set(template.name, template);
   }
 
   cachedTemplates = templates;
@@ -179,6 +185,30 @@ export function getPrimeAgentConfig(): AgentConfig {
 }
 
 /**
+ * Resolves the tool allowlist: inline request wins, then the template's, then
+ * the default set. `read_room` is always granted (deduped) so sub-agents can
+ * read the shared room, since the allowlist would otherwise strip the
+ * extension's `read_room` tool.
+ */
+function pickTools(
+  request: SubagentSpawnRequest,
+  template: AgentTemplate | undefined,
+): string[] {
+  const requested = request.tools ?? template?.tools ?? DEFAULT_TOOLS;
+  return [...new Set([...requested, ...SHARED_AGENT_TOOLS])];
+}
+
+/** Resolves the system prompt: inline request, then template, then default. */
+function pickPrompt(
+  request: SubagentSpawnRequest,
+  template: AgentTemplate | undefined,
+): string {
+  return (
+    request.systemPrompt ?? template?.systemPrompt ?? loadDefaultSystemPrompt()
+  );
+}
+
+/**
  * Resolves a sub-agent's effective config from a spawn request: a template
  * supplies defaults for tools and system prompt, and inline fields override
  * them. Falls back to the default tools and base session prompt.
@@ -190,12 +220,8 @@ export function resolveSubagentConfig(
     ? loadAgentTemplates().get(request.template)
     : undefined;
 
-  const requested = request.tools ?? template?.tools ?? DEFAULT_TOOLS;
-  // Always grant read_room (deduped) so sub-agents can read the shared room,
-  // since the allowlist would otherwise strip the extension's read_room tool.
-  const tools = [...new Set([...requested, ...SHARED_AGENT_TOOLS])];
-  const appendSystemPrompt =
-    request.systemPrompt ?? template?.systemPrompt ?? loadDefaultSystemPrompt();
-
-  return { tools, appendSystemPrompt };
+  return {
+    tools: pickTools(request, template),
+    appendSystemPrompt: pickPrompt(request, template),
+  };
 }

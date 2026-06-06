@@ -35,8 +35,6 @@ Perform a holistic code review of recent changes against project standards. **Al
 
 New components and files **must** be created behind React Compiler.
 
-- Check `react-compiler.config.js` — verify the new file or its parent directory is listed in `REACT_COMPILER_ENABLED_DIRS`.
-- If not listed, flag it and suggest adding the appropriate entry.
 - When React Compiler covers a file, unnecessary `useCallback` / `useMemo` should be removed (the compiler handles memoization).
 - Verify no compiler-violating patterns: mutating during render, reading refs during render, conditional hooks.
 
