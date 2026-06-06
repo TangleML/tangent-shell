@@ -11,17 +11,19 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message, isOwn }: ChatMessageProps) {
   const isAgent = message.author.kind === "agent";
+  const isSubagent = message.author.agentRole === "subagent";
   const variant: MessageBubbleVariant = isOwn
     ? "own"
     : isAgent
       ? "agent"
       : "human";
+  const roleLabel = isSubagent ? " (sub-agent)" : isAgent ? " (agent)" : "";
 
   return (
     <MessageBubble variant={variant}>
       <span className="text-xs font-medium text-muted-foreground">
         {message.author.name}
-        {isAgent ? " (agent)" : ""}
+        {roleLabel}
       </span>
       {isAgent ? (
         <div className="flex flex-col gap-1 text-sm break-words min-w-0 overflow-x-auto">

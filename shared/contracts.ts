@@ -24,24 +24,58 @@ export interface Session {
   updatedAt: string;
 }
 
+/**
+ * Distinguishes the session's orchestrating Prime agent from the sub-agents it
+ * spawns. Only present on agent authors. Drives client rendering (e.g. sub-agent
+ * replies never carry a thinking process).
+ */
+export type AgentRole = "prime" | "subagent";
+
 /** Author of a chat message. Chats assume multiple humans and agents. */
 export interface ChatAuthor {
   id: string;
   kind: "human" | "agent";
   name: string;
+  /** Only set when `kind` is `"agent"`. */
+  agentRole?: AgentRole;
 }
 
-/** The Pi coding agent's identity, shared across every session's replies. */
+/**
+ * The session's Prime coding agent. It is the only agent a human talks to and
+ * the only one allowed to direct sub-agents. Shared across every session.
+ */
 export const PI_AGENT: ChatAuthor = {
-  id: "pi",
+  id: "prime",
   kind: "agent",
-  name: "Pi",
+  name: "Prime",
+  agentRole: "prime",
 };
+
+/** Lifecycle status of a sub-agent, surfaced in the session's agent roster. */
+export type SubagentStatus = "active" | "completed" | "killed" | "error";
+
+/** A sub-agent in a session's roster, as tracked for the UI sidebar. */
+export interface SubagentInfo {
+  /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
+  id: string;
+  name: string;
+  status: SubagentStatus;
+  /** Template the sub-agent was spawned from, if any. */
+  template?: string;
+  /** ISO-8601 timestamp. */
+  createdAt: string;
+}
 
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
   sessionId: string;
+  /**
+   * The agent process this message belongs to: `"prime"` for the shared
+   * human/Prime thread, or a sub-agent's id for that sub-agent's thread. Drives
+   * which transcript the client buckets the message into.
+   */
+  conversationId: string;
   author: ChatAuthor;
   content: string;
   /**
@@ -113,6 +147,18 @@ export interface AgentErrorPayload {
   message: string;
 }
 
+/** Full sub-agent roster for a session, emitted on join and on reset. */
+export interface SubagentRosterPayload {
+  sessionId: string;
+  subagents: SubagentInfo[];
+}
+
+/** A single sub-agent's spawn or status change. Upserted by `id` on the client. */
+export interface SubagentUpdatePayload {
+  sessionId: string;
+  subagent: SubagentInfo;
+}
+
 /** Socket.IO event names shared by client and server. */
 export const SocketEvents = {
   ChatJoin: "chat:join",
@@ -124,6 +170,8 @@ export const SocketEvents = {
   AgentThinking: "agent:thinking",
   AgentEnd: "agent:end",
   AgentError: "agent:error",
+  SubagentRoster: "subagent:roster",
+  SubagentUpdate: "subagent:update",
 } as const;
 
 export type SocketEvent = (typeof SocketEvents)[keyof typeof SocketEvents];

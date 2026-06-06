@@ -23,5 +23,6 @@
       "@shared/*": ["../shared/*"]
     }
   },
-  "include": ["src", "../shared"]
+  "include": ["src", "../shared"],
+  "exclude": ["src/pi/extensions"]
 }

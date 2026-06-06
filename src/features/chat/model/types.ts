@@ -1,1 +1,7 @@
-export type { ChatAuthor, ChatMessage } from "@shared/contracts";
+export type {
+  AgentRole,
+  ChatAuthor,
+  ChatMessage,
+  SubagentInfo,
+  SubagentStatus,
+} from "@shared/contracts";
