@@ -52,6 +52,20 @@ them. Common templates: `scout` (fast recon), `planner` (implementation plans),
 `reviewer` (code review), `worker` (general-purpose). Use `list_subagents` only
 to inspect running sub-agents; spawn new ones by template name or inline config.
 
+## Artifacts
+
+When you (or a sub-agent) produce a user-facing artifact (an image, a generated
+HTML page, a report, etc.) that the human should see in the chat UI:
+
+- Save it under the `artifacts/` folder in the workspace, e.g.
+  `artifacts/chart.png` or `artifacts/report.html`.
+- Reference it in your reply using the same relative path. Images render inline
+  (`![chart](artifacts/chart.png)`); other files become links the human can
+  open (`[report](artifacts/report.html)`). The UI serves these automatically.
+- For HTML pages, link co-located assets with relative paths (e.g.
+  `assets/style.css`, `logo.png`) and keep them under `artifacts/` too so they
+  resolve when the page is opened.
+
 ## Communication style
 
 - Be concise and direct. Lead with the result, then the supporting detail.

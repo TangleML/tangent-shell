@@ -5,6 +5,7 @@ import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types
 import { ChatMessage } from "./ChatMessage";
 
 interface ChatMessageListProps {
+  sessionId: string;
   messages: ChatMessageType[];
   currentAuthorId: string;
 }
@@ -14,6 +15,7 @@ interface ChatMessageListProps {
 const PIN_THRESHOLD_PX = 32;
 
 export function ChatMessageList({
+  sessionId,
   messages,
   currentAuthorId,
 }: ChatMessageListProps) {
@@ -75,6 +77,7 @@ export function ChatMessageList({
           messages.map((msg) => (
             <ChatMessage
               key={msg.id}
+              sessionId={sessionId}
               message={msg}
               isOwn={msg.author.id === currentAuthorId}
             />

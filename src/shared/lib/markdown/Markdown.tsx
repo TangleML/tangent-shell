@@ -6,15 +6,60 @@ import { cn } from "@/shared/lib/utils";
 type MarkdownProps = {
   children: string;
   className?: string;
+  /**
+   * Base URL (e.g. `/api/sessions/<id>/files`) used to resolve relative
+   * artifact references in agent output. Relative `img`/`a` URLs are rewritten
+   * to point at this session's file API; absolute and non-http schemes are
+   * left untouched.
+   */
+  artifactBaseUrl?: string;
 };
 
-const components: Components = {
-  a: ({ node: _node, ...props }) => (
-    <a {...props} target="_blank" rel="noreferrer" className="underline text-primary" />
-  ),
-};
+/** True for URLs we must not rewrite (absolute, anchor, or non-file schemes). */
+function isAbsoluteUrl(url: string): boolean {
+  return (
+    /^[a-z][a-z0-9+.-]*:/i.test(url) || // http:, https:, data:, mailto:, ...
+    url.startsWith("/") ||
+    url.startsWith("#")
+  );
+}
 
-export function Markdown({ children, className }: MarkdownProps) {
+/** Resolves a relative artifact reference against the session's file base. */
+function resolveUrl(url: string | undefined, base: string): string | undefined {
+  if (!url || isAbsoluteUrl(url)) return url;
+  const cleaned = url.replace(/^\.\//, "");
+  return `${base}/${cleaned}`;
+}
+
+function buildComponents(artifactBaseUrl?: string): Components {
+  return {
+    a: ({ href, title, children }) => (
+      <a
+        href={artifactBaseUrl ? resolveUrl(href, artifactBaseUrl) : href}
+        title={title}
+        target="_blank"
+        rel="noreferrer"
+        className="underline text-primary"
+      >
+        {children}
+      </a>
+    ),
+    img: ({ src, alt, title }) => (
+      <img
+        src={
+          artifactBaseUrl && typeof src === "string"
+            ? resolveUrl(src, artifactBaseUrl)
+            : src
+        }
+        alt={alt}
+        title={title}
+        className="max-w-full rounded border"
+      />
+    ),
+  };
+}
+
+export function Markdown({ children, className, artifactBaseUrl }: MarkdownProps) {
   return (
     <div
       className={cn(
@@ -22,7 +67,10 @@ export function Markdown({ children, className }: MarkdownProps) {
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={buildComponents(artifactBaseUrl)}
+      >
         {children}
       </ReactMarkdown>
     </div>

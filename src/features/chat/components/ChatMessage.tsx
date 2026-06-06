@@ -5,11 +5,12 @@ import { AgentThinking } from "./AgentThinking";
 import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
 
 interface ChatMessageProps {
+  sessionId: string;
   message: ChatMessageType;
   isOwn: boolean;
 }
 
-export function ChatMessage({ message, isOwn }: ChatMessageProps) {
+export function ChatMessage({ sessionId, message, isOwn }: ChatMessageProps) {
   const isAgent = message.author.kind === "agent";
   const isSubagent = message.author.agentRole === "subagent";
   const variant: MessageBubbleVariant = isOwn
@@ -33,7 +34,9 @@ export function ChatMessage({ message, isOwn }: ChatMessageProps) {
               done={message.content.length > 0}
             />
           ) : null}
-          <Markdown>{message.content}</Markdown>
+          <Markdown artifactBaseUrl={`/api/sessions/${sessionId}/files`}>
+            {message.content}
+          </Markdown>
         </div>
       ) : (
         <p className="text-sm break-words whitespace-pre-wrap">

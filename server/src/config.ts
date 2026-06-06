@@ -13,6 +13,14 @@ export const SESSIONS_ROOT =
   process.env.SESSIONS_ROOT ?? path.resolve(process.cwd(), ".sessions");
 
 /**
+ * Name of the per-session subdirectory whose contents are served over HTTP as
+ * artifacts (images, generated HTML pages, reports). Agents write user-facing
+ * outputs here and reference them by this relative path; the file API only
+ * exposes paths inside this folder.
+ */
+export const ARTIFACTS_DIRNAME = "artifacts";
+
+/**
  * Executable used to spawn the Pi coding agent. Overridable so the binary can
  * be pinned in environments where `pi` is not on PATH.
  */

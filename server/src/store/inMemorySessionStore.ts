@@ -9,7 +9,7 @@ import type {
   UpdateSessionRequest,
 } from "@shared/contracts.ts";
 
-import { SESSIONS_ROOT } from "../config.ts";
+import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
 import type { SessionStore } from "./sessionStore.ts";
 
 export class InMemorySessionStore implements SessionStore {
@@ -31,8 +31,11 @@ export class InMemorySessionStore implements SessionStore {
     const now = new Date().toISOString();
     const rootPath = path.join(SESSIONS_ROOT, id);
 
-    // Each session is connected to a freshly created scoped "root" folder.
+    // Each session is connected to a freshly created scoped "root" folder,
+    // with an `artifacts/` subfolder agents write user-facing outputs into and
+    // the file API serves over HTTP.
     await mkdir(rootPath, { recursive: true });
+    await mkdir(path.join(rootPath, ARTIFACTS_DIRNAME), { recursive: true });
 
     const session: Session = {
       id,
