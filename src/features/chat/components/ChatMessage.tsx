@@ -1,5 +1,7 @@
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
+import { BlockStack } from "@/shared/ui/layout";
+import { Paragraph, Text } from "@/shared/ui/typography";
 
 import { AgentThinking } from "./AgentThinking";
 import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
@@ -22,12 +24,12 @@ export function ChatMessage({ sessionId, message, isOwn }: ChatMessageProps) {
 
   return (
     <MessageBubble variant={variant}>
-      <span className="text-xs font-medium text-muted-foreground">
+      <Text size="xs" weight="medium" tone="subdued">
         {message.author.name}
         {roleLabel}
-      </span>
+      </Text>
       {isAgent ? (
-        <div className="flex flex-col gap-1 text-sm break-words min-w-0 overflow-x-auto">
+        <BlockStack gap="1">
           {message.thinking ? (
             <AgentThinking
               thinking={message.thinking}
@@ -37,11 +39,11 @@ export function ChatMessage({ sessionId, message, isOwn }: ChatMessageProps) {
           <Markdown artifactBaseUrl={`/api/sessions/${sessionId}/files`}>
             {message.content}
           </Markdown>
-        </div>
+        </BlockStack>
       ) : (
-        <p className="text-sm break-words whitespace-pre-wrap">
+        <Paragraph size="sm" wrap="pre-wrap">
           {message.content}
-        </p>
+        </Paragraph>
       )}
     </MessageBubble>
   );

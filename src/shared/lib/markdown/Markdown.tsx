@@ -1,3 +1,6 @@
+// local primitive — renders agent markdown output, styling the raw markdown
+// HTML elements (h1/ul/a/img/...). These are not Tangle UI primitives, so the
+// scoped classNames here are an allowed escape hatch.
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 

@@ -1,21 +1,23 @@
 import type { FallbackProps } from "react-error-boundary";
 
+import { ErrorMessage } from "@/routes/components/ErrorMessage";
 import { Button } from "@/shared/ui/button";
+import { CenteredScreen } from "@/shared/ui/patterns/centered-screen";
+import { Heading } from "@/shared/ui/typography";
 
 export function RootErrorFallback({
   error,
   resetErrorBoundary,
 }: FallbackProps) {
   return (
-    <div
-      role="alert"
-      className="flex min-h-svh flex-col items-center justify-center gap-4 p-6"
-    >
-      <h1 className="text-xl font-semibold">Something went wrong</h1>
-      <pre className="max-w-lg overflow-auto rounded-md bg-muted p-4 text-sm text-muted-foreground">
+    <CenteredScreen gap="4" role="alert">
+      <Heading level={1} size="xl" weight="semibold">
+        Something went wrong
+      </Heading>
+      <ErrorMessage>
         {error instanceof Error ? error.message : String(error)}
-      </pre>
+      </ErrorMessage>
       <Button onClick={resetErrorBoundary}>Try again</Button>
-    </div>
+    </CenteredScreen>
   );
 }

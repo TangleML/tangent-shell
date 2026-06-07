@@ -1,7 +1,8 @@
-import { Send } from "lucide-react";
 import { type KeyboardEvent, useState } from "react";
 
-import { Button } from "@/shared/ui/button";
+import { Box } from "@/shared/ui/box";
+import { InlineStack } from "@/shared/ui/layout";
+import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { Textarea } from "@/shared/ui/textarea";
 
 interface ChatInputProps {
@@ -27,25 +28,26 @@ export function ChatInput({ disabled, onSubmit }: ChatInputProps) {
   }
 
   return (
-    <div className="flex w-full items-start gap-2 border-t p-2">
-      <Textarea
-        className="max-h-32 flex-1 resize-none overflow-y-auto"
-        rows={2}
-        placeholder="Message the session..."
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        disabled={disabled}
-      />
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleSubmit}
-        disabled={disabled || !value.trim()}
-        aria-label="Send message"
-      >
-        <Send />
-      </Button>
-    </div>
+    <Box borderBlockStart="sm" padding="sm" inlineSize="full">
+      <InlineStack gap="2" blockAlign="start" wrap="nowrap" fill>
+        <Textarea
+          autoGrow
+          rows={2}
+          placeholder="Message the session..."
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+        />
+        <IconButton
+          icon="Send"
+          variant="outline"
+          size="lg"
+          onClick={handleSubmit}
+          disabled={disabled || !value.trim()}
+          aria-label="Send message"
+        />
+      </InlineStack>
+    </Box>
   );
 }

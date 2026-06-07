@@ -2,37 +2,45 @@ import { Link, useParams } from "@tanstack/react-router";
 
 import { SessionChat } from "@/features/chat/components/SessionChat";
 import { useSession } from "@/features/sessions/hooks/useSession";
+import { Page } from "@/shared/ui/patterns/page";
+import { Section } from "@/shared/ui/patterns/section";
+import { Toolbar } from "@/shared/ui/patterns/toolbar";
+import { Truncating } from "@/shared/ui/patterns/truncating";
+import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 export function SessionChatPage() {
   const { sessionId } = useParams({ from: "/sessions/$sessionId" });
   const { data: session, error } = useSession(sessionId);
 
   return (
-    <main className="mx-auto flex h-svh w-full max-w-2xl flex-col">
-      <header className="flex items-center gap-3 border-b p-3">
-        <Link
-          to="/sessions"
-          className="text-sm text-muted-foreground hover:underline"
-        >
-          &larr; Sessions
+    <Page height="screen" padded={false}>
+      <Toolbar as="header" chrome="light" density="comfortable" gap="3">
+        <Link to="/sessions">
+          <Text size="sm" tone="subdued">
+            &larr; Sessions
+          </Text>
         </Link>
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold">
+        <Truncating>
+          <Heading level={1} truncate>
             {session?.name ?? "Session"}
-          </h1>
+          </Heading>
           {session ? (
-            <p className="truncate font-mono text-xs text-muted-foreground">
+            <Paragraph font="mono" size="xs" tone="subdued" truncate>
               {session.rootPath}
-            </p>
+            </Paragraph>
           ) : null}
-        </div>
-      </header>
+        </Truncating>
+      </Toolbar>
 
       {error ? (
-        <p className="p-3 text-sm text-destructive">{error.message}</p>
+        <Section tone="critical">
+          <Paragraph size="sm" tone="critical">
+            {error.message}
+          </Paragraph>
+        </Section>
       ) : (
         <SessionChat sessionId={sessionId} />
       )}
-    </main>
+    </Page>
   );
 }

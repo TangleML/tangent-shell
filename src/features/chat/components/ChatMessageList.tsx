@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
+import { Box } from "@/shared/ui/box";
+import { BlockStack } from "@/shared/ui/layout";
+import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
+import { Paragraph } from "@/shared/ui/typography";
 
 import { ChatMessage } from "./ChatMessage";
 
@@ -65,26 +69,28 @@ export function ChatMessageList({
   // on mount and the setup effect above can attach its observers; otherwise the
   // ResizeObserver would never wire up and streaming growth wouldn't autoscroll.
   return (
-    <div ref={containerRef} className="flex flex-1 flex-col overflow-y-auto p-3">
-      <div ref={contentRef} className="flex flex-1 flex-col gap-2">
-        {messages.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm text-muted-foreground">
-              No messages yet. Say hello to start the session.
-            </p>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <ChatMessage
-              key={msg.id}
-              sessionId={sessionId}
-              message={msg}
-              isOwn={msg.author.id === currentAuthorId}
-            />
-          ))
-        )}
-        <div ref={bottomRef} />
-      </div>
-    </div>
+    <BlockStack grow fill>
+      <ScrollRegion ref={containerRef} axis="y">
+        <Box padding="base">
+          <BlockStack ref={contentRef} gap="2">
+            {messages.length === 0 ? (
+              <Paragraph size="sm" tone="subdued">
+                No messages yet. Say hello to start the session.
+              </Paragraph>
+            ) : (
+              messages.map((msg) => (
+                <ChatMessage
+                  key={msg.id}
+                  sessionId={sessionId}
+                  message={msg}
+                  isOwn={msg.author.id === currentAuthorId}
+                />
+              ))
+            )}
+            <div ref={bottomRef} />
+          </BlockStack>
+        </Box>
+      </ScrollRegion>
+    </BlockStack>
   );
 }

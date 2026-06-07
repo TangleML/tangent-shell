@@ -2,9 +2,15 @@ import { PI_AGENT } from "@shared/contracts";
 import { useMemo, useState } from "react";
 
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
+import { Box } from "@/shared/ui/box";
+import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { Divider } from "@/shared/ui/patterns/divider";
+import { Toolbar } from "@/shared/ui/patterns/toolbar";
+import { Text } from "@/shared/ui/typography";
 
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
+import { StatusDot } from "./StatusDot";
 import { SubagentList } from "./SubagentList";
 
 interface SessionChatProps {
@@ -37,8 +43,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const effectiveConversationId = isOrphaned ? PI_AGENT.id : conversationId;
 
   const visibleMessages = useMemo(
-    () =>
-      messages.filter((m) => m.conversationId === effectiveConversationId),
+    () => messages.filter((m) => m.conversationId === effectiveConversationId),
     [messages, effectiveConversationId],
   );
 
@@ -47,50 +52,52 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const threadBusy = isConversationBusy(effectiveConversationId);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <span
-          className={
-            connected
-              ? "size-2 rounded-full bg-green-500"
-              : "size-2 rounded-full bg-muted-foreground"
-          }
-          aria-hidden
-        />
-        <span className="text-xs text-muted-foreground">
-          {connected ? "Connected" : "Connecting..."}
-        </span>
-        <span className="ml-2 text-xs font-medium">{threadName}</span>
+    <BlockStack grow>
+      <Toolbar chrome="light" gap="2" align="space-between">
+        <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+          <StatusDot connected={connected} />
+          <Text size="xs" tone="subdued">
+            {connected ? "Connected" : "Connecting..."}
+          </Text>
+          <Text size="xs" weight="medium">
+            {threadName}
+          </Text>
+        </InlineStack>
         {threadBusy ? (
-          <span className="ml-auto text-xs text-muted-foreground">
+          <Text size="xs" tone="subdued">
             {threadName} is responding...
-          </span>
+          </Text>
         ) : null}
-      </div>
+      </Toolbar>
       {/* Roster sidebar sits left of the message column; both share the row. */}
-      <div className="flex min-h-0 flex-1">
+      <InlineStack fill wrap="nowrap" blockAlign="stretch">
         <SubagentList
           subagents={subagents}
           selectedId={isOrphaned ? null : selectedAgentId}
           onSelect={setSelectedAgentId}
           isConversationBusy={isConversationBusy}
         />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <BlockStack grow fill>
           <ChatMessageList
             sessionId={sessionId}
             messages={visibleMessages}
             currentAuthorId={currentAuthorId}
           />
           {isSubagentView ? (
-            <div className="border-t px-3 py-2 text-xs text-muted-foreground">
-              Viewing {threadName}'s thread (read-only). Humans message Prime;
-              Prime directs sub-agents.
-            </div>
+            <>
+              <Divider orientation="horizontal" />
+              <Box paddingInline="base" paddingBlock="sm">
+                <Text size="xs" tone="subdued">
+                  Viewing {threadName}'s thread (read-only). Humans message
+                  Prime; Prime directs sub-agents.
+                </Text>
+              </Box>
+            </>
           ) : (
             <ChatInput disabled={!connected || agentBusy} onSubmit={send} />
           )}
-        </div>
-      </div>
-    </div>
+        </BlockStack>
+      </InlineStack>
+    </BlockStack>
   );
 }

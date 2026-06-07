@@ -1,10 +1,13 @@
+// local primitive — chat message bubble (alignment + tonal background per
+// author). Styles a raw <div>, so it is exempt from
+// tangle-ui/no-classname-on-primitives.
 import { cva, type VariantProps } from "class-variance-authority";
 import type { PropsWithChildren } from "react";
 
 import { cn } from "@/shared/lib/utils";
 
 const messageBubbleVariants = cva(
-  "flex w-fit flex-col gap-1 rounded-lg px-3 py-2 max-w-[85%] min-w-0",
+  "flex w-full flex-col gap-1 rounded-lg px-3 py-2 max-w-[85%] min-w-0",
   {
     variants: {
       variant: {
@@ -24,8 +27,7 @@ export type MessageBubbleVariant = NonNullable<
 >;
 
 interface MessageBubbleProps
-  extends PropsWithChildren,
-    VariantProps<typeof messageBubbleVariants> {
+  extends PropsWithChildren, VariantProps<typeof messageBubbleVariants> {
   className?: string;
 }
 

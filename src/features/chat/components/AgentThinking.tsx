@@ -1,7 +1,14 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Markdown } from "@/shared/lib/markdown/Markdown";
+import { Button } from "@/shared/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/shared/ui/collapsible";
+import { Icon } from "@/shared/ui/icon";
+import { BlockStack } from "@/shared/ui/layout";
 
 interface AgentThinkingProps {
   thinking: string;
@@ -14,33 +21,32 @@ interface AgentThinkingProps {
 }
 
 export function AgentThinking({ thinking, done }: AgentThinkingProps) {
-  const [open, setOpen] = useState(!done);
-
-  // Sync open state to `done` transitions: expand while thinking, collapse once
-  // the answer begins. Manual toggles in between are preserved until `done`
-  // flips again.
-  useEffect(() => {
-    setOpen(!done);
-  }, [done]);
+  // Auto-open while reasoning, auto-collapse once done — but preserve a manual
+  // toggle until `done` flips again. The override remembers which `done` value
+  // it applies to, so a change in `done` transparently falls back to the auto
+  // behavior without needing a state-syncing effect.
+  const [override, setOverride] = useState<{
+    open: boolean;
+    done: boolean;
+  } | null>(null);
+  const open = override && override.done === done ? override.open : !done;
 
   return (
-    <div className="flex flex-col gap-1 text-muted-foreground">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        className="flex w-fit items-center gap-1 text-xs font-medium hover:text-foreground"
-      >
-        {open ? (
-          <ChevronDown className="size-3" />
-        ) : (
-          <ChevronRight className="size-3" />
-        )}
-        Thinking
-      </button>
-      {open ? (
-        <Markdown className="text-xs italic">{thinking}</Markdown>
-      ) : null}
-    </div>
+    <Collapsible
+      open={open}
+      onOpenChange={(value) => setOverride({ open: value, done })}
+    >
+      <BlockStack gap="1">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="xs">
+            <Icon name={open ? "ChevronDown" : "ChevronRight"} size="xs" />
+            Thinking
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Markdown>{thinking}</Markdown>
+        </CollapsibleContent>
+      </BlockStack>
+    </Collapsible>
   );
 }
