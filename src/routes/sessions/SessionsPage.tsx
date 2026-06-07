@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useRef } from "react";
 
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
@@ -11,6 +12,14 @@ import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 export function SessionsPage() {
   const { data: sessions, isLoading, error } = useSessions();
   const createSession = useCreateSession();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onPickBundle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Reset so re-picking the same file still fires `change`.
+    event.target.value = "";
+    if (file) createSession.mutate({ config: file });
+  };
 
   return (
     <Page>
@@ -24,17 +33,39 @@ export function SessionsPage() {
               Each session runs a Pi coding agent in its own scoped folder.
             </Paragraph>
           </BlockStack>
-          <Button
-            onClick={() => createSession.mutate({})}
-            disabled={createSession.isPending}
-          >
-            {createSession.isPending ? "Creating..." : "New session"}
-          </Button>
+          <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip"
+              hidden
+              onChange={onPickBundle}
+            />
+            <Button
+              variant="secondary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={createSession.isPending}
+            >
+              New from config
+            </Button>
+            <Button
+              onClick={() => createSession.mutate({})}
+              disabled={createSession.isPending}
+            >
+              {createSession.isPending ? "Creating..." : "New session"}
+            </Button>
+          </InlineStack>
         </InlineStack>
 
         {error ? (
           <Paragraph size="sm" tone="critical">
             Failed to load sessions: {error.message}
+          </Paragraph>
+        ) : null}
+
+        {createSession.isError ? (
+          <Paragraph size="sm" tone="critical">
+            Failed to create session: {createSession.error.message}
           </Paragraph>
         ) : null}
 
@@ -59,7 +90,14 @@ export function SessionsPage() {
               >
                 <Surface hoverable>
                   <BlockStack gap="0.5">
-                    <Text weight="medium">{session.name}</Text>
+                    <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+                      <Text weight="medium">{session.name}</Text>
+                      {session.config ? (
+                        <Text size="xs" tone="subdued">
+                          {session.config.name} v{session.config.version}
+                        </Text>
+                      ) : null}
+                    </InlineStack>
                     <Text font="mono" size="xs" tone="subdued">
                       {session.rootPath}
                     </Text>

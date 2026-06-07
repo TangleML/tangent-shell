@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   CreateSessionRequest,
   Session,
+  SessionConfigMeta,
   UpdateSessionRequest,
 } from "@shared/contracts.ts";
 
@@ -19,6 +20,11 @@ export interface SessionStore {
   updateSession(
     id: string,
     input: UpdateSessionRequest,
+  ): Promise<Session | undefined>;
+  /** Records the Configuration Bundle a session was created from. */
+  attachConfig(
+    id: string,
+    config: SessionConfigMeta,
   ): Promise<Session | undefined>;
   deleteSession(id: string): Promise<boolean>;
 

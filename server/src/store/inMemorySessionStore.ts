@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   CreateSessionRequest,
   Session,
+  SessionConfigMeta,
   UpdateSessionRequest,
 } from "@shared/contracts.ts";
 
@@ -61,6 +62,22 @@ export class InMemorySessionStore implements SessionStore {
     const updated: Session = {
       ...existing,
       name: input.name?.trim() || existing.name,
+      updatedAt: new Date().toISOString(),
+    };
+    this.sessions.set(id, updated);
+    return updated;
+  }
+
+  async attachConfig(
+    id: string,
+    config: SessionConfigMeta,
+  ): Promise<Session | undefined> {
+    const existing = this.sessions.get(id);
+    if (!existing) return undefined;
+
+    const updated: Session = {
+      ...existing,
+      config,
       updatedAt: new Date().toISOString(),
     };
     this.sessions.set(id, updated);

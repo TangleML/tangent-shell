@@ -8,6 +8,8 @@ import type {
   SubagentStatus,
 } from "@shared/contracts.ts";
 
+import type { ResolvedSessionConfig } from "./agentConfig.ts";
+
 /** Fixed id of the session's Prime agent (one per session). */
 export const PRIME_AGENT_ID = "prime";
 
@@ -95,6 +97,12 @@ export interface AgentProcess {
 export interface SessionAgents {
   rootPath: string;
   agents: Map<string, AgentProcess>;
+  /**
+   * Per-session config resolved from a Configuration Bundle, captured when the
+   * session's Prime is first spawned. Absent for sessions created without a
+   * bundle, which fall back to the server's global config.
+   */
+  config?: ResolvedSessionConfig;
 }
 
 /** A single delta payload nested inside a `message_update` event. */

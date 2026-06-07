@@ -21,6 +21,7 @@ import {
 import {
   type AgentConfig,
   getPrimeAgentConfig,
+  type ResolvedSessionConfig,
   resolveSubagentConfig,
   type SubagentSpawnRequest,
 } from "./agentConfig.ts";
@@ -66,9 +67,19 @@ interface EventContext {
   event: PiStdoutEvent;
 }
 
+/**
+ * Bundle-supplied capabilities applied to every agent in a session via repeated
+ * Pi flags: `--skill`, `--prompt-template`, and extra `--extension`.
+ */
+interface SpawnExtras {
+  skillPaths: string[];
+  workflowPaths: string[];
+  extensionPaths: string[];
+}
+
 /** Builds the `pi --mode rpc` CLI args for an agent process. */
-function buildPiArgs(config: AgentConfig): string[] {
-  return [
+function buildPiArgs(config: AgentConfig, extras: SpawnExtras): string[] {
+  const args = [
     "--mode",
     "rpc",
     "--no-session",
@@ -88,6 +99,47 @@ function buildPiArgs(config: AgentConfig): string[] {
     "--extension",
     PROXY_PROVIDER_EXTENSION,
   ];
+
+  // Bundle-provided skills, workflows, and custom tool extensions, applied to
+  // every agent in the session so they share the bundle's capabilities.
+  const flagged: Array<[string, string[]]> = [
+    ["--skill", extras.skillPaths],
+    ["--prompt-template", extras.workflowPaths],
+    ["--extension", extras.extensionPaths],
+  ];
+  for (const [flag, paths] of flagged) {
+    for (const value of paths) args.push(flag, value);
+  }
+
+  return args;
+}
+
+/** Warns once-per-spawn when the LLM proxy env vars are unset. */
+function warnMissingProxyEnv(): void {
+  if (!process.env.PI_PROXY_API_KEY) {
+    console.warn(
+      "[pi] PI_PROXY_API_KEY is not set; Pi will fail to reach the LLM gateway. " +
+        "Run `export PI_PROXY_API_KEY=$(devx llm-gateway print-token --key)` before starting the server.",
+    );
+  }
+  if (!process.env.PI_PROXY_URL) {
+    console.warn(
+      `[pi] PI_PROXY_URL is not set; the proxy-provider extension will default to ${PI_PROXY_URL}. ` +
+        "Set PI_PROXY_URL to point Pi at a different LLM proxy.",
+    );
+  }
+}
+
+/** Extracts the per-agent {@link SpawnExtras} from a session's bundle config. */
+function spawnExtras(config: ResolvedSessionConfig | undefined): SpawnExtras {
+  if (!config) {
+    return { skillPaths: [], workflowPaths: [], extensionPaths: [] };
+  }
+  return {
+    skillPaths: config.skillPaths,
+    workflowPaths: config.workflowPaths,
+    extensionPaths: config.extensionPaths,
+  };
 }
 
 /** Logs the resolved spawn configuration (with the proxy key masked). */
@@ -96,6 +148,7 @@ function logSpawn(
   descriptor: AgentDescriptor,
   cwd: string,
   config: AgentConfig,
+  extras: SpawnExtras,
 ): void {
   console.log(
     `[pi:${sessionId}:${descriptor.agentId}] spawning`,
@@ -108,6 +161,9 @@ function logSpawn(
       proxyUrl: PI_PROXY_URL,
       hasProxyApiKey: Boolean(process.env.PI_PROXY_API_KEY),
       tools: config.tools.join(","),
+      skills: extras.skillPaths,
+      workflows: extras.workflowPaths,
+      extensions: extras.extensionPaths,
     }),
   );
 }
@@ -154,26 +210,24 @@ export class PiAgentManager {
     this.handlers = handlers;
   }
 
-  /** Spawns the session's Prime process if it isn't already running. */
-  ensure(sessionId: string, rootPath: string): void {
+  /**
+   * Spawns the session's Prime process if it isn't already running. When a
+   * `config` (resolved from a Configuration Bundle) is supplied on first
+   * creation, it is captured on the session and drives every agent's spawn;
+   * later calls without a config keep the captured one.
+   */
+  ensure(
+    sessionId: string,
+    rootPath: string,
+    config?: ResolvedSessionConfig,
+  ): void {
     let session = this.sessions.get(sessionId);
     if (session?.agents.has(PRIME_AGENT_ID)) return;
 
-    if (!process.env.PI_PROXY_API_KEY) {
-      console.warn(
-        "[pi] PI_PROXY_API_KEY is not set; Pi will fail to reach the LLM gateway. " +
-          "Run `export PI_PROXY_API_KEY=$(devx llm-gateway print-token --key)` before starting the server.",
-      );
-    }
-    if (!process.env.PI_PROXY_URL) {
-      console.warn(
-        `[pi] PI_PROXY_URL is not set; the proxy-provider extension will default to ${PI_PROXY_URL}. ` +
-          "Set PI_PROXY_URL to point Pi at a different LLM proxy.",
-      );
-    }
+    warnMissingProxyEnv();
 
     if (!session) {
-      session = { rootPath, agents: new Map() };
+      session = { rootPath, agents: new Map(), config };
       this.sessions.set(sessionId, session);
     }
 
@@ -181,7 +235,7 @@ export class PiAgentManager {
       sessionId,
       session,
       { agentId: PRIME_AGENT_ID, role: "prime", name: "Prime" },
-      getPrimeAgentConfig(),
+      session.config?.prime ?? getPrimeAgentConfig(),
     );
   }
 
@@ -208,7 +262,10 @@ export class PiAgentManager {
     }
 
     const agentId = randomUUID();
-    const config = resolveSubagentConfig(request);
+    const config = resolveSubagentConfig(request, {
+      templates: session.config?.templates,
+      defaults: session.config?.subagentDefaults,
+    });
 
     const agent = this.spawnAgent(
       sessionId,
@@ -330,9 +387,10 @@ export class PiAgentManager {
     descriptor: AgentDescriptor & { template?: string },
     config: AgentConfig,
   ): AgentProcess {
-    logSpawn(sessionId, descriptor, session.rootPath, config);
+    const extras = spawnExtras(session.config);
+    logSpawn(sessionId, descriptor, session.rootPath, config, extras);
 
-    const child = spawn(PI_BIN, buildPiArgs(config), {
+    const child = spawn(PI_BIN, buildPiArgs(config, extras), {
       cwd: session.rootPath,
       env: {
         ...process.env,

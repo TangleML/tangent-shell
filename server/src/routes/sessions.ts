@@ -2,13 +2,26 @@ import path from "node:path";
 
 import type {
   CreateSessionRequest,
+  SessionConfigMeta,
   UpdateSessionRequest,
 } from "@shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
+import multer from "multer";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
+import { installBundle } from "../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+
+/**
+ * Buffers an uploaded Configuration Bundle ZIP in memory. Bundles are small
+ * (prompts + a few markdown/TS files), so memory storage avoids temp-file
+ * cleanup; the buffer is handed straight to {@link installBundle}.
+ */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 /** Rejects ids that aren't a single, traversal-free path segment. */
 function isUnsafeId(id: string): boolean {
@@ -63,6 +76,65 @@ function createArtifactFileHandler() {
   };
 }
 
+/**
+ * Provisions a new session from an uploaded Configuration Bundle: installs it
+ * into the session root, records its metadata, and spawns Prime with the
+ * resolved per-session config. On an invalid bundle the just-created session is
+ * removed so a failed upload leaves nothing half-provisioned.
+ */
+async function createSessionFromBundle(
+  store: SessionStore,
+  pi: PiAgentManager,
+  sessionId: string,
+  rootPath: string,
+  zipBuffer: Buffer,
+  res: Response,
+): Promise<void> {
+  try {
+    const { manifest, config } = await installBundle(zipBuffer, rootPath);
+    const meta: SessionConfigMeta = {
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      icon: manifest.icon,
+    };
+    const withConfig = await store.attachConfig(sessionId, meta);
+    pi.ensure(sessionId, rootPath, config);
+    res.status(201).json({ session: withConfig });
+  } catch (err) {
+    await store.deleteSession(sessionId);
+    res.status(400).json({ error: (err as Error).message });
+  }
+}
+
+/** Handles `POST /api/sessions` for both plain JSON and bundle uploads. */
+async function handleCreateSession(
+  store: SessionStore,
+  pi: PiAgentManager,
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const body = (req.body ?? {}) as CreateSessionRequest;
+  const session = await store.createSession({ name: body.name });
+
+  if (req.file) {
+    await createSessionFromBundle(
+      store,
+      pi,
+      session.id,
+      session.rootPath,
+      req.file.buffer,
+      res,
+    );
+    return;
+  }
+
+  // No bundle: spawn the session's Pi agent with the global config so it's
+  // ready when the chat opens.
+  pi.ensure(session.id, session.rootPath);
+  res.status(201).json({ session });
+}
+
 export function createSessionsRouter(
   store: SessionStore,
   pi: PiAgentManager,
@@ -74,13 +146,12 @@ export function createSessionsRouter(
     res.json({ sessions });
   });
 
-  router.post("/", async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as CreateSessionRequest;
-    const session = await store.createSession({ name: body.name });
-    // Spawn the session's Pi agent up front so it's ready when the chat opens.
-    pi.ensure(session.id, session.rootPath);
-    res.status(201).json({ session });
-  });
+  // `upload.single` parses a multipart `config` ZIP (form field `name` lands in
+  // `req.body`); plain JSON requests pass through untouched (parsed earlier by
+  // the global `express.json()`), so both content types hit the same handler.
+  router.post("/", upload.single("config"), (req: Request, res: Response) =>
+    handleCreateSession(store, pi, req, res),
+  );
 
   router.get("/:id", async (req: Request<{ id: string }>, res: Response) => {
     const session = await store.getSession(req.params.id);

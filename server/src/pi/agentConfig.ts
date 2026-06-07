@@ -53,6 +53,35 @@ export interface AgentTemplate {
   systemPrompt: string;
 }
 
+/** Sub-agent defaults sourced from a bundle's `subagents` manifest block. */
+export interface SubagentDefaults {
+  /** Default tool allowlist for sub-agents lacking an explicit list. */
+  tools?: readonly string[];
+  /** Default appended system prompt for sub-agents. */
+  appendSystemPrompt?: string;
+}
+
+/**
+ * A session's fully resolved configuration, produced by installing a
+ * Configuration Bundle (see `config/bundleLoader.ts`). Drives the Pi spawn for
+ * every agent in the session: Prime's prompt/tools, sub-agent defaults and
+ * templates, plus the absolute skill/workflow/extension paths passed as flags.
+ */
+export interface ResolvedSessionConfig {
+  /** Prime agent's tools + appended system prompt. */
+  prime: AgentConfig;
+  /** Defaults applied to sub-agents spawned in this session. */
+  subagentDefaults: SubagentDefaults;
+  /** Sub-agent templates loaded from the bundle's `agents/`. */
+  templates: Map<string, AgentTemplate>;
+  /** Absolute paths passed via `--skill` (skill dirs containing SKILL.md). */
+  skillPaths: string[];
+  /** Absolute paths passed via `--prompt-template` (workflow files). */
+  workflowPaths: string[];
+  /** Absolute paths passed via extra `--extension` flags (custom tools). */
+  extensionPaths: string[];
+}
+
 /** Request Prime makes to spawn a sub-agent. Inline fields override templates. */
 export interface SubagentSpawnRequest {
   /** Display name for the sub-agent (its author name in the room). */
@@ -139,24 +168,33 @@ function parseTemplateFile(dir: string, entry: string): AgentTemplate | null {
   };
 }
 
-/**
- * Loads sub-agent templates from `agents/*.md`, caching the result. Each file
- * carries `name`/`description`/`tools` frontmatter and a markdown body used as
- * the system prompt. Editing templates takes effect on the next server start.
- */
-export function loadAgentTemplates(): Map<string, AgentTemplate> {
-  if (cachedTemplates) return cachedTemplates;
-
-  const dir = path.join(import.meta.dirname, "agents");
+/** Parses every `agents/<name>.md` template found in `dir` into a map. */
+export function buildTemplatesFromDir(dir: string): Map<string, AgentTemplate> {
   const templates = new Map<string, AgentTemplate>();
-
   for (const entry of readTemplateDir(dir)) {
     const template = parseTemplateFile(dir, entry);
     if (template) templates.set(template.name, template);
   }
-
-  cachedTemplates = templates;
   return templates;
+}
+
+/**
+ * Loads sub-agent templates from `agents/*.md`. Each file carries
+ * `name`/`description`/`tools` frontmatter and a markdown body used as the
+ * system prompt.
+ *
+ * With no `dir`, loads the server's bundled global templates (cached; editing
+ * them takes effect on the next server start). With a `dir` (e.g. a session's
+ * `.tangent/agents`), loads fresh so per-session bundles aren't cached globally.
+ */
+export function loadAgentTemplates(dir?: string): Map<string, AgentTemplate> {
+  if (dir) return buildTemplatesFromDir(dir);
+
+  if (cachedTemplates) return cachedTemplates;
+  cachedTemplates = buildTemplatesFromDir(
+    path.join(import.meta.dirname, "agents"),
+  );
+  return cachedTemplates;
 }
 
 /** Returns the available sub-agent templates (for Prime's tool description). */
@@ -185,43 +223,67 @@ export function getPrimeAgentConfig(): AgentConfig {
 }
 
 /**
+ * Options that make sub-agent resolution session-aware. When a session was
+ * created from a Configuration Bundle, its templates and sub-agent defaults
+ * override the server's global fallbacks.
+ */
+export interface ResolveSubagentOptions {
+  /** Session's sub-agent templates (from the bundle's `agents/`). */
+  templates?: Map<string, AgentTemplate>;
+  /** Session's sub-agent defaults (from the bundle's `subagents` block). */
+  defaults?: SubagentDefaults;
+}
+
+/**
  * Resolves the tool allowlist: inline request wins, then the template's, then
- * the default set. `read_room` is always granted (deduped) so sub-agents can
- * read the shared room, since the allowlist would otherwise strip the
- * extension's `read_room` tool.
+ * the session/bundle default, then the global default set. `read_room` is
+ * always granted (deduped) so sub-agents can read the shared room, since the
+ * allowlist would otherwise strip the extension's `read_room` tool.
  */
 function pickTools(
   request: SubagentSpawnRequest,
   template: AgentTemplate | undefined,
+  defaults: SubagentDefaults | undefined,
 ): string[] {
-  const requested = request.tools ?? template?.tools ?? DEFAULT_TOOLS;
+  const requested =
+    request.tools ?? template?.tools ?? defaults?.tools ?? DEFAULT_TOOLS;
   return [...new Set([...requested, ...SHARED_AGENT_TOOLS])];
 }
 
-/** Resolves the system prompt: inline request, then template, then default. */
+/**
+ * Resolves the system prompt: inline request, then template, then the
+ * session/bundle default, then the global base prompt.
+ */
 function pickPrompt(
   request: SubagentSpawnRequest,
   template: AgentTemplate | undefined,
+  defaults: SubagentDefaults | undefined,
 ): string {
   return (
-    request.systemPrompt ?? template?.systemPrompt ?? loadDefaultSystemPrompt()
+    request.systemPrompt ??
+    template?.systemPrompt ??
+    defaults?.appendSystemPrompt ??
+    loadDefaultSystemPrompt()
   );
 }
 
 /**
  * Resolves a sub-agent's effective config from a spawn request: a template
  * supplies defaults for tools and system prompt, and inline fields override
- * them. Falls back to the default tools and base session prompt.
+ * them. When `options` carries a session's bundle templates/defaults those are
+ * used; otherwise it falls back to the global templates and base session prompt.
  */
 export function resolveSubagentConfig(
   request: SubagentSpawnRequest,
+  options: ResolveSubagentOptions = {},
 ): AgentConfig {
+  const templates = options.templates ?? loadAgentTemplates();
   const template = request.template
-    ? loadAgentTemplates().get(request.template)
+    ? templates.get(request.template)
     : undefined;
 
   return {
-    tools: pickTools(request, template),
-    appendSystemPrompt: pickPrompt(request, template),
+    tools: pickTools(request, template, options.defaults),
+    appendSystemPrompt: pickPrompt(request, template, options.defaults),
   };
 }

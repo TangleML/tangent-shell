@@ -9,6 +9,22 @@
 export type SessionStatus = "created";
 
 /**
+ * Metadata about the Configuration Bundle a session was created from, surfaced
+ * so the UI can show which preset a session uses. Derived from the bundle's
+ * `tangent.yaml` at install time.
+ */
+export interface SessionConfigMeta {
+  /** The bundle's stable slug id. */
+  id: string;
+  /** The bundle's human-readable name. */
+  name: string;
+  /** The bundle author's semver for this preset. */
+  version: string;
+  /** Relative icon path within the bundle, if any. */
+  icon?: string;
+}
+
+/**
  * A Pi coding agent session. Each session owns a scoped "root" folder on disk
  * that a Pi worker will eventually run inside (Pi spawn is Phase 2).
  */
@@ -18,6 +34,8 @@ export interface Session {
   /** Absolute path to the session's scoped root folder. */
   rootPath: string;
   status: SessionStatus;
+  /** Configuration Bundle this session was created from, when applicable. */
+  config?: SessionConfigMeta;
   /** ISO-8601 timestamp. */
   createdAt: string;
   /** ISO-8601 timestamp. */
@@ -89,6 +107,8 @@ export interface ChatMessage {
 
 export interface CreateSessionRequest {
   name?: string;
+  /** Marketplace config id to create the session from (Phase 4). */
+  configId?: string;
 }
 
 export interface UpdateSessionRequest {
