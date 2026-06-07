@@ -8,6 +8,7 @@ import {
   type AgentErrorPayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
+  type Attachment,
   type ChatAuthor,
   type ChatJoinPayload,
   type ChatMessage,
@@ -41,6 +42,7 @@ function buildMessage(
   author: ChatAuthor,
   content: string,
   thinking?: string,
+  attachments?: Attachment[],
 ): ChatMessage {
   return {
     id,
@@ -49,8 +51,26 @@ function buildMessage(
     author,
     content,
     ...(thinking ? { thinking } : {}),
+    ...(attachments && attachments.length ? { attachments } : {}),
     createdAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Appends a list of attached files (by their workspace-relative path) to the
+ * human's message before it is handed to the agent, so the agent knows the
+ * files exist and can read them with its own file tools. Returns the content
+ * unchanged when nothing was attached.
+ */
+function promptWithAttachments(
+  content: string,
+  attachments?: Attachment[],
+): string {
+  if (!attachments || attachments.length === 0) return content;
+  const list = attachments.map((a) => `- ${a.path}`).join("\n");
+  const intro =
+    "The user attached the following files (paths are relative to your workspace):";
+  return content ? `${content}\n\n${intro}\n${list}` : `${intro}\n${list}`;
 }
 
 /** Resolves the chat author for an agent: Prime is fixed, sub-agents per id. */
@@ -260,55 +280,13 @@ export function registerChatHandlers(
   pi: PiAgentManager,
 ): void {
   io.on("connection", (socket: Socket) => {
-    socket.on(SocketEvents.ChatJoin, async (payload: ChatJoinPayload) => {
-      const session = await store.getSession(payload?.sessionId);
-      if (!session) {
-        socket.emit("error", { message: "Session not found" });
-        return;
-      }
+    socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
+      handleChatJoin(socket, store, pi, payload),
+    );
 
-      const room = roomFor(session.id);
-      await socket.join(room);
-
-      // Lazily (re)spawn the agent in case the server restarted or the
-      // session was created before the process manager existed.
-      pi.ensure(session.id, session.rootPath);
-
-      const history = await store.getMessages(session.id);
-      socket.emit(SocketEvents.ChatHistory, history);
-
-      const roster: SubagentRosterPayload = {
-        sessionId: session.id,
-        subagents: pi.listSubagents(session.id),
-      };
-      socket.emit(SocketEvents.SubagentRoster, roster);
-    });
-
-    socket.on(SocketEvents.ChatMessage, async (payload: ChatMessagePayload) => {
-      const session = await store.getSession(payload?.sessionId);
-      if (!session) {
-        socket.emit("error", { message: "Session not found" });
-        return;
-      }
-
-      const room = roomFor(session.id);
-
-      // Broadcast the user's own message to the room (including the sender, so
-      // it renders without optimistic updates and other participants see it).
-      const userMessage = buildMessage(
-        randomUUID(),
-        session.id,
-        PRIME_AGENT_ID,
-        payload.author,
-        payload.content,
-      );
-      await store.appendMessage(userMessage);
-      io.to(room).emit(SocketEvents.ChatMessage, userMessage);
-
-      // Relay the message into the session's Pi process. The reply streams
-      // back asynchronously through the agent event handler.
-      pi.prompt(session.id, session.rootPath, payload.content);
-    });
+    socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
+      handleChatMessage(io, socket, store, pi, payload),
+    );
 
     // Terminal streaming channel is reserved for a later phase. Registered
     // here so the protocol is stable; it currently emits nothing.
@@ -316,4 +294,74 @@ export function registerChatHandlers(
       // no-op stub
     });
   });
+}
+
+/** Joins the session room, then replays history and the sub-agent roster. */
+async function handleChatJoin(
+  socket: Socket,
+  store: SessionStore,
+  pi: PiAgentManager,
+  payload: ChatJoinPayload,
+): Promise<void> {
+  const session = await store.getSession(payload?.sessionId);
+  if (!session) {
+    socket.emit("error", { message: "Session not found" });
+    return;
+  }
+
+  const room = roomFor(session.id);
+  await socket.join(room);
+
+  // Lazily (re)spawn the agent in case the server restarted or the session was
+  // created before the process manager existed.
+  pi.ensure(session.id, session.rootPath);
+
+  const history = await store.getMessages(session.id);
+  socket.emit(SocketEvents.ChatHistory, history);
+
+  const roster: SubagentRosterPayload = {
+    sessionId: session.id,
+    subagents: pi.listSubagents(session.id),
+  };
+  socket.emit(SocketEvents.SubagentRoster, roster);
+}
+
+/** Persists + broadcasts a human message and relays it into the Pi process. */
+async function handleChatMessage(
+  io: Server,
+  socket: Socket,
+  store: SessionStore,
+  pi: PiAgentManager,
+  payload: ChatMessagePayload,
+): Promise<void> {
+  const session = await store.getSession(payload?.sessionId);
+  if (!session) {
+    socket.emit("error", { message: "Session not found" });
+    return;
+  }
+
+  const room = roomFor(session.id);
+
+  // Broadcast the user's own message to the room (including the sender, so it
+  // renders without optimistic updates and other participants see it).
+  const userMessage = buildMessage(
+    randomUUID(),
+    session.id,
+    PRIME_AGENT_ID,
+    payload.author,
+    payload.content,
+    undefined,
+    payload.attachments,
+  );
+  await store.appendMessage(userMessage);
+  io.to(room).emit(SocketEvents.ChatMessage, userMessage);
+
+  // Relay the message into the session's Pi process, surfacing any attached
+  // files by their workspace-relative path so the agent knows to read them. The
+  // reply streams back asynchronously through the agent event handler.
+  pi.prompt(
+    session.id,
+    session.rootPath,
+    promptWithAttachments(payload.content, payload.attachments),
+  );
 }

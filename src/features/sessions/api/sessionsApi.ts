@@ -1,7 +1,9 @@
 import type {
+  Attachment,
   CreateSessionRequest,
   Session,
   UpdateSessionRequest,
+  UploadFilesResponse,
 } from "@shared/contracts";
 
 /**
@@ -80,6 +82,27 @@ export async function updateSession(
     }),
   );
   return data.session;
+}
+
+/**
+ * Uploads files into a session's workspace, returning their stored metadata
+ * (workspace-relative paths) so they can ride along on a chat message. Sent as
+ * multipart with one repeated `files` field per file.
+ */
+export async function uploadFiles(
+  sessionId: string,
+  files: File[],
+): Promise<Attachment[]> {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+
+  const data = await parseJson<UploadFilesResponse>(
+    await fetch(`/api/sessions/${sessionId}/files`, {
+      method: "POST",
+      body: form,
+    }),
+  );
+  return data.files;
 }
 
 export async function deleteSession(id: string): Promise<void> {

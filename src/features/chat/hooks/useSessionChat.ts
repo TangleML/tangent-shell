@@ -6,6 +6,7 @@ import {
   type AgentErrorPayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
+  type Attachment,
   type ChatAuthor,
   type ChatMessage,
   type ChatMessagePayload,
@@ -194,12 +195,18 @@ export function useSessionChat(sessionId: string) {
     };
   }, [sessionId]);
 
-  function send(content: string) {
+  function send(content: string, attachments?: Attachment[]) {
     const trimmed = content.trim();
     const socket = socketRef.current;
-    if (!trimmed || !socket) return;
+    const hasAttachments = Boolean(attachments && attachments.length);
+    if ((!trimmed && !hasAttachments) || !socket) return;
 
-    const payload: ChatMessagePayload = { sessionId, author, content: trimmed };
+    const payload: ChatMessagePayload = {
+      sessionId,
+      author,
+      content: trimmed,
+      ...(hasAttachments ? { attachments } : {}),
+    };
     socket.emit(SocketEvents.ChatMessage, payload);
   }
 

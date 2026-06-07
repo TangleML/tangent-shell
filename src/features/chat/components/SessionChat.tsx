@@ -78,7 +78,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
           onSelect={setSelectedAgentId}
           isConversationBusy={isConversationBusy}
         />
-        <BlockStack grow fill>
+        <BlockStack fill>
           <ChatMessageList
             sessionId={sessionId}
             messages={visibleMessages}
@@ -96,7 +96,11 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               </Box>
             </>
           ) : (
-            <ChatInput disabled={!connected || agentBusy} onSubmit={send} />
+            <ChatInput
+              sessionId={sessionId}
+              disabled={!connected || agentBusy}
+              onSubmit={send}
+            />
           )}
         </BlockStack>
       </InlineStack>

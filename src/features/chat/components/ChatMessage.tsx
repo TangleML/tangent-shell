@@ -1,10 +1,42 @@
-import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
+import type {
+  Attachment,
+  ChatMessage as ChatMessageType,
+} from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
-import { BlockStack } from "@/shared/ui/layout";
+import { Icon } from "@/shared/ui/icon";
+import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { Pill } from "@/shared/ui/patterns/pill";
 import { Paragraph, Text } from "@/shared/ui/typography";
 
 import { AgentThinking } from "./AgentThinking";
 import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
+
+/** Renders the message's attached files as links to the session file API. */
+function Attachments({
+  sessionId,
+  attachments,
+}: {
+  sessionId: string;
+  attachments: Attachment[];
+}) {
+  return (
+    <InlineStack gap="1" wrap="wrap">
+      {attachments.map((attachment) => (
+        <a
+          key={attachment.path}
+          href={`/api/sessions/${sessionId}/files/${attachment.path}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Pill tone="subdued" hoverable title={attachment.name}>
+            <Icon name="File" size="xs" />
+            {attachment.name}
+          </Pill>
+        </a>
+      ))}
+    </InlineStack>
+  );
+}
 
 interface ChatMessageProps {
   sessionId: string;
@@ -21,6 +53,7 @@ export function ChatMessage({ sessionId, message, isOwn }: ChatMessageProps) {
       ? "agent"
       : "human";
   const roleLabel = isSubagent ? " (sub-agent)" : isAgent ? " (agent)" : "";
+  const attachments = message.attachments ?? [];
 
   return (
     <MessageBubble variant={variant}>
@@ -45,6 +78,9 @@ export function ChatMessage({ sessionId, message, isOwn }: ChatMessageProps) {
           {message.content}
         </Paragraph>
       )}
+      {attachments.length > 0 ? (
+        <Attachments sessionId={sessionId} attachments={attachments} />
+      ) : null}
     </MessageBubble>
   );
 }

@@ -21,6 +21,14 @@ export const SESSIONS_ROOT =
 export const ARTIFACTS_DIRNAME = "artifacts";
 
 /**
+ * Name of the per-session subdirectory that holds files a human uploads into
+ * the session via the chat composer. Files land here so the Pi worker (running
+ * with its cwd set to the session root) can read them by their relative path,
+ * and the file API can serve them back to the chat UI.
+ */
+export const UPLOADS_DIRNAME = "uploads";
+
+/**
  * Executable used to spawn the Pi coding agent. Overridable so the binary can
  * be pinned in environments where `pi` is not on PATH.
  */

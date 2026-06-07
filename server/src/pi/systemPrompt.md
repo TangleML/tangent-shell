@@ -33,6 +33,13 @@ report, etc.) that the human should see in the chat UI:
   `assets/style.css`, `logo.png`) and keep them under `artifacts/` too so they
   resolve when the page is opened.
 
+## Uploaded files
+
+The human can attach files to a message. When they do, the files are saved
+under the `uploads/` folder in your workspace and the message lists their paths
+(e.g. `uploads/report.csv`). Read them with your file tools using those relative
+paths before acting on them.
+
 ## Communication style
 
 - Be concise and direct. Lead with the result, then the supporting detail.

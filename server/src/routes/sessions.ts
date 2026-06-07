@@ -1,14 +1,18 @@
+import { randomBytes } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 
 import type {
+  Attachment,
   CreateSessionRequest,
   SessionConfigMeta,
   UpdateSessionRequest,
+  UploadFilesResponse,
 } from "@shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 import multer from "multer";
 
-import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
+import { ARTIFACTS_DIRNAME, SESSIONS_ROOT, UPLOADS_DIRNAME } from "../config.ts";
 import { installBundle } from "../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -20,6 +24,39 @@ import type { SessionStore } from "../store/sessionStore.ts";
  */
 const upload = multer({
   storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+/** Strips path separators/dotfiles from a filename so it can't escape `uploads/`. */
+function sanitizeFilename(name: string): string {
+  const base = path.basename(name).replace(/[/\\]/g, "_");
+  const cleaned = base.replace(/^\.+/, "").trim();
+  return cleaned || "file";
+}
+
+/**
+ * Streams uploaded chat attachments straight to the session's `uploads/` folder.
+ * The destination is derived from the `:id` route param (validated for traversal
+ * before multer runs); stored filenames are prefixed with random bytes so two
+ * uploads of the same name never collide. The original name is preserved in the
+ * returned {@link Attachment} metadata.
+ */
+const uploadFiles = multer({
+  storage: multer.diskStorage({
+    destination: (req, _file, cb) => {
+      const id = (req.params as { id?: string }).id ?? "";
+      if (isUnsafeId(id)) {
+        cb(new Error("Invalid session id"), "");
+        return;
+      }
+      const dir = path.join(SESSIONS_ROOT, id, UPLOADS_DIRNAME);
+      fs.mkdir(dir, { recursive: true }, (err) => cb(err, dir));
+    },
+    filename: (_req, file, cb) => {
+      const prefix = randomBytes(4).toString("hex");
+      cb(null, `${prefix}-${sanitizeFilename(file.originalname)}`);
+    },
+  }),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
@@ -40,10 +77,11 @@ function isWithin(target: string, dir: string): boolean {
  * record — letting artifacts stay servable across server restarts.
  *
  * The splat is the path relative to the workspace root (e.g.
- * `artifacts/chart.png`), so it resolves against the root and then validates
- * the result stays within the `artifacts/` subtree. `sendFile` derives the
- * Content-Type from the extension, so images render and HTML pages (plus their
- * relative assets) resolve under the same `/files/` prefix.
+ * `artifacts/chart.png` or `uploads/report.csv`), so it resolves against the
+ * root and then validates the result stays within the `artifacts/` or
+ * `uploads/` subtree. `sendFile` derives the Content-Type from the extension,
+ * so images render and HTML pages (plus their relative assets) resolve under
+ * the same `/files/` prefix.
  */
 function createArtifactFileHandler() {
   return (
@@ -61,8 +99,9 @@ function createArtifactFileHandler() {
 
     const rootPath = path.join(SESSIONS_ROOT, id);
     const artifactsDir = path.join(rootPath, ARTIFACTS_DIRNAME);
+    const uploadsDir = path.join(rootPath, UPLOADS_DIRNAME);
     const target = path.resolve(rootPath, rel);
-    if (!isWithin(target, artifactsDir)) {
+    if (!isWithin(target, artifactsDir) && !isWithin(target, uploadsDir)) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -135,6 +174,82 @@ async function handleCreateSession(
   res.status(201).json({ session });
 }
 
+/**
+ * Maps multer's stored files to {@link Attachment} metadata. `filename` is the
+ * (uniquified) on-disk name; `originalname` is what the user picked and is what
+ * the UI shows. Paths are workspace-relative so the agent and file API agree.
+ */
+function toAttachments(files: Express.Multer.File[]): Attachment[] {
+  return files.map((file) => ({
+    name: file.originalname,
+    path: `${UPLOADS_DIRNAME}/${file.filename}`,
+    contentType: file.mimetype,
+    size: file.size,
+  }));
+}
+
+/** Handles `POST /api/sessions/:id/files`: records uploaded chat attachments. */
+async function handleUploadFiles(
+  store: SessionStore,
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> {
+  const session = await store.getSession(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  const response: UploadFilesResponse = { files: toAttachments(files) };
+  res.status(201).json(response);
+}
+
+/** Handles `GET /api/sessions/:id`. */
+async function handleGetSession(
+  store: SessionStore,
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> {
+  const session = await store.getSession(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  res.json({ session });
+}
+
+/** Handles `PATCH /api/sessions/:id`. */
+async function handleUpdateSession(
+  store: SessionStore,
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> {
+  const body = (req.body ?? {}) as UpdateSessionRequest;
+  const session = await store.updateSession(req.params.id, { name: body.name });
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  res.json({ session });
+}
+
+/** Handles `DELETE /api/sessions/:id`. */
+async function handleDeleteSession(
+  store: SessionStore,
+  pi: PiAgentManager,
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> {
+  const deleted = await store.deleteSession(req.params.id);
+  if (!deleted) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  pi.dispose(req.params.id);
+  res.status(204).end();
+}
+
 export function createSessionsRouter(
   store: SessionStore,
   pi: PiAgentManager,
@@ -153,41 +268,25 @@ export function createSessionsRouter(
     handleCreateSession(store, pi, req, res),
   );
 
-  router.get("/:id", async (req: Request<{ id: string }>, res: Response) => {
-    const session = await store.getSession(req.params.id);
-    if (!session) {
-      res.status(404).json({ error: "Session not found" });
-      return;
-    }
-    res.json({ session });
-  });
-
-  router.patch(
-    "/:id",
-    async (req: Request<{ id: string }>, res: Response) => {
-      const body = (req.body ?? {}) as UpdateSessionRequest;
-      const session = await store.updateSession(req.params.id, {
-        name: body.name,
-      });
-      if (!session) {
-        res.status(404).json({ error: "Session not found" });
-        return;
-      }
-      res.json({ session });
-    },
+  router.get("/:id", (req: Request<{ id: string }>, res: Response) =>
+    handleGetSession(store, req, res),
   );
 
-  router.delete(
-    "/:id",
-    async (req: Request<{ id: string }>, res: Response) => {
-      const deleted = await store.deleteSession(req.params.id);
-      if (!deleted) {
-        res.status(404).json({ error: "Session not found" });
-        return;
-      }
-      pi.dispose(req.params.id);
-      res.status(204).end();
-    },
+  router.patch("/:id", (req: Request<{ id: string }>, res: Response) =>
+    handleUpdateSession(store, req, res),
+  );
+
+  router.delete("/:id", (req: Request<{ id: string }>, res: Response) =>
+    handleDeleteSession(store, pi, req, res),
+  );
+
+  // Uploads land in the session's `uploads/` folder; `uploadFiles.array` writes
+  // each file to disk before the handler records the resulting metadata.
+  router.post(
+    "/:id/files",
+    uploadFiles.array("files"),
+    (req: Request<{ id: string }>, res: Response) =>
+      handleUploadFiles(store, req, res),
   );
 
   router.get("/:id/files/*splat", createArtifactFileHandler());

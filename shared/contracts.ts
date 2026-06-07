@@ -84,6 +84,22 @@ export interface SubagentInfo {
   createdAt: string;
 }
 
+/**
+ * A file a human attached to a chat message. Stored inside the session
+ * workspace; `path` is workspace-relative so the agent can read it with its own
+ * file tools and the file API can serve it over HTTP.
+ */
+export interface Attachment {
+  /** Original filename as uploaded, shown in the UI. */
+  name: string;
+  /** Path relative to the session root, e.g. `uploads/report.csv`. */
+  path: string;
+  /** MIME type reported by the browser, when available. */
+  contentType?: string;
+  /** Size in bytes. */
+  size: number;
+}
+
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
@@ -101,6 +117,8 @@ export interface ChatMessage {
    * Only present on agent replies that surfaced a thinking process.
    */
   thinking?: string;
+  /** Files the human attached to this message, if any. */
+  attachments?: Attachment[];
   /** ISO-8601 timestamp. */
   createdAt: string;
 }
@@ -115,6 +133,11 @@ export interface UpdateSessionRequest {
   name?: string;
 }
 
+/** Response from `POST /api/sessions/:id/files`: the stored attachments. */
+export interface UploadFilesResponse {
+  files: Attachment[];
+}
+
 /** Payload sent by the client when joining a session's chat room. */
 export interface ChatJoinPayload {
   sessionId: string;
@@ -125,6 +148,8 @@ export interface ChatMessagePayload {
   sessionId: string;
   author: ChatAuthor;
   content: string;
+  /** Files the human attached, already uploaded into the session workspace. */
+  attachments?: Attachment[];
 }
 
 /** Streamed terminal output from a Pi worker. Reserved/stub for Phase 2. */

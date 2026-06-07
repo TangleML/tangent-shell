@@ -1,5 +1,6 @@
 export type {
   AgentRole,
+  Attachment,
   ChatAuthor,
   ChatMessage,
   SubagentInfo,
