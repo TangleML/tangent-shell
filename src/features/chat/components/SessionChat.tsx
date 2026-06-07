@@ -24,6 +24,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     connected,
     agentBusy,
     isConversationBusy,
+    getActivity,
     currentAuthorId,
     send,
   } = useSessionChat(sessionId);
@@ -82,6 +83,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
             sessionId={sessionId}
             messages={visibleMessages}
             currentAuthorId={currentAuthorId}
+            activity={getActivity(effectiveConversationId)}
           />
           {isSubagentView ? (
             <>

@@ -53,7 +53,10 @@ export function SessionsPage() {
         <BlockStack as="ul" gap="2" align="stretch">
           {sessions?.map((session) => (
             <li key={session.id}>
-              <Link to="/sessions/$sessionId" params={{ sessionId: session.id }}>
+              <Link
+                to="/sessions/$sessionId"
+                params={{ sessionId: session.id }}
+              >
                 <Surface hoverable>
                   <BlockStack gap="0.5">
                     <Text weight="medium">{session.name}</Text>

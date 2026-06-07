@@ -2,6 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import {
+  type AgentActivity,
   type ChatAuthor,
   PI_AGENT,
   type SubagentInfo,
@@ -33,13 +34,15 @@ import {
   type SessionAgents,
 } from "./types.ts";
 import {
+  assistantTextFromMessage,
   attachJsonlReader,
-  extractLastAssistantText,
+  isAssistantRole,
   ORCHESTRATOR_EXTENSION,
   parsePiEvent,
   PROXY_PROVIDER_EXTENSION,
   readDelta,
   toDescriptor,
+  toolActivityLabel,
   toSubagentInfo,
 } from "./utils.ts";
 
@@ -54,6 +57,14 @@ export type {
   PiAgentHandlers,
   SubagentUpdateHandler,
 } from "./types.ts";
+
+/** Shared arguments passed to each per-event-type handler in the dispatch table. */
+interface EventContext {
+  sessionId: string;
+  agent: AgentProcess;
+  descriptor: AgentDescriptor;
+  event: PiStdoutEvent;
+}
 
 /** Builds the `pi --mode rpc` CLI args for an agent process. */
 function buildPiArgs(config: AgentConfig): string[] {
@@ -344,8 +355,10 @@ export class PiAgentManager {
       child,
       busy: false,
       currentMessageId: null,
+      startEmitted: false,
       accum: "",
       thinkingAccum: "",
+      lastFinalContent: "",
     };
     session.agents.set(descriptor.agentId, agent);
 
@@ -382,6 +395,32 @@ export class PiAgentManager {
     });
   }
 
+  /**
+   * Per-event-type handlers, keyed by the Pi RPC `type`. Unmapped types
+   * (turn_* / response / extension_ui_request etc.) carry no chat-visible
+   * signal and are ignored. Defined as a field so dispatch stays a single
+   * table lookup.
+   */
+  private readonly eventHandlers: Record<string, (ctx: EventContext) => void> =
+    {
+      agent_start: ({ sessionId, agent, descriptor }) =>
+        this.onAgentStart(sessionId, agent, descriptor),
+      message_start: ({ agent, event }) => this.onMessageStart(agent, event),
+      message_update: ({ sessionId, agent, descriptor, event }) =>
+        this.onMessageDelta(
+          sessionId,
+          agent,
+          descriptor,
+          event.assistantMessageEvent,
+        ),
+      message_end: ({ sessionId, agent, descriptor, event }) =>
+        this.onMessageEnd(sessionId, agent, descriptor, event),
+      tool_execution_start: ({ sessionId, descriptor, event }) =>
+        this.onToolExecutionStart(sessionId, descriptor, event),
+      agent_end: ({ sessionId, agent, descriptor }) =>
+        this.onAgentEnd(sessionId, agent, descriptor),
+    };
+
   /** Dispatches one parsed stdout line to the matching per-event handler. */
   private handleStdoutLine(
     sessionId: string,
@@ -395,43 +434,46 @@ export class PiAgentManager {
       return;
     }
 
-    const descriptor = toDescriptor(agent);
-    switch (event.type) {
-      case "agent_start":
-        return this.onAgentStart(sessionId, agent, descriptor);
-      case "message_update":
-        return this.onMessageDelta(
-          sessionId,
-          agent,
-          descriptor,
-          event.assistantMessageEvent,
-        );
-      case "agent_end":
-        return this.onAgentEnd(sessionId, agent, descriptor, event);
-      default:
-        // response / message_start / message_end / turn_* /
-        // extension_ui_request etc. are not needed for chat-only relay.
-        return;
-    }
+    const handler = this.eventHandlers[event.type ?? ""];
+    handler?.({ sessionId, agent, descriptor: toDescriptor(agent), event });
   }
 
-  /** Opens a fresh in-flight assistant message and resets accumulators. */
+  /** Begins a run: marks the agent busy and shows the "thinking" indicator. */
   private onAgentStart(
     sessionId: string,
     agent: AgentProcess,
     descriptor: AgentDescriptor,
   ): void {
-    const messageId = randomUUID();
-    agent.currentMessageId = messageId;
+    agent.busy = true;
+    agent.currentMessageId = null;
+    agent.startEmitted = false;
     agent.accum = "";
     agent.thinkingAccum = "";
-    this.handlers.onAgentEvent(sessionId, descriptor, {
-      type: "start",
-      messageId,
+    agent.lastFinalContent = "";
+    this.emitActivity(sessionId, descriptor, {
+      kind: "thinking",
+      label: "Thinking...",
     });
   }
 
-  /** Accumulates and relays a streaming text/thinking delta. */
+  /**
+   * Opens a fresh in-flight assistant message. The `start` event is deferred
+   * to the first delta so a tool-only assistant message never opens an empty
+   * bubble. Non-assistant messages (user / tool results) are ignored.
+   */
+  private onMessageStart(agent: AgentProcess, event: PiStdoutEvent): void {
+    if (!isAssistantRole(event.message)) return;
+    agent.currentMessageId = randomUUID();
+    agent.startEmitted = false;
+    agent.accum = "";
+    agent.thinkingAccum = "";
+  }
+
+  /**
+   * Accumulates and relays a streaming text/thinking delta. The first delta
+   * lazily emits `start` (opening the bubble) and clears the activity
+   * indicator, since the streaming bubble itself is now the visual.
+   */
   private onMessageDelta(
     sessionId: string,
     agent: AgentProcess,
@@ -440,6 +482,15 @@ export class PiAgentManager {
   ): void {
     const delta = readDelta(raw);
     if (!delta || !agent.currentMessageId) return;
+
+    if (!agent.startEmitted) {
+      agent.startEmitted = true;
+      this.handlers.onAgentEvent(sessionId, descriptor, {
+        type: "start",
+        messageId: agent.currentMessageId,
+      });
+      this.emitActivity(sessionId, descriptor, null);
+    }
 
     if (delta.kind === "delta") {
       agent.accum += delta.text;
@@ -454,44 +505,112 @@ export class PiAgentManager {
     });
   }
 
-  /** Finalizes the in-flight message and (for sub-agents) loops Prime in. */
-  private onAgentEnd(
+  /**
+   * Finalizes the in-flight assistant message into its own bubble. Empty
+   * (tool-only) messages that never emitted `start` finalize silently. Between
+   * messages the "working" indicator returns until the next message or the run
+   * ends.
+   */
+  private onMessageEnd(
     sessionId: string,
     agent: AgentProcess,
     descriptor: AgentDescriptor,
     event: PiStdoutEvent,
   ): void {
-    if (!agent.currentMessageId) {
-      agent.busy = false;
-      return;
+    if (!isAssistantRole(event.message)) return;
+
+    if (agent.currentMessageId && agent.startEmitted) {
+      this.finalizeMessage(sessionId, agent, descriptor, event);
     }
 
-    const content = agent.accum || extractLastAssistantText(event) || "";
-    const messageId = agent.currentMessageId;
-    const thinking = agent.thinkingAccum;
+    agent.currentMessageId = null;
+    agent.startEmitted = false;
+    agent.accum = "";
+    agent.thinkingAccum = "";
+
+    // Between messages the agent is processing/deciding; the next tool call or
+    // delta replaces this. (Tool labels themselves persist past their end so
+    // the user can read what just ran.)
+    this.emitActivity(sessionId, descriptor, {
+      kind: "thinking",
+      label: "Thinking...",
+    });
+  }
+
+  /** Emits the `end` event for the in-flight message and records its text. */
+  private finalizeMessage(
+    sessionId: string,
+    agent: AgentProcess,
+    descriptor: AgentDescriptor,
+    event: PiStdoutEvent,
+  ): void {
+    const content = assistantTextFromMessage(event.message) || agent.accum || "";
+    if (content.trim()) agent.lastFinalContent = content;
+
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      type: "end",
+      messageId: agent.currentMessageId as string,
+      content,
+      thinking: agent.thinkingAccum,
+    });
+  }
+
+  /**
+   * Surfaces a starting tool call as the ephemeral activity indicator. The
+   * descriptive label deliberately persists past the tool's `tool_execution_end`
+   * (which we ignore) until the next message streams in or another tool starts,
+   * so fast tools stay readable instead of flashing past.
+   */
+  private onToolExecutionStart(
+    sessionId: string,
+    descriptor: AgentDescriptor,
+    event: PiStdoutEvent,
+  ): void {
+    const toolName = event.toolName ?? "tool";
+    this.emitActivity(sessionId, descriptor, {
+      kind: "tool",
+      label: toolActivityLabel(toolName, event.args),
+      toolName,
+    });
+  }
+
+  /** Ends a run: clears busy + the activity indicator and loops Prime in. */
+  private onAgentEnd(
+    sessionId: string,
+    agent: AgentProcess,
+    descriptor: AgentDescriptor,
+  ): void {
+    const lastContent = agent.lastFinalContent;
 
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
       JSON.stringify({
         role: agent.role,
-        contentLength: content.length,
-        thinkingLength: thinking.length,
+        lastContentLength: lastContent.length,
       }),
     );
 
     agent.currentMessageId = null;
+    agent.startEmitted = false;
     agent.accum = "";
     agent.thinkingAccum = "";
+    agent.lastFinalContent = "";
     agent.busy = false;
 
-    this.handlers.onAgentEvent(sessionId, descriptor, {
-      type: "end",
-      messageId,
-      content,
-      thinking,
-    });
+    this.emitActivity(sessionId, descriptor, null);
+    this.relaySubagentReply(sessionId, agent, lastContent);
+  }
 
-    this.relaySubagentReply(sessionId, agent, content);
+  /** Emits a run-level activity change (ephemeral; never persisted). */
+  private emitActivity(
+    sessionId: string,
+    descriptor: AgentDescriptor,
+    activity: AgentActivity | null,
+  ): void {
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      type: "activity",
+      activity,
+    });
   }
 
   /**
@@ -520,14 +639,22 @@ export class PiAgentManager {
     if (!agent.busy && !agent.currentMessageId) return;
     const messageId = agent.currentMessageId ?? undefined;
     agent.currentMessageId = null;
+    agent.startEmitted = false;
     agent.accum = "";
     agent.thinkingAccum = "";
+    agent.lastFinalContent = "";
     agent.busy = false;
-    this.handlers.onAgentEvent(
-      sessionId,
-      { agentId: agent.agentId, role: agent.role, name: agent.name },
-      { type: "error", messageId, message },
-    );
+    const descriptor = {
+      agentId: agent.agentId,
+      role: agent.role,
+      name: agent.name,
+    };
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      type: "error",
+      messageId,
+      message,
+    });
+    this.emitActivity(sessionId, descriptor, null);
   }
 
   /**

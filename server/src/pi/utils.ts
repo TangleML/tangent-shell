@@ -137,14 +137,107 @@ function assistantText(message: unknown): string | undefined {
   return text || undefined;
 }
 
-/** Pulls the last assistant message's text out of an `agent_end` event. */
-export function extractLastAssistantText(event: {
-  messages?: unknown;
-}): string | undefined {
-  if (!Array.isArray(event.messages)) return undefined;
-  for (let i = event.messages.length - 1; i >= 0; i--) {
-    const text = assistantText(event.messages[i]);
-    if (text) return text;
+/** True when a `message_*` event's message is an assistant message. */
+export function isAssistantRole(message: { role?: string } | undefined): boolean {
+  return message?.role === "assistant";
+}
+
+/**
+ * Extracts the final text of a `message_end` assistant message. Authoritative
+ * over the streamed accumulator, which can miss late or non-streamed parts.
+ */
+export function assistantTextFromMessage(
+  message: unknown,
+): string | undefined {
+  return assistantText(message);
+}
+
+/** Max length of an arg hint before it is ellipsized in the activity label. */
+const MAX_HINT_LENGTH = 80;
+
+/** Returns a trimmed non-empty string, or undefined. */
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/** Collapses whitespace and ellipsizes a hint so labels stay single-line. */
+function truncateHint(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > MAX_HINT_LENGTH
+    ? `${oneLine.slice(0, MAX_HINT_LENGTH - 3)}...`
+    : oneLine;
+}
+
+/**
+ * Composes `verb + target`, e.g. `Reading src/app.ts`. Falls back to
+ * `verb + fallback` (or just `verb`) when the target arg is absent.
+ */
+function labelWith(
+  verb: string,
+  target: string | undefined,
+  fallback: string,
+  sep = " ",
+): string {
+  if (target) return `${verb}${sep}${truncateHint(target)}`;
+  return fallback ? `${verb} ${fallback}` : verb;
+}
+
+/** Describes a `grep` call: pattern plus the file scope being searched. */
+function grepLabel(a: Record<string, unknown>): string {
+  const pattern = str(a.pattern);
+  const scope = str(a.glob) ?? str(a.path);
+  const base = pattern
+    ? `Searching for "${truncateHint(pattern)}"`
+    : "Searching files";
+  return scope ? `${base} in ${truncateHint(scope)}` : base;
+}
+
+/** First non-empty string argument, used as a hint for unknown tools. */
+function genericHint(a: Record<string, unknown>): string | undefined {
+  for (const value of Object.values(a)) {
+    const hint = str(value);
+    if (hint) return hint;
   }
   return undefined;
+}
+
+type ArgFormatter = (a: Record<string, unknown>) => string;
+
+/**
+ * Per-tool formatters that turn a tool call's arguments into a descriptive,
+ * present-tense phrase describing exactly what the agent is doing.
+ */
+const TOOL_FORMATTERS: Record<string, ArgFormatter> = {
+  read: (a) => labelWith("Reading", str(a.path), "a file"),
+  write: (a) => labelWith("Writing", str(a.path), "a file"),
+  edit: (a) => labelWith("Editing", str(a.path), "a file"),
+  bash: (a) => labelWith("Running", str(a.command), "a command", ": "),
+  grep: grepLabel,
+  find: (a) => labelWith("Finding", str(a.pattern) ?? str(a.path), "files"),
+  ls: (a) => labelWith("Listing", str(a.path), "the directory"),
+  read_room: () => "Reading the room transcript",
+  spawn_subagent: (a) => labelWith("Spawning sub-agent", str(a.name), ""),
+  message_subagent: (a) =>
+    labelWith("Messaging sub-agent", str(a.name) ?? str(a.id), ""),
+  kill_subagent: (a) =>
+    labelWith("Stopping sub-agent", str(a.name) ?? str(a.id), ""),
+  list_subagents: () => "Listing sub-agents",
+};
+
+/**
+ * Builds the descriptive label shown in the ephemeral activity bubble for a
+ * running tool, naming the tool and (where cheap) its concrete target so the
+ * user sees what the agent is doing rather than a generic "Working...".
+ */
+export function toolActivityLabel(toolName: string, args: unknown): string {
+  const a =
+    typeof args === "object" && args !== null
+      ? (args as Record<string, unknown>)
+      : {};
+
+  const formatter = TOOL_FORMATTERS[toolName];
+  if (formatter) return formatter(a);
+
+  const hint = genericHint(a);
+  return hint ? `Running ${toolName}: ${truncateHint(hint)}` : `Running ${toolName}`;
 }

@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type {
+  AgentActivity,
   AgentRole,
   ChatAuthor,
   SubagentInfo,
@@ -20,7 +21,8 @@ export type AgentEvent =
   | { type: "delta"; messageId: string; delta: string }
   | { type: "thinking"; messageId: string; delta: string }
   | { type: "end"; messageId: string; content: string; thinking: string }
-  | { type: "error"; messageId?: string; message: string };
+  | { type: "error"; messageId?: string; message: string }
+  | { type: "activity"; activity: AgentActivity | null };
 
 /** Identifies which agent in a session produced an {@link AgentEvent}. */
 export interface AgentDescriptor {
@@ -72,10 +74,22 @@ export interface AgentProcess {
   busy: boolean;
   /** The id of the assistant message currently streaming, if any. */
   currentMessageId: string | null;
+  /**
+   * Whether a `start` event was already emitted for {@link currentMessageId}.
+   * Start is deferred until the first text/thinking delta so tool-only
+   * assistant messages (no visible content) never open an empty bubble.
+   */
+  startEmitted: boolean;
   /** Accumulated text for the in-flight assistant message. */
   accum: string;
   /** Accumulated reasoning for the in-flight assistant message. */
   thinkingAccum: string;
+  /**
+   * Text of the most recently finalized assistant message in this run. Used to
+   * relay a sub-agent's reply back to Prime after the whole run ends, since a
+   * single run can finalize multiple distinct messages.
+   */
+  lastFinalContent: string;
 }
 
 export interface SessionAgents {
@@ -99,4 +113,12 @@ export interface PiStdoutEvent {
   type?: string;
   assistantMessageEvent?: AssistantDelta;
   messages?: unknown;
+  /** Present on `message_start` / `message_update` / `message_end` events. */
+  message?: { role?: string; content?: unknown };
+  /** Present on `tool_execution_*` events. */
+  toolName?: string;
+  /** Present on `tool_execution_start` / `tool_execution_update` events. */
+  args?: unknown;
+  /** Present on `tool_execution_end` events. */
+  isError?: boolean;
 }

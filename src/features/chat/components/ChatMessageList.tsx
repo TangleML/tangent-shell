@@ -1,3 +1,4 @@
+import type { AgentActivity } from "@shared/contracts";
 import { useEffect, useRef } from "react";
 
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
@@ -6,12 +7,15 @@ import { BlockStack } from "@/shared/ui/layout";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Paragraph } from "@/shared/ui/typography";
 
+import { AgentActivityBubble } from "./AgentActivityBubble";
 import { ChatMessage } from "./ChatMessage";
 
 interface ChatMessageListProps {
   sessionId: string;
   messages: ChatMessageType[];
   currentAuthorId: string;
+  /** Ephemeral agent activity for this thread, or null when idle/streaming. */
+  activity?: AgentActivity | null;
 }
 
 // Distance (px) from the bottom within which we still consider the user
@@ -22,6 +26,7 @@ export function ChatMessageList({
   sessionId,
   messages,
   currentAuthorId,
+  activity,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -87,6 +92,7 @@ export function ChatMessageList({
                 />
               ))
             )}
+            {activity ? <AgentActivityBubble activity={activity} /> : null}
             <div ref={bottomRef} />
           </BlockStack>
         </Box>

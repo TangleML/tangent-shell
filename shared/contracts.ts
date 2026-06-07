@@ -147,6 +147,33 @@ export interface AgentErrorPayload {
   message: string;
 }
 
+/** The kind of work an agent is currently doing, for the ephemeral indicator. */
+export type AgentActivityKind = "thinking" | "tool";
+
+/**
+ * A transient snapshot of what an agent is doing between (or before) messages.
+ * Rendered as an ephemeral spinner bubble and never persisted: it is replaced
+ * as soon as the next message streams in, and cleared when the run ends.
+ */
+export interface AgentActivity {
+  kind: AgentActivityKind;
+  /** Human-readable description, e.g. "Thinking...", "Running grep". */
+  label: string;
+  /** The tool being executed, when `kind` is `"tool"`. */
+  toolName?: string;
+}
+
+/**
+ * Emitted as an agent's run-level state changes (start of run, tool calls,
+ * between turns). `activity` is `null` when the run is idle or a message is
+ * actively streaming (the streaming bubble is the visual in that case).
+ */
+export interface AgentActivityPayload {
+  sessionId: string;
+  conversationId: string;
+  activity: AgentActivity | null;
+}
+
 /** Full sub-agent roster for a session, emitted on join and on reset. */
 export interface SubagentRosterPayload {
   sessionId: string;
@@ -170,6 +197,7 @@ export const SocketEvents = {
   AgentThinking: "agent:thinking",
   AgentEnd: "agent:end",
   AgentError: "agent:error",
+  AgentActivity: "agent:activity",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
 } as const;

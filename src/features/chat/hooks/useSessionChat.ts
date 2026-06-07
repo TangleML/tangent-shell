@@ -1,4 +1,6 @@
 import {
+  type AgentActivity,
+  type AgentActivityPayload,
   type AgentDeltaPayload,
   type AgentEndPayload,
   type AgentErrorPayload,
@@ -27,14 +29,19 @@ export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
   const [connected, setConnected] = useState(false);
-  // Which conversations (Prime + each sub-agent, keyed by `conversationId`) have
-  // an in-flight reply streaming, so each thread can show its own busy state.
-  const [busyConversations, setBusyConversations] = useState<Set<string>>(
-    () => new Set(),
-  );
+  // Conversations (keyed by `conversationId`) with a message actively
+  // streaming, i.e. between `agent:start` and `agent:end` for that message.
+  const [streamingConversations, setStreamingConversations] = useState<
+    Set<string>
+  >(() => new Set());
+  // The current ephemeral activity per conversation (tool call / "thinking"
+  // between messages). Cleared when a message streams in or the run ends.
+  const [activityByConversation, setActivityByConversation] = useState<
+    Map<string, AgentActivity>
+  >(() => new Map());
   const socketRef = useRef<Socket | null>(null);
   // Maps an in-flight message id to its conversation so `agent:error` (which
-  // only carries a messageId) can clear the right thread's busy state.
+  // only carries a messageId) can clear the right thread's streaming state.
   const conversationByMessageId = useRef<Map<string, string>>(new Map());
 
   // One author identity per mounted chat (a stand-in for real auth in Phase 1).
@@ -57,13 +64,15 @@ export function useSessionChat(sessionId: string) {
       setMessages([]);
       setSubagents([]);
       setConnected(true);
-      setBusyConversations(new Set());
+      setStreamingConversations(new Set());
+      setActivityByConversation(new Map());
       conversationByMessageId.current.clear();
       socket.emit(SocketEvents.ChatJoin, { sessionId });
     });
     socket.on("disconnect", () => {
       setConnected(false);
-      setBusyConversations(new Set());
+      setStreamingConversations(new Set());
+      setActivityByConversation(new Map());
       conversationByMessageId.current.clear();
     });
 
@@ -74,11 +83,11 @@ export function useSessionChat(sessionId: string) {
       setMessages((prev) => [...prev, message]);
     });
 
-    // An agent begins a reply: append an empty placeholder we fill via deltas
-    // and mark that conversation busy.
+    // An agent begins a (new) message: append an empty placeholder we fill via
+    // deltas and mark that conversation's message stream in flight.
     socket.on(SocketEvents.AgentStart, ({ message }: AgentStartPayload) => {
       conversationByMessageId.current.set(message.id, message.conversationId);
-      setBusyConversations((prev) => {
+      setStreamingConversations((prev) => {
         const next = new Set(prev);
         next.add(message.conversationId);
         return next;
@@ -109,11 +118,12 @@ export function useSessionChat(sessionId: string) {
         );
       },
     );
-    // An agent finished: replace the placeholder with the final message and
-    // clear that conversation's busy state.
+    // A single message finished: replace its placeholder with the final
+    // message and end that message's stream. The run may still be busy (the
+    // activity indicator drives that); message streaming is cleared here.
     socket.on(SocketEvents.AgentEnd, ({ message }: AgentEndPayload) => {
       conversationByMessageId.current.delete(message.id);
-      setBusyConversations((prev) => {
+      setStreamingConversations((prev) => {
         if (!prev.has(message.conversationId)) return prev;
         const next = new Set(prev);
         next.delete(message.conversationId);
@@ -123,6 +133,22 @@ export function useSessionChat(sessionId: string) {
         prev.map((m) => (m.id === message.id ? message : m)),
       );
     });
+    // The agent's run-level activity changed: a non-null activity surfaces the
+    // ephemeral spinner bubble; null clears it (message streaming / run idle).
+    socket.on(
+      SocketEvents.AgentActivity,
+      ({ conversationId, activity }: AgentActivityPayload) => {
+        setActivityByConversation((prev) => {
+          const next = new Map(prev);
+          if (activity) {
+            next.set(conversationId, activity);
+          } else {
+            next.delete(conversationId);
+          }
+          return next;
+        });
+      },
+    );
     socket.on(
       SocketEvents.AgentError,
       ({ messageId, message }: AgentErrorPayload) => {
@@ -131,7 +157,7 @@ export function useSessionChat(sessionId: string) {
           : undefined;
         if (messageId) conversationByMessageId.current.delete(messageId);
         if (conversationId) {
-          setBusyConversations((prev) => {
+          setStreamingConversations((prev) => {
             if (!prev.has(conversationId)) return prev;
             const next = new Set(prev);
             next.delete(conversationId);
@@ -177,9 +203,22 @@ export function useSessionChat(sessionId: string) {
     socket.emit(SocketEvents.ChatMessage, payload);
   }
 
+  // A conversation is busy while a message streams OR while it has a non-null
+  // activity (thinking between turns / running a tool). Together these bracket
+  // the whole run, even across multiple messages and tool calls.
   const isConversationBusy = useCallback(
-    (conversationId: string) => busyConversations.has(conversationId),
-    [busyConversations],
+    (conversationId: string) =>
+      streamingConversations.has(conversationId) ||
+      activityByConversation.has(conversationId),
+    [streamingConversations, activityByConversation],
+  );
+
+  // The current ephemeral activity for a conversation, or null when idle or a
+  // message is actively streaming (the streaming bubble is the visual then).
+  const getActivity = useCallback(
+    (conversationId: string): AgentActivity | null =>
+      activityByConversation.get(conversationId) ?? null,
+    [activityByConversation],
   );
 
   return {
@@ -187,8 +226,9 @@ export function useSessionChat(sessionId: string) {
     subagents,
     connected,
     // The main thread's busy state drives the header/input; Prime owns it.
-    agentBusy: busyConversations.has(PI_AGENT.id),
+    agentBusy: isConversationBusy(PI_AGENT.id),
     isConversationBusy,
+    getActivity,
     currentAuthorId: author.id,
     send,
   };

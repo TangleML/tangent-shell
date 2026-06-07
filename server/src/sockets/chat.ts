@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type AgentActivity,
+  type AgentActivityPayload,
   type AgentDeltaPayload,
   type AgentEndPayload,
   type AgentErrorPayload,
@@ -19,6 +21,7 @@ import type { Server, Socket } from "socket.io";
 
 import {
   type AgentDescriptor,
+  type AgentEvent,
   type AgentEventHandler,
   type AgentMessageHandler,
   type PiAgentManager,
@@ -141,6 +144,19 @@ function emitError(
   io.to(ctx.room).emit(SocketEvents.AgentError, payload);
 }
 
+function emitActivity(
+  io: Server,
+  ctx: EmitContext,
+  activity: AgentActivity | null,
+): void {
+  const payload: AgentActivityPayload = {
+    sessionId: ctx.sessionId,
+    conversationId: ctx.conversationId,
+    activity,
+  };
+  io.to(ctx.room).emit(SocketEvents.AgentActivity, payload);
+}
+
 /**
  * Builds the handler that relays agents' streaming events to the matching
  * session room, dispatching each event variant to its emit helper.
@@ -160,20 +176,42 @@ export function createAgentEventHandler(
       conversationId: agent.agentId,
       author: authorFor(agent),
     };
-
-    switch (event.type) {
-      case "start":
-        return emitStart(io, ctx, event.messageId);
-      case "delta":
-        return emitDelta(io, ctx, event);
-      case "thinking":
-        return emitThinking(io, ctx, event);
-      case "end":
-        return emitEnd(io, store, ctx, event);
-      case "error":
-        return emitError(io, ctx, event);
-    }
+    relayStreamingEvent(io, ctx, event);
+    relayTerminalEvent(io, store, ctx, event);
   };
+}
+
+/** Relays the streaming variants (placeholder + incremental tokens). */
+function relayStreamingEvent(
+  io: Server,
+  ctx: EmitContext,
+  event: AgentEvent,
+): void {
+  switch (event.type) {
+    case "start":
+      return emitStart(io, ctx, event.messageId);
+    case "delta":
+      return emitDelta(io, ctx, event);
+    case "thinking":
+      return emitThinking(io, ctx, event);
+  }
+}
+
+/** Relays the terminal/run-level variants (finalize, error, activity). */
+function relayTerminalEvent(
+  io: Server,
+  store: SessionStore,
+  ctx: EmitContext,
+  event: AgentEvent,
+): void {
+  switch (event.type) {
+    case "end":
+      return emitEnd(io, store, ctx, event);
+    case "error":
+      return emitError(io, ctx, event);
+    case "activity":
+      return emitActivity(io, ctx, event.activity);
+  }
 }
 
 /** Builds the handler that broadcasts sub-agent roster changes to the room. */
