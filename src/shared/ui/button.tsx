@@ -1,64 +1,145 @@
+import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Slot } from "radix-ui";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive cursor-pointer",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default:
+          "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
         destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
+          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        destructiveOnHover:
+          "text-foreground dark:hover:bg-accent/50 hover:bg-destructive/90 hover:text-white",
+        destructiveOutline:
+          "border border-destructive bg-background shadow-xs text-destructive hover:bg-destructive/90 hover:text-white dark:bg-input/30 dark:border-input dark:hover:bg-input/50", // THIS IS CUSTOM. CAREFUL WHEN UPDATING THIS COMPONENT
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
+        "link-info": "text-info underline decoration-dotted",
+        // Dark-chrome menubar button (top app menubar, window chrome).
+        menubar:
+          "text-stone-400 hover:text-white hover:bg-stone-700 data-[state=open]:bg-stone-700 data-[state=open]:text-white",
+        // Light-chrome menubar button (light theme menubars / window chrome).
+        "menubar-light":
+          "text-white/80 hover:text-white hover:bg-stone-700/30 data-[state=open]:bg-stone-700/30",
+        // Dense toolbar action (small height, no chrome).
+        toolbar:
+          "hover:bg-accent hover:text-accent-foreground text-foreground/80",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
+        "inline-xs": "p-0 text-xs",
+        xs: "h-6 px-2 py-1 has-[>svg]:px-1.5 text-xs",
+        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
         lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
         icon: "size-9",
-        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
+        min: "h-fit w-fit p-1 rounded-sm",
+      },
+      tone: {
+        default: "",
+        critical: "",
+        warning: "",
+        success: "",
+      },
+      align: {
+        center: "justify-center",
+        start: "justify-start text-left",
+        end: "justify-end text-right",
+        "space-between": "justify-between",
+      },
+      fullWidth: {
+        true: "w-full",
+        false: "",
+      },
+      truncate: {
+        true: "[&>span]:truncate min-w-0",
+        false: "",
       },
     },
+    compoundVariants: [
+      // tone on ghost/link
+      {
+        variant: "ghost",
+        tone: "critical",
+        className:
+          "text-destructive hover:bg-destructive/10 hover:text-destructive",
+      },
+      {
+        variant: "ghost",
+        tone: "warning",
+        className: "text-warning hover:bg-warning/10 hover:text-warning",
+      },
+      {
+        variant: "ghost",
+        tone: "success",
+        className: "text-success hover:bg-success/10 hover:text-success",
+      },
+      { variant: "link", tone: "critical", className: "text-destructive" },
+      { variant: "link", tone: "warning", className: "text-warning" },
+      { variant: "link", tone: "success", className: "text-success" },
+      // tone on toolbar
+      {
+        variant: "toolbar",
+        tone: "critical",
+        className: "text-destructive hover:bg-destructive/10",
+      },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",
+      tone: "default",
+      align: "center",
+      fullWidth: false,
+      truncate: false,
     },
   },
 );
 
+interface ButtonProps
+  extends React.ComponentProps<"button">, VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+}
+
 function Button({
   className,
-  variant = "default",
-  size = "default",
+  variant,
+  size,
+  tone,
+  align,
+  fullWidth,
+  truncate,
   asChild = false,
   ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean;
-  }) {
-  const Comp = asChild ? Slot.Root : "button";
+}: ButtonProps) {
+  const Comp = asChild ? Slot : "button";
 
   return (
     <Comp
       data-slot="button"
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        buttonVariants({
+          variant,
+          size,
+          tone,
+          align,
+          fullWidth,
+          truncate,
+          className,
+        }),
+      )}
       {...props}
     />
   );
 }
 
 export { Button, buttonVariants };
+export type { ButtonProps };

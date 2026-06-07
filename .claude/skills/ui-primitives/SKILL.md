@@ -1,67 +1,126 @@
 ---
 name: ui-primitives
-description: UI primitive components for this project (BlockStack, InlineStack, Text, Heading, Paragraph, Button, Icon). Use when writing JSX, creating components, or working with layout and typography.
+description: Layered Tangle UI design system in src/shared/ui. Base primitives (BlockStack, InlineStack, Text, Heading, Paragraph, Button, Icon, Textarea, Spinner, Link), Layer-3 semantic patterns (Surface, Section, Card, ListRow, ScrollRegion, Truncating, HoverReveal, IconButton, EmptyState, Pill, StickyHeader, Toolbar, Divider, Page, CenteredScreen), and the Box escape hatch. Use when writing JSX, styling, layout, or typography.
 ---
 
 # UI Primitives
 
-Always prefer UI primitives over raw HTML elements.
+The single rule for feature code:
 
-## Layout
+> **Do not pass `className` to a Tangle UI primitive.** Use a semantic prop or a Layer-3 pattern.
 
-Use `BlockStack` and `InlineStack` from `@/components/ui/layout` instead of `<div className="flex ...">`:
+This is enforced by the `tangle-ui/no-classname-on-primitives` ESLint rule, which runs as
+`error` on `src/features/**` and `src/routes/**`. The `className` prop still exists on most
+primitives as a deprecated migration escape hatch — do not use it in new code.
 
-- `BlockStack` = vertical flex (`flex-col`)
-- `InlineStack` = horizontal flex (`flex-row`)
-- Both support `gap`, `align`, `blockAlign` props
-- Use `as` prop for semantic elements: `<BlockStack as="ul">`, `<InlineStack as="li">`
+`cn()` (from `@/shared/lib/utils`) and raw Tailwind classes are allowed **only** inside local
+primitives (raw HTML elements), never on a Tangle primitive.
 
-## Typography
+See [DESIGN_SYSTEM.md](../../../src/shared/ui/DESIGN_SYSTEM.md) for the full reference.
 
-All typography components are exported from `@/components/ui/typography`.
+## The four layers
 
-**Use `Heading` for headings** instead of raw `<h1-h6>` or `Text as="h*"`:
+Code is expected to live in the upper layers. Reaching for a lower one is a smell.
 
-- `<Heading level={2}>Title</Heading>` — renders `<h2>` with `role="heading"` and `aria-level`
-- Automatically sets `size="md"` + `weight="semibold"` for level 1, `size="sm"` for others
-- Supports `tone`, `size`, `weight`, `font` overrides
+- **Layer 4 — feature/domain** (`src/features/*`, `src/routes/*`): components that encode app
+  behavior specific to a screen.
+- **Layer 3 — semantic patterns** (`@/shared/ui/patterns/*`, plus `Card` at `@/shared/ui/card`):
+  use when an intent is named (a panel, a scroll region, a row, ...).
+- **Layer 2 — base primitives** (`@/shared/ui/{layout,typography,button,icon,textarea,spinner,link}`):
+  raw layout, text, or interactive controls.
+- **Layer 1 — `Box`** (`@/shared/ui/box`): token-only styled container. Escape hatch when nothing
+  higher fits. Has no `className` and no flex helpers (use `BlockStack`/`InlineStack` for layout).
 
-**Use `Paragraph` for paragraph text** instead of raw `<p>` or `Text as="p"`:
+### Escalation ladder
 
-- `<Paragraph size="sm" tone="subdued">` instead of `<p className="text-sm text-muted">`
+1. Is the visual intent named by a base primitive? Use it (`<Text tone="subdued">`, `<BlockStack gap="2">`).
+2. Does a Layer-3 primitive name the combination you need? Use it (`<ListRow hoverable>`, `<ScrollRegion>`).
+3. Is this domain-specific? Add a Layer-4 component under `src/features/*` or `src/routes/*`.
+4. Still no fit and bespoke styling needed? Write a colocated local primitive (raw HTML, marked).
+5. Reaching for `Box` repeatedly with the same shape? That is a missing Layer-3 primitive.
 
-**Use `Text` for inline text** (`<span>`, `<dt>`, `<dd>`, etc.):
+## Layer 2 — base primitives
 
-- `<Text as="dt" weight="semibold">` instead of `<dt className="font-semibold">`
-- Supports: `as`, `size`, `weight`, `tone`, `font` props
+### Layout — `@/shared/ui/layout`
 
-## Buttons
+`BlockStack` (vertical, `flex-col`) and `InlineStack` (horizontal, `flex-row`). Use these instead
+of `<div className="flex ...">`.
 
-Use `Button` from `@/components/ui/button`
+- `gap`: one of `"0"`, `"0.5"`, `"1"`, `"1.5"`, `"2"`, `"3"`, `"4"`, `"5"`, `"6"`, `"8"`
+- `align`: main-axis (BlockStack: cross-axis items) — `start`/`center`/`end`/`stretch`/`space-*`
+- `inlineAlign` (BlockStack) / `blockAlign` (InlineStack): the other axis
+- `wrap` (InlineStack only): `wrap` / `nowrap`
+- `fill`: fill the container and center content
+- `grow`: take remaining main-axis space and host a scroll region (`flex-1 min-h-0 min-w-0`)
+- `as`: semantic element — `div` (default), `span`, `li`, `ol`, `ul`
 
-## Icons
+### Typography — `@/shared/ui/typography`
 
-Use `Icon` from `@/components/ui/icon`
+Use `Heading` for headings, `Paragraph` for paragraph text, and `Text` for inline text — never raw
+`<h*>`/`<p>`/`<span>` with Tailwind classes.
 
-## Styling
+- `<Heading level={1..6}>` renders `<h1-h6>` with `role="heading"` + `aria-level`. Defaults: level 1
+  is `size="md"` + `weight="semibold"`; levels 2-6 are `size="sm"` (level 2 stays `semibold`).
+- `<Paragraph>` is `Text` rendered as `<p>`.
+- `<Text as="dt">`, `<Text as="dd">`, etc. for inline/semantic text.
+- Shared props: `tone`, `size` (`xs`-`2xl`), `weight`, `font` (`default`/`mono`), `align`, `wrap`,
+  `italic`, `leading`, `transform`, `decoration`, `truncate` (`boolean` or line count `N`).
 
-- Use shadcn/ui components from `@/components/ui/` for all UI primitives
-- Use TailwindCSS v4 for styling (not CSS modules or styled-components)
-- **Only use inline styling** (`style={...}`) for dynamic/variable CSS values (e.g., `style={{height: h}}`). Never use inline styles for static values — use Tailwind classes instead
-- Use `cn()` utility for conditional classes (from `@/lib/utils`)
-- Prefer composition over prop drilling for complex components
+### Buttons — `@/shared/ui/button`
 
-## Suggest Abstractions for Repeated Patterns
+`Button` props: `variant` (`default`, `destructive`, `outline`, `secondary`, `ghost`, `link`,
+`toolbar`, `menubar`, ...), `size` (`default`, `xs`, `sm`, `lg`, `icon`, `min`, `inline-xs`),
+`tone` (`default`/`critical`/`warning`/`success`), `align`, `fullWidth`, `truncate`, `asChild`.
 
-When you see similar Tailwind class combinations used multiple times, suggest creating reusable components or utility classes:
+### Icons — `@/shared/ui/icon`
 
-- Multiple buttons with similar styling -> Create a Button variant or new component
-- Repeated container/card patterns -> Abstract into reusable Card component
-- Common spacing/layout patterns -> Suggest utility classes or component abstractions
-- Similar form field styling -> Create form field components
+`Icon` props: `name` (a Lucide icon name), `size` (`xs`-`2xl`, `fill`), `tone`, `rotate`, `spin`,
+`pulse`.
 
-## When Raw HTML is Acceptable
+### Other base primitives
 
-- Semantic elements not supported by primitives (e.g., `<dl>`, `<ul>`, `<ol>`, `<table>`)
-- Complex layouts where primitives don't fit
-- Performance-critical sections where abstraction overhead matters
+- `Textarea` (`@/shared/ui/textarea`): `autoGrow` to grow with content up to a max height.
+- `Spinner` (`@/shared/ui/spinner`): `size` (number).
+- `Link` (`@/shared/ui/link`): `variant`, `size`, `external` (adds target/rel + external icon).
+
+## Layer 3 — semantic patterns
+
+Reach for these instead of stacking utility classes. Each names an intent:
+
+- `Surface` — nesting-aware container with predefined treatment. `level` (1-3, auto-derived from
+  context), `tone`, `hoverable`, `onClick`. Replaces `bg-* rounded-* border-* p-*` panels.
+- `Section` — `Surface` with a built-in header. `title`, `actions`, `divider`, `level`, `tone`,
+  `headingLevel`.
+- `Card` + `CardHeader`/`CardTitle`/`CardDescription`/`CardContent`/`CardFooter` (`@/shared/ui/card`):
+  `density`. Establishes Surface level 1.
+- `ListRow` — list row composing `InlineStack` + the `group` class. `density`, `hoverable`,
+  `selected`, `zebra`, `gap`, `onClick`. Replaces `<InlineStack className="group hover:bg-* px-* py-*">`.
+- `ScrollRegion` — fills available flex space and scrolls. `axis` (`y`/`x`/`both`), `scrollbar`.
+  Replaces `flex-1 min-h-0 overflow-y-auto`.
+- `Truncating` — wraps a shrinkable flex cell (`min-w-0 flex-1`). `grow` (`fill`/`fit`). Put
+  `truncate` on the inner `<Text>`.
+- `HoverReveal` — reveal actions on hover/focus of an enclosing `ListRow`/`group`. `mode`
+  (`on-hover`/`dim-until-hover`), `shrink`.
+- `IconButton` — square icon-only button. `icon`, `size`, `variant`, `tone`, and a **required**
+  `aria-label`. Replaces `<Button size="..." className="h-5 w-5 p-0"><Icon /></Button>`.
+- `EmptyState` — centered placeholder. `icon`, `title`, `description`, `action`.
+- `Pill` — small chip/tag. `size`, `tone`, `hoverable`, `muted`.
+- `StickyHeader` — `sticky top-0` header inside a `ScrollRegion`. `background`, `divider`.
+- `Toolbar` — horizontal action bar. `density`, `chrome`, `sticky`, `align`, `gap`.
+- `Divider` — wrapper over `Separator`. `inset`, `orientation`, `decorative`.
+- `Page` — centered, max-width page column. `height` (`auto`/`screen`), `padded`.
+- `CenteredScreen` — full-viewport centered column (hero, not-found, error). `gap`.
+
+For text styling use props on `Text`/`Paragraph`/`Heading`; for `Icon` use `tone`/`rotate`/`spin`/
+`pulse`/`size`; for `Button` use `tone`/`fullWidth`/`align`/`truncate`/`variant`.
+
+## Local primitives (the only place custom classNames are allowed)
+
+When no primitive fits and you need bespoke styling, write a **local primitive**:
+
+- It lives in its own file, colocated with the feature that uses it.
+- It styles a **raw HTML element** (`div`, `span`, `textarea`, ...), never a Tangle primitive.
+- It is marked with a `// local primitive` comment at the top.
+
+The ESLint rule ignores raw HTML elements, so local primitives are naturally exempt. If you reach
+for the same shape repeatedly, promote it to a shared Layer-3 pattern under `@/shared/ui/patterns/`.
