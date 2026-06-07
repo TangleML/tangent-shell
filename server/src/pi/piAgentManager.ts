@@ -8,7 +8,15 @@ import {
   type SubagentStatus,
 } from "@shared/contracts.ts";
 
-import { INTERNAL_TOKEN, INTERNAL_URL, PI_BIN } from "../config.ts";
+import {
+  INTERNAL_TOKEN,
+  INTERNAL_URL,
+  PI_BIN,
+  PI_DEBUG,
+  PI_MODEL,
+  PI_PROVIDER,
+  PI_PROXY_URL,
+} from "../config.ts";
 import {
   type AgentConfig,
   getPrimeAgentConfig,
@@ -29,6 +37,7 @@ import {
   extractLastAssistantText,
   ORCHESTRATOR_EXTENSION,
   parsePiEvent,
+  PROXY_PROVIDER_EXTENSION,
   readDelta,
   toDescriptor,
   toSubagentInfo,
@@ -45,6 +54,75 @@ export type {
   PiAgentHandlers,
   SubagentUpdateHandler,
 } from "./types.ts";
+
+/** Builds the `pi --mode rpc` CLI args for an agent process. */
+function buildPiArgs(config: AgentConfig): string[] {
+  return [
+    "--mode",
+    "rpc",
+    "--no-session",
+    "--provider",
+    PI_PROVIDER,
+    "--model",
+    PI_MODEL,
+    "--tools",
+    config.tools.join(","),
+    "--append-system-prompt",
+    config.appendSystemPrompt,
+    // Orchestrator gives Prime its sub-agent tools; the proxy-provider
+    // extension registers Pi's providers against the LLM proxy (required in
+    // environments without an auto-discovered `~/.pi/agent` config).
+    "--extension",
+    ORCHESTRATOR_EXTENSION,
+    "--extension",
+    PROXY_PROVIDER_EXTENSION,
+  ];
+}
+
+/** Logs the resolved spawn configuration (with the proxy key masked). */
+function logSpawn(
+  sessionId: string,
+  descriptor: AgentDescriptor,
+  cwd: string,
+  config: AgentConfig,
+): void {
+  console.log(
+    `[pi:${sessionId}:${descriptor.agentId}] spawning`,
+    JSON.stringify({
+      bin: PI_BIN,
+      role: descriptor.role,
+      cwd,
+      provider: PI_PROVIDER,
+      model: PI_MODEL,
+      proxyUrl: PI_PROXY_URL,
+      hasProxyApiKey: Boolean(process.env.PI_PROXY_API_KEY),
+      tools: config.tools.join(","),
+    }),
+  );
+}
+
+/**
+ * Logs a single stdout RPC line. Raw lines are emitted only under PI_DEBUG;
+ * error-shaped events are always surfaced (the key signal when an agent fails
+ * to generate a response), and otherwise the event type is logged.
+ */
+function logStdoutLine(
+  sessionId: string,
+  agentId: string,
+  line: string,
+  event: PiStdoutEvent | null,
+): void {
+  const tag = `[pi:${sessionId}:${agentId}]`;
+  if (PI_DEBUG) console.log(`${tag} stdout ${line}`);
+  if (!event) return;
+
+  const isError = typeof event.type === "string" && /error/i.test(event.type);
+  if (isError) {
+    console.error(`${tag} error event: ${line}`);
+  } else if (!PI_DEBUG) {
+    console.log(`${tag} event ${event.type}`);
+  }
+}
 
 /**
  * Manages a roster of long-lived `pi --mode rpc` child processes per session:
@@ -74,6 +152,12 @@ export class PiAgentManager {
       console.warn(
         "[pi] PI_PROXY_API_KEY is not set; Pi will fail to reach the LLM gateway. " +
           "Run `export PI_PROXY_API_KEY=$(devx llm-gateway print-token --key)` before starting the server.",
+      );
+    }
+    if (!process.env.PI_PROXY_URL) {
+      console.warn(
+        `[pi] PI_PROXY_URL is not set; the proxy-provider extension will default to ${PI_PROXY_URL}. ` +
+          "Set PI_PROXY_URL to point Pi at a different LLM proxy.",
       );
     }
 
@@ -173,6 +257,15 @@ export class PiAgentManager {
     };
     if (agent.busy) command.streamingBehavior = "followUp";
 
+    console.log(
+      `[pi:${sessionId}:${agentId}] prompt`,
+      JSON.stringify({
+        role: agent.role,
+        wasBusy: agent.busy,
+        textLength: text.length,
+      }),
+    );
+
     agent.busy = true;
     agent.child.stdin.write(`${JSON.stringify(command)}\n`);
   }
@@ -226,32 +319,20 @@ export class PiAgentManager {
     descriptor: AgentDescriptor & { template?: string },
     config: AgentConfig,
   ): AgentProcess {
-    const child = spawn(
-      PI_BIN,
-      [
-        "--mode",
-        "rpc",
-        "--no-session",
-        "--tools",
-        config.tools.join(","),
-        "--append-system-prompt",
-        config.appendSystemPrompt,
-        "--extension",
-        ORCHESTRATOR_EXTENSION,
-      ],
-      {
-        cwd: session.rootPath,
-        env: {
-          ...process.env,
-          TANGENT_SESSION_ID: sessionId,
-          TANGENT_AGENT_ID: descriptor.agentId,
-          TANGENT_AGENT_ROLE: descriptor.role,
-          TANGENT_INTERNAL_URL: INTERNAL_URL,
-          TANGENT_INTERNAL_TOKEN: INTERNAL_TOKEN,
-        },
-        stdio: ["pipe", "pipe", "pipe"],
+    logSpawn(sessionId, descriptor, session.rootPath, config);
+
+    const child = spawn(PI_BIN, buildPiArgs(config), {
+      cwd: session.rootPath,
+      env: {
+        ...process.env,
+        TANGENT_SESSION_ID: sessionId,
+        TANGENT_AGENT_ID: descriptor.agentId,
+        TANGENT_AGENT_ROLE: descriptor.role,
+        TANGENT_INTERNAL_URL: INTERNAL_URL,
+        TANGENT_INTERNAL_TOKEN: INTERNAL_TOKEN,
       },
-    ) as ChildProcessWithoutNullStreams;
+      stdio: ["pipe", "pipe", "pipe"],
+    }) as ChildProcessWithoutNullStreams;
 
     const agent: AgentProcess = {
       agentId: descriptor.agentId,
@@ -267,6 +348,14 @@ export class PiAgentManager {
       thinkingAccum: "",
     };
     session.agents.set(descriptor.agentId, agent);
+
+    this.wireChildStreams(sessionId, agent);
+    return agent;
+  }
+
+  /** Attaches stdout/stderr readers and lifecycle handlers to a Pi process. */
+  private wireChildStreams(sessionId: string, agent: AgentProcess): void {
+    const { child } = agent;
 
     attachJsonlReader(child.stdout, (line) =>
       this.handleStdoutLine(sessionId, agent, line),
@@ -291,8 +380,6 @@ export class PiAgentManager {
       this.failInFlight(sessionId, agent, "Pi process exited unexpectedly.");
       this.removeAgent(sessionId, agent, "error");
     });
-
-    return agent;
   }
 
   /** Dispatches one parsed stdout line to the matching per-event handler. */
@@ -302,6 +389,7 @@ export class PiAgentManager {
     line: string,
   ): void {
     const event = parsePiEvent(line);
+    logStdoutLine(sessionId, agent.agentId, line, event);
     if (!event) {
       console.error(`[pi:${sessionId}:${agent.agentId}] unparseable: ${line}`);
       return;
@@ -381,6 +469,16 @@ export class PiAgentManager {
     const content = agent.accum || extractLastAssistantText(event) || "";
     const messageId = agent.currentMessageId;
     const thinking = agent.thinkingAccum;
+
+    console.log(
+      `[pi:${sessionId}:${agent.agentId}] agent_end`,
+      JSON.stringify({
+        role: agent.role,
+        contentLength: content.length,
+        thinkingLength: thinking.length,
+      }),
+    );
+
     agent.currentMessageId = null;
     agent.accum = "";
     agent.thinkingAccum = "";

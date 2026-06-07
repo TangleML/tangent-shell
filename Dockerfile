@@ -69,6 +69,14 @@ ENV PORT=8080
 ENV SESSIONS_ROOT=/tmp/sessions
 ENV HOME=/tmp
 ENV PI_BIN=pi
+# Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
+# Because HOME=/tmp there is no auto-discovered ~/.pi/agent provider config, so
+# the extension registers providers itself. Override to target a different proxy.
+ENV PI_PROXY_URL=https://proxy.shopify.ai
+# PI_PROXY_API_KEY must be supplied at deploy time (e.g. a Cloud Run secret) so
+# Pi can authenticate to the proxy; it is intentionally not baked into the image.
+# Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default openai/gpt-5.5),
+# PI_DEBUG=1 enables verbose Pi RPC logging.
 
 COPY --from=builder /app/dist ./dist
 

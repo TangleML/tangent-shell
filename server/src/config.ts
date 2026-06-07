@@ -27,6 +27,29 @@ export const ARTIFACTS_DIRNAME = "artifacts";
 export const PI_BIN = process.env.PI_BIN ?? "pi";
 
 /**
+ * Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
+ * Defaults to the Shopify proxy so local behavior matches the auto-discovered
+ * `~/.pi/agent` extension; override in deployments (e.g. Cloud Run) to target a
+ * different proxy. Mirrored here for logging; the extension reads it directly.
+ */
+export const PI_PROXY_URL = process.env.PI_PROXY_URL ?? "https://proxy.shopify.ai";
+
+/**
+ * Provider/model Pi is pinned to when spawned. In the container there is no
+ * `~/.pi/agent/settings.json`, so these are passed explicitly to match the
+ * local defaults (`openai` / `gpt-5.5`).
+ */
+export const PI_PROVIDER = process.env.PI_PROVIDER ?? "openai";
+export const PI_MODEL = process.env.PI_MODEL ?? "gpt-5.5";
+
+/**
+ * When enabled, the Pi manager emits verbose logs including raw stdout RPC
+ * lines. Lifecycle logs are always emitted regardless of this flag. Defaults to
+ * true for now (set PI_DEBUG=0/false/no to silence the verbose stream).
+ */
+export const PI_DEBUG = !/^(0|false|no)$/i.test(process.env.PI_DEBUG ?? "");
+
+/**
  * Base URL the orchestrator extension (running inside each Pi process) uses to
  * reach this server's internal agent API. Defaults to loopback on {@link PORT}.
  */

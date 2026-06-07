@@ -17,6 +17,18 @@ export const ORCHESTRATOR_EXTENSION = path.join(
   "orchestrator.ts",
 );
 
+/**
+ * Absolute path to the proxy-provider extension loaded into every Pi process.
+ * It registers Pi's providers against the LLM proxy (base from `PI_PROXY_URL`),
+ * which is required in environments without an auto-discovered `~/.pi/agent`
+ * provider config (e.g. the Cloud Run container where `HOME=/tmp`).
+ */
+export const PROXY_PROVIDER_EXTENSION = path.join(
+  import.meta.dirname,
+  "extensions",
+  "proxyProvider.ts",
+);
+
 /** Drops a single optional trailing CR from a line. */
 function stripTrailingCr(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;

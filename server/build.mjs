@@ -42,5 +42,9 @@ await cp(
   path.join(piSrc, "extensions", "orchestrator.ts"),
   path.join(outDir, "extensions", "orchestrator.ts"),
 );
+await cp(
+  path.join(piSrc, "extensions", "proxyProvider.ts"),
+  path.join(outDir, "extensions", "proxyProvider.ts"),
+);
 
 console.log("[build:server] bundled server to dist/index.js");
