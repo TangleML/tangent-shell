@@ -34,6 +34,9 @@ export function SessionsPage() {
             </Paragraph>
           </BlockStack>
           <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+            <Button variant="ghost" asChild>
+              <Link to="/agent-bundles">Agent bundles</Link>
+            </Button>
             <input
               ref={fileInputRef}
               type="file"

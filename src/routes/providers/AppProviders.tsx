@@ -15,10 +15,7 @@ type AppProvidersProps = {
 export function AppProviders({ children }: AppProvidersProps) {
   return (
     <ErrorBoundary FallbackComponent={RootErrorFallback}>
-      <QueryClientProvider client={queryClient}>
-        {children}
-        {env.isDev ? <ReactQueryDevtools initialIsOpen={false} /> : null}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </ErrorBoundary>
   );
 }

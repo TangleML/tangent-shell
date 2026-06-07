@@ -5,6 +5,7 @@ import { Server as SocketIOServer } from "socket.io";
 
 import { PORT } from "./config.ts";
 import { PiAgentManager } from "./pi/piAgentManager.ts";
+import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
 import { createSessionsRouter } from "./routes/sessions.ts";
 import {
@@ -13,10 +14,13 @@ import {
   createSubagentUpdateHandler,
   registerChatHandlers,
 } from "./sockets/chat.ts";
+import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
 import { InMemorySessionStore } from "./store/inMemorySessionStore.ts";
 
 // Single shared store instance backs both REST routes and socket handlers.
 const store = new InMemorySessionStore();
+// Filesystem-backed marketplace of saved agent bundles.
+const agentBundleStore = new FileAgentBundleStore();
 
 const app = express();
 app.use(express.json());
@@ -41,7 +45,8 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.use("/api/sessions", createSessionsRouter(store, pi));
+app.use("/api/sessions", createSessionsRouter(store, pi, agentBundleStore));
+app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use("/internal/agents", createInternalAgentsRouter(store, pi));
 

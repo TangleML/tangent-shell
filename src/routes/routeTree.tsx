@@ -3,6 +3,7 @@ import { TanStackRouterDevtools } from "@tanstack/router-devtools";
 
 import { env } from "@/shared/config/env";
 
+import { AgentBundlesPage } from "./agent-bundles/AgentBundlesPage";
 import { HomePage } from "./home/HomePage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { SessionChatPage } from "./sessions/SessionChatPage";
@@ -40,8 +41,15 @@ const sessionChatRoute = createRoute({
   component: SessionChatPage,
 });
 
+const agentBundlesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agent-bundles",
+  component: AgentBundlesPage,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   sessionsRoute,
   sessionChatRoute,
+  agentBundlesRoute,
 ]);

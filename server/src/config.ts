@@ -13,6 +13,15 @@ export const SESSIONS_ROOT =
   process.env.SESSIONS_ROOT ?? path.resolve(process.cwd(), ".sessions");
 
 /**
+ * Root directory backing the agent bundle marketplace. Each saved bundle gets
+ * its own subdirectory (`AGENT_BUNDLES_ROOT/<id>`) holding the original ZIP,
+ * extracted metadata, and icon. Gitignored by default.
+ */
+export const AGENT_BUNDLES_ROOT =
+  process.env.AGENT_BUNDLES_ROOT ??
+  path.resolve(process.cwd(), ".agent-bundles");
+
+/**
  * Name of the per-session subdirectory whose contents are served over HTTP as
  * artifacts (images, generated HTML pages, reports). Agents write user-facing
  * outputs here and reference them by this relative path; the file API only

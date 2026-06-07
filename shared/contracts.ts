@@ -123,10 +123,41 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+/**
+ * Metadata for an agent bundle stored in the marketplace, derived from the
+ * bundle's `tangent.yaml` at upload time. Backs the marketplace grid and the
+ * "use in new session" flow.
+ */
+export interface AgentBundleMeta {
+  /** The bundle's stable slug id; also the marketplace storage key. */
+  id: string;
+  /** Human-readable display name. */
+  name: string;
+  /** Author-managed semver for this preset. */
+  version: string;
+  /** Short description shown on the marketplace card. */
+  description?: string;
+  /** Bundle author. */
+  author?: string;
+  /** Free-form tags for filtering/search. */
+  tags?: string[];
+  /** Whether the bundle shipped a preview icon (served at `/icon`). */
+  hasIcon: boolean;
+  /** ISO-8601 timestamp the bundle was first saved. */
+  createdAt: string;
+  /** ISO-8601 timestamp of the most recent upload. */
+  updatedAt: string;
+}
+
+/** Response from `GET /api/agent-bundles`: the stored bundle metadata. */
+export interface ListAgentBundlesResponse {
+  bundles: AgentBundleMeta[];
+}
+
 export interface CreateSessionRequest {
   name?: string;
-  /** Marketplace config id to create the session from (Phase 4). */
-  configId?: string;
+  /** Marketplace agent bundle id to create the session from. */
+  bundleId?: string;
 }
 
 export interface UpdateSessionRequest {

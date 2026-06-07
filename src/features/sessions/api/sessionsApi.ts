@@ -65,7 +65,7 @@ function buildSessionFormData(
 ): FormData {
   const form = new FormData();
   if (fields.name) form.append("name", fields.name);
-  if (fields.configId) form.append("configId", fields.configId);
+  if (fields.bundleId) form.append("bundleId", fields.bundleId);
   form.append("config", config);
   return form;
 }

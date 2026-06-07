@@ -15,17 +15,9 @@ import multer from "multer";
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT, UPLOADS_DIRNAME } from "../config.ts";
 import { installBundle } from "../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
+import type { AgentBundleStore } from "../store/agentBundleStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
-
-/**
- * Buffers an uploaded Configuration Bundle ZIP in memory. Bundles are small
- * (prompts + a few markdown/TS files), so memory storage avoids temp-file
- * cleanup; the buffer is handed straight to {@link installBundle}.
- */
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-});
+import { bundleUpload } from "./bundleUpload.ts";
 
 /** Strips path separators/dotfiles from a filename so it can't escape `uploads/`. */
 function sanitizeFilename(name: string): string {
@@ -146,23 +138,54 @@ async function createSessionFromBundle(
   }
 }
 
-/** Handles `POST /api/sessions` for both plain JSON and bundle uploads. */
+/**
+ * Resolves the bundle ZIP a create request should install: an uploaded `config`
+ * multipart file, or a marketplace bundle referenced by `bundleId`. Returns
+ * `undefined` when no bundle was requested and `"not-found"` when a `bundleId`
+ * doesn't resolve, so the caller can answer `404` before creating a session.
+ */
+async function resolveCreateBundle(
+  req: Request,
+  body: CreateSessionRequest,
+  agentBundleStore: AgentBundleStore,
+): Promise<Buffer | "not-found" | undefined> {
+  if (req.file) return req.file.buffer;
+  if (!body.bundleId) return undefined;
+  return (await agentBundleStore.readBundle(body.bundleId)) ?? "not-found";
+}
+
+/**
+ * Handles `POST /api/sessions`. A session can be created plain, from an
+ * uploaded bundle ZIP (`config` multipart field), or from a marketplace agent
+ * bundle (`bundleId`); the latter two share the {@link createSessionFromBundle}
+ * install path.
+ */
 async function handleCreateSession(
   store: SessionStore,
   pi: PiAgentManager,
+  agentBundleStore: AgentBundleStore,
   req: Request,
   res: Response,
 ): Promise<void> {
   const body = (req.body ?? {}) as CreateSessionRequest;
+
+  // Resolve any bundle before creating the session so a bad id fails without
+  // leaving an empty session behind.
+  const zipBuffer = await resolveCreateBundle(req, body, agentBundleStore);
+  if (zipBuffer === "not-found") {
+    res.status(404).json({ error: "Agent bundle not found" });
+    return;
+  }
+
   const session = await store.createSession({ name: body.name });
 
-  if (req.file) {
+  if (zipBuffer) {
     await createSessionFromBundle(
       store,
       pi,
       session.id,
       session.rootPath,
-      req.file.buffer,
+      zipBuffer,
       res,
     );
     return;
@@ -253,6 +276,7 @@ async function handleDeleteSession(
 export function createSessionsRouter(
   store: SessionStore,
   pi: PiAgentManager,
+  agentBundleStore: AgentBundleStore,
 ): Router {
   const router = Router();
 
@@ -261,11 +285,15 @@ export function createSessionsRouter(
     res.json({ sessions });
   });
 
-  // `upload.single` parses a multipart `config` ZIP (form field `name` lands in
-  // `req.body`); plain JSON requests pass through untouched (parsed earlier by
-  // the global `express.json()`), so both content types hit the same handler.
-  router.post("/", upload.single("config"), (req: Request, res: Response) =>
-    handleCreateSession(store, pi, req, res),
+  // `bundleUpload.single` parses a multipart `config` ZIP (form field `name`
+  // lands in `req.body`); plain JSON requests pass through untouched (parsed
+  // earlier by the global `express.json()`), so both content types hit the same
+  // handler.
+  router.post(
+    "/",
+    bundleUpload.single("config"),
+    (req: Request, res: Response) =>
+      handleCreateSession(store, pi, agentBundleStore, req, res),
   );
 
   router.get("/:id", (req: Request<{ id: string }>, res: Response) =>
