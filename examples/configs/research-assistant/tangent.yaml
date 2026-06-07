@@ -1,0 +1,45 @@
+schemaVersion: 1
+id: research-assistant
+name: Research Assistant
+version: 1.0.0
+description: Web research workflow with a scout sub-agent and review template.
+author: Tangent
+icon: icon.svg
+tags:
+  - research
+  - writing
+
+prime:
+  systemPrompt: prompts/prime.md
+  tools:
+    - read
+    - write
+    - edit
+    - bash
+
+subagents:
+  defaultSystemPrompt: prompts/subagent.md
+  defaultTools:
+    - read
+    - grep
+    - find
+    - ls
+
+skills:
+  - skills/web-research/SKILL.md
+workflows:
+  - workflows/literature-review.md
+agents:
+  - agents/scout.md
+memory:
+  - memory/project-notes.md
+extensions:
+  - tools/citations.ts
+
+software:
+  npm:
+    - "typescript:^5"
+  pip:
+    - "requests:2.31.0"
+  brew:
+    - "ripgrep"
