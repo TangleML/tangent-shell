@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Skill Builder">
+  <rect width="48" height="48" rx="10" fill="#1f2a44" />
+  <path d="M24 9l13 7v16l-13 7-13-7V16z" fill="#cdd7f0" fill-opacity="0.9" />
+  <path d="M24 9l13 7v16l-13 7-13-7V16z" fill="none" stroke="#8aa0d6" stroke-width="1.5" stroke-linejoin="round" />
+  <path d="M11 16l13 7 13-7M24 23v16" fill="none" stroke="#8aa0d6" stroke-width="1.5" stroke-linejoin="round" />
+  <path d="M30 14l1.6 3.4L35 19l-3.4 1.6L30 24l-1.6-3.4L25 19l3.4-1.6z" fill="#7fd1c4" />
+</svg>
