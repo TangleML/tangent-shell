@@ -1,12 +1,12 @@
-import { Link } from "@tanstack/react-router";
 import { useRef } from "react";
 
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useUploadAgentBundle } from "@/features/agent-bundles/hooks/useUploadAgentBundle";
 import { Button } from "@/shared/ui/button";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { Breadcrumbs, CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
-import { Page } from "@/shared/ui/patterns/page";
+import { WorkArea } from "@/shared/ui/patterns/work-area";
 import { Heading, Paragraph } from "@/shared/ui/typography";
 
 import { AgentBundleCard } from "./AgentBundleCard";
@@ -25,37 +25,39 @@ export function AgentBundlesPage() {
   };
 
   return (
-    <Page>
+    <WorkArea>
       <BlockStack gap="6">
-        <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
-          <BlockStack gap="1">
-            <Heading level={1} size="xl" weight="bold">
-              Agent bundles
-            </Heading>
-            <Paragraph size="sm" tone="subdued">
-              Portable presets that provision a session's prompts, tools,
-              skills, workflows, rules, and memory.
-            </Paragraph>
-          </BlockStack>
-          <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-            <Button variant="ghost" asChild>
-              <Link to="/sessions">Sessions</Link>
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".zip"
-              hidden
-              onChange={onPickBundle}
-            />
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadBundle.isPending}
-            >
-              {uploadBundle.isPending ? "Uploading..." : "Upload bundle"}
-            </Button>
+        <BlockStack gap="2">
+          <Breadcrumbs>
+            <CrumbCurrent>Agent bundles</CrumbCurrent>
+          </Breadcrumbs>
+          <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
+            <BlockStack gap="1">
+              <Heading level={1} size="xl" weight="bold">
+                Agent bundles
+              </Heading>
+              <Paragraph size="sm" tone="subdued">
+                Portable presets that provision a session's prompts, tools,
+                skills, workflows, rules, and memory.
+              </Paragraph>
+            </BlockStack>
+            <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".zip"
+                hidden
+                onChange={onPickBundle}
+              />
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadBundle.isPending}
+              >
+                {uploadBundle.isPending ? "Uploading..." : "Upload bundle"}
+              </Button>
+            </InlineStack>
           </InlineStack>
-        </InlineStack>
+        </BlockStack>
 
         {error ? (
           <Paragraph size="sm" tone="critical">
@@ -91,6 +93,6 @@ export function AgentBundlesPage() {
           </BundleGrid>
         ) : null}
       </BlockStack>
-    </Page>
+    </WorkArea>
   );
 }

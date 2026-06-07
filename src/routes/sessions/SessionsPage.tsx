@@ -1,64 +1,141 @@
-import { Link } from "@tanstack/react-router";
+import type { Session } from "@shared/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import { useRef } from "react";
 
+import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
 import { Button } from "@/shared/ui/button";
+import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Page } from "@/shared/ui/patterns/page";
-import { Surface } from "@/shared/ui/patterns/surface";
+import { Breadcrumbs, CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
+import { EmptyState } from "@/shared/ui/patterns/empty-state";
+import {
+  SideNav,
+  SideNavLink,
+  SideNavSection,
+} from "@/shared/ui/patterns/side-nav";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/ui/patterns/table";
+import { WorkArea } from "@/shared/ui/patterns/work-area";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 export function SessionsPage() {
   const { data: sessions, isLoading, error } = useSessions();
+  const { data: bundles } = useAgentBundles();
   const createSession = useCreateSession();
+  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const onPickBundle = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const openSession = (session: Session) =>
+    void navigate({
+      to: "/sessions/$sessionId",
+      params: { sessionId: session.id },
+    });
+
+  const createBlank = () =>
+    createSession.mutate({}, { onSuccess: openSession });
+
+  const onPickConfig = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     // Reset so re-picking the same file still fires `change`.
     event.target.value = "";
-    if (file) createSession.mutate({ config: file });
+    if (file) createSession.mutate({ config: file }, { onSuccess: openSession });
   };
 
+  const startFromBundle = (bundleId: string, name: string) =>
+    createSession.mutate({ bundleId, name }, { onSuccess: openSession });
+
+  const sidebar = (
+    <SideNav>
+      <SideNavSection title="Navigate">
+        <SideNavLink to="/sessions">
+          <Icon name="LayoutGrid" size="sm" />
+          All sessions
+        </SideNavLink>
+        <SideNavLink to="/agent-bundles">
+          <Icon name="Package" size="sm" />
+          Agent bundles
+        </SideNavLink>
+      </SideNavSection>
+
+      <SideNavSection title="New session">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".zip"
+          hidden
+          onChange={onPickConfig}
+        />
+        <Button
+          fullWidth
+          align="start"
+          onClick={createBlank}
+          disabled={createSession.isPending}
+        >
+          <Icon name="Plus" size="sm" />
+          Blank session
+        </Button>
+        <Button
+          fullWidth
+          align="start"
+          variant="secondary"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={createSession.isPending}
+        >
+          <Icon name="Upload" size="sm" />
+          From config (.zip)
+        </Button>
+      </SideNavSection>
+
+      {bundles && bundles.length > 0 ? (
+        <SideNavSection title="From bundle">
+          {bundles.map((bundle) => (
+            <Button
+              key={bundle.id}
+              fullWidth
+              align="start"
+              truncate
+              variant="ghost"
+              onClick={() => startFromBundle(bundle.id, bundle.name)}
+              disabled={createSession.isPending}
+            >
+              <Icon name="Package" size="sm" />
+              <span>{bundle.name}</span>
+            </Button>
+          ))}
+        </SideNavSection>
+      ) : null}
+    </SideNav>
+  );
+
   return (
-    <Page>
+    <WorkArea sidebar={sidebar}>
       <BlockStack gap="6">
-        <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
-          <BlockStack gap="1">
-            <Heading level={1} size="xl" weight="bold">
-              Sessions
-            </Heading>
-            <Paragraph size="sm" tone="subdued">
-              Each session runs a Pi coding agent in its own scoped folder.
-            </Paragraph>
-          </BlockStack>
-          <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-            <Button variant="ghost" asChild>
-              <Link to="/agent-bundles">Agent bundles</Link>
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".zip"
-              hidden
-              onChange={onPickBundle}
-            />
-            <Button
-              variant="secondary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={createSession.isPending}
-            >
-              New from config
-            </Button>
-            <Button
-              onClick={() => createSession.mutate({})}
-              disabled={createSession.isPending}
-            >
+        <BlockStack gap="2">
+          <Breadcrumbs>
+            <CrumbCurrent>Sessions</CrumbCurrent>
+          </Breadcrumbs>
+          <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
+            <BlockStack gap="1">
+              <Heading level={1} size="xl" weight="bold">
+                Sessions
+              </Heading>
+              <Paragraph size="sm" tone="subdued">
+                Each session runs a Pi coding agent in its own scoped folder.
+              </Paragraph>
+            </BlockStack>
+            <Button onClick={createBlank} disabled={createSession.isPending}>
               {createSession.isPending ? "Creating..." : "New session"}
             </Button>
           </InlineStack>
-        </InlineStack>
+        </BlockStack>
 
         {error ? (
           <Paragraph size="sm" tone="critical">
@@ -79,38 +156,50 @@ export function SessionsPage() {
         ) : null}
 
         {sessions && sessions.length === 0 ? (
-          <Paragraph size="sm" tone="subdued">
-            No sessions yet. Create one to get started.
-          </Paragraph>
+          <EmptyState
+            icon="FolderOpen"
+            title="No sessions yet"
+            description="Create one from the sidebar to get started."
+          />
         ) : null}
 
-        <BlockStack as="ul" gap="2" align="stretch">
-          {sessions?.map((session) => (
-            <li key={session.id}>
-              <Link
-                to="/sessions/$sessionId"
-                params={{ sessionId: session.id }}
-              >
-                <Surface hoverable>
-                  <BlockStack gap="0.5">
-                    <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-                      <Text weight="medium">{session.name}</Text>
-                      {session.config ? (
-                        <Text size="xs" tone="subdued">
-                          {session.config.name} v{session.config.version}
-                        </Text>
-                      ) : null}
-                    </InlineStack>
+        {sessions && sessions.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Bundle</TableHead>
+                <TableHead>Path</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sessions.map((session) => (
+                <TableRow key={session.id} onClick={() => openSession(session)}>
+                  <TableCell>
+                    <Text weight="medium">{session.name}</Text>
+                  </TableCell>
+                  <TableCell>
+                    {session.config ? (
+                      <Text size="sm" tone="subdued">
+                        {session.config.name} v{session.config.version}
+                      </Text>
+                    ) : (
+                      <Text size="sm" tone="subdued">
+                        &mdash;
+                      </Text>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Text font="mono" size="xs" tone="subdued">
                       {session.rootPath}
                     </Text>
-                  </BlockStack>
-                </Surface>
-              </Link>
-            </li>
-          ))}
-        </BlockStack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : null}
       </BlockStack>
-    </Page>
+    </WorkArea>
   );
 }

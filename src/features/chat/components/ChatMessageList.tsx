@@ -74,7 +74,7 @@ export function ChatMessageList({
   // on mount and the setup effect above can attach its observers; otherwise the
   // ResizeObserver would never wire up and streaming growth wouldn't autoscroll.
   return (
-    <BlockStack fill>
+    <BlockStack grow>
       <ScrollRegion ref={containerRef} axis="y">
         <Box padding="base">
           <BlockStack fill ref={contentRef} gap="2">

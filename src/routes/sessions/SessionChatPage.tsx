@@ -2,18 +2,18 @@ import { Link, useParams } from "@tanstack/react-router";
 
 import { SessionChat } from "@/features/chat/components/SessionChat";
 import { useSession } from "@/features/sessions/hooks/useSession";
-import { Page } from "@/shared/ui/patterns/page";
+import { BlockStack } from "@/shared/ui/layout";
 import { Section } from "@/shared/ui/patterns/section";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 export function SessionChatPage() {
-  const { sessionId } = useParams({ from: "/sessions/$sessionId" });
+  const { sessionId } = useParams({ from: "/app/sessions/$sessionId" });
   const { data: session, error } = useSession(sessionId);
 
   return (
-    <Page height="screen" padded={false}>
+    <BlockStack grow>
       <Toolbar as="header" chrome="light" density="comfortable" gap="3">
         <Link to="/sessions">
           <Text size="sm" tone="subdued">
@@ -41,6 +41,6 @@ export function SessionChatPage() {
       ) : (
         <SessionChat sessionId={sessionId} />
       )}
-    </Page>
+    </BlockStack>
   );
 }

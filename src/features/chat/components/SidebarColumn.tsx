@@ -4,6 +4,8 @@ import type { PropsWithChildren } from "react";
 
 export function SidebarColumn({ children }: PropsWithChildren) {
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r">{children}</aside>
+    <aside className="flex w-56 min-h-0 shrink-0 flex-col overflow-hidden border-r">
+      {children}
+    </aside>
   );
 }

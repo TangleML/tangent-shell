@@ -1,10 +1,16 @@
-import { createRootRoute, createRoute, Outlet } from "@tanstack/react-router";
+import {
+  createRootRoute,
+  createRoute,
+  Outlet,
+  redirect,
+} from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/router-devtools";
 
 import { env } from "@/shared/config/env";
+import { AppShell } from "@/shared/ui/patterns/app-shell";
 
 import { AgentBundlesPage } from "./agent-bundles/AgentBundlesPage";
-import { HomePage } from "./home/HomePage";
+import { AppTopNav } from "./layout/AppTopNav";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { SessionChatPage } from "./sessions/SessionChatPage";
 import { SessionsPage } from "./sessions/SessionsPage";
@@ -18,38 +24,58 @@ function RootLayout() {
   );
 }
 
+function AppLayout() {
+  return (
+    <AppShell topBar={<AppTopNav />}>
+      <Outlet />
+    </AppShell>
+  );
+}
+
 const rootRoute = createRootRoute({
   component: RootLayout,
   notFoundComponent: NotFoundPage,
 });
 
-const indexRoute = createRoute({
+// Pathless layout route: renders the persistent app shell (top nav + working
+// area) around every page below it.
+const appLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
+  id: "app",
+  component: AppLayout,
+});
+
+const indexRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
   path: "/",
-  component: HomePage,
+  beforeLoad: () => {
+    throw redirect({ to: "/sessions" });
+  },
 });
 
 const sessionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appLayoutRoute,
   path: "/sessions",
   component: SessionsPage,
 });
 
 const sessionChatRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appLayoutRoute,
   path: "/sessions/$sessionId",
   component: SessionChatPage,
 });
 
 const agentBundlesRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appLayoutRoute,
   path: "/agent-bundles",
   component: AgentBundlesPage,
 });
 
 export const routeTree = rootRoute.addChildren([
-  indexRoute,
-  sessionsRoute,
-  sessionChatRoute,
-  agentBundlesRoute,
+  appLayoutRoute.addChildren([
+    indexRoute,
+    sessionsRoute,
+    sessionChatRoute,
+    agentBundlesRoute,
+  ]),
 ]);

@@ -53,7 +53,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const threadBusy = isConversationBusy(effectiveConversationId);
 
   return (
-    <BlockStack grow>
+    <BlockStack grow align="stretch">
       <Toolbar chrome="light" gap="2" align="space-between">
         <InlineStack gap="2" blockAlign="center" wrap="nowrap">
           <StatusDot connected={connected} />
@@ -71,14 +71,14 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         ) : null}
       </Toolbar>
       {/* Roster sidebar sits left of the message column; both share the row. */}
-      <InlineStack fill wrap="nowrap" blockAlign="stretch">
+      <InlineStack grow wrap="nowrap" blockAlign="stretch">
         <SubagentList
           subagents={subagents}
           selectedId={isOrphaned ? null : selectedAgentId}
           onSelect={setSelectedAgentId}
           isConversationBusy={isConversationBusy}
         />
-        <BlockStack fill>
+        <BlockStack grow>
           <ChatMessageList
             sessionId={sessionId}
             messages={visibleMessages}

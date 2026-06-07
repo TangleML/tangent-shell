@@ -15,7 +15,7 @@ import { cn } from "@/shared/lib/utils";
 const scrollRegionVariants = cva("flex-1", {
   variants: {
     axis: {
-      y: "min-h-0 overflow-y-auto overflow-x-hidden",
+      y: "min-h-0 overflow-y-auto overflow-x-hidden w-full",
       x: "min-w-0 overflow-x-auto overflow-y-hidden",
       both: "min-h-0 min-w-0 overflow-auto",
     },
@@ -68,7 +68,9 @@ export const ScrollRegion = forwardRef<
     <Element
       ref={ref as Ref<any>}
       role={role}
-      className={cn(scrollRegionVariants({ axis, scrollbar, position, zIndex }))}
+      className={cn(
+        scrollRegionVariants({ axis, scrollbar, position, zIndex }),
+      )}
     >
       {children}
     </Element>
