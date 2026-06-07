@@ -1,0 +1,38 @@
+# Dependencies are installed fresh inside the image.
+node_modules
+**/node_modules
+
+# VCS and build/runtime artifacts.
+.git
+.gitignore
+dist
+build
+.sessions
+
+# Frontend-only sources (this image builds the backend only).
+src
+public
+index.html
+vite.config.*
+tsconfig.app.json
+tsconfig.node.json
+eslint.config.*
+
+# Local env and tooling.
+.env
+.env.*
+.vscode
+.idea
+.cursor
+.claude
+docs
+
+# Logs and OS cruft.
+*.log
+.DS_Store
+
+# Don't ship the Docker files themselves.
+Dockerfile
+.dockerignore
+.codanna
+.fastembed_cache
