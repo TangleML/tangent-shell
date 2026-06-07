@@ -26,6 +26,7 @@
     "clsx": "^2.1.1",
     "express": "^5.2.1",
     "lucide-react": "^1.17.0",
+    "prism-react-renderer": "^2.4.1",
     "radix-ui": "^1.4.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Markdown } from "@/shared/lib/markdown/Markdown";
+import { Box } from "@/shared/ui/box";
 import { Button } from "@/shared/ui/button";
 import {
   Collapsible,
@@ -44,7 +45,11 @@ export function AgentThinking({ thinking, done }: AgentThinkingProps) {
           </Button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <Markdown>{thinking}</Markdown>
+          <Box padding="base" borderInlineStart="md" paddingInlineStart="sm">
+            <Markdown size="xs" tone="subdued">
+              {thinking}
+            </Markdown>
+          </Box>
         </CollapsibleContent>
       </BlockStack>
     </Collapsible>

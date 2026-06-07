@@ -120,6 +120,7 @@ const boxVariants = cva("", {
     borderInlineStart: {
       none: "border-s-0",
       sm: "border-s border-border",
+      md: "border-s-2 border-border",
     },
     borderInlineEnd: {
       none: "border-e-0",
