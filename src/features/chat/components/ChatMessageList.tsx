@@ -18,6 +18,8 @@ interface ChatMessageListProps {
   activity?: AgentActivity | null;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
   bundleId?: string;
+  /** Whether a given message id is still receiving streamed deltas. */
+  isMessageStreaming: (messageId: string) => boolean;
 }
 
 // Distance (px) from the bottom within which we still consider the user
@@ -30,6 +32,7 @@ export function ChatMessageList({
   currentAuthorId,
   activity,
   bundleId,
+  isMessageStreaming,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -93,6 +96,7 @@ export function ChatMessageList({
                   message={msg}
                   isOwn={msg.author.id === currentAuthorId}
                   bundleId={bundleId}
+                  isStreaming={isMessageStreaming(msg.id)}
                 />
               ))
             )}

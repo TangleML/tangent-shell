@@ -42,6 +42,10 @@ export function useSessionChat(sessionId: string) {
   const [streamingConversations, setStreamingConversations] = useState<
     Set<string>
   >(() => new Set());
+  // In-flight message ids (between `agent:start` and `agent:end` / `agent:error`).
+  const [streamingMessageIds, setStreamingMessageIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   // The current ephemeral activity per conversation (tool call / "thinking"
   // between messages). Cleared when a message streams in or the run ends.
   const [activityByConversation, setActivityByConversation] = useState<
@@ -73,6 +77,7 @@ export function useSessionChat(sessionId: string) {
       setSubagents([]);
       setConnected(true);
       setStreamingConversations(new Set());
+      setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
@@ -81,6 +86,7 @@ export function useSessionChat(sessionId: string) {
     socket.on("disconnect", () => {
       setConnected(false);
       setStreamingConversations(new Set());
+      setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
@@ -100,6 +106,11 @@ export function useSessionChat(sessionId: string) {
       setStreamingConversations((prev) => {
         const next = new Set(prev);
         next.add(message.conversationId);
+        return next;
+      });
+      setStreamingMessageIds((prev) => {
+        const next = new Set(prev);
+        next.add(message.id);
         return next;
       });
       setMessages((prev) => [...prev, message]);
@@ -139,6 +150,12 @@ export function useSessionChat(sessionId: string) {
         next.delete(message.conversationId);
         return next;
       });
+      setStreamingMessageIds((prev) => {
+        if (!prev.has(message.id)) return prev;
+        const next = new Set(prev);
+        next.delete(message.id);
+        return next;
+      });
       setMessages((prev) =>
         prev.map((m) => (m.id === message.id ? message : m)),
       );
@@ -166,6 +183,14 @@ export function useSessionChat(sessionId: string) {
           ? conversationByMessageId.current.get(messageId)
           : undefined;
         if (messageId) conversationByMessageId.current.delete(messageId);
+        if (messageId) {
+          setStreamingMessageIds((prev) => {
+            if (!prev.has(messageId)) return prev;
+            const next = new Set(prev);
+            next.delete(messageId);
+            return next;
+          });
+        }
         if (conversationId) {
           setStreamingConversations((prev) => {
             if (!prev.has(conversationId)) return prev;
@@ -275,6 +300,11 @@ export function useSessionChat(sessionId: string) {
     [activityByConversation],
   );
 
+  const isMessageStreaming = useCallback(
+    (messageId: string) => streamingMessageIds.has(messageId),
+    [streamingMessageIds],
+  );
+
   return {
     messages,
     subagents,
@@ -286,6 +316,7 @@ export function useSessionChat(sessionId: string) {
     agentBusy: isConversationBusy(PI_AGENT.id),
     isConversationBusy,
     getActivity,
+    isMessageStreaming,
     currentAuthorId: author.id,
     send,
   };

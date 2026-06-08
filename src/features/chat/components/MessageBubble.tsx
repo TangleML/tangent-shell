@@ -30,15 +30,24 @@ export type MessageBubbleVariant = NonNullable<
 interface MessageBubbleProps
   extends PropsWithChildren, VariantProps<typeof messageBubbleVariants> {
   className?: string;
+  /** When false, native text selection is disabled (e.g. collapsed thinking). */
+  selectable?: boolean;
 }
 
 export function MessageBubble({
   variant,
   className,
+  selectable = true,
   children,
 }: MessageBubbleProps) {
   return (
-    <div className={cn(messageBubbleVariants({ variant }), className)}>
+    <div
+      className={cn(
+        messageBubbleVariants({ variant }),
+        !selectable && "select-none",
+        className,
+      )}
+    >
       {children}
     </div>
   );

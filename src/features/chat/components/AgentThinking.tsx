@@ -1,5 +1,4 @@
-import { useState } from "react";
-
+import { useThinkingCollapse } from "@/features/chat/hooks/useThinkingCollapse";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 import { Box } from "@/shared/ui/box";
 import { Button } from "@/shared/ui/button";
@@ -11,32 +10,20 @@ import {
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack } from "@/shared/ui/layout";
 
-interface AgentThinkingProps {
+interface ThinkingDisclosureProps {
   thinking: string;
-  /**
-   * Whether the agent has moved on from reasoning (the answer has started or
-   * the message is finalized). Drives auto-collapse: the disclosure stays open
-   * while reasoning is live and collapses once `done` flips true.
-   */
-  done: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
-export function AgentThinking({ thinking, done }: AgentThinkingProps) {
-  // Auto-open while reasoning, auto-collapse once done — but preserve a manual
-  // toggle until `done` flips again. The override remembers which `done` value
-  // it applies to, so a change in `done` transparently falls back to the auto
-  // behavior without needing a state-syncing effect.
-  const [override, setOverride] = useState<{
-    open: boolean;
-    done: boolean;
-  } | null>(null);
-  const open = override && override.done === done ? override.open : !done;
-
+/** Shared trigger + bordered thinking body for inline and full-bubble disclosures. */
+export function ThinkingDisclosure({
+  thinking,
+  open,
+  onOpenChange,
+}: ThinkingDisclosureProps) {
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={(value) => setOverride({ open: value, done })}
-    >
+    <Collapsible open={open} onOpenChange={onOpenChange}>
       <BlockStack gap="1">
         <CollapsibleTrigger asChild>
           <Button variant="ghost" size="xs">
@@ -53,5 +40,27 @@ export function AgentThinking({ thinking, done }: AgentThinkingProps) {
         </CollapsibleContent>
       </BlockStack>
     </Collapsible>
+  );
+}
+
+interface AgentThinkingProps {
+  thinking: string;
+  /**
+   * Whether the agent has moved on from reasoning (the answer has started or
+   * the message is finalized). Drives auto-collapse: the disclosure stays open
+   * while reasoning is live and collapses once `done` flips true.
+   */
+  done: boolean;
+}
+
+export function AgentThinking({ thinking, done }: AgentThinkingProps) {
+  const { open, onOpenChange } = useThinkingCollapse(done);
+
+  return (
+    <ThinkingDisclosure
+      thinking={thinking}
+      open={open}
+      onOpenChange={onOpenChange}
+    />
   );
 }
