@@ -180,6 +180,23 @@ entities are applied as Pi spawn flags (wired in Phase 3):
 - `software` → no Pi mapping; declarative metadata only (not installed
   automatically).
 
+## Memory
+
+Agents have two live, mutable memory stores in addition to any seed files:
+
+- **Session memory** — `memory/MEMORY.md` is the canonical, agent-writable
+  session store. Ship it to pre-seed the session; if you omit it, Prime creates
+  it on its first write. Other `memory/*.md` files remain read-only seed
+  context. The agent updates session memory directly when the user says to
+  "remember"/"memorize" something or when it spots an obvious workflow
+  improvement.
+- **Global memory** — server-wide, shared by every session, read from the
+  directory in the `GLOBAL_MEMORY_DIR` env var (default `<cwd>/.memory`, holding
+  `GLOBAL_MEMORY.md`). A read-only snapshot is injected into each session.
+  Global memory is only written on an explicit user request, or after the user
+  confirms an agent's suggestion; the chat shows a highlighted card with the
+  exact text stored.
+
 ## Versioning
 
 - **`schemaVersion`** is an integer owned by Tangent. Increment it only on a

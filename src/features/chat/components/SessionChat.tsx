@@ -12,6 +12,7 @@ import { Text } from "@/shared/ui/typography";
 import { BundlePanelLauncher } from "./BundlePanelLauncher";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
+import { MemorySuggestionCard } from "./MemorySuggestionCard";
 import { StatusDot } from "./StatusDot";
 import { SubagentList } from "./SubagentList";
 
@@ -24,6 +25,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     messages,
     subagents,
     connected,
+    memorySuggestions,
+    confirmMemory,
+    dismissMemory,
     agentBusy,
     isConversationBusy,
     getActivity,
@@ -105,6 +109,20 @@ export function SessionChat({ sessionId }: SessionChatProps) {
             </>
           ) : (
             <>
+              {memorySuggestions.length > 0 ? (
+                <Box paddingInline="base" paddingBlock="sm">
+                  <BlockStack gap="2">
+                    {memorySuggestions.map((suggestion) => (
+                      <MemorySuggestionCard
+                        key={suggestion.suggestionId}
+                        suggestion={suggestion}
+                        onConfirm={confirmMemory}
+                        onDismiss={dismissMemory}
+                      />
+                    ))}
+                  </BlockStack>
+                </Box>
+              ) : null}
               {bundleId ? (
                 <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
               ) : null}

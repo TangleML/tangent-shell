@@ -12,6 +12,7 @@ import { unzipSync } from "fflate";
 import {
   buildTemplatesFromDir,
   DEFAULT_TOOLS,
+  PRIME_MEMORY_TOOLS,
   PRIME_ORCHESTRATION_TOOLS,
   type ResolvedSessionConfig,
   SHARED_AGENT_TOOLS,
@@ -117,6 +118,7 @@ function resolvePrimeTools(manifest: BundleManifest): string[] {
       ...base,
       ...SHARED_AGENT_TOOLS,
       ...PRIME_ORCHESTRATION_TOOLS,
+      ...PRIME_MEMORY_TOOLS,
     ]),
   ];
 }

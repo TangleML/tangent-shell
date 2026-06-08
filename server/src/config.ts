@@ -38,6 +38,28 @@ export const ARTIFACTS_DIRNAME = "artifacts";
 export const UPLOADS_DIRNAME = "uploads";
 
 /**
+ * Root directory holding the agents' global memory: long-lived facts that apply
+ * across every session. It is injected (read-only context) into each session at
+ * spawn and is only mutated on an explicit user request. Gitignored by default.
+ */
+export const GLOBAL_MEMORY_DIR =
+  process.env.GLOBAL_MEMORY_DIR ?? path.resolve(process.cwd(), ".memory");
+
+/**
+ * Canonical, agent-writable global memory file inside {@link GLOBAL_MEMORY_DIR}.
+ * A snapshot of its contents is also copied into each session root under the
+ * same basename so the agent can read it with its own file tools.
+ */
+export const GLOBAL_MEMORY_FILENAME = "GLOBAL_MEMORY.md";
+
+/**
+ * Canonical, agent-writable per-session memory file, kept at the session root.
+ * Seeded from a bundle's `memory/MEMORY.md` when present; otherwise Prime
+ * creates it on its first `remember`.
+ */
+export const SESSION_MEMORY_FILENAME = "MEMORY.md";
+
+/**
  * Executable used to spawn the Pi coding agent. Overridable so the binary can
  * be pinned in environments where `pi` is not on PATH.
  */

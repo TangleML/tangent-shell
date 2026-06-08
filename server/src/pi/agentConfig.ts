@@ -30,8 +30,15 @@ export const PRIME_ORCHESTRATION_TOOLS = [
   "list_subagents",
 ] as const;
 
-/** Tool every agent gets so it can read the shared room transcript. */
-export const SHARED_AGENT_TOOLS = ["read_room"] as const;
+/** Tools every agent gets: read the shared room transcript and its memory. */
+export const SHARED_AGENT_TOOLS = ["read_room", "read_memory"] as const;
+
+/**
+ * Memory-mutation tools (registered by the memory extension) that only Prime
+ * may use, since Prime owns the human conversation. Like the orchestration
+ * tools, these must be in Prime's allowlist or Pi would filter them out.
+ */
+export const PRIME_MEMORY_TOOLS = ["remember", "suggest_memory"] as const;
 
 /**
  * Per-agent configuration. Drives the tool allowlist and appended system prompt
@@ -215,6 +222,7 @@ export function getPrimeAgentConfig(): AgentConfig {
         ...DEFAULT_TOOLS,
         ...SHARED_AGENT_TOOLS,
         ...PRIME_ORCHESTRATION_TOOLS,
+        ...PRIME_MEMORY_TOOLS,
       ],
       appendSystemPrompt: loadPrimeSystemPrompt(),
     };

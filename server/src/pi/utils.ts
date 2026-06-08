@@ -29,6 +29,17 @@ export const PROXY_PROVIDER_EXTENSION = path.join(
   "proxyProvider.ts",
 );
 
+/**
+ * Absolute path to the memory extension loaded into every Pi process. It
+ * registers the `read_memory` / `remember` / `suggest_memory` tools that read
+ * and (for Prime) mutate the session and global memory stores.
+ */
+export const MEMORY_EXTENSION = path.join(
+  import.meta.dirname,
+  "extensions",
+  "memory.ts",
+);
+
 /** Drops a single optional trailing CR from a line. */
 function stripTrailingCr(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;
@@ -222,6 +233,9 @@ const TOOL_FORMATTERS: Record<string, ArgFormatter> = {
   kill_subagent: (a) =>
     labelWith("Stopping sub-agent", str(a.name) ?? str(a.id), ""),
   list_subagents: () => "Listing sub-agents",
+  read_memory: () => "Reading memory",
+  remember: (a) => labelWith("Remembering", str(a.text), ""),
+  suggest_memory: (a) => labelWith("Suggesting to remember", str(a.text), ""),
 };
 
 /**

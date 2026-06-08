@@ -25,6 +25,7 @@ import {
   resolveSubagentConfig,
   type SubagentSpawnRequest,
 } from "./agentConfig.ts";
+import type { MemoryManager } from "./memory.ts";
 import {
   type AgentDescriptor,
   type AgentProcess,
@@ -38,6 +39,7 @@ import {
   assistantTextFromMessage,
   attachJsonlReader,
   isAssistantRole,
+  MEMORY_EXTENSION,
   ORCHESTRATOR_EXTENSION,
   parsePiEvent,
   PROXY_PROVIDER_EXTENSION,
@@ -77,8 +79,21 @@ interface SpawnExtras {
   extensionPaths: string[];
 }
 
+/**
+ * Joins an agent's base appended system prompt with the per-session memory
+ * preamble, so every agent starts each session aware of its current memory.
+ */
+function appendWithMemory(config: AgentConfig, memoryPreamble: string): string {
+  if (!memoryPreamble.trim()) return config.appendSystemPrompt;
+  return `${config.appendSystemPrompt}\n\n${memoryPreamble}`;
+}
+
 /** Builds the `pi --mode rpc` CLI args for an agent process. */
-function buildPiArgs(config: AgentConfig, extras: SpawnExtras): string[] {
+function buildPiArgs(
+  config: AgentConfig,
+  extras: SpawnExtras,
+  memoryPreamble: string,
+): string[] {
   const args = [
     "--mode",
     "rpc",
@@ -90,14 +105,17 @@ function buildPiArgs(config: AgentConfig, extras: SpawnExtras): string[] {
     "--tools",
     config.tools.join(","),
     "--append-system-prompt",
-    config.appendSystemPrompt,
+    appendWithMemory(config, memoryPreamble),
     // Orchestrator gives Prime its sub-agent tools; the proxy-provider
     // extension registers Pi's providers against the LLM proxy (required in
-    // environments without an auto-discovered `~/.pi/agent` config).
+    // environments without an auto-discovered `~/.pi/agent` config); the memory
+    // extension registers the read/remember tools.
     "--extension",
     ORCHESTRATOR_EXTENSION,
     "--extension",
     PROXY_PROVIDER_EXTENSION,
+    "--extension",
+    MEMORY_EXTENSION,
   ];
 
   // Bundle-provided skills, workflows, and custom tool extensions, applied to
@@ -205,9 +223,11 @@ function logStdoutLine(
 export class PiAgentManager {
   private readonly sessions = new Map<string, SessionAgents>();
   private readonly handlers: PiAgentHandlers;
+  private readonly memory: MemoryManager;
 
-  constructor(handlers: PiAgentHandlers) {
+  constructor(handlers: PiAgentHandlers, memory: MemoryManager) {
     this.handlers = handlers;
+    this.memory = memory;
   }
 
   /**
@@ -225,6 +245,10 @@ export class PiAgentManager {
     if (session?.agents.has(PRIME_AGENT_ID)) return;
 
     warnMissingProxyEnv();
+
+    // Prepare memory before the first spawn so the preamble reflects any
+    // bundle-seeded session memory and the current global store.
+    this.memory.initSession(rootPath);
 
     if (!session) {
       session = { rootPath, agents: new Map(), config };
@@ -390,7 +414,8 @@ export class PiAgentManager {
     const extras = spawnExtras(session.config);
     logSpawn(sessionId, descriptor, session.rootPath, config, extras);
 
-    const child = spawn(PI_BIN, buildPiArgs(config, extras), {
+    const memoryPreamble = this.memory.buildPreamble(session.rootPath);
+    const child = spawn(PI_BIN, buildPiArgs(config, extras, memoryPreamble), {
       cwd: session.rootPath,
       env: {
         ...process.env,

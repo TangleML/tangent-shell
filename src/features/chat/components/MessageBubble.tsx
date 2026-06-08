@@ -14,6 +14,7 @@ const messageBubbleVariants = cva(
         own: "bg-primary/10 text-foreground",
         human: "bg-primary/10",
         agent: "bg-muted",
+        memory: "bg-accent/60 border border-accent-foreground/20",
       },
     },
     defaultVariants: {

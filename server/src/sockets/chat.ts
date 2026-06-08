@@ -13,6 +13,11 @@ import {
   type ChatJoinPayload,
   type ChatMessage,
   type ChatMessagePayload,
+  MEMORY_AUTHOR,
+  type MemoryConfirmPayload,
+  type MemoryDismissPayload,
+  type MemoryScope,
+  type MemorySuggestionPayload,
   PI_AGENT,
   SocketEvents,
   type SubagentRosterPayload,
@@ -20,6 +25,7 @@ import {
 } from "@shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
+import type { MemoryManager } from "../pi/memory.ts";
 import {
   type AgentDescriptor,
   type AgentEvent,
@@ -267,6 +273,101 @@ export function createAgentMessageHandler(
 }
 
 /**
+ * Handler that surfaces an applied memory write as a highlighted, persisted
+ * chat message. Built from the actual stored text (not the agent's claim) so
+ * the user always sees ground truth.
+ */
+export type MemoryRememberedHandler = (
+  sessionId: string,
+  scope: MemoryScope,
+  text: string,
+) => Promise<void>;
+
+/** Builds the {@link MemoryRememberedHandler} bound to the room + store. */
+export function createMemoryRememberedHandler(
+  io: Server,
+  store: SessionStore,
+): MemoryRememberedHandler {
+  return async (sessionId, scope, text) => {
+    const message: ChatMessage = {
+      ...buildMessage(
+        randomUUID(),
+        sessionId,
+        PRIME_AGENT_ID,
+        MEMORY_AUTHOR,
+        text,
+      ),
+      memory: { scope },
+    };
+    await store.appendMessage(message);
+    io.to(roomFor(sessionId)).emit(SocketEvents.ChatMessage, message);
+  };
+}
+
+/** Emits a memory suggestion card into the session room. */
+export type MemorySuggestionHandler = (
+  payload: MemorySuggestionPayload,
+) => void;
+
+/** Builds the {@link MemorySuggestionHandler} bound to the room. */
+export function createMemorySuggestionHandler(
+  io: Server,
+): MemorySuggestionHandler {
+  return (payload) => {
+    io.to(roomFor(payload.sessionId)).emit(
+      SocketEvents.MemorySuggestion,
+      payload,
+    );
+  };
+}
+
+/**
+ * Applies a confirmed suggestion: writes it to the resolved store, surfaces the
+ * highlight, and tells Prime the user approved so it can continue honestly.
+ */
+async function handleMemoryConfirm(
+  store: SessionStore,
+  pi: PiAgentManager,
+  memory: MemoryManager,
+  onRemembered: MemoryRememberedHandler,
+  payload: MemoryConfirmPayload,
+): Promise<void> {
+  const suggestion = memory.takeSuggestion(payload?.suggestionId);
+  if (!suggestion || suggestion.sessionId !== payload.sessionId) return;
+
+  const session = await store.getSession(suggestion.sessionId);
+  if (!session) return;
+
+  const result = memory.write(
+    session.rootPath,
+    suggestion.scope,
+    suggestion.text,
+  );
+  await onRemembered(suggestion.sessionId, result.scope, result.added);
+  pi.sendToAgent(
+    suggestion.sessionId,
+    PRIME_AGENT_ID,
+    `The user confirmed your suggestion. It has been stored to ${result.scope} ` +
+      `memory: "${result.added}".`,
+  );
+}
+
+/** Tells Prime a suggestion was declined; nothing is written. */
+function handleMemoryDismiss(
+  pi: PiAgentManager,
+  memory: MemoryManager,
+  payload: MemoryDismissPayload,
+): void {
+  const suggestion = memory.takeSuggestion(payload?.suggestionId);
+  if (!suggestion || suggestion.sessionId !== payload.sessionId) return;
+  pi.sendToAgent(
+    suggestion.sessionId,
+    PRIME_AGENT_ID,
+    `The user declined to remember: "${suggestion.text}". Do not store it.`,
+  );
+}
+
+/**
  * Registers chat (and a reserved terminal) handlers on the Socket.IO server.
  *
  * Phase 2 behaviour: clients join one room per session and receive history on
@@ -278,6 +379,8 @@ export function registerChatHandlers(
   io: Server,
   store: SessionStore,
   pi: PiAgentManager,
+  memory: MemoryManager,
+  onRemembered: MemoryRememberedHandler,
 ): void {
   io.on("connection", (socket: Socket) => {
     socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
@@ -286,6 +389,14 @@ export function registerChatHandlers(
 
     socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
       handleChatMessage(io, socket, store, pi, payload),
+    );
+
+    socket.on(SocketEvents.MemoryConfirm, (payload: MemoryConfirmPayload) =>
+      handleMemoryConfirm(store, pi, memory, onRemembered, payload),
+    );
+
+    socket.on(SocketEvents.MemoryDismiss, (payload: MemoryDismissPayload) =>
+      handleMemoryDismiss(pi, memory, payload),
     );
 
     // Terminal streaming channel is reserved for a later phase. Registered

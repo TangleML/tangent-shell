@@ -10,6 +10,9 @@ import {
   type ChatAuthor,
   type ChatMessage,
   type ChatMessagePayload,
+  type MemoryConfirmPayload,
+  type MemoryDismissPayload,
+  type MemorySuggestionPayload,
   PI_AGENT,
   SocketEvents,
   type SubagentInfo,
@@ -30,6 +33,10 @@ export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
   const [connected, setConnected] = useState(false);
+  // Pending agent-initiated memory suggestions awaiting the user's confirmation.
+  const [memorySuggestions, setMemorySuggestions] = useState<
+    MemorySuggestionPayload[]
+  >([]);
   // Conversations (keyed by `conversationId`) with a message actively
   // streaming, i.e. between `agent:start` and `agent:end` for that message.
   const [streamingConversations, setStreamingConversations] = useState<
@@ -67,6 +74,7 @@ export function useSessionChat(sessionId: string) {
       setConnected(true);
       setStreamingConversations(new Set());
       setActivityByConversation(new Map());
+      setMemorySuggestions([]);
       conversationByMessageId.current.clear();
       socket.emit(SocketEvents.ChatJoin, { sessionId });
     });
@@ -74,6 +82,7 @@ export function useSessionChat(sessionId: string) {
       setConnected(false);
       setStreamingConversations(new Set());
       setActivityByConversation(new Map());
+      setMemorySuggestions([]);
       conversationByMessageId.current.clear();
     });
 
@@ -188,6 +197,14 @@ export function useSessionChat(sessionId: string) {
       },
     );
 
+    // The agent proposed remembering something: queue a confirm/dismiss card.
+    socket.on(
+      SocketEvents.MemorySuggestion,
+      (suggestion: MemorySuggestionPayload) => {
+        setMemorySuggestions((prev) => [...prev, suggestion]);
+      },
+    );
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
@@ -209,6 +226,36 @@ export function useSessionChat(sessionId: string) {
     };
     socket.emit(SocketEvents.ChatMessage, payload);
   }
+
+  // Resolves a memory suggestion: tells the server to apply or discard it and
+  // optimistically removes the card so it can't be answered twice.
+  const resolveSuggestion = useCallback(
+    (suggestionId: string, accept: boolean) => {
+      const socket = socketRef.current;
+      if (!socket) return;
+      const event = accept
+        ? SocketEvents.MemoryConfirm
+        : SocketEvents.MemoryDismiss;
+      const payload: MemoryConfirmPayload | MemoryDismissPayload = {
+        sessionId,
+        suggestionId,
+      };
+      socket.emit(event, payload);
+      setMemorySuggestions((prev) =>
+        prev.filter((s) => s.suggestionId !== suggestionId),
+      );
+    },
+    [sessionId],
+  );
+
+  const confirmMemory = useCallback(
+    (suggestionId: string) => resolveSuggestion(suggestionId, true),
+    [resolveSuggestion],
+  );
+  const dismissMemory = useCallback(
+    (suggestionId: string) => resolveSuggestion(suggestionId, false),
+    [resolveSuggestion],
+  );
 
   // A conversation is busy while a message streams OR while it has a non-null
   // activity (thinking between turns / running a tool). Together these bracket
@@ -232,6 +279,9 @@ export function useSessionChat(sessionId: string) {
     messages,
     subagents,
     connected,
+    memorySuggestions,
+    confirmMemory,
+    dismissMemory,
     // The main thread's busy state drives the header/input; Prime owns it.
     agentBusy: isConversationBusy(PI_AGENT.id),
     isConversationBusy,

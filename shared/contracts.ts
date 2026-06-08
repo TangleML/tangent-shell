@@ -69,6 +69,25 @@ export const PI_AGENT: ChatAuthor = {
   agentRole: "prime",
 };
 
+/**
+ * Which memory store a fact belongs to: `session` (this session only, written
+ * directly by the agent) or `global` (applies to every session, only mutated on
+ * an explicit user request or after the user confirms a suggestion).
+ */
+export type MemoryScope = "session" | "global";
+
+/**
+ * Author attributed to the system-emitted "remembered" highlight messages. The
+ * highlight is produced by the server from the actual memory file write (not the
+ * agent's narration), so the user always sees ground truth.
+ */
+export const MEMORY_AUTHOR: ChatAuthor = {
+  id: "memory",
+  kind: "agent",
+  name: "Memory",
+  agentRole: "prime",
+};
+
 /** Lifecycle status of a sub-agent, surfaced in the session's agent roster. */
 export type SubagentStatus = "active" | "completed" | "killed" | "error";
 
@@ -119,6 +138,11 @@ export interface ChatMessage {
   thinking?: string;
   /** Files the human attached to this message, if any. */
   attachments?: Attachment[];
+  /**
+   * Present on server-emitted "remembered" highlights. Drives the distinct
+   * memory bubble (icon + tonal background) and records which store changed.
+   */
+  memory?: { scope: MemoryScope };
   /** ISO-8601 timestamp. */
   createdAt: string;
 }
@@ -264,6 +288,32 @@ export interface SubagentUpdatePayload {
   subagent: SubagentInfo;
 }
 
+/**
+ * Emitted (server -> client) when the agent suggests remembering something that
+ * needs user confirmation before it is applied (agent-initiated global memory).
+ * Rendered as a confirm/dismiss card in the chat.
+ */
+export interface MemorySuggestionPayload {
+  sessionId: string;
+  /** Correlates the user's confirm/dismiss back to the pending write. */
+  suggestionId: string;
+  scope: MemoryScope;
+  /** The fact the agent proposes to store. */
+  text: string;
+}
+
+/** Sent (client -> server) when the user accepts a memory suggestion. */
+export interface MemoryConfirmPayload {
+  sessionId: string;
+  suggestionId: string;
+}
+
+/** Sent (client -> server) when the user declines a memory suggestion. */
+export interface MemoryDismissPayload {
+  sessionId: string;
+  suggestionId: string;
+}
+
 /** Socket.IO event names shared by client and server. */
 export const SocketEvents = {
   ChatJoin: "chat:join",
@@ -278,6 +328,9 @@ export const SocketEvents = {
   AgentActivity: "agent:activity",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
+  MemorySuggestion: "memory:suggestion",
+  MemoryConfirm: "memory:confirm",
+  MemoryDismiss: "memory:dismiss",
 } as const;
 
 export type SocketEvent = (typeof SocketEvents)[keyof typeof SocketEvents];

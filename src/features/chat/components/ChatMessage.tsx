@@ -46,12 +46,36 @@ interface ChatMessageProps {
   bundleId?: string;
 }
 
+/**
+ * A server-emitted "remembered" highlight: a distinct, icon-marked bubble whose
+ * text is the exact fact written to memory (so the user sees ground truth, not
+ * the agent's claim).
+ */
+function MemoryMessage({ message }: { message: ChatMessageType }) {
+  const scope = message.memory?.scope === "global" ? "global" : "session";
+  return (
+    <MessageBubble variant="memory">
+      <InlineStack gap="1" blockAlign="center">
+        <Icon name="Brain" size="xs" tone="accent" />
+        <Text size="xs" weight="medium" tone="accent">
+          Remembered ({scope})
+        </Text>
+      </InlineStack>
+      <Paragraph size="sm" wrap="pre-wrap">
+        {message.content}
+      </Paragraph>
+    </MessageBubble>
+  );
+}
+
 export function ChatMessage({
   sessionId,
   message,
   isOwn,
   bundleId,
 }: ChatMessageProps) {
+  if (message.memory) return <MemoryMessage message={message} />;
+
   const isAgent = message.author.kind === "agent";
   const isSubagent = message.author.agentRole === "subagent";
   const variant: MessageBubbleVariant = isOwn
