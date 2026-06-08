@@ -76,6 +76,10 @@ const RawSpinner = remoteComponent("tangent-spinner");
 const RawCard = remoteComponent("tangent-card");
 const RawPill = remoteComponent("tangent-pill");
 const RawProgress = remoteComponent("tangent-progress");
+const RawScoreRing = remoteComponent("tangent-score-ring");
+const RawCheckbox = remoteComponent("tangent-checkbox", {
+  onChange: { event: "change" },
+});
 
 export function BlockStack(props: AnyProps): ReactNode {
   return createElement(RawBlockStack, props);
@@ -104,6 +108,9 @@ export function Pill(props: AnyProps): ReactNode {
 export function Progress(props: AnyProps): ReactNode {
   return createElement(RawProgress, props);
 }
+export function ScoreRing(props: AnyProps): ReactNode {
+  return createElement(RawScoreRing, props);
+}
 
 /** `press` carries no payload; the author's handler is called with no args. */
 export function Button(props: AnyProps): ReactNode {
@@ -127,4 +134,23 @@ export function Textarea(props: AnyProps): ReactNode {
         }
       : undefined;
   return createElement(RawTextarea, { ...rest, onInput: onRawInput });
+}
+
+/**
+ * `tangent-checkbox` emits a `change` event carrying the new checked value. We
+ * normalize it so the author's `onCheckedChange` receives the boolean directly
+ * rather than a `RemoteEvent`.
+ */
+export function Checkbox(props: AnyProps): ReactNode {
+  const { onCheckedChange, ...rest } = props as {
+    onCheckedChange?: (checked: boolean) => void;
+  } & AnyProps;
+  const onChange =
+    typeof onCheckedChange === "function"
+      ? (event: unknown) => {
+          const detail = (event as { detail?: unknown } | null)?.detail;
+          onCheckedChange(Boolean(detail));
+        }
+      : undefined;
+  return createElement(RawCheckbox, { ...rest, onChange });
 }

@@ -87,6 +87,8 @@ export interface ResolvedSessionConfig {
   workflowPaths: string[];
   /** Absolute paths passed via extra `--extension` flags (custom tools). */
   extensionPaths: string[];
+  /** Pre-seeded Prime first-message content, if the bundle declares one. */
+  welcomeMessage?: string;
 }
 
 /** Request Prime makes to spawn a sub-agent. Inline fields override templates. */

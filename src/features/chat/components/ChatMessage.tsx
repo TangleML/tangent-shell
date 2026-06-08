@@ -119,6 +119,8 @@ interface ChatMessageProps {
   isStreaming?: boolean;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
   bundleId?: string;
+  /** Forwards a prompt composed by an interactive `tangent-ui:` component. */
+  onSendPrompt?: (text: string) => void;
 }
 
 /**
@@ -178,6 +180,7 @@ export function ChatMessage({
   isOwn,
   isStreaming = false,
   bundleId,
+  onSendPrompt,
 }: ChatMessageProps) {
   if (message.memory) return <MemoryMessage message={message} />;
 
@@ -220,6 +223,7 @@ export function ChatMessage({
           <Markdown
             artifactBaseUrl={`/api/sessions/${sessionId}/files`}
             bundleId={bundleId}
+            onSendPrompt={onSendPrompt}
           >
             {message.content}
           </Markdown>

@@ -59,6 +59,13 @@ type MarkdownProps = {
    * where such blocks fall back to a normal code block.
    */
   bundleId?: string;
+  /**
+   * Forwards a composed prompt from an interactive `tangent-ui:<name>` message
+   * component to the chat, exactly as if the user had typed it. Omitted in
+   * read-only contexts (e.g. sub-agent threads), where such components stay
+   * inert.
+   */
+  onSendPrompt?: (text: string) => void;
 };
 
 const INLINE_CODE_CLASS =
@@ -116,10 +123,12 @@ function BundleUiMessage({
   bundleId,
   name,
   body,
+  onSendPrompt,
 }: {
   bundleId: string;
   name: string;
   body: string;
+  onSendPrompt?: (text: string) => void;
 }) {
   let props: Record<string, unknown> | undefined;
   try {
@@ -144,6 +153,7 @@ function BundleUiMessage({
       kind="message"
       moduleUrl={`/api/agent-bundles/${bundleId}/ui/${name}.js`}
       props={props}
+      onSendPrompt={onSendPrompt}
     />
   );
 }
@@ -153,6 +163,7 @@ function buildComponents(
   size: MarkdownSize = "sm",
   tone: MarkdownTone = "inherit",
   bundleId?: string,
+  onSendPrompt?: (text: string) => void,
 ): Components {
   return {
     h1: ({ children }) => (
@@ -251,7 +262,12 @@ function buildComponents(
       if (bundleMatch && bundleId) {
         const body = String(children).replace(/\n$/, "");
         return (
-          <BundleUiMessage bundleId={bundleId} name={bundleMatch[1]} body={body} />
+          <BundleUiMessage
+            bundleId={bundleId}
+            name={bundleMatch[1]}
+            body={body}
+            onSendPrompt={onSendPrompt}
+          />
         );
       }
 
@@ -284,12 +300,19 @@ export function Markdown({
   tone = "inherit",
   artifactBaseUrl,
   bundleId,
+  onSendPrompt,
 }: MarkdownProps) {
   return (
     <div className={cn("space-y-2", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={buildComponents(artifactBaseUrl, size, tone, bundleId)}
+        components={buildComponents(
+          artifactBaseUrl,
+          size,
+          tone,
+          bundleId,
+          onSendPrompt,
+        )}
       >
         {children}
       </ReactMarkdown>

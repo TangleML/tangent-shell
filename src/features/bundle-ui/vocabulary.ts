@@ -238,6 +238,20 @@ export const BUNDLE_UI_ELEMENTS = {
     },
     events: [],
   },
+  "tangent-score-ring": {
+    attributes: {
+      score: { kind: "number" },
+      size: { kind: "number" },
+    },
+    events: [],
+  },
+  "tangent-checkbox": {
+    attributes: {
+      checked: { kind: "boolean" },
+      label: { kind: "string" },
+    },
+    events: ["change"],
+  },
 } as const satisfies Record<string, ElementSpec>;
 
 /** Union of valid remote element names. */

@@ -20,10 +20,12 @@ import type { ComponentType } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Pill } from "@/shared/ui/patterns/pill";
 import { Progress } from "@/shared/ui/progress";
+import { ScoreRing } from "@/shared/ui/score-ring";
 import { Spinner } from "@/shared/ui/spinner";
 import { Textarea } from "@/shared/ui/textarea";
 import { Heading, Text } from "@/shared/ui/typography";
@@ -98,6 +100,11 @@ function readInputValue(event: unknown): string {
   return typeof target?.value === "string" ? target.value : "";
 }
 
+/** The new checked value arrives directly as the event payload. */
+function readCheckedValue(event: unknown): boolean {
+  return typeof event === "boolean" ? event : Boolean(event);
+}
+
 export const hostComponentMap: Record<BundleUiElementName, HostElementDef> = {
   "tangent-block-stack": {
     component: BlockStack as ComponentType<Record<string, unknown>>,
@@ -165,5 +172,15 @@ export const hostComponentMap: Record<BundleUiElementName, HostElementDef> = {
     component: Progress as ComponentType<Record<string, unknown>>,
     mapProps: passthrough("tangent-progress"),
     events: {},
+  },
+  "tangent-score-ring": {
+    component: ScoreRing as ComponentType<Record<string, unknown>>,
+    mapProps: passthrough("tangent-score-ring"),
+    events: {},
+  },
+  "tangent-checkbox": {
+    component: Checkbox as ComponentType<Record<string, unknown>>,
+    mapProps: passthrough("tangent-checkbox"),
+    events: { change: { prop: "onCheckedChange", extract: readCheckedValue } },
   },
 };

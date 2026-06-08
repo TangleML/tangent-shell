@@ -97,6 +97,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
             currentAuthorId={currentAuthorId}
             activity={getActivity(effectiveConversationId)}
             bundleId={bundleId}
+            onSendPrompt={isSubagentView ? undefined : send}
             isMessageStreaming={isMessageStreaming}
           />
           {isSubagentView ? (

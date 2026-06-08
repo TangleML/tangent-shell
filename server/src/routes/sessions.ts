@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -9,12 +9,14 @@ import type {
   UpdateSessionRequest,
   UploadFilesResponse,
 } from "@shared/contracts.ts";
+import { PI_AGENT } from "@shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 import multer from "multer";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT, UPLOADS_DIRNAME } from "../config.ts";
 import { installBundle } from "../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
+import { PRIME_AGENT_ID } from "../pi/types.ts";
 import type { AgentBundleStore } from "../store/agentBundleStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { bundleUpload } from "./bundleUpload.ts";
@@ -130,6 +132,21 @@ async function createSessionFromBundle(
       icon: manifest.icon,
     };
     const withConfig = await store.attachConfig(sessionId, meta);
+
+    // Pre-seed Prime's first message so the bundle's agent "speaks first"
+    // (e.g. renders a welcome card). It replays via `chat:history` on join and
+    // renders any `tangent-ui:*` card because the bundle id is already attached.
+    if (config.welcomeMessage) {
+      await store.appendMessage({
+        id: randomUUID(),
+        sessionId,
+        conversationId: PRIME_AGENT_ID,
+        author: PI_AGENT,
+        content: config.welcomeMessage,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
     pi.ensure(sessionId, rootPath, config);
     res.status(201).json({ session: withConfig });
   } catch (err) {

@@ -62,6 +62,11 @@ export interface BundlePrimeConfig {
    * automatically at spawn time, so they need not be listed here.
    */
   tools?: string[];
+  /**
+   * Optional bundle-relative path to a markdown file pre-seeded as Prime's first
+   * message at session creation (no LLM call). Lets the agent "speak first".
+   */
+  welcomeMessage?: string;
 }
 
 /**

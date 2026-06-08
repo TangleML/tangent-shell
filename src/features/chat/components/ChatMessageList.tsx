@@ -18,6 +18,8 @@ interface ChatMessageListProps {
   activity?: AgentActivity | null;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
   bundleId?: string;
+  /** Forwards a prompt composed by an interactive `tangent-ui:` component. */
+  onSendPrompt?: (text: string) => void;
   /** Whether a given message id is still receiving streamed deltas. */
   isMessageStreaming: (messageId: string) => boolean;
 }
@@ -32,6 +34,7 @@ export function ChatMessageList({
   currentAuthorId,
   activity,
   bundleId,
+  onSendPrompt,
   isMessageStreaming,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -96,6 +99,7 @@ export function ChatMessageList({
                   message={msg}
                   isOwn={msg.author.id === currentAuthorId}
                   bundleId={bundleId}
+                  onSendPrompt={onSendPrompt}
                   isStreaming={isMessageStreaming(msg.id)}
                 />
               ))

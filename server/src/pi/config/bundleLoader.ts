@@ -259,6 +259,11 @@ export async function installBundle(
     },
     subagentDefaults: resolveSubagentDefaults(entries, manifest),
     templates: buildTemplatesFromDir(tangentDir(rootPath, BUNDLE_DIRS.agents)),
+    ...(manifest.prime.welcomeMessage
+      ? {
+          welcomeMessage: readTextEntry(entries, manifest.prime.welcomeMessage),
+        }
+      : {}),
     ...resolveSectionPaths(entries, manifest, installRoot),
   };
 

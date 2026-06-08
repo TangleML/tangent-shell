@@ -53,6 +53,7 @@ const manifestSchema = z.object({
   prime: z.object({
     systemPrompt: safePath,
     tools: z.array(z.string()).optional(),
+    welcomeMessage: safePath.optional(),
   }),
   subagents: z
     .object({
