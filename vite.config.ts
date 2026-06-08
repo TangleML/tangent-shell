@@ -25,6 +25,13 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@shared": path.resolve(__dirname, "./shared"),
+      // The bundle-UI bridge author components import. In-repo (harness, type
+      // checks) it resolves to the runtime module; sandboxed bundle components
+      // get it injected by the worker module loader at runtime instead.
+      "@tangent/bundle-ui": path.resolve(
+        __dirname,
+        "./src/features/bundle-ui/runtime/bridge.tsx",
+      ),
     },
   },
   server: {

@@ -21,6 +21,7 @@ const TANGLE_UI_PRIMITIVES = [
   "BlockStack",
   "InlineStack",
   "Spinner",
+  "Progress",
   "IconButton",
   "Surface",
   "Section",

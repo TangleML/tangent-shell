@@ -25,6 +25,9 @@ await build({
   outfile: path.join(outDir, "index.js"),
   // Resolve the server's `@shared/*` path alias.
   alias: { "@shared": path.join(root, "shared") },
+  // esbuild now runs at runtime (to transpile bundle UI sources); it ships a
+  // native binary and cannot be inlined, so keep it as a runtime dependency.
+  external: ["esbuild"],
   // Provide `require` in the ESM output for CJS deps that reach for it.
   banner: {
     js: 'import { createRequire as _cr } from "node:module"; const require = _cr(import.meta.url);',

@@ -2,12 +2,14 @@ import { PI_AGENT } from "@shared/contracts";
 import { useMemo, useState } from "react";
 
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
+import { useSession } from "@/features/sessions/hooks/useSession";
 import { Box } from "@/shared/ui/box";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Divider } from "@/shared/ui/patterns/divider";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { Text } from "@/shared/ui/typography";
 
+import { BundlePanelLauncher } from "./BundlePanelLauncher";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
 import { StatusDot } from "./StatusDot";
@@ -28,6 +30,11 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     currentAuthorId,
     send,
   } = useSessionChat(sessionId);
+
+  // The bundle this session was created from (if any) drives both the
+  // `tangent-ui:` message tokens and the composer's panel launcher.
+  const { data: session } = useSession(sessionId);
+  const bundleId = session?.config?.id;
 
   // Which thread is open: `null` is Prime's main thread, else a sub-agent id.
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -84,6 +91,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
             messages={visibleMessages}
             currentAuthorId={currentAuthorId}
             activity={getActivity(effectiveConversationId)}
+            bundleId={bundleId}
           />
           {isSubagentView ? (
             <>
@@ -96,11 +104,16 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               </Box>
             </>
           ) : (
-            <ChatInput
-              sessionId={sessionId}
-              disabled={!connected || agentBusy}
-              onSubmit={send}
-            />
+            <>
+              {bundleId ? (
+                <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
+              ) : null}
+              <ChatInput
+                sessionId={sessionId}
+                disabled={!connected || agentBusy}
+                onSubmit={send}
+              />
+            </>
           )}
         </BlockStack>
       </InlineStack>

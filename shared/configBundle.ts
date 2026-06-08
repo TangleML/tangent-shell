@@ -49,6 +49,8 @@ export const BUNDLE_DIRS = {
   memory: "memory",
   /** Optional custom tool extensions (`tools/*.ts`, Pi `--extension`). */
   tools: "tools",
+  /** Sandboxed UI component sources (`ui/<name>.tsx`), declared in `ui:`. */
+  ui: "ui",
 } as const;
 
 /** Prime agent configuration block within the manifest. */
@@ -69,6 +71,25 @@ export interface BundlePrimeConfig {
  * a session needs installed; Tangent does not install these automatically.
  */
 export type BundleSoftwareRequirements = Record<string, string[]>;
+
+/**
+ * A sandboxed UI component shipped by a bundle. Source lives under
+ * {@link BUNDLE_DIRS.ui} as `.tsx`; the server transpiles it on upload (Phase 3)
+ * and the host renders it via remote-dom (Phases 5-6).
+ */
+export interface BundleUiComponent {
+  /**
+   * Stable id, unique within the bundle. For `message` components this is the
+   * value after `tangent-ui:` in the agent token. Slug `^[a-z0-9][a-z0-9-]*$`.
+   */
+  name: string;
+  /** Which surface renders it: `message` (agent-driven) or `panel` (composer). */
+  kind: "message" | "panel";
+  /** Bundle-relative path to the component source (conventionally under `ui/`). */
+  entry: string;
+  /** Display label for `panel` launcher buttons; ignored for `message`. */
+  title?: string;
+}
 
 /** Defaults applied to sub-agents spawned within a bundle's session. */
 export interface BundleSubagentConfig {
@@ -122,4 +143,6 @@ export interface BundleManifest {
   extensions?: string[];
   /** Optional software requirements keyed by package manager. */
   software?: BundleSoftwareRequirements;
+  /** Sandboxed UI components shipped by the bundle. */
+  ui?: { components: BundleUiComponent[] };
 }

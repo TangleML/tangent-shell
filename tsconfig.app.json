@@ -23,7 +23,8 @@
 
     "paths": {
       "@/*": ["./src/*"],
-      "@shared/*": ["./shared/*"]
+      "@shared/*": ["./shared/*"],
+      "@tangent/bundle-ui": ["./src/features/bundle-ui/runtime/bridge.tsx"]
     }
   },
   "include": ["src", "shared"]

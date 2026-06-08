@@ -16,6 +16,8 @@ interface ChatMessageListProps {
   currentAuthorId: string;
   /** Ephemeral agent activity for this thread, or null when idle/streaming. */
   activity?: AgentActivity | null;
+  /** Bundle this session was created from; enables `tangent-ui:` components. */
+  bundleId?: string;
 }
 
 // Distance (px) from the bottom within which we still consider the user
@@ -27,6 +29,7 @@ export function ChatMessageList({
   messages,
   currentAuthorId,
   activity,
+  bundleId,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -89,6 +92,7 @@ export function ChatMessageList({
                   sessionId={sessionId}
                   message={msg}
                   isOwn={msg.author.id === currentAuthorId}
+                  bundleId={bundleId}
                 />
               ))
             )}

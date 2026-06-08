@@ -26,6 +26,11 @@ export interface AgentBundleStore {
   readBundle(id: string): Promise<Buffer | undefined>;
   /** Reads the extracted preview icon, or `undefined` when there is none. */
   readIcon(id: string): Promise<Buffer | undefined>;
+  /**
+   * Reads a bundle's compiled UI component JS by component `name`, or
+   * `undefined` when the bundle or component doesn't exist.
+   */
+  readUiComponent(id: string, name: string): Promise<string | undefined>;
 }
 
 /** Raised by {@link AgentBundleStore.save} when the bundle manifest is invalid. */

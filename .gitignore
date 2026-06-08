@@ -15,6 +15,9 @@ dist-ssr
 # Session scoped root folders created by the dev server
 .sessions
 
+# Saved agent bundles backing the marketplace
+.agent-bundles
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

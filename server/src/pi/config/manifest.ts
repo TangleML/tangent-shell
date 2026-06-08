@@ -69,6 +69,34 @@ const manifestSchema = z.object({
   software: z
     .record(z.string().min(1), z.array(z.string().min(1)))
     .optional(),
+  ui: z
+    .object({
+      components: z
+        .array(
+          z.object({
+            name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, {
+              message: "must be a slug matching ^[a-z0-9][a-z0-9-]*$",
+            }),
+            kind: z.enum(["message", "panel"]),
+            entry: safePath,
+            title: z.string().min(1).optional(),
+          }),
+        )
+        .superRefine((components, ctx) => {
+          const seen = new Set<string>();
+          components.forEach((component, index) => {
+            if (seen.has(component.name)) {
+              ctx.addIssue({
+                code: "custom",
+                path: [index, "name"],
+                message: `duplicate component name "${component.name}"`,
+              });
+            }
+            seen.add(component.name);
+          });
+        }),
+    })
+    .optional(),
 });
 
 /** Compile-time guard that the schema output stays assignable to the contract. */

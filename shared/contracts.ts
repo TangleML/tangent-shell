@@ -147,6 +147,8 @@ export interface AgentBundleMeta {
   createdAt: string;
   /** ISO-8601 timestamp of the most recent upload. */
   updatedAt: string;
+  /** UI components this bundle ships (absent when it has none). */
+  components?: { name: string; kind: "message" | "panel"; title?: string }[];
 }
 
 /** Response from `GET /api/agent-bundles`: the stored bundle metadata. */

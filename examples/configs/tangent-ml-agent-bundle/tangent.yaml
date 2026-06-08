@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: tangent-ml-agent-bundle
+name: Tangent ML Agent
+version: 1.0.0
+description: Launch and monitor Tangle ML experiments, with sandboxed UI surfaces.
+author: Tangent
+icon: icon.svg
+tags:
+  - ml
+  - experiments
+  - tangle
+
+prime:
+  systemPrompt: prompts/prime.md
+  tools:
+    - read
+    - write
+    - edit
+    - bash
+
+ui:
+  components:
+    - name: pipeline-progress
+      kind: message
+      entry: ui/pipeline-progress.tsx
+    - name: launch-experiment
+      kind: panel
+      entry: ui/launch-experiment.tsx
+      title: New experiment

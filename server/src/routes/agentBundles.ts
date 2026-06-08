@@ -2,6 +2,11 @@ import type { ListAgentBundlesResponse } from "@shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 
 import {
+  EgressDeniedError,
+  type EgressRequestInit,
+  resolveEgress,
+} from "../bundleUi/egressAllowlist.ts";
+import {
   AgentBundleConflictError,
   type AgentBundleStore,
   AgentBundleValidationError,
@@ -67,6 +72,57 @@ async function handleDownload(
   res.send(buffer);
 }
 
+/** Matches a compiled UI component asset filename (`<slug>.js`). */
+const UI_ASSET_PATTERN = /^([a-z0-9][a-z0-9-]*)\.js$/;
+
+/**
+ * Handles `GET /api/agent-bundles/:id/ui/:file`: serves a bundle's compiled UI
+ * component JS (see Phase 3 of the bundle-ui spec).
+ */
+async function handleUiComponent(
+  store: AgentBundleStore,
+  req: Request<{ id: string; file: string }>,
+  res: Response,
+): Promise<void> {
+  const match = UI_ASSET_PATTERN.exec(req.params.file);
+  if (!match) {
+    res.status(404).json({ error: "UI component not found" });
+    return;
+  }
+  const js = await store.readUiComponent(req.params.id, match[1]);
+  if (js === undefined) {
+    res.status(404).json({ error: "UI component not found" });
+    return;
+  }
+  res.type("application/javascript").send(js);
+}
+
+/**
+ * Handles `POST /api/agent-bundles/ui-egress`: the bundle-UI `host.fetch` proxy.
+ * Resolves the requested destination against the egress allowlist, denying any
+ * destination that isn't registered (see Phase 5 of the bundle-ui spec).
+ */
+async function handleUiEgress(
+  req: Request<unknown, unknown, { input?: unknown; init?: EgressRequestInit }>,
+  res: Response,
+): Promise<void> {
+  const { input, init } = req.body ?? {};
+  if (typeof input !== "string" || input.length === 0) {
+    res.status(400).json({ error: "Missing egress destination" });
+    return;
+  }
+  try {
+    const result = await resolveEgress(input, init);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof EgressDeniedError) {
+      res.status(403).json({ error: err.message });
+      return;
+    }
+    res.status(502).json({ error: "bundle-ui egress request failed" });
+  }
+}
+
 /** Handles `POST /api/agent-bundles`: validates and stores an uploaded bundle. */
 async function handleUpload(
   store: AgentBundleStore,
@@ -116,6 +172,10 @@ export function createAgentBundlesRouter(store: AgentBundleStore): Router {
     handleUpload(store, req, res),
   );
 
+  router.post("/ui-egress", (req: Request, res: Response) =>
+    handleUiEgress(req, res),
+  );
+
   router.get("/:id", (req: Request<{ id: string }>, res: Response) =>
     handleGet(store, req, res),
   );
@@ -126,6 +186,12 @@ export function createAgentBundlesRouter(store: AgentBundleStore): Router {
 
   router.get("/:id/download", (req: Request<{ id: string }>, res: Response) =>
     handleDownload(store, req, res),
+  );
+
+  router.get(
+    "/:id/ui/:file",
+    (req: Request<{ id: string; file: string }>, res: Response) =>
+      handleUiComponent(store, req, res),
   );
 
   router.delete("/:id", (req: Request<{ id: string }>, res: Response) =>

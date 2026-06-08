@@ -11,6 +11,11 @@ This document is the human-readable spec. The machine-readable counterpart is
 the validator in
 [`server/src/pi/config/manifest.ts`](../server/src/pi/config/manifest.ts).
 
+A bundle can also ship its own sandboxed UI components (input panels and custom
+message components). That extension — its `ui:` manifest block, element
+vocabulary, host bridge, and authoring rules — is specified separately under
+[`bundle-ui/`](bundle-ui/README.md).
+
 ## Bundle layout
 
 A bundle is a ZIP archive with this structure (only `tangent.yaml` and

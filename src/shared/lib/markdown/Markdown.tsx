@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
 import { cn } from "@/shared/lib/utils";
 import { Icon } from "@/shared/ui/icon";
 import { Link } from "@/shared/ui/link";
@@ -13,6 +14,14 @@ import { Separator } from "@/shared/ui/separator";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 import { CodeBlock } from "./CodeBlock";
+
+/**
+ * Matches a bundle-UI message token's language class, e.g.
+ * `language-tangent-ui:pipeline-progress`. The plain `/language-(\w+)/` used
+ * for normal code blocks cannot match this (the name has a hyphen and the class
+ * a colon), so this prefix is checked first.
+ */
+const BUNDLE_UI_LANGUAGE = /language-tangent-ui:([a-z0-9][a-z0-9-]*)/;
 
 /** Body-text size for flowing markdown content (paragraphs, list items, links). */
 type MarkdownSize = "xs" | "sm" | "md";
@@ -43,6 +52,13 @@ type MarkdownProps = {
    * left untouched. When set, relative `a` links render as artifact chips.
    */
   artifactBaseUrl?: string;
+  /**
+   * The agent bundle this session was created from, if any. When set, fenced
+   * `tangent-ui:<name>` blocks the agent emits render that bundle's sandboxed
+   * message component instead of a code block. Absent outside a bundle session,
+   * where such blocks fall back to a normal code block.
+   */
+  bundleId?: string;
 };
 
 const INLINE_CODE_CLASS =
@@ -91,10 +107,52 @@ function ArtifactChip({
   );
 }
 
+/**
+ * Renders an agent-emitted `tangent-ui:<name>` block as a sandboxed bundle
+ * message component. While the agent message is still streaming the JSON body
+ * may be incomplete; a quiet placeholder is shown until it parses.
+ */
+function BundleUiMessage({
+  bundleId,
+  name,
+  body,
+}: {
+  bundleId: string;
+  name: string;
+  body: string;
+}) {
+  let props: Record<string, unknown> | undefined;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      props = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Incomplete/invalid JSON (e.g. mid-stream); fall through to placeholder.
+  }
+
+  if (!props) {
+    return (
+      <Text size="xs" tone="subdued">
+        Loading component...
+      </Text>
+    );
+  }
+
+  return (
+    <BundleUiHost
+      kind="message"
+      moduleUrl={`/api/agent-bundles/${bundleId}/ui/${name}.js`}
+      props={props}
+    />
+  );
+}
+
 function buildComponents(
   artifactBaseUrl?: string,
   size: MarkdownSize = "sm",
   tone: MarkdownTone = "inherit",
+  bundleId?: string,
 ): Components {
   return {
     h1: ({ children }) => (
@@ -187,6 +245,16 @@ function buildComponents(
       />
     ),
     code: ({ className, children }) => {
+      // Bundle-UI message token: render the bundle's sandboxed component when
+      // we know which bundle to load it from; otherwise treat it as code.
+      const bundleMatch = bundleId ? className?.match(BUNDLE_UI_LANGUAGE) : null;
+      if (bundleMatch && bundleId) {
+        const body = String(children).replace(/\n$/, "");
+        return (
+          <BundleUiMessage bundleId={bundleId} name={bundleMatch[1]} body={body} />
+        );
+      }
+
       const match = className?.match(/language-(\w+)/);
 
       if (match) {
@@ -215,12 +283,13 @@ export function Markdown({
   size = "sm",
   tone = "inherit",
   artifactBaseUrl,
+  bundleId,
 }: MarkdownProps) {
   return (
     <div className={cn("space-y-2", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={buildComponents(artifactBaseUrl, size, tone)}
+        components={buildComponents(artifactBaseUrl, size, tone, bundleId)}
       >
         {children}
       </ReactMarkdown>

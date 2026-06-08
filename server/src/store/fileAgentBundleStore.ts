@@ -1,17 +1,21 @@
 import {
   mkdir,
+  mkdtemp,
   readdir,
   readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import {
+  BUNDLE_DIRS,
   type BundleManifest,
   MANIFEST_FILENAME,
 } from "@shared/configBundle.ts";
 import type { AgentBundleMeta } from "@shared/contracts.ts";
+import { build } from "esbuild";
 import { unzipSync } from "fflate";
 
 import { AGENT_BUNDLES_ROOT } from "../config.ts";
@@ -39,14 +43,20 @@ function isUnsafeId(id: string): boolean {
   );
 }
 
+/** A bundle's extracted contents, keyed by bundle-relative POSIX path. */
+type BundleEntries = Record<string, Uint8Array>;
+
 /**
- * Unzips a bundle, validates its manifest, and returns the parsed manifest plus
- * the optional preview icon. Throws {@link AgentBundleValidationError} when the
- * manifest is missing, invalid, or carries an unsafe id.
+ * Unzips a bundle, validates its manifest, and returns the parsed manifest, the
+ * optional preview icon, and the full set of extracted entries (so the caller
+ * can compile declared UI sources without re-unzipping). Throws {@link
+ * AgentBundleValidationError} when the manifest is missing, invalid, or carries
+ * an unsafe id.
  */
 function parseBundle(zipBuffer: Buffer): {
   manifest: BundleManifest;
   iconData: Uint8Array | undefined;
+  entries: BundleEntries;
 } {
   const entries = unzipSync(new Uint8Array(zipBuffer));
 
@@ -73,7 +83,89 @@ function parseBundle(zipBuffer: Buffer): {
     );
   }
 
-  return { manifest, iconData: entries[manifest.icon] };
+  return { manifest, iconData: entries[manifest.icon], entries };
+}
+
+/**
+ * Transpiles each declared UI component to ESM under `<dir>/ui/<name>.js`.
+ *
+ * The component sources are extracted to a temp working directory so esbuild
+ * can resolve relative sibling imports, then bundled transpile-only: bare
+ * (`packages: "external"`) imports such as `react`, `@tangent/bundle-ui`, and
+ * `@remote-dom/*` are left untouched for the Phase-5 worker import map to
+ * resolve, while relative imports within the bundle are inlined. The component
+ * never executes here. Throws {@link AgentBundleValidationError} when a declared
+ * entry is missing from the zip or fails to compile, so the upload route can
+ * answer `400`.
+ */
+async function compileUiComponents(
+  dir: string,
+  manifest: BundleManifest,
+  entries: BundleEntries,
+): Promise<void> {
+  const components = manifest.ui?.components;
+  if (!components || components.length === 0) return;
+
+  for (const component of components) {
+    if (!entries[component.entry]) {
+      throw new AgentBundleValidationError(
+        `agent bundle: ui entry "${component.entry}" not found`,
+      );
+    }
+  }
+
+  const work = await mkdtemp(path.join(os.tmpdir(), "tangent-ui-"));
+  try {
+    for (const [name, data] of Object.entries(entries)) {
+      const dest = path.join(work, name);
+      await mkdir(path.dirname(dest), { recursive: true });
+      await writeFile(dest, data);
+    }
+
+    const outDir = path.join(dir, BUNDLE_DIRS.ui);
+    await mkdir(outDir, { recursive: true });
+
+    for (const component of components) {
+      let output: string;
+      try {
+        const result = await build({
+          entryPoints: [path.join(work, component.entry)],
+          bundle: true,
+          format: "esm",
+          platform: "browser",
+          jsx: "automatic",
+          packages: "external",
+          write: false,
+          logLevel: "silent",
+        });
+        output = result.outputFiles[0].text;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new AgentBundleValidationError(
+          `agent bundle: failed to compile ui entry "${component.entry}"\n${message}`,
+        );
+      }
+      await writeFile(path.join(outDir, `${component.name}.js`), output);
+    }
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Projects the manifest's declared UI components down to the {@link
+ * AgentBundleMeta} summary (`name`, `kind`, `title`) so the marketplace can list
+ * a bundle's UI without unzipping it. Returns `undefined` when the bundle ships
+ * no UI.
+ */
+function toComponentMetas(
+  manifest: BundleManifest,
+): AgentBundleMeta["components"] {
+  return manifest.ui?.components.map(({ name, kind, title }) => ({
+    name,
+    kind,
+    title,
+  }));
 }
 
 /**
@@ -118,7 +210,7 @@ export class FileAgentBundleStore implements AgentBundleStore {
   }
 
   async save(zipBuffer: Buffer): Promise<AgentBundleMeta> {
-    const { manifest, iconData } = parseBundle(zipBuffer);
+    const { manifest, iconData, entries } = parseBundle(zipBuffer);
 
     const existing = await this.get(manifest.id);
     if (existing && existing.version === manifest.version) {
@@ -138,19 +230,29 @@ export class FileAgentBundleStore implements AgentBundleStore {
       hasIcon: Boolean(iconData),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      components: toComponentMetas(manifest),
     };
 
     const dir = this.dir(manifest.id);
-    // Replace any prior version's files wholesale so a stale icon can't linger.
+    // Replace any prior version's files wholesale so a stale icon (or stale
+    // compiled UI component) can't linger.
     await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, BUNDLE_FILENAME), zipBuffer);
-    await writeFile(
-      path.join(dir, META_FILENAME),
-      JSON.stringify(meta, null, 2),
-    );
-    if (iconData) {
-      await writeFile(path.join(dir, ICON_FILENAME), iconData);
+    try {
+      await writeFile(path.join(dir, BUNDLE_FILENAME), zipBuffer);
+      // Compile before persisting metadata so a bad UI source fails the upload
+      // without leaving a half-installed bundle behind.
+      await compileUiComponents(dir, manifest, entries);
+      await writeFile(
+        path.join(dir, META_FILENAME),
+        JSON.stringify(meta, null, 2),
+      );
+      if (iconData) {
+        await writeFile(path.join(dir, ICON_FILENAME), iconData);
+      }
+    } catch (err) {
+      await rm(dir, { recursive: true, force: true });
+      throw err;
     }
 
     return meta;
@@ -176,6 +278,22 @@ export class FileAgentBundleStore implements AgentBundleStore {
     if (isUnsafeId(id)) return undefined;
     try {
       return await readFile(path.join(this.dir(id), ICON_FILENAME));
+    } catch {
+      return undefined;
+    }
+  }
+
+  async readUiComponent(
+    id: string,
+    name: string,
+  ): Promise<string | undefined> {
+    // `name` becomes a filename, so reject anything that isn't a plain slug.
+    if (isUnsafeId(id) || !/^[a-z0-9][a-z0-9-]*$/.test(name)) return undefined;
+    try {
+      return await readFile(
+        path.join(this.dir(id), BUNDLE_DIRS.ui, `${name}.js`),
+        "utf8",
+      );
     } catch {
       return undefined;
     }

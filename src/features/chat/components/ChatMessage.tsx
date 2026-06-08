@@ -42,9 +42,16 @@ interface ChatMessageProps {
   sessionId: string;
   message: ChatMessageType;
   isOwn: boolean;
+  /** Bundle this session was created from; enables `tangent-ui:` components. */
+  bundleId?: string;
 }
 
-export function ChatMessage({ sessionId, message, isOwn }: ChatMessageProps) {
+export function ChatMessage({
+  sessionId,
+  message,
+  isOwn,
+  bundleId,
+}: ChatMessageProps) {
   const isAgent = message.author.kind === "agent";
   const isSubagent = message.author.agentRole === "subagent";
   const variant: MessageBubbleVariant = isOwn
@@ -69,7 +76,10 @@ export function ChatMessage({ sessionId, message, isOwn }: ChatMessageProps) {
               done={message.content.length > 0}
             />
           ) : null}
-          <Markdown artifactBaseUrl={`/api/sessions/${sessionId}/files`}>
+          <Markdown
+            artifactBaseUrl={`/api/sessions/${sessionId}/files`}
+            bundleId={bundleId}
+          >
             {message.content}
           </Markdown>
         </BlockStack>

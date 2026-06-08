@@ -123,7 +123,7 @@ function CardContent({ className, density, ...props }: CardContentProps) {
   );
 }
 
-const cardFooterVariants = cva("flex items-center", {
+const cardFooterVariants = cva("mt-auto flex items-center", {
   variants: {
     density: {
       compact: "px-2",

@@ -18,6 +18,14 @@ export async function listAgentBundles(): Promise<AgentBundleMeta[]> {
   return data.bundles;
 }
 
+/** Fetches a single bundle's metadata, including its UI `components`. */
+export async function getAgentBundle(id: string): Promise<AgentBundleMeta> {
+  const data = await parseJson<{ bundle: AgentBundleMeta }>(
+    await fetch(`/api/agent-bundles/${id}`),
+  );
+  return data.bundle;
+}
+
 /** Uploads an agent bundle ZIP to the marketplace, returning its metadata. */
 export async function uploadAgentBundle(file: File): Promise<AgentBundleMeta> {
   const form = new FormData();
