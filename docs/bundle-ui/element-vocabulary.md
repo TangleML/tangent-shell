@@ -34,6 +34,8 @@ chat fragment.
 | `tangent-card` | `Card` | `density` | Container surface. |
 | `tangent-pill` | `Pill` | `tone`, `size` | Small status chip. |
 | `tangent-progress` | `Progress` (**new**, Phase 4) | `value` (0-1), `tone` | No progress primitive exists today; Phase 4 adds `tangent-progress` to `src/shared/ui` and includes it here. |
+| `tangent-score-ring` | `ScoreRing` (**new**, Phase 4) | `score` (0-100), `size` (px) | Circular opportunity-score ring with the value centered. |
+| `tangent-checkbox` | `Checkbox` (**new**, Phase 4) | `checked`, `label`; emits `change` | Boolean toggle row; `change` carries the new checked value. |
 
 ## Props and events
 

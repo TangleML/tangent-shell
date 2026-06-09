@@ -1,0 +1,35 @@
+schemaVersion: 1
+id: tangle-ml-pipeline-optimizer
+name: Tangle ML Pipeline Optimizer
+version: 1.1.0
+description: Analyze a Tangle ML pipeline run for optimization potential, then spawn an autonomous optimizer agent.
+author: Tangent
+icon: icon.svg
+tags:
+  - ml
+  - tangle
+  - optimization
+
+prime:
+  systemPrompt: prompts/prime.md
+  welcomeMessage: prompts/welcome.md
+  tools:
+    - read
+    - write
+    - edit
+    - bash
+
+subagents:
+  defaultSystemPrompt: prompts/subagent.md
+
+ui:
+  components:
+    - name: pipeline-url-input
+      kind: message
+      entry: ui/pipeline-url-input.tsx
+    - name: tangent-scenario
+      kind: message
+      entry: ui/tangent-scenario.tsx
+    - name: pipeline-progress
+      kind: message
+      entry: ui/pipeline-progress.tsx
