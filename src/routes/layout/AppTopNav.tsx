@@ -3,6 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
 import { Text } from "@/shared/ui/typography";
 
+import { ThemeMenu } from "./ThemeMenu";
+
 /**
  * AppTopNav — the application's persistent top navigation bar.
  *
@@ -25,6 +27,7 @@ export function AppTopNav() {
           <TopNavLink to="/agent-bundles">Agent bundles</TopNavLink>
         </>
       }
+      actions={<ThemeMenu />}
     />
   );
 }

@@ -11,13 +11,13 @@ import remarkGfm from "remark-gfm";
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
 import { cn } from "@/shared/lib/utils";
 import { Icon } from "@/shared/ui/icon";
+import { InlineStack } from "@/shared/ui/layout";
 import { Link } from "@/shared/ui/link";
 import { Surface } from "@/shared/ui/patterns/surface";
 import { Separator } from "@/shared/ui/separator";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 import { CodeBlock } from "./CodeBlock";
-import { InlineStack } from "@/shared/ui/layout";
 
 /**
  * Matches a bundle-UI message token's language class, e.g.

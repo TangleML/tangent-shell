@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
 import { queryClient } from "@/shared/api/queryClient";
+import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 
 import { RootErrorFallback } from "./RootErrorFallback";
 
@@ -13,7 +14,11 @@ type AppProvidersProps = {
 export function AppProviders({ children }: AppProvidersProps) {
   return (
     <ErrorBoundary FallbackComponent={RootErrorFallback}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }
