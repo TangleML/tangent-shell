@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tangent Instance</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("tangent-theme");
+          var root = document.documentElement;
+          if (theme === "dark" || theme === "xterm") root.classList.add("dark");
+          if (theme === "xterm") root.classList.add("xterm");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
