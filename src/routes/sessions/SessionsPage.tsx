@@ -46,7 +46,8 @@ export function SessionsPage() {
     const file = event.target.files?.[0];
     // Reset so re-picking the same file still fires `change`.
     event.target.value = "";
-    if (file) createSession.mutate({ config: file }, { onSuccess: openSession });
+    if (file)
+      createSession.mutate({ config: file }, { onSuccess: openSession });
   };
 
   const startFromBundle = (bundleId: string, name: string) =>
@@ -75,6 +76,7 @@ export function SessionsPage() {
         />
         <Button
           fullWidth
+          variant="outline"
           align="start"
           onClick={createBlank}
           disabled={createSession.isPending}
@@ -85,7 +87,7 @@ export function SessionsPage() {
         <Button
           fullWidth
           align="start"
-          variant="secondary"
+          variant="ghost"
           onClick={() => fileInputRef.current?.click()}
           disabled={createSession.isPending}
         >
@@ -118,25 +120,6 @@ export function SessionsPage() {
   return (
     <WorkArea sidebar={sidebar}>
       <BlockStack gap="6">
-        <BlockStack gap="2">
-          <Breadcrumbs>
-            <CrumbCurrent>Sessions</CrumbCurrent>
-          </Breadcrumbs>
-          <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
-            <BlockStack gap="1">
-              <Heading level={1} size="xl" weight="bold">
-                Sessions
-              </Heading>
-              <Paragraph size="sm" tone="subdued">
-                Each session runs a Pi coding agent in its own scoped folder.
-              </Paragraph>
-            </BlockStack>
-            <Button onClick={createBlank} disabled={createSession.isPending}>
-              {createSession.isPending ? "Creating..." : "New session"}
-            </Button>
-          </InlineStack>
-        </BlockStack>
-
         {error ? (
           <Paragraph size="sm" tone="critical">
             Failed to load sessions: {error.message}
@@ -160,6 +143,15 @@ export function SessionsPage() {
             icon="FolderOpen"
             title="No sessions yet"
             description="Create one from the sidebar to get started."
+            action={
+              <Button
+                variant="outline"
+                onClick={createBlank}
+                disabled={createSession.isPending}
+              >
+                {createSession.isPending ? "Creating..." : "New session"}
+              </Button>
+            }
           />
         ) : null}
 

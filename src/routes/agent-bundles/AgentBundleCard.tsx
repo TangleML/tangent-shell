@@ -101,9 +101,6 @@ export function AgentBundleCard({ bundle }: AgentBundleCardProps) {
           align="space-between"
           wrap="nowrap"
         >
-          <Button size="sm" onClick={onUse} disabled={createSession.isPending}>
-            {createSession.isPending ? "Creating..." : "Use in new session"}
-          </Button>
           <IconButton
             icon="Trash2"
             tone="critical"
@@ -111,6 +108,14 @@ export function AgentBundleCard({ bundle }: AgentBundleCardProps) {
             onClick={onDelete}
             disabled={deleteBundle.isPending}
           />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onUse}
+            disabled={createSession.isPending}
+          >
+            {createSession.isPending ? "Creating..." : "Use in new session"}
+          </Button>
         </InlineStack>
       </CardFooter>
     </Card>

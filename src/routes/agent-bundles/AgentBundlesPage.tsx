@@ -2,6 +2,7 @@ import { useRef } from "react";
 
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useUploadAgentBundle } from "@/features/agent-bundles/hooks/useUploadAgentBundle";
+import { Box } from "@/shared/ui/box";
 import { Button } from "@/shared/ui/button";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Breadcrumbs, CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
@@ -41,21 +42,6 @@ export function AgentBundlesPage() {
                 skills, workflows, rules, and memory.
               </Paragraph>
             </BlockStack>
-            <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".zip"
-                hidden
-                onChange={onPickBundle}
-              />
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadBundle.isPending}
-              >
-                {uploadBundle.isPending ? "Uploading..." : "Upload bundle"}
-              </Button>
-            </InlineStack>
           </InlineStack>
         </BlockStack>
 
@@ -90,6 +76,31 @@ export function AgentBundlesPage() {
             {bundles.map((bundle) => (
               <AgentBundleCard key={bundle.id} bundle={bundle} />
             ))}
+            <Box
+              padding="none"
+              background="card"
+              borderRadius="base"
+              border="sm"
+            >
+              <BlockStack gap="2" fill align="center" inlineAlign="center">
+                <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".zip"
+                    hidden
+                    onChange={onPickBundle}
+                  />
+                  <Button
+                    variant="ghost"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadBundle.isPending}
+                  >
+                    {uploadBundle.isPending ? "Uploading..." : "Upload bundle"}
+                  </Button>
+                </InlineStack>
+              </BlockStack>
+            </Box>
           </BundleGrid>
         ) : null}
       </BlockStack>
