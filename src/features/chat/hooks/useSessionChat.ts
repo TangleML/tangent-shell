@@ -19,6 +19,9 @@ import {
   type SubagentInfo,
   type SubagentRosterPayload,
   type SubagentUpdatePayload,
+  type Trigger,
+  type TriggerRosterPayload,
+  type TriggerUpdatePayload,
 } from "@shared/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
@@ -33,6 +36,7 @@ import { io, type Socket } from "socket.io-client";
 export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
+  const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [connected, setConnected] = useState(false);
   // Pending agent-initiated memory suggestions awaiting the user's confirmation.
   const [memorySuggestions, setMemorySuggestions] = useState<
@@ -76,6 +80,7 @@ export function useSessionChat(sessionId: string) {
       // ChatHistory and SubagentRoster events the server sends on join.
       setMessages([]);
       setSubagents([]);
+      setTriggers([]);
       setConnected(true);
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
@@ -231,6 +236,25 @@ export function useSessionChat(sessionId: string) {
       },
     );
 
+    // Full trigger roster (sent on join and after any change): replace state.
+    socket.on(
+      SocketEvents.TriggerRoster,
+      ({ triggers: roster }: TriggerRosterPayload) => {
+        setTriggers(roster);
+      },
+    );
+    // A single trigger fired or changed: upsert by id.
+    socket.on(
+      SocketEvents.TriggerUpdate,
+      ({ trigger }: TriggerUpdatePayload) => {
+        setTriggers((prev) => {
+          const next = prev.filter((t) => t.id !== trigger.id);
+          next.push(trigger);
+          return next;
+        });
+      },
+    );
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
@@ -321,6 +345,7 @@ export function useSessionChat(sessionId: string) {
   return {
     messages,
     subagents,
+    triggers,
     connected,
     memorySuggestions,
     confirmMemory,

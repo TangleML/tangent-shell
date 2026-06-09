@@ -47,6 +47,7 @@ import {
   toDescriptor,
   toolActivityLabel,
   toSubagentInfo,
+  TRIGGERS_EXTENSION,
 } from "./utils.ts";
 
 // Re-exported so existing consumers (sockets, routes, index) keep importing
@@ -98,6 +99,10 @@ function buildPiArgs(
     "--mode",
     "rpc",
     "--no-session",
+    // Disable Pi's skill auto-discovery (~/.pi/agent/skills, project .pi/skills)
+    // so only bundle-provided --skill paths load. Matches the container where
+    // HOME=/tmp leaves nothing to discover.
+    "--no-skills",
     "--provider",
     PI_PROVIDER,
     "--model",
@@ -109,13 +114,16 @@ function buildPiArgs(
     // Orchestrator gives Prime its sub-agent tools; the proxy-provider
     // extension registers Pi's providers against the LLM proxy (required in
     // environments without an auto-discovered `~/.pi/agent` config); the memory
-    // extension registers the read/remember tools.
+    // extension registers the read/remember tools; the triggers extension gives
+    // Prime its create/list/enable/disable/delete trigger tools.
     "--extension",
     ORCHESTRATOR_EXTENSION,
     "--extension",
     PROXY_PROVIDER_EXTENSION,
     "--extension",
     MEMORY_EXTENSION,
+    "--extension",
+    TRIGGERS_EXTENSION,
   ];
 
   // Bundle-provided skills, workflows, and custom tool extensions, applied to

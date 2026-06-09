@@ -7,6 +7,7 @@ import {
   MANIFEST_FILENAME,
   RULES_FILENAME,
 } from "@shared/configBundle.ts";
+import { build } from "esbuild";
 import { unzipSync } from "fflate";
 
 import {
@@ -208,6 +209,70 @@ function resolveSectionPaths(
   };
 }
 
+/**
+ * Transpiles each declared trigger handler to a self-contained IIFE under
+ * `<installRoot>/triggers/<name>.js`, exposing the module as `__tgHandler` for
+ * {@link import("../triggers/handlerRunner.ts")} to invoke. The handler sources
+ * already live on disk (written by {@link writeBundleTree}), so esbuild resolves
+ * their relative sibling imports; node built-ins stay external. Throws when a
+ * declared handler is missing from the zip or fails to compile, so a bad bundle
+ * fails install rather than at fire time.
+ */
+async function compileTriggerHandler(
+  handler: string,
+  name: string,
+  entries: ZipEntries,
+  installRoot: string,
+  outDir: string,
+): Promise<void> {
+  if (!entries[handler]) {
+    throw new Error(`bundle: trigger handler "${handler}" not found`);
+  }
+  await mkdir(outDir, { recursive: true });
+
+  let output: string;
+  try {
+    const result = await build({
+      entryPoints: [path.join(installRoot, ...handler.split("/"))],
+      bundle: true,
+      format: "iife",
+      globalName: "__tgHandler",
+      platform: "node",
+      write: false,
+      logLevel: "silent",
+    });
+    output = result.outputFiles[0].text;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `bundle: failed to compile trigger handler "${handler}"\n${message}`,
+      { cause: err },
+    );
+  }
+  await writeFile(path.join(outDir, `${name}.js`), output);
+}
+
+async function compileTriggerHandlers(
+  entries: ZipEntries,
+  manifest: BundleManifest,
+  installRoot: string,
+): Promise<void> {
+  const triggers = manifest.triggers ?? [];
+  const outDir = path.join(installRoot, BUNDLE_DIRS.triggers);
+
+  for (const trigger of triggers) {
+    if (trigger.handler) {
+      await compileTriggerHandler(
+        trigger.handler,
+        trigger.name,
+        entries,
+        installRoot,
+        outDir,
+      );
+    }
+  }
+}
+
 /** Resolves the sub-agent defaults from the manifest's `subagents` block. */
 function resolveSubagentDefaults(
   entries: ZipEntries,
@@ -252,6 +317,7 @@ export async function installBundle(
   await copyRootFiles(rootPath, entries, manifest);
 
   const installRoot = path.join(rootPath, TANGENT_DIRNAME);
+  await compileTriggerHandlers(entries, manifest, installRoot);
   const config: ResolvedSessionConfig = {
     prime: {
       tools: resolvePrimeTools(manifest),

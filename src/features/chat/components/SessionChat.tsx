@@ -7,6 +7,7 @@ import {
 } from "@/features/chat/hooks/useArtifactTabs";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSession } from "@/features/sessions/hooks/useSession";
+import { TriggerList } from "@/features/triggers/components/TriggerList";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
@@ -33,6 +34,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const {
     messages,
     subagents,
+    triggers,
     connected,
     memorySuggestions,
     confirmMemory,
@@ -98,12 +100,17 @@ export function SessionChat({ sessionId }: SessionChatProps) {
       </Toolbar>
       {/* Roster sidebar sits left of the message column; both share the row. */}
       <InlineStack grow wrap="nowrap" blockAlign="stretch">
-        <SubagentList
-          subagents={subagents}
-          selectedId={isOrphaned ? null : selectedAgentId}
-          onSelect={setSelectedAgentId}
-          isConversationBusy={isConversationBusy}
-        />
+        <Box>
+          <BlockStack gap="2">
+            <SubagentList
+              subagents={subagents}
+              selectedId={isOrphaned ? null : selectedAgentId}
+              onSelect={setSelectedAgentId}
+              isConversationBusy={isConversationBusy}
+            />
+            <TriggerList sessionId={sessionId} triggers={triggers} />
+          </BlockStack>
+        </Box>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value={CHAT_TAB_VALUE}>
@@ -143,8 +150,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                       wrap="nowrap"
                     >
                       <Text size="xs" tone="subdued">
-                        Viewing {threadName}'s thread (read-only). Humans message
-                        Prime; Prime directs sub-agents.
+                        Viewing {threadName}'s thread (read-only). Humans
+                        message Prime; Prime directs sub-agents.
                       </Text>
                       {threadBusy ? (
                         <IconButton

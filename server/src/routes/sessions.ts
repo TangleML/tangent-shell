@@ -5,8 +5,10 @@ import path from "node:path";
 import type {
   Attachment,
   CreateSessionRequest,
+  CreateTriggerRequest,
   SessionConfigMeta,
   UpdateSessionRequest,
+  UpdateTriggerRequest,
   UploadFilesResponse,
 } from "@shared/contracts.ts";
 import { PI_AGENT } from "@shared/contracts.ts";
@@ -16,6 +18,8 @@ import multer from "multer";
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT, UPLOADS_DIRNAME } from "../config.ts";
 import { installBundle } from "../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
+import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
+import type { TriggerManager } from "../pi/triggers/triggerManager.ts";
 import { PRIME_AGENT_ID } from "../pi/types.ts";
 import type { AgentBundleStore } from "../store/agentBundleStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -118,6 +122,7 @@ function createArtifactFileHandler() {
 async function createSessionFromBundle(
   store: SessionStore,
   pi: PiAgentManager,
+  triggerEngine: TriggerEngine,
   sessionId: string,
   rootPath: string,
   zipBuffer: Buffer,
@@ -132,6 +137,9 @@ async function createSessionFromBundle(
       icon: manifest.icon,
     };
     const withConfig = await store.attachConfig(sessionId, meta);
+
+    // Seed the bundle's declared triggers and arm any schedules.
+    triggerEngine.seed(sessionId, rootPath, manifest.triggers);
 
     // Pre-seed Prime's first message so the bundle's agent "speaks first"
     // (e.g. renders a welcome card). It replays via `chat:history` on join and
@@ -180,6 +188,7 @@ async function resolveCreateBundle(
 async function handleCreateSession(
   store: SessionStore,
   pi: PiAgentManager,
+  triggerEngine: TriggerEngine,
   agentBundleStore: AgentBundleStore,
   req: Request,
   res: Response,
@@ -200,6 +209,7 @@ async function handleCreateSession(
     await createSessionFromBundle(
       store,
       pi,
+      triggerEngine,
       session.id,
       session.rootPath,
       zipBuffer,
@@ -278,6 +288,7 @@ async function handleUpdateSession(
 async function handleDeleteSession(
   store: SessionStore,
   pi: PiAgentManager,
+  triggerEngine: TriggerEngine,
   req: Request<{ id: string }>,
   res: Response,
 ): Promise<void> {
@@ -287,12 +298,195 @@ async function handleDeleteSession(
     return;
   }
   pi.dispose(req.params.id);
+  triggerEngine.dispose(req.params.id);
   res.status(204).end();
+}
+
+/**
+ * Lists a session's triggers. Loads them from disk first so the list survives a
+ * server restart (the session record is in-memory, but triggers persist).
+ */
+async function handleListTriggers(
+  store: SessionStore,
+  triggers: TriggerManager,
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> {
+  const session = await store.getSession(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  triggers.register(session.id, session.rootPath);
+  res.json({ triggers: triggers.list(session.id) });
+}
+
+/** Creates a runtime trigger (prompt-template only) on a session. */
+async function handleCreateTrigger(
+  store: SessionStore,
+  triggers: TriggerManager,
+  triggerEngine: TriggerEngine,
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> {
+  const session = await store.getSession(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  triggers.register(session.id, session.rootPath);
+  try {
+    const trigger = triggers.create(
+      session.id,
+      session.rootPath,
+      (req.body ?? {}) as CreateTriggerRequest,
+    );
+    triggerEngine.afterChange(session.id, session.rootPath);
+    res.status(201).json({ trigger });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+}
+
+/** Updates a mutable trigger field (enabled/prompt/title/schedule). */
+async function handleUpdateTrigger(
+  store: SessionStore,
+  triggers: TriggerManager,
+  triggerEngine: TriggerEngine,
+  req: Request<{ id: string; triggerId: string }>,
+  res: Response,
+): Promise<void> {
+  const session = await store.getSession(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  triggers.register(session.id, session.rootPath);
+  const trigger = triggers.update(
+    session.id,
+    req.params.triggerId,
+    (req.body ?? {}) as UpdateTriggerRequest,
+  );
+  if (!trigger) {
+    res.status(404).json({ error: "Trigger not found" });
+    return;
+  }
+  triggerEngine.afterChange(session.id, session.rootPath);
+  res.json({ trigger });
+}
+
+/** Deletes a trigger. */
+async function handleDeleteTrigger(
+  store: SessionStore,
+  triggers: TriggerManager,
+  triggerEngine: TriggerEngine,
+  req: Request<{ id: string; triggerId: string }>,
+  res: Response,
+): Promise<void> {
+  const session = await store.getSession(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  triggers.register(session.id, session.rootPath);
+  if (!triggers.remove(session.id, req.params.triggerId)) {
+    res.status(404).json({ error: "Trigger not found" });
+    return;
+  }
+  triggerEngine.afterChange(session.id, session.rootPath);
+  res.status(204).end();
+}
+
+/**
+ * Public callback endpoint that fires a callback trigger. Modeled on the
+ * artifact route's session-scoped shape, but — because firing mutates agent
+ * state — gated by the per-trigger secret embedded in the URL. The JSON body
+ * becomes the signal payload passed to the trigger's handler/template.
+ */
+const CALLBACK_FAILURE: Record<
+  "not-found" | "forbidden" | "disabled",
+  { status: number; error: string }
+> = {
+  "not-found": { status: 404, error: "Trigger not found" },
+  forbidden: { status: 403, error: "Forbidden" },
+  disabled: { status: 409, error: "Trigger is disabled" },
+};
+
+function createTriggerCallbackHandler(triggerEngine: TriggerEngine) {
+  return async (
+    req: Request<{ id: string; triggerId: string; secret: string }>,
+    res: Response,
+  ): Promise<void> => {
+    const { id, triggerId, secret } = req.params;
+    if (isUnsafeId(id)) {
+      res.status(400).json({ error: "Invalid session id" });
+      return;
+    }
+
+    const signal = {
+      kind: "callback",
+      receivedAt: new Date().toISOString(),
+      body: req.body ?? {},
+    };
+
+    try {
+      const outcome = await triggerEngine.fireCallback(
+        id,
+        triggerId,
+        secret,
+        signal,
+      );
+      if (outcome !== "ok") {
+        const failure = CALLBACK_FAILURE[outcome];
+        res.status(failure.status).json({ error: failure.error });
+        return;
+      }
+      res.status(202).json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  };
+}
+
+/** Registers the trigger management + callback routes on the sessions router. */
+function registerTriggerRoutes(
+  router: Router,
+  store: SessionStore,
+  triggers: TriggerManager,
+  triggerEngine: TriggerEngine,
+): void {
+  router.get("/:id/triggers", (req: Request<{ id: string }>, res: Response) =>
+    handleListTriggers(store, triggers, req, res),
+  );
+
+  router.post("/:id/triggers", (req: Request<{ id: string }>, res: Response) =>
+    handleCreateTrigger(store, triggers, triggerEngine, req, res),
+  );
+
+  router.patch(
+    "/:id/triggers/:triggerId",
+    (req: Request<{ id: string; triggerId: string }>, res: Response) =>
+      handleUpdateTrigger(store, triggers, triggerEngine, req, res),
+  );
+
+  router.delete(
+    "/:id/triggers/:triggerId",
+    (req: Request<{ id: string; triggerId: string }>, res: Response) =>
+      handleDeleteTrigger(store, triggers, triggerEngine, req, res),
+  );
+
+  // Public, secret-guarded inbound callback that fires a callback trigger.
+  router.post(
+    "/:id/triggers/:triggerId/callback/:secret",
+    createTriggerCallbackHandler(triggerEngine),
+  );
 }
 
 export function createSessionsRouter(
   store: SessionStore,
   pi: PiAgentManager,
+  triggers: TriggerManager,
+  triggerEngine: TriggerEngine,
   agentBundleStore: AgentBundleStore,
 ): Router {
   const router = Router();
@@ -310,7 +504,7 @@ export function createSessionsRouter(
     "/",
     bundleUpload.single("config"),
     (req: Request, res: Response) =>
-      handleCreateSession(store, pi, agentBundleStore, req, res),
+      handleCreateSession(store, pi, triggerEngine, agentBundleStore, req, res),
   );
 
   router.get("/:id", (req: Request<{ id: string }>, res: Response) =>
@@ -322,7 +516,7 @@ export function createSessionsRouter(
   );
 
   router.delete("/:id", (req: Request<{ id: string }>, res: Response) =>
-    handleDeleteSession(store, pi, req, res),
+    handleDeleteSession(store, pi, triggerEngine, req, res),
   );
 
   // Uploads land in the session's `uploads/` folder; `uploadFiles.array` writes
@@ -333,6 +527,8 @@ export function createSessionsRouter(
     (req: Request<{ id: string }>, res: Response) =>
       handleUploadFiles(store, req, res),
   );
+
+  registerTriggerRoutes(router, store, triggers, triggerEngine);
 
   router.get("/:id/files/*splat", createArtifactFileHandler());
 

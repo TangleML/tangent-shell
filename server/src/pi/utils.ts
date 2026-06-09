@@ -40,6 +40,17 @@ export const MEMORY_EXTENSION = path.join(
   "memory.ts",
 );
 
+/**
+ * Absolute path to the triggers extension loaded into every Pi process. It
+ * registers Prime-only tools to create, list, enable, disable, and delete the
+ * session's triggers (schedule + callback) when the user asks.
+ */
+export const TRIGGERS_EXTENSION = path.join(
+  import.meta.dirname,
+  "extensions",
+  "triggers.ts",
+);
+
 /** Drops a single optional trailing CR from a line. */
 function stripTrailingCr(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;
@@ -236,6 +247,12 @@ const TOOL_FORMATTERS: Record<string, ArgFormatter> = {
   read_memory: () => "Reading memory",
   remember: (a) => labelWith("Remembering", str(a.text), ""),
   suggest_memory: (a) => labelWith("Suggesting to remember", str(a.text), ""),
+  create_trigger: (a) => labelWith("Creating trigger", str(a.name), ""),
+  list_triggers: () => "Listing triggers",
+  enable_trigger: (a) => labelWith("Enabling trigger", str(a.name) ?? str(a.id), ""),
+  disable_trigger: (a) =>
+    labelWith("Disabling trigger", str(a.name) ?? str(a.id), ""),
+  delete_trigger: (a) => labelWith("Deleting trigger", str(a.name) ?? str(a.id), ""),
 };
 
 /**

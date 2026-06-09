@@ -88,6 +88,94 @@ export const MEMORY_AUTHOR: ChatAuthor = {
   agentRole: "prime",
 };
 
+/**
+ * Author attributed to prompts a Trigger delivers to Prime. The prompt is the
+ * stimulus the agent reacts to (like a human turn), produced by the server from
+ * a schedule firing or an inbound callback rather than typed by a person.
+ */
+export const TRIGGER_AUTHOR: ChatAuthor = {
+  id: "trigger",
+  kind: "agent",
+  name: "Trigger",
+  agentRole: "prime",
+};
+
+/** Which external signal drives a trigger. */
+export type TriggerKind = "schedule" | "callback";
+
+/** Whether a trigger came from the installed bundle or was created at runtime. */
+export type TriggerSource = "bundle" | "runtime";
+
+/**
+ * Schedule for a `schedule`-kind trigger. Exactly one of `every` / `cron` is
+ * meaningful: `every` is a short duration (`"1h"`, `"30m"`, `"45s"`); `cron` is
+ * a standard cron expression evaluated server-side.
+ */
+export interface TriggerSchedule {
+  every?: string;
+  cron?: string;
+}
+
+/**
+ * A per-session trigger: turns an external signal into a prompt delivered to
+ * Prime. Bundle-declared triggers may carry a compiled transform handler;
+ * runtime-created triggers use a prompt template only.
+ */
+export interface Trigger {
+  id: string;
+  sessionId: string;
+  /** Stable slug, unique within the session. */
+  name: string;
+  kind: TriggerKind;
+  /** Display label; defaults to `name`. */
+  title?: string;
+  /** Prompt template; supports `{{path}}` interpolation against the signal. */
+  prompt?: string;
+  /** True when a compiled transform handler exists for this trigger. */
+  hasHandler: boolean;
+  /** Schedule config, present for `schedule` triggers. */
+  schedule?: TriggerSchedule;
+  /** Whether the trigger is currently armed. */
+  enabled: boolean;
+  /** Whether the trigger came from the bundle or was created at runtime. */
+  source: TriggerSource;
+  /**
+   * Relative callback path including the secret (callback triggers only), e.g.
+   * `/api/sessions/<id>/triggers/<tid>/callback/<secret>`. External systems POST
+   * to it to fire the trigger.
+   */
+  callbackPath?: string;
+  /** ISO-8601 timestamp. */
+  createdAt: string;
+  /** ISO-8601 timestamp. */
+  updatedAt: string;
+  /** ISO-8601 timestamp of the most recent firing, if any. */
+  lastFiredAt?: string;
+}
+
+/** Response from `GET /api/sessions/:id/triggers`. */
+export interface ListTriggersResponse {
+  triggers: Trigger[];
+}
+
+/** Payload to create a trigger at runtime (REST or via Prime's tool). */
+export interface CreateTriggerRequest {
+  name: string;
+  kind: TriggerKind;
+  title?: string;
+  prompt?: string;
+  schedule?: TriggerSchedule;
+  enabled?: boolean;
+}
+
+/** Payload to update a mutable trigger field. */
+export interface UpdateTriggerRequest {
+  enabled?: boolean;
+  prompt?: string;
+  title?: string;
+  schedule?: TriggerSchedule;
+}
+
 /** Lifecycle status of a sub-agent, surfaced in the session's agent roster. */
 export type SubagentStatus = "active" | "completed" | "killed" | "error";
 
@@ -314,6 +402,24 @@ export interface MemoryDismissPayload {
   suggestionId: string;
 }
 
+/** Full trigger roster for a session, emitted on join and on reset. */
+export interface TriggerRosterPayload {
+  sessionId: string;
+  triggers: Trigger[];
+}
+
+/** A single trigger's create/update. Upserted by `id` on the client. */
+export interface TriggerUpdatePayload {
+  sessionId: string;
+  trigger: Trigger;
+}
+
+/** Emitted when a trigger is deleted. */
+export interface TriggerRemovedPayload {
+  sessionId: string;
+  triggerId: string;
+}
+
 /**
  * Sent (client -> server) to abort an agent's in-progress run. `conversationId`
  * is the target agent's id (`"prime"` or a sub-agent id), matching how messages
@@ -342,6 +448,9 @@ export const SocketEvents = {
   MemorySuggestion: "memory:suggestion",
   MemoryConfirm: "memory:confirm",
   MemoryDismiss: "memory:dismiss",
+  TriggerRoster: "trigger:roster",
+  TriggerUpdate: "trigger:update",
+  TriggerRemoved: "trigger:removed",
 } as const;
 
 export type SocketEvent = (typeof SocketEvents)[keyof typeof SocketEvents];

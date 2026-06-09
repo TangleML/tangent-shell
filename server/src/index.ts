@@ -6,10 +6,13 @@ import { Server as SocketIOServer } from "socket.io";
 import { PORT } from "./config.ts";
 import { MemoryManager } from "./pi/memory.ts";
 import { PiAgentManager } from "./pi/piAgentManager.ts";
+import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
+import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
 import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
+import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createSessionsRouter } from "./routes/sessions.ts";
 import {
   createAgentEventHandler,
@@ -40,6 +43,9 @@ const io = new SocketIOServer(httpServer, {
 // Owns the agents' global + per-session memory stores.
 const memory = new MemoryManager();
 
+// Owns each session's triggers (schedule + callback) and their persistence.
+const triggers = new TriggerManager();
+
 // Surfaces applied memory writes / pending suggestions to the session room.
 const onMemoryRemembered = createMemoryRememberedHandler(io, store);
 const onMemorySuggestion = createMemorySuggestionHandler(io);
@@ -56,16 +62,27 @@ const pi = new PiAgentManager(
   memory,
 );
 
+// Drives schedule timers and callback firings, delivering prompts to Prime.
+const triggerEngine = new TriggerEngine(io, store, pi, triggers);
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.use("/api/sessions", createSessionsRouter(store, pi, agentBundleStore));
+app.use(
+  "/api/sessions",
+  createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore),
+);
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use("/internal/agents", createInternalAgentsRouter(store, pi));
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
 app.use("/internal/egress", createInternalEgressRouter());
+// Internal API for the triggers extension running inside each Pi process.
+app.use(
+  "/internal/triggers",
+  createInternalTriggersRouter(store, triggers, triggerEngine),
+);
 // Internal API for the memory extension running inside each Pi process.
 app.use(
   "/internal/memory",
@@ -77,7 +94,7 @@ app.use(
   ),
 );
 
-registerChatHandlers(io, store, pi, memory, onMemoryRemembered);
+registerChatHandlers(io, store, pi, memory, onMemoryRemembered, triggerEngine);
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);

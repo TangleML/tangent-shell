@@ -44,6 +44,17 @@ export const SHARED_AGENT_TOOLS = [
 ] as const;
 
 /**
+ * Trigger tools (registered by the triggers extension) that only Prime may use.
+ */
+export const PRIME_TRIGGER_TOOLS = [
+  "create_trigger",
+  "list_triggers",
+  "enable_trigger",
+  "disable_trigger",
+  "delete_trigger",
+] as const;
+
+/**
  * Memory-mutation tools (registered by the memory extension) that only Prime
  * may use, since Prime owns the human conversation. Like the orchestration
  * tools, these must be in Prime's allowlist or Pi would filter them out.
@@ -235,6 +246,7 @@ export function getPrimeAgentConfig(): AgentConfig {
         ...SHARED_AGENT_TOOLS,
         ...PRIME_ORCHESTRATION_TOOLS,
         ...PRIME_MEMORY_TOOLS,
+        ...PRIME_TRIGGER_TOOLS,
       ],
       appendSystemPrompt: loadPrimeSystemPrompt(),
     };

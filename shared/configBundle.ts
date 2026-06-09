@@ -51,6 +51,8 @@ export const BUNDLE_DIRS = {
   tools: "tools",
   /** Sandboxed UI component sources (`ui/<name>.tsx`), declared in `ui:`. */
   ui: "ui",
+  /** Optional trigger transform sources (`triggers/<name>.ts`), declared in `triggers:`. */
+  triggers: "triggers",
 } as const;
 
 /** Prime agent configuration block within the manifest. */
@@ -94,6 +96,50 @@ export interface BundleUiComponent {
   entry: string;
   /** Display label for `panel` launcher buttons; ignored for `message`. */
   title?: string;
+}
+
+/**
+ * Schedule for a `schedule`-kind trigger. Exactly one of `every` / `cron`
+ * should be supplied. `every` is a short duration string (`"1h"`, `"30m"`,
+ * `"45s"`); `cron` is a standard cron expression evaluated server-side.
+ */
+export interface BundleTriggerSchedule {
+  /** Fixed interval between firings, e.g. `"1h"`, `"30m"`, `"45s"`. */
+  every?: string;
+  /** Cron expression (5- or 6-field) evaluated in the server's timezone. */
+  cron?: string;
+}
+
+/**
+ * A trigger shipped by a bundle. Triggers turn an external signal — a schedule
+ * firing or an inbound callback — into a prompt delivered to the session's
+ * Prime agent. Seeded into the session's mutable trigger store at install time;
+ * Prime can later create, enable, disable, or delete triggers at runtime.
+ */
+export interface BundleTrigger {
+  /** Stable slug, unique within the bundle. Slug `^[a-z0-9][a-z0-9-]*$`. */
+  name: string;
+  /** `schedule` fires on a timer; `callback` exposes an inbound URL. */
+  kind: "schedule" | "callback";
+  /** Display label for the UI; defaults to `name`. */
+  title?: string;
+  /**
+   * Prompt template delivered to Prime when the trigger fires. Supports
+   * `{{path.to.value}}` interpolation against the signal payload. Required
+   * unless a {@link BundleTrigger.handler} is supplied (which can produce the
+   * prompt itself).
+   */
+  prompt?: string;
+  /**
+   * Optional bundle-relative path to a TS/JS transform (conventionally under
+   * `triggers/`). The default export receives the raw signal and returns the
+   * prompt string. Transpiled on upload and executed server-side in a sandbox.
+   */
+  handler?: string;
+  /** Schedule config; required when {@link BundleTrigger.kind} is `schedule`. */
+  schedule?: BundleTriggerSchedule;
+  /** Whether the trigger is armed on install. Defaults to `true`. */
+  enabled?: boolean;
 }
 
 /** Defaults applied to sub-agents spawned within a bundle's session. */
@@ -150,4 +196,6 @@ export interface BundleManifest {
   software?: BundleSoftwareRequirements;
   /** Sandboxed UI components shipped by the bundle. */
   ui?: { components: BundleUiComponent[] };
+  /** Triggers shipped by the bundle, seeded into the session at install time. */
+  triggers?: BundleTrigger[];
 }

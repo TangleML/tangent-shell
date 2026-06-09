@@ -25,6 +25,15 @@ function isSafeRelativePath(value: string): boolean {
     .every((segment) => segment !== ".." && segment !== "");
 }
 
+/** True when a schedule-kind trigger is missing its required schedule. */
+function triggerNeedsSchedule(trigger: {
+  kind: "schedule" | "callback";
+  schedule?: { every?: string; cron?: string };
+}): boolean {
+  if (trigger.kind !== "schedule") return false;
+  return !trigger.schedule?.every && !trigger.schedule?.cron;
+}
+
 /** A non-empty, bundle-relative path with no traversal. */
 const safePath = z
   .string()
@@ -96,6 +105,57 @@ const manifestSchema = z.object({
             seen.add(component.name);
           });
         }),
+    })
+    .optional(),
+  triggers: z
+    .array(
+      z
+        .object({
+          name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, {
+            message: "must be a slug matching ^[a-z0-9][a-z0-9-]*$",
+          }),
+          kind: z.enum(["schedule", "callback"]),
+          title: z.string().min(1).optional(),
+          prompt: z.string().min(1).optional(),
+          handler: safePath.optional(),
+          schedule: z
+            .object({
+              every: z.string().min(1).optional(),
+              cron: z.string().min(1).optional(),
+            })
+            .optional(),
+          enabled: z.boolean().optional(),
+        })
+        .superRefine((trigger, ctx) => {
+          if (!trigger.prompt && !trigger.handler) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["prompt"],
+              message: "a trigger must define `prompt` or `handler`",
+            });
+          }
+          if (triggerNeedsSchedule(trigger)) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["schedule"],
+              message:
+                "schedule triggers require `schedule.every` or `schedule.cron`",
+            });
+          }
+        }),
+    )
+    .superRefine((triggers, ctx) => {
+      const seen = new Set<string>();
+      triggers.forEach((trigger, index) => {
+        if (seen.has(trigger.name)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "name"],
+            message: `duplicate trigger name "${trigger.name}"`,
+          });
+        }
+        seen.add(trigger.name);
+      });
     })
     .optional(),
 });

@@ -38,8 +38,10 @@ my-bundle.zip
 │   └── AGENTS.md           # copied to the workspace root; Pi auto-discovers it
 ├── memory/
 │   └── *.md                # seed files copied into the workspace
-└── tools/
-    └── *.ts                # optional custom tool extensions (Pi --extension)
+├── tools/
+│   └── *.ts                # optional custom tool extensions (Pi --extension)
+└── triggers/
+    └── *.ts                # optional trigger transforms (signal -> prompt)
 ```
 
 The conventional directories (`skills/`, `workflows/`, `agents/`, `memory/`,
@@ -98,6 +100,38 @@ Sub-agent templates under `agents/` use the existing frontmatter format
 server's bundled templates such as
 [`server/src/pi/agents/worker.md`](../server/src/pi/agents/worker.md).
 
+### `triggers` (optional)
+
+Triggers are a per-session primitive that turn an **external signal** into a
+prompt delivered to the session's Prime agent. A bundle can ship default
+triggers; they are seeded into the session's mutable trigger store at install
+time, and Prime can create, enable, disable, or delete triggers at runtime when
+the user asks.
+
+`triggers` is a list; each entry has:
+
+- `name` (required) — stable slug (`^[a-z0-9][a-z0-9-]*$`), unique within the
+  bundle.
+- `kind` (required) — `schedule` (fires on a timer) or `callback` (exposes an
+  inbound URL external systems POST to).
+- `title` (optional) — display label; defaults to `name`.
+- `prompt` (optional) — prompt template delivered to Prime when the trigger
+  fires. Supports `{{path.to.value}}` interpolation against the signal payload.
+  Required unless a `handler` is supplied.
+- `handler` (optional) — bundle-relative path to a TS/JS transform
+  (conventionally `triggers/<name>.ts`). The default export receives the raw
+  signal and returns the prompt string (or `{ prompt }`). Transpiled on upload
+  and executed server-side in a sandbox with a timeout. Runtime-created triggers
+  cannot supply a handler — they are prompt-template only.
+- `schedule` (required when `kind: schedule`) — a map with `every` (a duration
+  string such as `"1h"`, `"30m"`, `"45s"`) or `cron` (a standard cron
+  expression evaluated server-side). Supply one.
+
+A `callback` trigger is reachable at
+`POST /api/sessions/<id>/triggers/<triggerId>/callback/<secret>`; the secret is
+generated per trigger and returned once on creation. The JSON body is the signal
+payload passed to the prompt template / handler.
+
 ### `software` (optional)
 
 Declarative software requirements: the package managers, packages, and other
@@ -155,6 +189,18 @@ memory:
 extensions:
   - tools/citations.ts
 
+triggers:
+  - name: hourly-digest
+    kind: schedule
+    title: Hourly digest
+    schedule:
+      every: 1h
+    prompt: Summarize what changed in the last hour and post a short digest.
+  - name: incident-webhook
+    kind: callback
+    title: Incident webhook
+    handler: triggers/incident.ts
+
 software:
   npm:
     - "typescript:^5"
@@ -177,6 +223,10 @@ entities are applied as Pi spawn flags (wired in Phase 3):
 - `rules/AGENTS.md` and `memory/*.md` → copied to the workspace root, where Pi
   auto-discovers `AGENTS.md`/`CLAUDE.md` and memory files from `cwd`.
 - `agents/<name>.md` → loaded as sub-agent templates Prime can spawn.
+- `triggers` → seeded into the session's mutable trigger store; `triggers/*.ts`
+  handlers are transpiled on upload and executed server-side when a trigger
+  fires (no Pi mapping; triggers deliver prompts via the same path as user
+  chat).
 - `software` → no Pi mapping; declarative metadata only (not installed
   automatically).
 

@@ -23,6 +23,7 @@ import {
   SocketEvents,
   type SubagentRosterPayload,
   type SubagentUpdatePayload,
+  type TriggerRosterPayload,
 } from "@shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
@@ -36,6 +37,7 @@ import {
   PRIME_AGENT_ID,
   type SubagentUpdateHandler,
 } from "../pi/piAgentManager.ts";
+import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 function roomFor(sessionId: string): string {
@@ -382,10 +384,11 @@ export function registerChatHandlers(
   pi: PiAgentManager,
   memory: MemoryManager,
   onRemembered: MemoryRememberedHandler,
+  triggerEngine: TriggerEngine,
 ): void {
   io.on("connection", (socket: Socket) => {
     socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
-      handleChatJoin(socket, store, pi, payload),
+      handleChatJoin(socket, store, pi, triggerEngine, payload),
     );
 
     socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
@@ -417,6 +420,7 @@ async function handleChatJoin(
   socket: Socket,
   store: SessionStore,
   pi: PiAgentManager,
+  triggerEngine: TriggerEngine,
   payload: ChatJoinPayload,
 ): Promise<void> {
   const session = await store.getSession(payload?.sessionId);
@@ -432,6 +436,9 @@ async function handleChatJoin(
   // created before the process manager existed.
   pi.ensure(session.id, session.rootPath);
 
+  // Re-arm the session's schedule triggers (idempotent) and surface the roster.
+  triggerEngine.sync(session.id, session.rootPath);
+
   const history = await store.getMessages(session.id);
   socket.emit(SocketEvents.ChatHistory, history);
 
@@ -440,6 +447,12 @@ async function handleChatJoin(
     subagents: pi.listSubagents(session.id),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
+
+  const triggerRoster: TriggerRosterPayload = {
+    sessionId: session.id,
+    triggers: triggerEngine.list(session.id),
+  };
+  socket.emit(SocketEvents.TriggerRoster, triggerRoster);
 }
 
 /** Persists + broadcasts a human message and relays it into the Pi process. */
