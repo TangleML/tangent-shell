@@ -1,11 +1,13 @@
 import { useState } from "react";
 
 import { useThinkingCollapse } from "@/features/chat/hooks/useThinkingCollapse";
+import { isThinkingOnly } from "@/features/chat/model/messageState";
 import type {
   Attachment,
   ChatMessage as ChatMessageType,
 } from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
+import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
@@ -45,7 +47,7 @@ function Attachments({
 
 type CopiedFormat = "plain" | "markdown" | null;
 
-function MessageCopyActions({ content }: { content: string }) {
+function CopyButton({ content }: { content: string }) {
   const [copied, setCopied] = useState<CopiedFormat>(null);
   const disabled = !content.trim();
 
@@ -60,16 +62,38 @@ function MessageCopyActions({ content }: { content: string }) {
   }
 
   return (
+    <IconButton
+      icon={copied === "markdown" ? "Check" : "Copy"}
+      size="xs"
+      variant="ghost"
+      disabled={disabled}
+      aria-label={copied === "markdown" ? "Copied" : "Copy as Markdown"}
+      onClick={() => copyText(content, "markdown")}
+    />
+  );
+}
+
+/** Hover-revealed row of message-level actions (copy, collapse). */
+function MessageActions({
+  content,
+  onCollapse,
+}: {
+  content: string;
+  onCollapse?: () => void;
+}) {
+  return (
     <HoverReveal>
       <InlineStack gap="0.5" wrap="nowrap">
-        <IconButton
-          icon={copied === "markdown" ? "Check" : "Copy"}
-          size="xs"
-          variant="ghost"
-          disabled={disabled}
-          aria-label={copied === "markdown" ? "Copied" : "Copy as Markdown"}
-          onClick={() => copyText(content, "markdown")}
-        />
+        <CopyButton content={content} />
+        {onCollapse ? (
+          <IconButton
+            icon="ChevronUp"
+            size="xs"
+            variant="ghost"
+            aria-label="Collapse message"
+            onClick={onCollapse}
+          />
+        ) : null}
       </InlineStack>
     </HoverReveal>
   );
@@ -79,10 +103,12 @@ function MessageHeader({
   authorName,
   roleLabel,
   content,
+  onCollapse,
 }: {
   authorName: string;
   roleLabel: string;
   content: string;
+  onCollapse?: () => void;
 }) {
   return (
     <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
@@ -90,17 +116,83 @@ function MessageHeader({
         {authorName}
         {roleLabel}
       </Text>
-      <MessageCopyActions content={content} />
+      <MessageActions content={content} onCollapse={onCollapse} />
     </InlineStack>
   );
 }
 
-function isThinkingOnly(message: ChatMessageType): boolean {
+function roleLabelFor(message: ChatMessageType): string {
+  const isAgent = message.author.kind === "agent";
+  const isSubagent = message.author.agentRole === "subagent";
+  return isSubagent ? " (sub-agent)" : isAgent ? " (agent)" : "";
+}
+
+/** Standalone collapse control for headers that lack a copy action. */
+function HeaderCollapseButton({ onCollapse }: { onCollapse?: () => void }) {
+  if (!onCollapse) return null;
   return (
-    message.author.kind === "agent" &&
-    Boolean(message.thinking?.trim()) &&
-    !message.content.trim() &&
-    !message.attachments?.length
+    <HoverReveal>
+      <IconButton
+        icon="ChevronUp"
+        size="xs"
+        variant="ghost"
+        aria-label="Collapse message"
+        onClick={onCollapse}
+      />
+    </HoverReveal>
+  );
+}
+
+/**
+ * A single collapsed message: just the author and an Expand affordance, with no
+ * bubble. Not selectable/copyable (the content is hidden until expanded).
+ */
+export function CollapsedMessage({
+  message,
+  onExpand,
+}: {
+  message: ChatMessageType;
+  onExpand: () => void;
+}) {
+  // Raw <div> for the `select-none` escape hatch (collapsed content is hidden
+  // and intentionally not selectable/copyable), exempt from
+  // tangle-ui/no-classname-on-primitives.
+  return (
+    <div className="select-none">
+      <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+        <Text size="xs" weight="medium" tone="subdued">
+          {message.author.name}
+          {roleLabelFor(message)}
+        </Text>
+        <Button variant="ghost" size="xs" onClick={onExpand}>
+          <Icon name="ChevronDown" size="xs" />
+          Expand
+        </Button>
+      </InlineStack>
+    </div>
+  );
+}
+
+/**
+ * A run of 2+ consecutive collapsed messages, shown as a single "<n> messages
+ * hidden" affordance that expands the entire run on click.
+ */
+export function CollapsedMessageGroup({
+  count,
+  onExpandAll,
+}: {
+  count: number;
+  onExpandAll: () => void;
+}) {
+  // Raw <div> for the `select-none` escape hatch, exempt from
+  // tangle-ui/no-classname-on-primitives.
+  return (
+    <div className="select-none">
+      <Button variant="ghost" size="xs" tone="default" onClick={onExpandAll}>
+        <Icon name="ChevronDown" size="xs" />
+        {count} messages hidden
+      </Button>
+    </div>
   );
 }
 
@@ -121,6 +213,8 @@ interface ChatMessageProps {
   bundleId?: string;
   /** Forwards a prompt composed by an interactive `tangent-ui:` component. */
   onSendPrompt?: (text: string) => void;
+  /** Collapses this message into the hidden state; omitted disables collapse. */
+  onCollapse?: () => void;
 }
 
 /**
@@ -128,15 +222,24 @@ interface ChatMessageProps {
  * text is the exact fact written to memory (so the user sees ground truth, not
  * the agent's claim).
  */
-function MemoryMessage({ message }: { message: ChatMessageType }) {
+function MemoryMessage({
+  message,
+  onCollapse,
+}: {
+  message: ChatMessageType;
+  onCollapse?: () => void;
+}) {
   const scope = message.memory?.scope === "global" ? "global" : "session";
   return (
-    <MessageBubble variant="memory">
-      <InlineStack gap="1" blockAlign="center">
-        <Icon name="Brain" size="xs" tone="accent" />
-        <Text size="xs" weight="medium" tone="accent">
-          Remembered ({scope})
-        </Text>
+    <MessageBubble variant="memory" className="group">
+      <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
+        <InlineStack gap="1" blockAlign="center">
+          <Icon name="Brain" size="xs" tone="accent" />
+          <Text size="xs" weight="medium" tone="accent">
+            Remembered ({scope})
+          </Text>
+        </InlineStack>
+        <HeaderCollapseButton onCollapse={onCollapse} />
       </InlineStack>
       <Paragraph size="sm" wrap="pre-wrap">
         {message.content}
@@ -150,21 +253,26 @@ function ThinkingOnlyMessage({
   variant,
   roleLabel,
   isStreaming,
+  onCollapse,
 }: {
   message: ChatMessageType;
   variant: MessageBubbleVariant;
   roleLabel: string;
   isStreaming: boolean;
+  onCollapse?: () => void;
 }) {
   const thinkingDone = isThinkingDone(message, isStreaming);
   const { open, onOpenChange } = useThinkingCollapse(thinkingDone);
 
   return (
-    <MessageBubble variant={variant} selectable={open}>
-      <Text size="xs" weight="medium" tone="subdued">
-        {message.author.name}
-        {roleLabel}
-      </Text>
+    <MessageBubble variant={variant} selectable={open} className="group">
+      <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
+        <Text size="xs" weight="medium" tone="subdued">
+          {message.author.name}
+          {roleLabel}
+        </Text>
+        <HeaderCollapseButton onCollapse={onCollapse} />
+      </InlineStack>
       <ThinkingDisclosure
         thinking={message.thinking ?? ""}
         open={open}
@@ -181,8 +289,10 @@ export function ChatMessage({
   isStreaming = false,
   bundleId,
   onSendPrompt,
+  onCollapse,
 }: ChatMessageProps) {
-  if (message.memory) return <MemoryMessage message={message} />;
+  if (message.memory)
+    return <MemoryMessage message={message} onCollapse={onCollapse} />;
 
   const isAgent = message.author.kind === "agent";
   const isSubagent = message.author.agentRole === "subagent";
@@ -201,6 +311,7 @@ export function ChatMessage({
         variant={variant}
         roleLabel={roleLabel}
         isStreaming={isStreaming}
+        onCollapse={onCollapse}
       />
     );
   }
@@ -211,6 +322,7 @@ export function ChatMessage({
         authorName={message.author.name}
         roleLabel={roleLabel}
         content={message.content}
+        onCollapse={onCollapse}
       />
       {isAgent ? (
         <BlockStack gap="1">
