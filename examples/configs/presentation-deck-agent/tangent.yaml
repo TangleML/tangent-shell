@@ -1,0 +1,28 @@
+schemaVersion: 1
+id: presentation-deck-agent
+name: Presentation Deck Agent
+version: 1.0.0
+description: Turns uploaded Markdown into polished Reveal.js slide decks with Mermaid diagrams, Auto-Animate transitions, animatable SVG morphs, and video — saved as a single artifact you can open inline.
+author: Tangent
+icon: icon.svg
+tags:
+  - presentation
+  - reveal
+  - slides
+  - markdown
+  - mermaid
+
+prime:
+  systemPrompt: prompts/prime.md
+  welcomeMessage: prompts/welcome.md
+  tools:
+    - read
+    - write
+    - edit
+    - bash
+
+skills:
+  - skills/revealjs/SKILL.md
+
+# CDN-only: the generated deck loads Reveal.js, the Markdown plugin, Mermaid, and
+# highlight.js from jsDelivr at view time, so there are no runtime deps to install.

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Presentation Deck Agent">
+  <rect width="48" height="48" rx="10" fill="#1f2a44" />
+  <rect x="9" y="11" width="30" height="21" rx="3" fill="#cdd7f0" fill-opacity="0.9" />
+  <rect x="9" y="11" width="30" height="21" rx="3" fill="none" stroke="#8aa0d6" stroke-width="1.5" stroke-linejoin="round" />
+  <path d="M24 32v4M19 37h10" fill="none" stroke="#8aa0d6" stroke-width="1.5" stroke-linecap="round" />
+  <path d="M21 16.5l8 5-8 5z" fill="#7fd1c4" />
+</svg>
