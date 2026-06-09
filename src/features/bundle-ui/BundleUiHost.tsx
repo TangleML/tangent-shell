@@ -9,15 +9,32 @@
  */
 
 import { ThreadWebWorker } from "@quilted/threads";
-import { RemoteReceiver, RemoteRootRenderer } from "@remote-dom/react/host";
+import {
+  createRemoteComponentRenderer,
+  type RemoteComponentRendererMap,
+  RemoteFragmentRenderer,
+  RemoteReceiver,
+  RemoteRootRenderer,
+} from "@remote-dom/react/host";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
 import { Text } from "@/shared/ui/typography";
 
+import {
+  BUNDLE_UI_ELEMENT_NAMES,
+  hostAdapters,
+} from "./components/host-registry";
 import { createHostBridge } from "./hostBridge";
-import { remoteComponents } from "./remoteComponents";
 import type { BundleUiKind, HostBridge, WorkerApi } from "./types";
+
+const remoteComponents: RemoteComponentRendererMap = new Map([
+  ...BUNDLE_UI_ELEMENT_NAMES.map(
+    (name) =>
+      [name, createRemoteComponentRenderer(hostAdapters[name])] as const,
+  ),
+  ["remote-fragment", RemoteFragmentRenderer],
+]);
 
 interface BundleUiHostProps {
   /** URL of the compiled component JS (Phase-3 asset, or a harness fixture). */

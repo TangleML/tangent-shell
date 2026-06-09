@@ -32,6 +32,12 @@ chat fragment.
 | `tangent-textarea` | `Textarea` | `value`, `placeholder`, `disabled`; emits `input` | Controlled by the component via `input` events. |
 | `tangent-spinner` | `Spinner` | `size` (number) | Loading indicator. |
 | `tangent-card` | `Card` | `density` | Container surface. |
+| `tangent-card-header` | `CardHeader` | `density`, `divider` | Card header region. |
+| `tangent-card-title` | `CardTitle` | — | Card title text. |
+| `tangent-card-description` | `CardDescription` | — | Card subtitle/description text. |
+| `tangent-card-content` | `CardContent` | `density` | Card body region. |
+| `tangent-card-footer` | `CardFooter` | `density` | Card footer region. |
+| `tangent-badge` | `Badge` | `variant`, `size`, `position`, `shape` | Small label/status badge. |
 | `tangent-pill` | `Pill` | `tone`, `size` | Small status chip. |
 | `tangent-progress` | `Progress` (**new**, Phase 4) | `value` (0-1), `tone` | No progress primitive exists today; Phase 4 adds `tangent-progress` to `src/shared/ui` and includes it here. |
 | `tangent-score-ring` | `ScoreRing` (**new**, Phase 4) | `score` (0-100), `size` (px) | Circular opportunity-score ring with the value centered. |

@@ -1,32 +1,21 @@
-/* eslint-disable react-refresh/only-export-components -- worker-only runtime module that intentionally exports the `host` bridge and element wrappers together; never hot-reloaded on the host. */
+/* eslint-disable react-refresh/only-export-components -- worker-only runtime barrel that intentionally exports the `host` bridge alongside the element wrappers; never hot-reloaded on the host. */
 
 /**
  * `@tangent/bundle-ui` — the module a sandboxed bundle component imports.
  *
- * It exposes:
+ * It is a barrel that exposes:
  *  - `host`: the allowlisted bridge (`getProps` / `sendPrompt` / `fetch`), which
  *    delegates to the host functions the worker wired onto `globalThis` over
  *    `@quilted/threads`.
- *  - one React wrapper component per vocabulary element, so authors render
- *    type-friendly components (`<Button onPress={...}>`) instead of raw custom
- *    elements. Events are normalized to plain serializable callbacks.
- *
- * This module is evaluated **only in the worker** (it registers custom elements
- * via `./elements`). On the host it exists solely as a type/alias target.
+ *  - one React wrapper component per element, re-exported from each component's
+ *    `*.remote` module. Importing those modules registers their custom elements
+ *    as a side effect, so this module is evaluated **only in the worker** (on the
+ *    host it exists solely as a type/alias target).
  */
 
-import { createRemoteComponent } from "@remote-dom/react";
-import {
-  type ComponentType,
-  createElement,
-  type ReactNode,
-} from "react";
-
 import type { HostBridge, HostRequestInit, HostResponse } from "../types";
-import { bundleUiElementConstructors } from "./elements";
 
 declare global {
-   
   var __TANGENT_BUNDLE_UI_HOST__: HostBridge | undefined;
 }
 
@@ -47,110 +36,22 @@ export const host: HostBridge = {
 
 export type { HostRequestInit, HostResponse };
 
-type AnyProps = Record<string, unknown>;
-type AnyComponent = ComponentType<AnyProps>;
-
-/**
- * Wraps `createRemoteComponent` with a loose tag type (our tags are custom
- * elements, not in `HTMLElementTagNameMap`) and a stable prop signature.
- */
-function remoteComponent(
-  tag: string,
-  eventProps?: Record<string, { event: string }>,
-): AnyComponent {
-  return createRemoteComponent(
-    tag as keyof HTMLElementTagNameMap,
-    bundleUiElementConstructors[tag as keyof typeof bundleUiElementConstructors] as never,
-    eventProps ? { eventProps } : undefined,
-  ) as unknown as AnyComponent;
-}
-
-const RawBlockStack = remoteComponent("tangent-block-stack");
-const RawInlineStack = remoteComponent("tangent-inline-stack");
-const RawText = remoteComponent("tangent-text");
-const RawHeading = remoteComponent("tangent-heading");
-const RawButton = remoteComponent("tangent-button", { onPress: { event: "press" } });
-const RawIcon = remoteComponent("tangent-icon");
-const RawTextarea = remoteComponent("tangent-textarea", { onInput: { event: "input" } });
-const RawSpinner = remoteComponent("tangent-spinner");
-const RawCard = remoteComponent("tangent-card");
-const RawPill = remoteComponent("tangent-pill");
-const RawProgress = remoteComponent("tangent-progress");
-const RawScoreRing = remoteComponent("tangent-score-ring");
-const RawCheckbox = remoteComponent("tangent-checkbox", {
-  onChange: { event: "change" },
-});
-
-export function BlockStack(props: AnyProps): ReactNode {
-  return createElement(RawBlockStack, props);
-}
-export function InlineStack(props: AnyProps): ReactNode {
-  return createElement(RawInlineStack, props);
-}
-export function Text(props: AnyProps): ReactNode {
-  return createElement(RawText, props);
-}
-export function Heading(props: AnyProps): ReactNode {
-  return createElement(RawHeading, props);
-}
-export function Icon(props: AnyProps): ReactNode {
-  return createElement(RawIcon, props);
-}
-export function Spinner(props: AnyProps): ReactNode {
-  return createElement(RawSpinner, props);
-}
-export function Card(props: AnyProps): ReactNode {
-  return createElement(RawCard, props);
-}
-export function Pill(props: AnyProps): ReactNode {
-  return createElement(RawPill, props);
-}
-export function Progress(props: AnyProps): ReactNode {
-  return createElement(RawProgress, props);
-}
-export function ScoreRing(props: AnyProps): ReactNode {
-  return createElement(RawScoreRing, props);
-}
-
-/** `press` carries no payload; the author's handler is called with no args. */
-export function Button(props: AnyProps): ReactNode {
-  return createElement(RawButton, props);
-}
-
-/**
- * `tangent-textarea` emits an `input` event carrying the new value. We normalize
- * it so the author's `onInput` receives the string directly rather than a
- * `RemoteEvent`.
- */
-export function Textarea(props: AnyProps): ReactNode {
-  const { onInput, ...rest } = props as {
-    onInput?: (value: string) => void;
-  } & AnyProps;
-  const onRawInput =
-    typeof onInput === "function"
-      ? (event: unknown) => {
-          const detail = (event as { detail?: unknown } | null)?.detail;
-          onInput(typeof detail === "string" ? detail : String(detail ?? ""));
-        }
-      : undefined;
-  return createElement(RawTextarea, { ...rest, onInput: onRawInput });
-}
-
-/**
- * `tangent-checkbox` emits a `change` event carrying the new checked value. We
- * normalize it so the author's `onCheckedChange` receives the boolean directly
- * rather than a `RemoteEvent`.
- */
-export function Checkbox(props: AnyProps): ReactNode {
-  const { onCheckedChange, ...rest } = props as {
-    onCheckedChange?: (checked: boolean) => void;
-  } & AnyProps;
-  const onChange =
-    typeof onCheckedChange === "function"
-      ? (event: unknown) => {
-          const detail = (event as { detail?: unknown } | null)?.detail;
-          onCheckedChange(Boolean(detail));
-        }
-      : undefined;
-  return createElement(RawCheckbox, { ...rest, onChange });
-}
+export { Badge } from "../components/badge/badge.remote";
+export { BlockStack } from "../components/block-stack/block-stack.remote";
+export { Button } from "../components/button/button.remote";
+export { Card } from "../components/card/card.remote";
+export { CardContent } from "../components/card/card-content.remote";
+export { CardDescription } from "../components/card/card-description.remote";
+export { CardFooter } from "../components/card/card-footer.remote";
+export { CardHeader } from "../components/card/card-header.remote";
+export { CardTitle } from "../components/card/card-title.remote";
+export { Checkbox } from "../components/checkbox/checkbox.remote";
+export { Heading } from "../components/heading/heading.remote";
+export { Icon } from "../components/icon/icon.remote";
+export { InlineStack } from "../components/inline-stack/inline-stack.remote";
+export { Pill } from "../components/pill/pill.remote";
+export { Progress } from "../components/progress/progress.remote";
+export { ScoreRing } from "../components/score-ring/score-ring.remote";
+export { Spinner } from "../components/spinner/spinner.remote";
+export { Text } from "../components/text/text.remote";
+export { Textarea } from "../components/textarea/textarea.remote";
