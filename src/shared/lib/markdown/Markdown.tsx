@@ -2,7 +2,10 @@
 // HTML elements (h1/ul/a/img/code/table/...). These are not Tangle UI
 // primitives, so the scoped classNames here are an allowed escape hatch.
 import type { ReactNode } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, {
+  type Components,
+  defaultUrlTransform,
+} from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
@@ -14,6 +17,7 @@ import { Separator } from "@/shared/ui/separator";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 import { CodeBlock } from "./CodeBlock";
+import { InlineStack } from "@/shared/ui/layout";
 
 /**
  * Matches a bundle-UI message token's language class, e.g.
@@ -91,6 +95,34 @@ function resolveUrl(url: string | undefined, base: string): string | undefined {
   if (!url || isAbsoluteUrl(url)) return url;
   const cleaned = url.replace(/^\.\//, "");
   return `${base}/${cleaned}`;
+}
+
+/**
+ * Special link scheme that turns a markdown link into a chat action: clicking it
+ * sends the payload to the chat via `onSendPrompt` instead of navigating.
+ */
+const PROMPT_SCHEME = "prompt://";
+
+/** Returns the decoded prompt payload for a `prompt://` href, else undefined. */
+function parsePromptHref(href: string | undefined): string | undefined {
+  if (typeof href !== "string" || !href.startsWith(PROMPT_SCHEME))
+    return undefined;
+  const raw = href.slice(PROMPT_SCHEME.length);
+  try {
+    return decodeURIComponent(raw).trim() || undefined;
+  } catch {
+    return raw.trim() || undefined;
+  }
+}
+
+/**
+ * URL sanitizer for `react-markdown`. The default transform drops unknown
+ * protocols (keeping only http/https/mailto/etc.), which would blank our
+ * `prompt://` links before the `a` handler runs. Preserve those; defer to the
+ * default for everything else.
+ */
+function urlTransform(url: string): string {
+  return url.startsWith(PROMPT_SCHEME) ? url : defaultUrlTransform(url);
 }
 
 /**
@@ -183,6 +215,49 @@ function ArtifactChip({
 }
 
 /**
+ * Prompt action link — a `prompt://` markdown link that sends its payload to
+ * the chat instead of navigating. Styled distinctly from regular links (dashed
+ * underline + leading prompt icon). Raw `<button>`, so scoped classes are fine.
+ * In read-only contexts (no `onSend`) it renders as inert text.
+ */
+const PROMPT_LINK_CLASS =
+  "inline cursor-pointer text-primary underline decoration-dashed underline-offset-2 hover:decoration-solid";
+
+function PromptLink({
+  prompt,
+  children,
+  onSend,
+  size,
+}: {
+  prompt: string;
+  children?: ReactNode;
+  onSend?: (text: string) => void;
+  size: MarkdownSize;
+}) {
+  if (!onSend) {
+    return (
+      <Text as="span" size={size}>
+        {children}
+      </Text>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      title="Send as prompt"
+      onClick={() => onSend(prompt)}
+      className={PROMPT_LINK_CLASS}
+    >
+      <InlineStack gap="1" wrap="nowrap" grow>
+        <Icon name="Sparkles" size="xs" tone="subdued" />
+        {children}
+      </InlineStack>
+    </button>
+  );
+}
+
+/**
  * Renders an agent-emitted `tangent-ui:<name>` block as a sandboxed bundle
  * message component. While the agent message is still streaming the JSON body
  * may be incomplete; a quiet placeholder is shown until it parses.
@@ -261,7 +336,9 @@ function buildComponents(
       </Paragraph>
     ),
     ul: ({ children }) => <ul className="my-1 list-disc pl-4">{children}</ul>,
-    ol: ({ children }) => <ol className="my-1 list-decimal pl-4">{children}</ol>,
+    ol: ({ children }) => (
+      <ol className="my-1 list-decimal pl-4">{children}</ol>
+    ),
     li: ({ children }) => (
       <li className="my-0.5">
         <Text as="span" size={size} leading="relaxed" tone={tone}>
@@ -290,6 +367,17 @@ function buildComponents(
     td: ({ children }) => <td className="px-2 py-1">{children}</td>,
     hr: () => <Separator />,
     a: ({ href, title, children }) => {
+      if (typeof href === "string" && href.startsWith(PROMPT_SCHEME)) {
+        const promptText = parsePromptHref(href);
+        const text =
+          promptText ?? (typeof children === "string" ? children.trim() : "");
+        return (
+          <PromptLink prompt={text} onSend={onSendPrompt} size={size}>
+            {children}
+          </PromptLink>
+        );
+      }
+
       const isArtifact =
         artifactBaseUrl != null &&
         typeof href === "string" &&
@@ -335,7 +423,9 @@ function buildComponents(
     code: ({ className, children }) => {
       // Bundle-UI message token: render the bundle's sandboxed component when
       // we know which bundle to load it from; otherwise treat it as code.
-      const bundleMatch = bundleId ? className?.match(BUNDLE_UI_LANGUAGE) : null;
+      const bundleMatch = bundleId
+        ? className?.match(BUNDLE_UI_LANGUAGE)
+        : null;
       if (bundleMatch && bundleId) {
         const body = String(children).replace(/\n$/, "");
         return (
@@ -384,6 +474,7 @@ export function Markdown({
     <div className={cn("space-y-2", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={urlTransform}
         components={buildComponents(
           artifactBaseUrl,
           size,
