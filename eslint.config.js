@@ -44,7 +44,15 @@ export default tseslint.config(
   // The orchestrator extension is authored against Pi's runtime (not this
   // repo's deps), is `@ts-nocheck`, and is excluded from the server tsconfig,
   // so it is excluded from linting too.
-  { ignores: ["dist", "server/src/pi/extensions/**"] },
+  {
+    ignores: [
+      "dist",
+      "server/src/pi/extensions/**",
+      ".sessions",
+      ".agent-bundles",
+      ".memory",
+    ],
+  },
   {
     extends: [
       js.configs.recommended,
@@ -52,7 +60,7 @@ export default tseslint.config(
       // Flat `recommended-latest` includes the React Compiler rules.
       reactHooks.configs.flat["recommended-latest"],
     ],
-    files: ["**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}", "shared/**/*.{ts,tsx}", "server/**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.browser,

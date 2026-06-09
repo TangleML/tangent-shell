@@ -36,3 +36,6 @@ Dockerfile
 .dockerignore
 .codanna
 .fastembed_cache
+.sessions
+.memory
+.local

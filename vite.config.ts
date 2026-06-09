@@ -36,6 +36,12 @@ export default defineConfig({
   },
   server: {
     allowedHosts: [".tunnel.shopifycloud.tech"],
+    // Runtime-generated, agent-owned roots (see server/src/config.ts). Agents
+    // constantly write here, so keep them out of the dev watcher to avoid
+    // spurious reloads.
+    watch: {
+      ignored: ["**/.sessions/**", "**/.agent-bundles/**", "**/.memory/**"],
+    },
     proxy: {
       "/api": {
         target: apiTarget,

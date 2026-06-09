@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-ssr
+
+# Runtime-generated, agent-owned roots (see server/src/config.ts)
+.sessions
+.agent-bundles
+.memory
+
+.codanna
+.fastembed_cache
