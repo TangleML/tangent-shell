@@ -9,11 +9,7 @@ import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Paragraph } from "@/shared/ui/typography";
 
 import { AgentActivityBubble } from "./AgentActivityBubble";
-import {
-  ChatMessage,
-  CollapsedMessage,
-  CollapsedMessageGroup,
-} from "./ChatMessage";
+import { ChatMessage, CollapsedMessageGroup } from "./ChatMessage";
 
 interface ChatMessageListProps {
   sessionId: string;
@@ -187,15 +183,7 @@ export function ChatMessageList({
                   );
                 }
                 const [first] = segment.messages;
-                if (segment.messages.length === 1) {
-                  return (
-                    <CollapsedMessage
-                      key={first.id}
-                      message={first}
-                      onExpand={() => expand([first.id])}
-                    />
-                  );
-                }
+
                 return (
                   <CollapsedMessageGroup
                     key={first.id}

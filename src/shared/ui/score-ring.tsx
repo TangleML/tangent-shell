@@ -12,7 +12,7 @@ import { Text } from "./typography";
  * consistency. Added for the bundle UI vocabulary (`tangent-score-ring`).
  */
 
-const STROKE_WIDTH = 6;
+const STROKE_WIDTH = 4;
 
 type ScoreBand = "high" | "medium" | "low";
 
@@ -81,7 +81,7 @@ export function ScoreRing({ score, size = 64 }: ScoreRingProps) {
         />
       </svg>
       <Text
-        size="md"
+        size="sm"
         weight="bold"
         className={cn("absolute", getScoreTextClass(band))}
       >
