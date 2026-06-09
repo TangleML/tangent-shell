@@ -15,7 +15,7 @@ export function AppTopNav() {
       brand={
         <Link to="/sessions">
           <Text size="lg" weight="bold">
-            Tangent
+            Tangent Shell
           </Text>
         </Link>
       }
