@@ -213,6 +213,8 @@ interface ChatMessageProps {
   bundleId?: string;
   /** Forwards a prompt composed by an interactive `tangent-ui:` component. */
   onSendPrompt?: (text: string) => void;
+  /** Opens a browser-viewable "page" artifact in an in-app tab. */
+  onOpenArtifact?: (url: string, title: string) => void;
   /** Collapses this message into the hidden state; omitted disables collapse. */
   onCollapse?: () => void;
 }
@@ -289,6 +291,7 @@ export function ChatMessage({
   isStreaming = false,
   bundleId,
   onSendPrompt,
+  onOpenArtifact,
   onCollapse,
 }: ChatMessageProps) {
   if (message.memory)
@@ -336,6 +339,7 @@ export function ChatMessage({
             artifactBaseUrl={`/api/sessions/${sessionId}/files`}
             bundleId={bundleId}
             onSendPrompt={onSendPrompt}
+            onOpenArtifact={onOpenArtifact}
           >
             {message.content}
           </Markdown>

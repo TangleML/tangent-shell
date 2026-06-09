@@ -1,14 +1,22 @@
 import { PI_AGENT } from "@shared/contracts";
 import { useMemo, useState } from "react";
 
+import {
+  CHAT_TAB_VALUE,
+  useArtifactTabs,
+} from "@/features/chat/hooks/useArtifactTabs";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSession } from "@/features/sessions/hooks/useSession";
 import { Box } from "@/shared/ui/box";
+import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Divider } from "@/shared/ui/patterns/divider";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Text } from "@/shared/ui/typography";
 
+import { ArtifactTabTrigger } from "./ArtifactTabTrigger";
+import { ArtifactTabView } from "./ArtifactTabView";
 import { BundlePanelLauncher } from "./BundlePanelLauncher";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
@@ -43,6 +51,10 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
   // Which thread is open: `null` is Prime's main thread, else a sub-agent id.
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  // Opened "page" artifacts, each shown beside the chat in its own closeable tab.
+  const { tabs, activeTab, setActiveTab, openArtifact, closeArtifact } =
+    useArtifactTabs();
 
   // The active conversation: Prime's main thread or the selected sub-agent's.
   const conversationId = selectedAgentId ?? PI_AGENT.id;
@@ -90,53 +102,82 @@ export function SessionChat({ sessionId }: SessionChatProps) {
           onSelect={setSelectedAgentId}
           isConversationBusy={isConversationBusy}
         />
-        <BlockStack grow>
-          <ChatMessageList
-            sessionId={sessionId}
-            messages={visibleMessages}
-            currentAuthorId={currentAuthorId}
-            activity={getActivity(effectiveConversationId)}
-            bundleId={bundleId}
-            onSendPrompt={isSubagentView ? undefined : send}
-            isMessageStreaming={isMessageStreaming}
-          />
-          {isSubagentView ? (
-            <>
-              <Divider orientation="horizontal" />
-              <Box paddingInline="base" paddingBlock="sm">
-                <Text size="xs" tone="subdued">
-                  Viewing {threadName}'s thread (read-only). Humans message
-                  Prime; Prime directs sub-agents.
-                </Text>
-              </Box>
-            </>
-          ) : (
-            <>
-              {memorySuggestions.length > 0 ? (
-                <Box paddingInline="base" paddingBlock="sm">
-                  <BlockStack gap="2">
-                    {memorySuggestions.map((suggestion) => (
-                      <MemorySuggestionCard
-                        key={suggestion.suggestionId}
-                        suggestion={suggestion}
-                        onConfirm={confirmMemory}
-                        onDismiss={dismissMemory}
-                      />
-                    ))}
-                  </BlockStack>
-                </Box>
-              ) : null}
-              {bundleId ? (
-                <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
-              ) : null}
-              <ChatInput
-                sessionId={sessionId}
-                disabled={!connected || agentBusy}
-                onSubmit={send}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value={CHAT_TAB_VALUE}>
+              <Icon name="MessageSquare" size="xs" tone="subdued" />
+              Chat
+            </TabsTrigger>
+            {tabs.map((tab) => (
+              <ArtifactTabTrigger
+                key={tab.id}
+                value={tab.id}
+                title={tab.title}
+                onClose={() => closeArtifact(tab.id)}
               />
-            </>
-          )}
-        </BlockStack>
+            ))}
+          </TabsList>
+
+          <TabsContent value={CHAT_TAB_VALUE} forceMount>
+            <BlockStack grow>
+              <ChatMessageList
+                sessionId={sessionId}
+                messages={visibleMessages}
+                currentAuthorId={currentAuthorId}
+                activity={getActivity(effectiveConversationId)}
+                bundleId={bundleId}
+                onSendPrompt={isSubagentView ? undefined : send}
+                onOpenArtifact={openArtifact}
+                isMessageStreaming={isMessageStreaming}
+              />
+              {isSubagentView ? (
+                <>
+                  <Divider orientation="horizontal" />
+                  <Box paddingInline="base" paddingBlock="sm">
+                    <Text size="xs" tone="subdued">
+                      Viewing {threadName}'s thread (read-only). Humans message
+                      Prime; Prime directs sub-agents.
+                    </Text>
+                  </Box>
+                </>
+              ) : (
+                <>
+                  {memorySuggestions.length > 0 ? (
+                    <Box paddingInline="base" paddingBlock="sm">
+                      <BlockStack gap="2">
+                        {memorySuggestions.map((suggestion) => (
+                          <MemorySuggestionCard
+                            key={suggestion.suggestionId}
+                            suggestion={suggestion}
+                            onConfirm={confirmMemory}
+                            onDismiss={dismissMemory}
+                          />
+                        ))}
+                      </BlockStack>
+                    </Box>
+                  ) : null}
+                  {bundleId ? (
+                    <BundlePanelLauncher
+                      bundleId={bundleId}
+                      onSendPrompt={send}
+                    />
+                  ) : null}
+                  <ChatInput
+                    sessionId={sessionId}
+                    disabled={!connected || agentBusy}
+                    onSubmit={send}
+                  />
+                </>
+              )}
+            </BlockStack>
+          </TabsContent>
+
+          {tabs.map((tab) => (
+            <TabsContent key={tab.id} value={tab.id} forceMount>
+              <ArtifactTabView url={tab.url} title={tab.title} />
+            </TabsContent>
+          ))}
+        </Tabs>
       </InlineStack>
     </BlockStack>
   );

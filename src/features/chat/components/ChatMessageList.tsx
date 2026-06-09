@@ -25,6 +25,8 @@ interface ChatMessageListProps {
   bundleId?: string;
   /** Forwards a prompt composed by an interactive `tangent-ui:` component. */
   onSendPrompt?: (text: string) => void;
+  /** Opens a browser-viewable "page" artifact in an in-app tab. */
+  onOpenArtifact?: (url: string, title: string) => void;
   /** Whether a given message id is still receiving streamed deltas. */
   isMessageStreaming: (messageId: string) => boolean;
 }
@@ -73,6 +75,7 @@ export function ChatMessageList({
   activity,
   bundleId,
   onSendPrompt,
+  onOpenArtifact,
   isMessageStreaming,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -177,6 +180,7 @@ export function ChatMessageList({
                       isOwn={msg.author.id === currentAuthorId}
                       bundleId={bundleId}
                       onSendPrompt={onSendPrompt}
+                      onOpenArtifact={onOpenArtifact}
                       isStreaming={isMessageStreaming(msg.id)}
                       onCollapse={() => collapse(msg.id)}
                     />

@@ -66,6 +66,12 @@ type MarkdownProps = {
    * inert.
    */
   onSendPrompt?: (text: string) => void;
+  /**
+   * Opens a browser-viewable "page" artifact (HTML, PDF, image, text) in an
+   * in-app tab instead of a new browser window. When omitted, viewable artifact
+   * links fall back to the same download chip as plain file artifacts.
+   */
+  onOpenArtifact?: (url: string, title: string) => void;
 };
 
 const INLINE_CODE_CLASS =
@@ -88,25 +94,87 @@ function resolveUrl(url: string | undefined, base: string): string | undefined {
 }
 
 /**
- * Artifact chip — a recognizable, padded pill-style link for downloadable
- * artifact references in agent output. Raw `<a>`, so scoped classes are fine.
+ * File extensions a browser can render inline (HTML pages, PDFs, images, and
+ * plain-text formats). Links to these "page" artifacts open in an in-app tab;
+ * anything else stays a download chip.
  */
+const VIEWABLE_ARTIFACT_EXTENSIONS = new Set([
+  "html",
+  "htm",
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "svg",
+  "webp",
+  "txt",
+  "md",
+  "json",
+  "csv",
+  "log",
+]);
+
+/** True when an artifact URL points at a browser-viewable "page" artifact. */
+function isViewableArtifact(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0];
+  const ext = path.split(".").pop()?.toLowerCase();
+  return ext != null && VIEWABLE_ARTIFACT_EXTENSIONS.has(ext);
+}
+
+/** Derives a short tab title from the link text, falling back to the filename. */
+function artifactLabel(children: ReactNode, url: string): string {
+  if (typeof children === "string" && children.trim()) return children.trim();
+  const path = url.split(/[?#]/, 1)[0];
+  const filename = path.split("/").pop() ?? url;
+  try {
+    return decodeURIComponent(filename);
+  } catch {
+    return filename;
+  }
+}
+
+/**
+ * Artifact chip — a recognizable, padded pill-style reference for artifact
+ * output. With `onOpen` it renders a button that opens the artifact in an
+ * in-app tab; otherwise a download link. Raw `<a>`/`<button>`, so scoped
+ * classes are fine.
+ */
+const ARTIFACT_CHIP_CLASS =
+  "inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 align-middle text-xs font-medium text-foreground no-underline transition hover:bg-muted/70";
+
 function ArtifactChip({
   href,
   title,
   children,
+  onOpen,
 }: {
   href?: string;
   title?: string;
   children?: ReactNode;
+  onOpen?: () => void;
 }) {
+  if (onOpen) {
+    return (
+      <button
+        type="button"
+        title={title}
+        onClick={onOpen}
+        className={ARTIFACT_CHIP_CLASS}
+      >
+        <Icon name="FileText" size="xs" tone="subdued" />
+        <span className="truncate">{children}</span>
+      </button>
+    );
+  }
+
   return (
     <a
       href={href}
       title={title}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 align-middle text-xs font-medium text-foreground no-underline transition hover:bg-muted/70"
+      className={ARTIFACT_CHIP_CLASS}
     >
       <Icon name="Paperclip" size="xs" tone="subdued" />
       <span className="truncate">{children}</span>
@@ -164,6 +232,7 @@ function buildComponents(
   tone: MarkdownTone = "inherit",
   bundleId?: string,
   onSendPrompt?: (text: string) => void,
+  onOpenArtifact?: (url: string, title: string) => void,
 ): Components {
   return {
     h1: ({ children }) => (
@@ -227,10 +296,18 @@ function buildComponents(
         !isAbsoluteUrl(href);
 
       if (isArtifact) {
+        const resolved = resolveUrl(href, artifactBaseUrl) ?? href;
+        const openable = onOpenArtifact != null && isViewableArtifact(href);
         return (
           <ArtifactChip
-            href={resolveUrl(href, artifactBaseUrl)}
+            href={resolved}
             title={title}
+            onOpen={
+              openable
+                ? () =>
+                    onOpenArtifact(resolved, artifactLabel(children, resolved))
+                : undefined
+            }
           >
             {children}
           </ArtifactChip>
@@ -301,6 +378,7 @@ export function Markdown({
   artifactBaseUrl,
   bundleId,
   onSendPrompt,
+  onOpenArtifact,
 }: MarkdownProps) {
   return (
     <div className={cn("space-y-2", className)}>
@@ -312,6 +390,7 @@ export function Markdown({
           tone,
           bundleId,
           onSendPrompt,
+          onOpenArtifact,
         )}
       >
         {children}
