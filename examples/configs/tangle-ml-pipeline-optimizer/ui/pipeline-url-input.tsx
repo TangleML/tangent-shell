@@ -141,6 +141,41 @@ function formatDate(createdAt: string | null): string {
   return Number.isNaN(parsed.getTime()) ? createdAt : parsed.toLocaleString();
 }
 
+function RecentRunItem({
+  run,
+  onAnalyze,
+}: {
+  run: RecentRun;
+  onAnalyze: (url: string) => void;
+}) {
+  return (
+    <InlineStack gap="2" blockAlign="start" align="space-between">
+      <Button
+        key={run.id}
+        variant="outline"
+        onPress={() => onAnalyze(`https://oasis.shopify.io/runs/${run.id}`)}
+      >
+        Analyze
+      </Button>
+      <InlineStack gap="1">
+        <BlockStack gap="1">
+          <Text size="sm" weight="medium">
+            {run.name}
+          </Text>
+          <InlineStack gap="1">
+            <Text size="xs" tone="subdued">
+              {formatDate(run.createdAt)}
+            </Text>
+            <Pill tone={run.done ? "success" : "info"} size="sm">
+              {run.done ? "Complete" : "In progress"}
+            </Pill>
+          </InlineStack>
+        </BlockStack>
+      </InlineStack>
+    </InlineStack>
+  );
+}
+
 export default function PipelineUrlInput() {
   const [url, setUrl] = useState("");
   const [sent, setSent] = useState(false);
@@ -152,7 +187,10 @@ export default function PipelineUrlInput() {
     (async () => {
       try {
         const res = await host.fetch(`${TANGLE_BASE}/api/pipeline_runs/`, {
-          query: { include_execution_stats: true },
+          query: {
+            include_execution_stats: true,
+            include_pipeline_names: true,
+          },
         });
         if (active && res.ok) {
           setRecentRuns(parseRecentRuns(res.json));
@@ -209,30 +247,11 @@ export default function PipelineUrlInput() {
               <Text size="sm" weight="semibold">
                 Recent runs
               </Text>
-              {recentRuns.map((run) => (
-                <InlineStack gap="2" blockAlign="center" align="space-between">
-                  <BlockStack gap="1">
-                    <Text size="sm" weight="medium">
-                      {run.name}
-                    </Text>
-                    <Text size="xs" tone="subdued">
-                      {formatDate(run.createdAt)}
-                    </Text>
-                  </BlockStack>
-                  <Pill tone={run.done ? "success" : "info"} size="sm">
-                    {run.done ? "Complete" : "In progress"}
-                  </Pill>
-                  <Button
-                    key={run.id}
-                    variant="outline"
-                    onPress={() =>
-                      submit(`https://oasis.shopify.io/runs/${run.id}`)
-                    }
-                  >
-                    Analyze
-                  </Button>
-                </InlineStack>
-              ))}
+              <BlockStack gap="4">
+                {recentRuns.map((run) => (
+                  <RecentRunItem key={run.id} run={run} onAnalyze={submit} />
+                ))}
+              </BlockStack>
             </BlockStack>
           ) : null}
 
