@@ -101,3 +101,12 @@ export const INTERNAL_URL =
  * so arbitrary local processes can't drive a session's agents.
  */
 export const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? randomUUID();
+
+/**
+ * Base URL of the Tangle (Cloud Pipelines) API reached by the bundle-UI/agent
+ * egress allowlist. The OpenAPI doc declares no `servers`, so this is supplied
+ * per environment: defaults to the local dev server and is overridden in
+ * production. Only the origin is used when matching egress destinations.
+ */
+export const TANGLE_API_URL =
+  process.env.TANGLE_API_URL ?? "https://oasis.shopify.io";

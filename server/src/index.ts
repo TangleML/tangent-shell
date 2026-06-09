@@ -8,6 +8,7 @@ import { MemoryManager } from "./pi/memory.ts";
 import { PiAgentManager } from "./pi/piAgentManager.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
+import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
 import { createSessionsRouter } from "./routes/sessions.ts";
 import {
@@ -63,6 +64,8 @@ app.use("/api/sessions", createSessionsRouter(store, pi, agentBundleStore));
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use("/internal/agents", createInternalAgentsRouter(store, pi));
+// Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
+app.use("/internal/egress", createInternalEgressRouter());
 // Internal API for the memory extension running inside each Pi process.
 app.use(
   "/internal/memory",

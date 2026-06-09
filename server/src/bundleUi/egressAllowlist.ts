@@ -11,6 +11,8 @@
  * See `docs/bundle-ui/host-bridge.md` for the contract.
  */
 
+import { TANGLE_API_URL } from "../config.ts";
+
 /** A tiny subset of `RequestInit` that crosses the bridge. */
 export interface EgressRequestInit {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -49,6 +51,54 @@ function oasisAuthHeaders(): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * Bearer auth for the Tangle (Cloud Pipelines) API, injected server-side so the
+ * agent never holds the token. Unset by default; set `TANGLE_AUTH` to attach
+ * `Authorization: Bearer <token>`.
+ */
+function tangleAuthHeaders(): Record<string, string> {
+  const token = process.env.TANGLE_AUTH;
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+/** Origin of the configured Tangle API; only this host is reachable. */
+const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
+
+/**
+ * Allowlisted Tangle API endpoints (tags `artifacts` / `executions` /
+ * `pipelineRuns` from the OpenAPI doc). Reads are GET; run submit/cancel and
+ * annotation mutations carry their own methods. Everything else is denied.
+ */
+const TANGLE_PATH_RULES: ReadonlyArray<{
+  method: NonNullable<EgressRequestInit["method"]>;
+  test: RegExp;
+}> = [
+  // pipelineRuns
+  { method: "GET", test: /^\/api\/pipeline_runs\/$/ },
+  { method: "POST", test: /^\/api\/pipeline_runs\/$/ },
+  { method: "GET", test: /^\/api\/pipeline_runs\/[^/]+$/ },
+  { method: "POST", test: /^\/api\/pipeline_runs\/[^/]+\/cancel$/ },
+  { method: "GET", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/$/ },
+  { method: "PUT", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/ },
+  { method: "DELETE", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/ },
+  // executions
+  {
+    method: "GET",
+    test: /^\/api\/executions\/[^/]+\/(state|graph_execution_state|details|container_state|artifacts|container_log|stream_container_log)$/,
+  },
+  // artifacts
+  { method: "GET", test: /^\/api\/artifacts\/[^/]+$/ },
+  { method: "GET", test: /^\/api\/artifacts\/[^/]+\/signed_artifact_url$/ },
+];
+
+/** Expands the Tangle path rules into full {@link EgressRule}s. */
+const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
+  method: rule.method,
+  matches: (url) =>
+    url.origin === TANGLE_API_ORIGIN && rule.test.test(url.pathname),
+  headers: oasisAuthHeaders,
+}));
+
 /** Registered destinations the bridge may reach. */
 const EGRESS_RULES: EgressRule[] = [
   {
@@ -60,6 +110,7 @@ const EGRESS_RULES: EgressRule[] = [
       /^\/api\/executions\/[^/]+\/state$/.test(url.pathname),
     headers: oasisAuthHeaders,
   },
+  ...TANGLE_RULES,
 ];
 
 /** Response headers we are willing to surface back across the bridge. */
