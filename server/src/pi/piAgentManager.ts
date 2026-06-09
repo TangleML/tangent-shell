@@ -388,6 +388,24 @@ export class PiAgentManager {
   }
 
   /**
+   * Aborts an agent's in-progress run (Prime or a sub-agent) by sending Pi's
+   * `abort` RPC command on stdin. The process stays alive and emits `agent_end`,
+   * which resets its state through the normal event flow. No-op when the agent
+   * is unknown or idle. `aborted` is flagged so a half-finished sub-agent reply
+   * is not relayed back to Prime.
+   */
+  abort(sessionId: string, agentId: string): void {
+    const agent = this.sessions.get(sessionId)?.agents.get(agentId);
+    if (!agent || !agent.busy) return;
+
+    agent.aborted = true;
+    console.log(`[pi:${sessionId}:${agentId}] abort`, JSON.stringify({ role: agent.role }));
+    agent.child.stdin.write(
+      `${JSON.stringify({ id: randomUUID(), type: "abort" })}\n`,
+    );
+  }
+
+  /**
    * Kills a sub-agent and records its terminal status. `completed` marks a
    * graceful, Prime-initiated finish; otherwise the sub-agent is "killed".
    */
@@ -462,6 +480,7 @@ export class PiAgentManager {
       createdAt: new Date().toISOString(),
       child,
       busy: false,
+      aborted: false,
       currentMessageId: null,
       startEmitted: false,
       accum: "",
@@ -553,6 +572,7 @@ export class PiAgentManager {
     descriptor: AgentDescriptor,
   ): void {
     agent.busy = true;
+    agent.aborted = false;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -665,6 +685,9 @@ export class PiAgentManager {
     // Safety net: relay every finalized sub-agent message to Prime as it lands,
     // not just the last one at run end, so intermediate reports (e.g. submitted
     // run ids) reach Prime even when the sub-agent doesn't call message_prime.
+    // A user-aborted run is intentionally cut short, so its partial output is
+    // not relayed back to Prime as if the sub-agent finished its task.
+    if (agent.aborted) return;
     this.relaySubagentReply(sessionId, agent, content);
   }
 
@@ -702,6 +725,7 @@ export class PiAgentManager {
       JSON.stringify({
         role: agent.role,
         lastContentLength: agent.lastFinalContent.length,
+        aborted: agent.aborted,
       }),
     );
 
@@ -711,6 +735,7 @@ export class PiAgentManager {
     agent.thinkingAccum = "";
     agent.lastFinalContent = "";
     agent.busy = false;
+    agent.aborted = false;
 
     this.emitActivity(sessionId, descriptor, null);
   }
@@ -760,6 +785,7 @@ export class PiAgentManager {
     agent.thinkingAccum = "";
     agent.lastFinalContent = "";
     agent.busy = false;
+    agent.aborted = false;
     const descriptor = {
       agentId: agent.agentId,
       role: agent.role,

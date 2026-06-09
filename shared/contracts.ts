@@ -314,6 +314,16 @@ export interface MemoryDismissPayload {
   suggestionId: string;
 }
 
+/**
+ * Sent (client -> server) to abort an agent's in-progress run. `conversationId`
+ * is the target agent's id (`"prime"` or a sub-agent id), matching how messages
+ * are tagged, so any agent's current work can be cancelled.
+ */
+export interface AgentAbortPayload {
+  sessionId: string;
+  conversationId: string;
+}
+
 /** Socket.IO event names shared by client and server. */
 export const SocketEvents = {
   ChatJoin: "chat:join",
@@ -326,6 +336,7 @@ export const SocketEvents = {
   AgentEnd: "agent:end",
   AgentError: "agent:error",
   AgentActivity: "agent:activity",
+  AgentAbort: "agent:abort",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
   MemorySuggestion: "memory:suggestion",

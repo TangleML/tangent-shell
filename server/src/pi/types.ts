@@ -74,6 +74,12 @@ export interface AgentProcess {
   createdAt: string;
   child: ChildProcessWithoutNullStreams;
   busy: boolean;
+  /**
+   * Set when the current run was aborted by the user (via the `abort` RPC
+   * command). Read on `agent_end` to skip relaying a half-finished sub-agent
+   * reply back to Prime, then reset for the next run.
+   */
+  aborted: boolean;
   /** The id of the assistant message currently streaming, if any. */
   currentMessageId: string | null;
   /**

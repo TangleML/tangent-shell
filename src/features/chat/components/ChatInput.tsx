@@ -12,10 +12,20 @@ import { Textarea } from "@/shared/ui/textarea";
 interface ChatInputProps {
   sessionId: string;
   disabled?: boolean;
+  /** Whether the agent is mid-run; swaps Send for a Stop control. */
+  agentBusy?: boolean;
+  /** Aborts the agent's in-progress run. Required for the Stop control. */
+  onAbort?: () => void;
   onSubmit: (content: string, attachments?: Attachment[]) => void;
 }
 
-export function ChatInput({ sessionId, disabled, onSubmit }: ChatInputProps) {
+export function ChatInput({
+  sessionId,
+  disabled,
+  agentBusy,
+  onAbort,
+  onSubmit,
+}: ChatInputProps) {
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -23,6 +33,9 @@ export function ChatInput({ sessionId, disabled, onSubmit }: ChatInputProps) {
 
   const busy = disabled || uploading;
   const canSubmit = !busy && (value.trim().length > 0 || files.length > 0);
+  // While the agent is running, the trailing action becomes "Stop" so the user
+  // can abort mid-run even though the rest of the composer is disabled.
+  const showStop = Boolean(agentBusy && onAbort);
 
   function handleFilesPicked(e: ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files ? Array.from(e.target.files) : [];
@@ -110,14 +123,24 @@ export function ChatInput({ sessionId, disabled, onSubmit }: ChatInputProps) {
             onKeyDown={handleKeyDown}
             disabled={busy}
           />
-          <IconButton
-            icon="Send"
-            variant="outline"
-            size="lg"
-            onClick={() => void handleSubmit()}
-            disabled={!canSubmit}
-            aria-label="Send message"
-          />
+          {showStop ? (
+            <IconButton
+              icon="Square"
+              variant="outline"
+              size="lg"
+              onClick={onAbort}
+              aria-label="Stop"
+            />
+          ) : (
+            <IconButton
+              icon="Send"
+              variant="outline"
+              size="lg"
+              onClick={() => void handleSubmit()}
+              disabled={!canSubmit}
+              aria-label="Send message"
+            />
+          )}
         </InlineStack>
       </BlockStack>
     </Box>

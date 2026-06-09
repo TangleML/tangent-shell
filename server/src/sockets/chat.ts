@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type AgentAbortPayload,
   type AgentActivity,
   type AgentActivityPayload,
   type AgentDeltaPayload,
@@ -389,6 +390,10 @@ export function registerChatHandlers(
 
     socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
       handleChatMessage(io, socket, store, pi, payload),
+    );
+
+    socket.on(SocketEvents.AgentAbort, (payload: AgentAbortPayload) =>
+      pi.abort(payload?.sessionId, payload?.conversationId),
     );
 
     socket.on(SocketEvents.MemoryConfirm, (payload: MemoryConfirmPayload) =>

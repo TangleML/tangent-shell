@@ -1,4 +1,5 @@
 import {
+  type AgentAbortPayload,
   type AgentActivity,
   type AgentActivityPayload,
   type AgentDeltaPayload,
@@ -252,6 +253,18 @@ export function useSessionChat(sessionId: string) {
     socket.emit(SocketEvents.ChatMessage, payload);
   }
 
+  // Aborts an agent's in-progress run by id (`"prime"` or a sub-agent id). The
+  // server resets the run's state and the UI clears via the usual agent events.
+  const abort = useCallback(
+    (conversationId: string) => {
+      const socket = socketRef.current;
+      if (!socket) return;
+      const payload: AgentAbortPayload = { sessionId, conversationId };
+      socket.emit(SocketEvents.AgentAbort, payload);
+    },
+    [sessionId],
+  );
+
   // Resolves a memory suggestion: tells the server to apply or discard it and
   // optimistically removes the card so it can't be answered twice.
   const resolveSuggestion = useCallback(
@@ -319,5 +332,6 @@ export function useSessionChat(sessionId: string) {
     isMessageStreaming,
     currentAuthorId: author.id,
     send,
+    abort,
   };
 }

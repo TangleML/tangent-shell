@@ -11,6 +11,7 @@ import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Divider } from "@/shared/ui/patterns/divider";
+import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Text } from "@/shared/ui/typography";
@@ -42,6 +43,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     isMessageStreaming,
     currentAuthorId,
     send,
+    abort,
   } = useSessionChat(sessionId);
 
   // The bundle this session was created from (if any) drives both the
@@ -134,10 +136,26 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 <>
                   <Divider orientation="horizontal" />
                   <Box paddingInline="base" paddingBlock="sm">
-                    <Text size="xs" tone="subdued">
-                      Viewing {threadName}'s thread (read-only). Humans message
-                      Prime; Prime directs sub-agents.
-                    </Text>
+                    <InlineStack
+                      gap="2"
+                      blockAlign="center"
+                      align="space-between"
+                      wrap="nowrap"
+                    >
+                      <Text size="xs" tone="subdued">
+                        Viewing {threadName}'s thread (read-only). Humans message
+                        Prime; Prime directs sub-agents.
+                      </Text>
+                      {threadBusy ? (
+                        <IconButton
+                          icon="Square"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => abort(effectiveConversationId)}
+                          aria-label={`Stop ${threadName}`}
+                        />
+                      ) : null}
+                    </InlineStack>
                   </Box>
                 </>
               ) : (
@@ -165,6 +183,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                   <ChatInput
                     sessionId={sessionId}
                     disabled={!connected || agentBusy}
+                    agentBusy={agentBusy}
+                    onAbort={() => abort(PI_AGENT.id)}
                     onSubmit={send}
                   />
                 </>
