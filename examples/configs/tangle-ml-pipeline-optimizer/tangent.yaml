@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangle-ml-pipeline-optimizer
 name: Tangle ML Pipeline Optimizer
-version: 1.1.0
+version: 1.8.0
 description: Analyze a Tangle ML pipeline run for optimization potential, then spawn an autonomous optimizer agent.
 author: Tangent
 icon: icon.svg
@@ -18,6 +18,18 @@ prime:
     - write
     - edit
     - bash
+    # Tangle API tools (tools/tangle-api.ts). Must be listed here or Pi's
+    # --tools allowlist filters the extension-registered tools out.
+    - tangle_run_list
+    - tangle_run_status
+    - tangle_run_submit
+    - tangle_run_cancel
+    - tangle_run_annotation_set
+    - tangle_execution_state
+    - tangle_execution_details
+    - tangle_execution_logs
+    - tangle_execution_artifacts
+    - tangle_artifact_signed_url
 
 subagents:
   defaultSystemPrompt: prompts/subagent.md

@@ -10,7 +10,16 @@
  * call can fail transiently, so the component degrades to a quiet loading state
  * and keeps the last known status rather than throwing.
  */
-import { BlockStack, Card, host, Progress, Text } from "@tangent/bundle-ui";
+import {
+  BlockStack,
+  Card,
+  CardContent,
+  CardHeader,
+  host,
+  Progress,
+  Text,
+  Icon,
+} from "@tangent/bundle-ui";
 import { useEffect, useState } from "react";
 
 const OASIS_BASE = "https://oasis.shopify.io/api/executions";
@@ -97,12 +106,18 @@ export default function PipelineProgress() {
 
   return (
     <Card density="compact">
-      <BlockStack gap="1">
-        <Progress value={progress} tone={state?.done ? "success" : "info"} />
-        <Text size="xs" tone="subdued">
-          {label}
-        </Text>
-      </BlockStack>
+      <CardHeader>
+        <Icon name="GitBranch" />
+        Pipeline Progress
+      </CardHeader>
+      <CardContent>
+        <BlockStack gap="1">
+          <Progress value={progress} tone={state?.done ? "success" : "info"} />
+          <Text size="xs" tone="subdued">
+            {label}
+          </Text>
+        </BlockStack>
+      </CardContent>
     </Card>
   );
 }

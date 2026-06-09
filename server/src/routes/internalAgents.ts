@@ -31,6 +31,12 @@ interface KillBody {
   completed?: boolean;
 }
 
+interface ReportBody {
+  sessionId?: string;
+  agentId?: string;
+  text?: string;
+}
+
 /** Default and maximum number of transcript messages `read_room` returns. */
 const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
@@ -87,6 +93,20 @@ export function createInternalAgentsRouter(
     // Surface the directive in the sub-agent's transcript, attributed to Prime
     // (message_subagent is always a Prime-issued directive).
     pi.sendToAgent(body.sessionId, body.agentId, body.text, PI_AGENT);
+    res.json({ ok: true });
+  });
+
+  router.post("/report", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as ReportBody;
+    if (!body.sessionId || !body.agentId || !body.text) {
+      res
+        .status(400)
+        .json({ error: "sessionId, agentId, and text are required" });
+      return;
+    }
+    // Surface the report in the sub-agent's own thread and deliver it to Prime
+    // so it can react immediately (message_prime is a sub-agent-issued update).
+    pi.reportToPrime(body.sessionId, body.agentId, body.text);
     res.json({ ok: true });
   });
 

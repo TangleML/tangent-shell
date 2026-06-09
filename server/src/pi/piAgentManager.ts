@@ -363,6 +363,31 @@ export class PiAgentManager {
   }
 
   /**
+   * Delivers a sub-agent's directed update to Prime (the `message_prime` tool).
+   * The report is surfaced in the sub-agent's own transcript (attributed to the
+   * sub-agent) so the user sees it in that thread, and delivered to Prime's
+   * stdin so it can react immediately — Prime is event-driven and otherwise
+   * only wakes on the end-of-run relay. Ignored for unknown or non-sub-agents.
+   */
+  reportToPrime(sessionId: string, fromAgentId: string, text: string): void {
+    const agent = this.sessions.get(sessionId)?.agents.get(fromAgentId);
+    if (!agent || agent.role !== "subagent") return;
+
+    const author: ChatAuthor = {
+      id: agent.agentId,
+      kind: "agent",
+      name: agent.name,
+      agentRole: "subagent",
+    };
+    this.handlers.onAgentMessage(sessionId, fromAgentId, author, text);
+    this.sendToAgent(
+      sessionId,
+      PRIME_AGENT_ID,
+      `Sub-agent "${agent.name}" reported:\n\n${text}`,
+    );
+  }
+
+  /**
    * Kills a sub-agent and records its terminal status. `completed` marks a
    * graceful, Prime-initiated finish; otherwise the sub-agent is "killed".
    */
@@ -636,6 +661,11 @@ export class PiAgentManager {
       content,
       thinking: agent.thinkingAccum,
     });
+
+    // Safety net: relay every finalized sub-agent message to Prime as it lands,
+    // not just the last one at run end, so intermediate reports (e.g. submitted
+    // run ids) reach Prime even when the sub-agent doesn't call message_prime.
+    this.relaySubagentReply(sessionId, agent, content);
   }
 
   /**
@@ -657,19 +687,21 @@ export class PiAgentManager {
     });
   }
 
-  /** Ends a run: clears busy + the activity indicator and loops Prime in. */
+  /**
+   * Ends a run: clears busy + the activity indicator. Sub-agent replies are no
+   * longer relayed here — each finalized message is relayed to Prime as it
+   * lands in {@link finalizeMessage}, so intermediate reports aren't dropped.
+   */
   private onAgentEnd(
     sessionId: string,
     agent: AgentProcess,
     descriptor: AgentDescriptor,
   ): void {
-    const lastContent = agent.lastFinalContent;
-
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
       JSON.stringify({
         role: agent.role,
-        lastContentLength: lastContent.length,
+        lastContentLength: agent.lastFinalContent.length,
       }),
     );
 
@@ -681,7 +713,6 @@ export class PiAgentManager {
     agent.busy = false;
 
     this.emitActivity(sessionId, descriptor, null);
-    this.relaySubagentReply(sessionId, agent, lastContent);
   }
 
   /** Emits a run-level activity change (ephemeral; never persisted). */
@@ -697,8 +728,10 @@ export class PiAgentManager {
   }
 
   /**
-   * Keeps Prime in the loop: a sub-agent's reply is fed back so Prime can
-   * react. (Sub-agents are directed only by Prime; this closes the loop.)
+   * Keeps Prime in the loop: each finalized sub-agent message is fed back so
+   * Prime can react as it lands (sub-agents are directed only by Prime; this
+   * closes the loop). Called per message rather than once at run end so
+   * intermediate updates aren't dropped. No-op for Prime or empty content.
    */
   private relaySubagentReply(
     sessionId: string,

@@ -15,23 +15,35 @@ sub-agent's job (see "Running the scenario" below).
 
 1. The session opens with a card asking the user for a Tangle pipeline run URL.
    The first user message will be that URL, prefixed `Analyze this Tangle
-   pipeline for optimization:`.
+pipeline for optimization:`.
 2. Inspect the referenced run, then emit a `tangent-ui:tangent-scenario` card
    (see "Producing the scenario card").
 3. The scenario card lets the user pick ideas and click **Run scenario**, which
    sends you a message like `Run optimization scenario with the following
-   ideas: …`. On that message, spawn the `optimizer` sub-agent (see "Running the
+ideas: …`. On that message, spawn the `optimizer` sub-agent (see "Running the
    scenario").
 4. While the optimizer runs and a Tangle pipeline-run starts, emit a
    `tangent-ui:pipeline-progress` card with the real execution id.
 
 ## Inspecting the run
 
-Use the embedded **Tangent skill** (`skills/tangent/`) plus `bash` and the
-`tangle-deploy` CLI to inspect the run referenced by the submitted URL. Parse
-the run id from the URL, then gather the run metadata, config, and pipeline
-spec the skill describes (e.g. via `shadowenv exec -- tangle-deploy`). Do **not**
-rely on hosted MCP tools — drive everything through the skill and the CLI.
+Inspection is the **lightweight** phase. Drive it entirely through the read-only
+`tangle_*` API tools (from `tools/tangle-api.ts`). Parse the run id from the URL,
+then gather what you need to score the run:
+
+- `tangle_run_status` — run metadata and config (set `include_execution_stats`
+  when you need per-task stats).
+- `tangle_run_list` — locate or disambiguate a run when the URL is ambiguous.
+- `tangle_execution_state` / `tangle_execution_details` — graph and task state.
+- `tangle_execution_artifacts` + `tangle_artifact_signed_url` — pull baseline
+  metrics artifacts to ground your scoring.
+
+Do **not** read or invoke the heavy embedded Tangent skill (`skills/tangent/`)
+or the `tangle-deploy` CLI during analysis — that toolkit is reserved for the
+`optimizer` sub-agent once a scenario exists (see "Running the scenario"). Do
+**not** use the write tools (`tangle_run_submit`, `tangle_run_cancel`,
+`tangle_run_annotation_set`); submitting runs is the optimizer's job. Do **not**
+rely on hosted MCP tools either.
 
 The returned run metadata is the basis for your scoring. If the URL omits a run
 id, ask the user to provide one rather than guessing.
@@ -104,6 +116,17 @@ On that message:
   the start of the session) and the selected ideas, so it can build its
   `scenario.yaml` and run `tangent auto` for one round.
 - Stay available to chat while it runs.
+- The optimizer reports each submitted run by calling `message_prime`, which is
+  delivered to you as a `Sub-agent "<name>" reported: …` message the moment it
+  lands. Treat every such report as a trigger: parse its `run_id` /
+  `root_execution_id` and act on it right away. Do **not** wait for a final
+  handoff — a single report carrying a real execution id is enough to emit its
+  card. (Each finalized optimizer message is also relayed to you automatically,
+  so you never need to poll the room; use `read_room` only if the user asks for
+  a status recap.)
+- Maintain an in-session set of root execution ids already surfaced to the user;
+  emit a progress card immediately for every new real root execution id, and
+  skip ids you've already carded so duplicate reports don't double up.
 
 ## Reporting progress (required UI convention)
 
@@ -122,6 +145,31 @@ re-asking:
   status updates in prose unless asked.
 - If a run has no execution id yet (still provisioning), say so in plain text and
   emit the block once the id exists.
+- If the optimizer reports multiple runs, emit one `tangent-ui:pipeline-progress`
+  block per root execution id in the same response. Do not summarize that runs
+  were submitted without the cards.
+- If you discover a missed execution id later, apologize briefly and emit the
+  missing card(s) immediately before any analysis.
+
+## Final experiment report artifact (required)
+
+When the optimizer reports round completion, proactively create a self-contained
+HTML report artifact in this session under `artifacts/` and send the user a
+relative direct link to it. Do this without waiting for the user to ask.
+
+The report artifact MUST:
+
+- Be a static, self-contained `.html` file; do not deploy a Quick site unless the
+  user explicitly asks for Quick hosting.
+- Summarize baseline run id, submitted run ids, root execution ids, final metric
+  values, best run, percent gains/losses versus baseline, caveats, and the
+  recommended next round.
+- Link to the corresponding production Oasis run URLs.
+- Include the optimizer's GCS state/learning paths when available.
+- Be written to a stable path like
+  `artifacts/tangent-optimization-report-<baselineRunId>.html`.
+- In the final response, include a Markdown link such as
+  `[Open the optimization report](artifacts/tangent-optimization-report-<baselineRunId>.html)`.
 
 ## Output
 

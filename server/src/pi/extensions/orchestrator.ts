@@ -21,6 +21,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const SESSION_ID = process.env.TANGENT_SESSION_ID ?? "";
+const AGENT_ID = process.env.TANGENT_AGENT_ID ?? "";
 const ROLE = process.env.TANGENT_AGENT_ROLE ?? "subagent";
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
@@ -89,7 +90,34 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  if (ROLE !== "prime") return;
+  if (ROLE !== "prime") {
+    // Sub-agent-only: push a directed update to Prime mid-run. Prime is
+    // event-driven and only acts when prompted, so a sub-agent must report
+    // each milestone directly rather than relying on Prime to poll the room.
+    pi.registerTool({
+      name: "message_prime",
+      label: "Message Prime",
+      description:
+        "Send a directed update/report to Prime immediately. Use this for " +
+        "milestones Prime must surface right away (e.g. a submitted run id) " +
+        "rather than waiting until your run finishes. Non-blocking: the " +
+        "message also appears in your own thread, and Prime reacts to it as " +
+        "soon as it is delivered.",
+      promptSnippet: "Report a mid-run update directly to Prime (non-blocking)",
+      parameters: Type.Object({
+        message: Type.String({ description: "The update/report for Prime." }),
+      }),
+      async execute(_toolCallId, params) {
+        await callApi("POST", "report", {
+          sessionId: SESSION_ID,
+          agentId: AGENT_ID,
+          text: params.message,
+        });
+        return textResult("Reported to Prime.");
+      },
+    });
+    return;
+  }
 
   // Prime-only orchestration tools below.
   pi.registerTool({
