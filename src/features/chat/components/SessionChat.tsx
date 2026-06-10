@@ -201,7 +201,12 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
           {tabs.map((tab) => (
             <TabsContent key={tab.id} value={tab.id} forceMount>
-              <ArtifactTabView url={tab.url} title={tab.title} />
+              <ArtifactTabView
+                sessionId={sessionId}
+                url={tab.url}
+                title={tab.title}
+                onSendPrompt={send}
+              />
             </TabsContent>
           ))}
         </Tabs>
