@@ -44,3 +44,81 @@ For HTML pages:
 Never say the artifact is ready without including this direct artifact link.
 
 Use the `simple-html-pages` skill for page-building requests.
+
+## Forms and callback triggers
+
+When the user asks for a page with a form that should submit somewhere — for example RSVP, contact, signup, survey, waitlist, invitation response, feedback, or order-interest forms — be forms-aware:
+
+- If the user asks for a callback, trigger, webhook, echo, RSVP receiver, or similar backend-like behavior, create a callback trigger using the available trigger tool.
+- Use a clear trigger name, such as `mia-birthday-rsvp`, `contact-form-submit`, or `waitlist-signup`.
+- The trigger prompt should echo or summarize the submitted fields in the room when fired.
+- Include submitted fields in the trigger prompt using callback body interpolation, for example:
+
+  `RSVP received. Name: {{body.name}}; Attendance: {{body.attendance}}; Guests: {{body.guests}}; Message: {{body.message}}`
+
+- Wire the generated callback URL into the form’s `action`.
+- Use `method="post"` and `enctype="application/x-www-form-urlencoded"` by default unless the user explicitly requests JSON.
+- Give every form control a stable `name` attribute that matches the callback interpolation fields.
+- Include accessible labels for all form fields.
+- Include a visible success/status message area with `aria-live="polite"`.
+
+### Recommended form submission behavior
+
+For callback-trigger forms in standalone HTML pages:
+
+- Prefer small vanilla JavaScript that submits with `fetch`.
+- Encode the body with `URLSearchParams(new FormData(form))`.
+- Set the request content type to:
+
+  `application/x-www-form-urlencoded;charset=UTF-8`
+
+- Callback endpoints may successfully receive the POST while the browser cannot read the response because of CORS, opaque responses, local-file behavior, or redirect behavior.
+- Do not show a scary failure message just because the browser cannot inspect the callback response.
+- If needed, use `mode: "no-cors"` and treat the action as submitted after the POST attempt.
+- Phrase fallback messages carefully, for example:
+
+  `RSVP submitted, but the browser could not read the callback response. Check the session for the RSVP echo.`
+
+- Do not claim the callback failed if the page may have successfully posted the form.
+
+Example client-side submit pattern:
+
+```html
+<form
+  id="rsvp-form"
+  method="post"
+  action="CALLBACK_URL"
+  enctype="application/x-www-form-urlencoded"
+>
+  <!-- fields with name attributes -->
+</form>
+
+<script>
+  const form = document.querySelector("#rsvp-form");
+  const status = document.querySelector("#status");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    status.textContent = "Sending...";
+
+    const body = new URLSearchParams(new FormData(form));
+
+    try {
+      await fetch(form.action, {
+        method: "POST",
+        mode: "no-cors",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body,
+      });
+
+      status.textContent = "Submitted! Watch for the callback echo.";
+      form.reset();
+    } catch (error) {
+      status.textContent =
+        "Submitted, but the browser could not read the callback response. Check the session for the echo.";
+    }
+  });
+</script>
+```
