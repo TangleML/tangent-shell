@@ -52,6 +52,14 @@ export function ArtifactTabView({
   const [capturing, setCapturing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  function toggleFullscreen() {
+    void iframeRef.current?.requestFullscreen();
+  }
+
+  function openInNewTab() {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   async function startReview() {
     setCapturing(true);
     try {
@@ -104,6 +112,14 @@ export function ArtifactTabView({
   return (
     <BlockStack grow>
       <Toolbar chrome="light" align="end" aria-label="Artifact actions">
+        <Button variant="toolbar" size="xs" onClick={toggleFullscreen}>
+          <Icon name="Maximize" size="xs" />
+          Fullscreen
+        </Button>
+        <Button variant="toolbar" size="xs" onClick={openInNewTab}>
+          <Icon name="ExternalLink" size="xs" />
+          Open in new tab
+        </Button>
         <Button
           variant="toolbar"
           size="xs"
