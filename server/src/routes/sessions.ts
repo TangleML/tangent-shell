@@ -12,7 +12,7 @@ import type {
   UploadFilesResponse,
 } from "@shared/contracts.ts";
 import { PI_AGENT } from "@shared/contracts.ts";
-import { type Request, type Response, Router } from "express";
+import { type Request, type Response, Router, urlencoded } from "express";
 import multer from "multer";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT, UPLOADS_DIRNAME } from "../config.ts";
@@ -476,8 +476,11 @@ function registerTriggerRoutes(
   );
 
   // Public, secret-guarded inbound callback that fires a callback trigger.
+  // Accepts both `application/json` (parsed globally) and
+  // `application/x-www-form-urlencoded` (parsed here, scoped to this route).
   router.post(
     "/:id/triggers/:triggerId/callback/:secret",
+    urlencoded({ extended: true }),
     createTriggerCallbackHandler(triggerEngine),
   );
 }
