@@ -471,7 +471,7 @@ export function Markdown({
   onOpenArtifact,
 }: MarkdownProps) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("w-full min-w-0 space-y-2", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         urlTransform={urlTransform}

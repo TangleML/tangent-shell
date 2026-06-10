@@ -21,7 +21,7 @@ function Tabs({
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
-      className={cn("flex min-h-0 flex-1 flex-col", className)}
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)}
       {...props}
     />
   );
@@ -67,7 +67,7 @@ function TabsContent({
     <TabsPrimitive.Content
       data-slot="tabs-content"
       className={cn(
-        "min-h-0 flex-1 outline-none data-[state=active]:flex data-[state=active]:flex-col data-[state=inactive]:hidden",
+        "min-h-0 min-w-0 flex-1 outline-none data-[state=active]:flex data-[state=active]:flex-col data-[state=inactive]:hidden",
         className,
       )}
       {...props}
