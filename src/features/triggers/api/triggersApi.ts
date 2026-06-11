@@ -1,5 +1,7 @@
 import type { Trigger, UpdateTriggerRequest } from "@shared/contracts";
 
+import { apiUrl } from "@/shared/lib/basePath";
+
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const message = await res.text().catch(() => res.statusText);
@@ -15,7 +17,7 @@ export async function updateTrigger(
   input: UpdateTriggerRequest,
 ): Promise<Trigger> {
   const data = await parseJson<{ trigger: Trigger }>(
-    await fetch(`/api/sessions/${sessionId}/triggers/${triggerId}`, {
+    await fetch(apiUrl(`/api/sessions/${sessionId}/triggers/${triggerId}`), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -29,9 +31,12 @@ export async function deleteTrigger(
   sessionId: string,
   triggerId: string,
 ): Promise<void> {
-  const res = await fetch(`/api/sessions/${sessionId}/triggers/${triggerId}`, {
-    method: "DELETE",
-  });
+  const res = await fetch(
+    apiUrl(`/api/sessions/${sessionId}/triggers/${triggerId}`),
+    {
+      method: "DELETE",
+    },
+  );
   if (!res.ok) {
     throw new Error(`Failed to delete trigger (status ${res.status})`);
   }

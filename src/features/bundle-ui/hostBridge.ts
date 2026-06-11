@@ -7,6 +7,8 @@
  * the chat, and `fetch` is routed through the server-side egress allowlist.
  */
 
+import { apiUrl } from "@/shared/lib/basePath";
+
 import type { HostBridge, HostRequestInit, HostResponse } from "./types";
 
 /** Default server route that proxies allowlisted egress. */
@@ -36,7 +38,7 @@ export function createHostBridge(options: HostBridgeOptions): HostBridge {
     },
 
     async fetch(input: string, init?: HostRequestInit): Promise<HostResponse> {
-      const response = await fetch(endpoint, {
+      const response = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ input, init }),

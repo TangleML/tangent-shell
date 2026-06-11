@@ -19,11 +19,11 @@ FROM node:24-bookworm-slim AS base
 # Debian ships `fd` as `fdfind`, so expose it under the expected `fd` name.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    git \
-    ripgrep \
-    fd-find \
-    jq \
-    ca-certificates \
+  git \
+  ripgrep \
+  fd-find \
+  jq \
+  ca-certificates \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && rm -rf /var/lib/apt/lists/*
 
@@ -56,6 +56,13 @@ COPY shared ./shared
 # Invoked via node directly to avoid pnpm's pre-run dependency status check.
 RUN node server/build.mjs
 
+# Defense in depth: fail the image build if any extension the server loads at
+# runtime is missing from the bundle (the build script also asserts this).
+RUN for f in orchestrator proxyProvider memory triggers; do \
+  test -f "dist/extensions/$f.ts" || { echo "missing dist/extensions/$f.ts" >&2; exit 1; }; \
+  done
+
+
 # ---------------------------------------------------------------------------
 # Stage 3: runtime — assemble the final image from base (tools + Pi) plus the
 # self-contained bundle. No node_modules / pnpm: the bundle inlines all deps.
@@ -79,6 +86,11 @@ ENV PI_PROXY_URL=https://proxy.shopify.ai
 # PI_DEBUG=1 enables verbose Pi RPC logging.
 
 COPY --from=builder /app/dist ./dist
+
+# esbuild is kept external by server/build.mjs (native binary, used at runtime
+# to compile uploaded agent-bundle sources). Install just it so node can
+# resolve the bare import from /app/dist/index.js.
+RUN npm install --no-save --no-package-lock esbuild@0.28.0
 
 EXPOSE 8080
 

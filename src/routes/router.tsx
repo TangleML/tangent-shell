@@ -1,11 +1,16 @@
 import { createBrowserHistory } from "@tanstack/history";
 import { createRouter } from "@tanstack/react-router";
 
+import { BASE_PREFIX } from "@/shared/lib/basePath";
+
 import { routeTree } from "./routeTree";
 
 export const router = createRouter({
   routeTree,
   history: createBrowserHistory(),
+  // Mount the router under the proxy sub-path so client-side routing resolves
+  // relative to the oasis pod-proxy prefix (`/` at the origin root).
+  basepath: BASE_PREFIX,
   defaultPreload: "intent",
 });
 

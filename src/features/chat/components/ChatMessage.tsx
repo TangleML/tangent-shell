@@ -6,6 +6,7 @@ import type {
   Attachment,
   ChatMessage as ChatMessageType,
 } from "@/features/chat/model/types";
+import { apiUrl } from "@/shared/lib/basePath";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
@@ -31,7 +32,7 @@ function Attachments({
       {attachments.map((attachment) => (
         <a
           key={attachment.path}
-          href={`/api/sessions/${sessionId}/files/${attachment.path}`}
+          href={apiUrl(`/api/sessions/${sessionId}/files/${attachment.path}`)}
           target="_blank"
           rel="noreferrer"
         >
@@ -336,7 +337,7 @@ export function ChatMessage({
             />
           ) : null}
           <Markdown
-            artifactBaseUrl={`/api/sessions/${sessionId}/files`}
+            artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
             bundleId={bundleId}
             onSendPrompt={onSendPrompt}
             onOpenArtifact={onOpenArtifact}

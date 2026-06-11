@@ -1,0 +1,44 @@
+# Single-port reverse proxy fronting the combined UI + server image.
+#
+# Mirrors the Vite dev proxy (vite.config.ts): nginx serves the built static UI
+# and forwards /api and /socket.io (with WebSocket upgrade) to the internal Node
+# server on loopback:8787. ${PORT} is rendered by docker-entrypoint.sh via
+# `envsubst '${PORT}'`, which leaves nginx's own $-vars ($host/$uri/...) intact.
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /app/ui-dist;
+    index index.html;
+
+    # REST + internal-egress API. No path rewrite: the full /api/... path is
+    # passed through, matching Vite's prefix proxy key "/api".
+    location /api {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Socket.IO transport. The Upgrade/Connection headers reproduce Vite's
+    # `ws: true`, and the long read timeout keeps idle WebSockets alive.
+    location /socket.io {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+
+    # SPA history fallback: serve the requested asset if it exists, otherwise
+    # hand back index.html so client-side routing can take over.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

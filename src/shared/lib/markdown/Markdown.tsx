@@ -9,6 +9,7 @@ import ReactMarkdown, {
 import remarkGfm from "remark-gfm";
 
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
+import { apiUrl } from "@/shared/lib/basePath";
 import { cn } from "@/shared/lib/utils";
 import { Icon } from "@/shared/ui/icon";
 import { InlineStack } from "@/shared/ui/layout";
@@ -294,7 +295,7 @@ function BundleUiMessage({
   return (
     <BundleUiHost
       kind="message"
-      moduleUrl={`/api/agent-bundles/${bundleId}/ui/${name}.js`}
+      moduleUrl={apiUrl(`/api/agent-bundles/${bundleId}/ui/${name}.js`)}
       props={props}
       onSendPrompt={onSendPrompt}
     />

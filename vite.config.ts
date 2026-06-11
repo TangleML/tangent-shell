@@ -12,6 +12,18 @@ const apiTarget = process.env.API_TARGET ?? "http://localhost:8787";
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Relative asset base so the built index.html references assets as
+  // "./assets/..." rather than "/assets/...". Behind the oasis pod-proxy the
+  // Kubernetes apiserver rewrites same-host absolute-path URLs in HTML to its
+  // own proxy path; relative URLs are left untouched and resolve against the
+  // runtime-injected <base href> (see index.html).
+  base: "./",
+  // Exposes the proxy target to client code so dev-only absolute URLs (e.g. the
+  // copyable trigger callback URL) point at API_TARGET rather than the Vite
+  // origin. Empty in production builds, where the serving backend is the origin.
+  define: {
+    __API_ORIGIN__: JSON.stringify(process.env.API_TARGET ?? ""),
+  },
   plugins: [
     // React Compiler runs as a Babel preset. @vitejs/plugin-react@6 dropped
     // inline Babel, so it is wired in through @rolldown/plugin-babel. The babel

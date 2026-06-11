@@ -1,6 +1,18 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      // Set <base href> to the proxy mount root (e.g. ".../ports/8000/") so the
+      // app works behind the oasis pod-proxy sub-path. The origin server cannot
+      // know the external prefix, so it is derived here from the browser URL.
+      // Must run before any asset tag so their relative URLs resolve correctly.
+      (function () {
+        var m = window.location.pathname.match(/^.*\/ports\/[^/]+\//);
+        var el = document.createElement("base");
+        el.setAttribute("href", m ? m[0] : "/");
+        document.head.appendChild(el);
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tangent Instance</title>

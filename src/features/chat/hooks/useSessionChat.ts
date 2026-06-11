@@ -26,6 +26,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
+import { BASE_PREFIX } from "@/shared/lib/basePath";
+
 /**
  * Manages a single Socket.IO connection for one session's chat room.
  *
@@ -71,7 +73,9 @@ export function useSessionChat(sessionId: string) {
     if (!sessionId) return;
 
     // Connects to the same origin; Vite proxies /socket.io to the dev server.
-    const socket = io({ autoConnect: true });
+    // The path is mount-prefix aware so it works behind the oasis pod-proxy
+    // sub-path (`${BASE_PREFIX}socket.io`, i.e. `/socket.io` at the origin root).
+    const socket = io({ autoConnect: true, path: `${BASE_PREFIX}socket.io` });
     socketRef.current = socket;
 
     socket.on("connect", () => {

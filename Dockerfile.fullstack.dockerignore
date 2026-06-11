@@ -29,6 +29,5 @@ Dockerfile.fullstack
 Dockerfile.fullstack.dockerignore
 .codanna
 .fastembed_cache
-.sessions
 .memory
 .local

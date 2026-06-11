@@ -6,6 +6,8 @@ import type {
   UploadFilesResponse,
 } from "@shared/contracts";
 
+import { apiUrl } from "@/shared/lib/basePath";
+
 /**
  * Input for {@link createSession}. An optional `config` file is a Tangent
  * Configuration Bundle ZIP; when present the request is sent as multipart so
@@ -25,14 +27,14 @@ async function parseJson<T>(res: Response): Promise<T> {
 
 export async function listSessions(): Promise<Session[]> {
   const data = await parseJson<{ sessions: Session[] }>(
-    await fetch("/api/sessions"),
+    await fetch(apiUrl("/api/sessions")),
   );
   return data.sessions;
 }
 
 export async function getSession(id: string): Promise<Session> {
   const data = await parseJson<{ session: Session }>(
-    await fetch(`/api/sessions/${id}`),
+    await fetch(apiUrl(`/api/sessions/${id}`)),
   );
   return data.session;
 }
@@ -53,7 +55,7 @@ export async function createSession(
       };
 
   const data = await parseJson<{ session: Session }>(
-    await fetch("/api/sessions", request),
+    await fetch(apiUrl("/api/sessions"), request),
   );
   return data.session;
 }
@@ -75,7 +77,7 @@ export async function updateSession(
   input: UpdateSessionRequest,
 ): Promise<Session> {
   const data = await parseJson<{ session: Session }>(
-    await fetch(`/api/sessions/${id}`, {
+    await fetch(apiUrl(`/api/sessions/${id}`), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -97,7 +99,7 @@ export async function uploadFiles(
   for (const file of files) form.append("files", file);
 
   const data = await parseJson<UploadFilesResponse>(
-    await fetch(`/api/sessions/${sessionId}/files`, {
+    await fetch(apiUrl(`/api/sessions/${sessionId}/files`), {
       method: "POST",
       body: form,
     }),
@@ -106,7 +108,7 @@ export async function uploadFiles(
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+  const res = await fetch(apiUrl(`/api/sessions/${id}`), { method: "DELETE" });
   if (!res.ok) {
     throw new Error(`Failed to delete session (status ${res.status})`);
   }

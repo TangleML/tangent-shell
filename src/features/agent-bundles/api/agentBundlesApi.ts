@@ -3,6 +3,8 @@ import type {
   ListAgentBundlesResponse,
 } from "@shared/contracts";
 
+import { apiUrl } from "@/shared/lib/basePath";
+
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const message = await res.text().catch(() => res.statusText);
@@ -13,7 +15,7 @@ async function parseJson<T>(res: Response): Promise<T> {
 
 export async function listAgentBundles(): Promise<AgentBundleMeta[]> {
   const data = await parseJson<ListAgentBundlesResponse>(
-    await fetch("/api/agent-bundles"),
+    await fetch(apiUrl("/api/agent-bundles")),
   );
   return data.bundles;
 }
@@ -21,7 +23,7 @@ export async function listAgentBundles(): Promise<AgentBundleMeta[]> {
 /** Fetches a single bundle's metadata, including its UI `components`. */
 export async function getAgentBundle(id: string): Promise<AgentBundleMeta> {
   const data = await parseJson<{ bundle: AgentBundleMeta }>(
-    await fetch(`/api/agent-bundles/${id}`),
+    await fetch(apiUrl(`/api/agent-bundles/${id}`)),
   );
   return data.bundle;
 }
@@ -32,13 +34,15 @@ export async function uploadAgentBundle(file: File): Promise<AgentBundleMeta> {
   form.append("bundle", file);
 
   const data = await parseJson<{ bundle: AgentBundleMeta }>(
-    await fetch("/api/agent-bundles", { method: "POST", body: form }),
+    await fetch(apiUrl("/api/agent-bundles"), { method: "POST", body: form }),
   );
   return data.bundle;
 }
 
 export async function deleteAgentBundle(id: string): Promise<void> {
-  const res = await fetch(`/api/agent-bundles/${id}`, { method: "DELETE" });
+  const res = await fetch(apiUrl(`/api/agent-bundles/${id}`), {
+    method: "DELETE",
+  });
   if (!res.ok) {
     throw new Error(`Failed to delete agent bundle (status ${res.status})`);
   }
@@ -46,5 +50,5 @@ export async function deleteAgentBundle(id: string): Promise<void> {
 
 /** URL of a bundle's preview icon; only valid when {@link AgentBundleMeta.hasIcon}. */
 export function agentBundleIconUrl(id: string): string {
-  return `/api/agent-bundles/${id}/icon`;
+  return apiUrl(`/api/agent-bundles/${id}/icon`);
 }

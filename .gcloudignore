@@ -1,0 +1,14 @@
+# Keep the Cloud Build source upload small: dependencies are installed and the
+# UI/server bundles are produced inside the image, so don't ship them.
+.git
+node_modules
+**/node_modules
+dist
+ui-dist
+.sessions
+.memory
+.agent-bundles
+*.log
+.DS_Store
+.cursor
+.claude

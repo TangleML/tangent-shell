@@ -25,6 +25,25 @@ export function AgentBundlesPage() {
     if (file) uploadBundle.mutate(file);
   };
 
+  const uploadButton = (
+    <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".zip"
+        hidden
+        onChange={onPickBundle}
+      />
+      <Button
+        variant="ghost"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploadBundle.isPending}
+      >
+        {uploadBundle.isPending ? "Uploading..." : "Upload bundle"}
+      </Button>
+    </InlineStack>
+  );
+
   return (
     <WorkArea>
       <BlockStack gap="6">
@@ -68,6 +87,7 @@ export function AgentBundlesPage() {
             icon="Package"
             title="No agent bundles yet"
             description="Upload a Configuration Bundle ZIP to add it to the marketplace."
+            action={uploadButton}
           />
         ) : null}
 
@@ -83,22 +103,7 @@ export function AgentBundlesPage() {
               border="sm"
             >
               <BlockStack gap="2" fill align="center" inlineAlign="center">
-                <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".zip"
-                    hidden
-                    onChange={onPickBundle}
-                  />
-                  <Button
-                    variant="ghost"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadBundle.isPending}
-                  >
-                    {uploadBundle.isPending ? "Uploading..." : "Upload bundle"}
-                  </Button>
-                </InlineStack>
+                {uploadButton}
               </BlockStack>
             </Box>
           </BundleGrid>

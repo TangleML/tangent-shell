@@ -1,6 +1,7 @@
 import type { Trigger } from "@shared/contracts";
 
 import { SidebarColumn } from "@/features/chat/components/SidebarColumn";
+import { apiUrl } from "@/shared/lib/basePath";
 import { Box } from "@/shared/ui/box";
 import { Icon, type IconName } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
@@ -130,7 +131,14 @@ export function TriggerList({ sessionId, triggers }: TriggerListProps) {
 
   const copyCallback = (trigger: Trigger): void => {
     if (!trigger.callbackPath) return;
-    const url = `${window.location.origin}${trigger.callbackPath}`;
+    // In dev the API lives behind the Vite proxy at API_TARGET, so the copied
+    // callback URL must use that origin (not the dev server) to be reachable by
+    // external callers. In production __API_ORIGIN__ is empty and the app is
+    // served from the backend, so the current origin is correct.
+    const base = __API_ORIGIN__ || window.location.origin;
+    // apiUrl prefixes the oasis pod-proxy mount path (no-op at the origin root)
+    // so the copied URL is reachable through the proxy, not just the bare origin.
+    const url = `${base}${apiUrl(trigger.callbackPath)}`;
     void navigator.clipboard?.writeText(url);
   };
 
