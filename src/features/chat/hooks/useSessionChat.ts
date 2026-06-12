@@ -15,6 +15,7 @@ import {
   type MemoryDismissPayload,
   type MemorySuggestionPayload,
   PI_AGENT,
+  type Session,
   SocketEvents,
   type SubagentInfo,
   type SubagentRosterPayload,
@@ -22,11 +23,39 @@ import {
   type Trigger,
   type TriggerRosterPayload,
   type TriggerUpdatePayload,
+  type UiCommand,
+  type UiCommandPayload,
 } from "@shared/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
+import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
+import { queryClient } from "@/shared/api/queryClient";
 import { BASE_PREFIX } from "@/shared/lib/basePath";
+
+/**
+ * Applies an agent-issued UI directive. New `UiCommand` variants add a `case`
+ * here; unrecognized kinds are ignored so older clients stay forward-compatible.
+ */
+function dispatchUiCommand(command: UiCommand): void {
+  switch (command.kind) {
+    case "session.update":
+      return applySessionUpdate(command.session);
+  }
+}
+
+/**
+ * Reflects a renamed (or otherwise updated) session in the query cache
+ * immediately: the individual-session entry drives the chat header, and the
+ * list entry keeps the sessions table current on its next visit. Writing the
+ * cache directly avoids the list's `staleTime` delaying the header update.
+ */
+function applySessionUpdate(session: Session): void {
+  queryClient.setQueryData(SessionQueryKeys.Id(session.id), session);
+  queryClient.setQueryData<Session[]>(SessionQueryKeys.All(), (prev) =>
+    prev?.map((s) => (s.id === session.id ? session : s)),
+  );
+}
 
 /**
  * Manages a single Socket.IO connection for one session's chat room.
@@ -258,6 +287,11 @@ export function useSessionChat(sessionId: string) {
         });
       },
     );
+
+    // A generic agent->UI directive (e.g. a session rename): dispatch by kind.
+    socket.on(SocketEvents.UiCommand, ({ command }: UiCommandPayload) => {
+      dispatchUiCommand(command);
+    });
 
     return () => {
       socket.removeAllListeners();

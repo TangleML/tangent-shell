@@ -51,6 +51,17 @@ export const TRIGGERS_EXTENSION = path.join(
   "triggers.ts",
 );
 
+/**
+ * Absolute path to the session extension loaded into every Pi process. It
+ * registers the Prime-only `rename_session` tool, letting Prime give the
+ * session a concise, conversation-derived name.
+ */
+export const SESSION_EXTENSION = path.join(
+  import.meta.dirname,
+  "extensions",
+  "session.ts",
+);
+
 /** Drops a single optional trailing CR from a line. */
 function stripTrailingCr(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;
@@ -253,6 +264,7 @@ const TOOL_FORMATTERS: Record<string, ArgFormatter> = {
   disable_trigger: (a) =>
     labelWith("Disabling trigger", str(a.name) ?? str(a.id), ""),
   delete_trigger: (a) => labelWith("Deleting trigger", str(a.name) ?? str(a.id), ""),
+  rename_session: (a) => labelWith("Renaming session", str(a.name), ""),
 };
 
 /**

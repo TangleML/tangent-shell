@@ -44,6 +44,7 @@ import {
   parsePiEvent,
   PROXY_PROVIDER_EXTENSION,
   readDelta,
+  SESSION_EXTENSION,
   toDescriptor,
   toolActivityLabel,
   toSubagentInfo,
@@ -115,7 +116,8 @@ function buildPiArgs(
     // extension registers Pi's providers against the LLM proxy (required in
     // environments without an auto-discovered `~/.pi/agent` config); the memory
     // extension registers the read/remember tools; the triggers extension gives
-    // Prime its create/list/enable/disable/delete trigger tools.
+    // Prime its create/list/enable/disable/delete trigger tools; the session
+    // extension gives Prime its rename_session tool.
     "--extension",
     ORCHESTRATOR_EXTENSION,
     "--extension",
@@ -124,6 +126,8 @@ function buildPiArgs(
     MEMORY_EXTENSION,
     "--extension",
     TRIGGERS_EXTENSION,
+    "--extension",
+    SESSION_EXTENSION,
   ];
 
   // Bundle-provided skills, workflows, and custom tool extensions, applied to

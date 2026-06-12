@@ -12,6 +12,7 @@ import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
 import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
+import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createSessionsRouter } from "./routes/sessions.ts";
 import {
@@ -20,6 +21,7 @@ import {
   createMemoryRememberedHandler,
   createMemorySuggestionHandler,
   createSubagentUpdateHandler,
+  createUiCommandEmitter,
   registerChatHandlers,
 } from "./sockets/chat.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
@@ -49,6 +51,9 @@ const triggers = new TriggerManager();
 // Surfaces applied memory writes / pending suggestions to the session room.
 const onMemoryRemembered = createMemoryRememberedHandler(io, store);
 const onMemorySuggestion = createMemorySuggestionHandler(io);
+
+// Pushes generic agent->UI directives (e.g. session rename) to the room.
+const emitUiCommand = createUiCommandEmitter(io);
 
 // The manager runs a roster of Pi processes per session (Prime + sub-agents);
 // their streaming events and roster changes are relayed to the matching
@@ -93,6 +98,8 @@ app.use(
     onMemorySuggestion,
   ),
 );
+// Internal API for the session extension running inside each Pi process.
+app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
 
 registerChatHandlers(io, store, pi, memory, onMemoryRemembered, triggerEngine);
 

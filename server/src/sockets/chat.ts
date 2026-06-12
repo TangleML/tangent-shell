@@ -24,6 +24,8 @@ import {
   type SubagentRosterPayload,
   type SubagentUpdatePayload,
   type TriggerRosterPayload,
+  type UiCommand,
+  type UiCommandPayload,
 } from "@shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
@@ -248,6 +250,22 @@ export function createSubagentUpdateHandler(io: Server): SubagentUpdateHandler {
   return (sessionId, subagent) => {
     const payload: SubagentUpdatePayload = { sessionId, subagent };
     io.to(roomFor(sessionId)).emit(SocketEvents.SubagentUpdate, payload);
+  };
+}
+
+/**
+ * Pushes a generic agent->UI directive into a session room. This is the single
+ * transport every UI-affecting feature shares: callers build a {@link UiCommand}
+ * variant (e.g. `session.update`) and this broadcasts it; clients dispatch by
+ * `command.kind` and ignore kinds they don't recognize.
+ */
+export type UiCommandEmitter = (sessionId: string, command: UiCommand) => void;
+
+/** Builds the {@link UiCommandEmitter} bound to the Socket.IO server. */
+export function createUiCommandEmitter(io: Server): UiCommandEmitter {
+  return (sessionId, command) => {
+    const payload: UiCommandPayload = { sessionId, command };
+    io.to(roomFor(sessionId)).emit(SocketEvents.UiCommand, payload);
   };
 }
 

@@ -60,6 +60,7 @@ const requiredAssets = [
   path.join("extensions", "proxyProvider.ts"),
   path.join("extensions", "memory.ts"),
   path.join("extensions", "triggers.ts"),
+  path.join("extensions", "session.ts"),
 ];
 
 const missing = [];

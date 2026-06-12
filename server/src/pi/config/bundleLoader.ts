@@ -15,6 +15,7 @@ import {
   DEFAULT_TOOLS,
   PRIME_MEMORY_TOOLS,
   PRIME_ORCHESTRATION_TOOLS,
+  PRIME_SESSION_TOOLS,
   type ResolvedSessionConfig,
   SHARED_AGENT_TOOLS,
   type SubagentDefaults,
@@ -120,6 +121,7 @@ function resolvePrimeTools(manifest: BundleManifest): string[] {
       ...SHARED_AGENT_TOOLS,
       ...PRIME_ORCHESTRATION_TOOLS,
       ...PRIME_MEMORY_TOOLS,
+      ...PRIME_SESSION_TOOLS,
     ]),
   ];
 }

@@ -430,6 +430,30 @@ export interface AgentAbortPayload {
   conversationId: string;
 }
 
+/**
+ * A directive an agent issues to influence a session's UI, discriminated by
+ * `kind`. This is the single, extensible shape every agent->UI push rides on:
+ * new capabilities (theme, panels, windows, ...) add a variant here and a
+ * matching client dispatch case, without introducing new socket events.
+ */
+export type UiCommand =
+  | { kind: "session.update"; session: Session };
+// Future variants, e.g.
+//   | { kind: "theme.set"; theme: "light" | "dark" }
+//   | { kind: "panel.add"; panel: PanelSpec }
+//   | { kind: "window.open"; window: WindowSpec }
+
+/**
+ * Envelope broadcast to a session room for an agent->UI directive: `sessionId`
+ * routes it to the room; `command` carries the intent. Clients ignore any
+ * `command.kind` they don't recognize, so older clients stay forward-compatible
+ * as new variants ship.
+ */
+export interface UiCommandPayload {
+  sessionId: string;
+  command: UiCommand;
+}
+
 /** Socket.IO event names shared by client and server. */
 export const SocketEvents = {
   ChatJoin: "chat:join",
@@ -451,6 +475,7 @@ export const SocketEvents = {
   TriggerRoster: "trigger:roster",
   TriggerUpdate: "trigger:update",
   TriggerRemoved: "trigger:removed",
+  UiCommand: "ui:command",
 } as const;
 
 export type SocketEvent = (typeof SocketEvents)[keyof typeof SocketEvents];

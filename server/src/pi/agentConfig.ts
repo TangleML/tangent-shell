@@ -62,6 +62,13 @@ export const PRIME_TRIGGER_TOOLS = [
 export const PRIME_MEMORY_TOOLS = ["remember", "suggest_memory"] as const;
 
 /**
+ * Session-management tools (registered by the session extension) that only
+ * Prime may use. Like the other extension tools, these must be in Prime's
+ * allowlist or Pi would filter them out.
+ */
+export const PRIME_SESSION_TOOLS = ["rename_session"] as const;
+
+/**
  * Per-agent configuration. Drives the tool allowlist and appended system prompt
  * passed to a Pi process, whether it is the session's Prime agent or one of the
  * sub-agents Prime spawns.
@@ -247,6 +254,7 @@ export function getPrimeAgentConfig(): AgentConfig {
         ...PRIME_ORCHESTRATION_TOOLS,
         ...PRIME_MEMORY_TOOLS,
         ...PRIME_TRIGGER_TOOLS,
+        ...PRIME_SESSION_TOOLS,
       ],
       appendSystemPrompt: loadPrimeSystemPrompt(),
     };
