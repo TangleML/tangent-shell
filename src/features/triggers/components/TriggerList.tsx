@@ -142,6 +142,10 @@ export function TriggerList({ sessionId, triggers }: TriggerListProps) {
     void navigator.clipboard?.writeText(url);
   };
 
+  if (triggers.length === 0) {
+    return null;
+  }
+
   return (
     <SidebarColumn>
       <Toolbar chrome="light" gap="2" align="space-between">

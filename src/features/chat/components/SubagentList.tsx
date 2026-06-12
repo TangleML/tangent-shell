@@ -4,10 +4,9 @@ import type { ReactNode } from "react";
 import type { SubagentInfo, SubagentStatus } from "@/features/chat/model/types";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { BlockStack } from "@/shared/ui/layout";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
-import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Spinner } from "@/shared/ui/spinner";
 import { Text } from "@/shared/ui/typography";
@@ -22,13 +21,6 @@ interface SubagentListProps {
   /** Whether a given conversation has a reply streaming right now. */
   isConversationBusy: (conversationId: string) => boolean;
 }
-
-const STATUS_LABEL: Record<SubagentStatus, string> = {
-  active: "Active",
-  completed: "Completed",
-  killed: "Killed",
-  error: "Error",
-};
 
 function StatusIcon({ status }: { status: SubagentStatus }) {
   switch (status) {
@@ -49,7 +41,6 @@ interface RosterRowProps {
   icon: ReactNode;
   title: string;
   primary: string;
-  secondary: string;
   /** Emphasize the primary label (active agents / Prime). */
   emphasized: boolean;
   onClick: () => void;
@@ -61,14 +52,13 @@ function RosterRow({
   icon,
   title,
   primary,
-  secondary,
   emphasized,
   onClick,
 }: RosterRowProps) {
   return (
     <ListRow
       as="li"
-      density="cozy"
+      density="compact"
       gap="2"
       hoverable
       selected={selected}
@@ -76,20 +66,15 @@ function RosterRow({
     >
       {icon}
       <Truncating>
-        <BlockStack gap="0">
-          <Text
-            size="sm"
-            weight={emphasized ? "medium" : "regular"}
-            tone={emphasized ? "inherit" : "subdued"}
-            truncate
-            title={title}
-          >
-            {primary}
-          </Text>
-          <Text size="xs" tone="subdued" truncate>
-            {secondary}
-          </Text>
-        </BlockStack>
+        <Text
+          size="sm"
+          weight={emphasized ? "medium" : "regular"}
+          tone={emphasized ? "inherit" : "subdued"}
+          truncate
+          title={title}
+        >
+          {primary}
+        </Text>
       </Truncating>
       {busy ? <Spinner size={12} /> : null}
     </ListRow>
@@ -113,25 +98,10 @@ export function SubagentList({
   onSelect,
   isConversationBusy,
 }: SubagentListProps) {
-  const activeCount = subagents.filter((s) => s.status === "active").length;
-
   return (
     <SidebarColumn>
-      <Toolbar chrome="light" gap="2" align="space-between">
-        <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-          <Icon name="Bot" size="md" tone="subdued" />
-          <Text size="xs" weight="medium">
-            Agents
-          </Text>
-        </InlineStack>
-        {activeCount > 0 ? (
-          <Text size="xs" tone="subdued">
-            {activeCount} active
-          </Text>
-        ) : null}
-      </Toolbar>
       <ScrollRegion axis="y">
-        <Box padding="sm">
+        <Box paddingBlock="sm" paddingInlineStart="base" paddingInlineEnd="sm">
           <BlockStack as="ul" gap="1">
             {/* Prime's main thread is always present and selectable. */}
             <RosterRow
@@ -140,38 +110,24 @@ export function SubagentList({
               icon={<Icon name="Crown" size="sm" tone="warning" />}
               title={PI_AGENT.name}
               primary={PI_AGENT.name}
-              secondary="Main thread"
               emphasized
               onClick={() => onSelect(null)}
             />
-            {subagents.length === 0 ? (
-              <li>
-                <Box paddingInline="sm" paddingBlock="xs">
-                  <Text size="xs" tone="subdued">
-                    No sub-agents yet. Prime will spawn them as needed.
-                  </Text>
-                </Box>
-              </li>
-            ) : (
-              sortSubagents(subagents).map((subagent) => {
-                const isActive = subagent.status === "active";
-                return (
-                  <RosterRow
-                    key={subagent.id}
-                    selected={selectedId === subagent.id}
-                    busy={isConversationBusy(subagent.id)}
-                    icon={<StatusIcon status={subagent.status} />}
-                    title={subagent.name}
-                    primary={subagent.name}
-                    secondary={`${STATUS_LABEL[subagent.status]}${
-                      subagent.template ? ` · ${subagent.template}` : ""
-                    }`}
-                    emphasized={isActive}
-                    onClick={() => onSelect(subagent.id)}
-                  />
-                );
-              })
-            )}
+            {sortSubagents(subagents).map((subagent) => {
+              const isActive = subagent.status === "active";
+              return (
+                <RosterRow
+                  key={subagent.id}
+                  selected={selectedId === subagent.id}
+                  busy={isConversationBusy(subagent.id)}
+                  icon={<StatusIcon status={subagent.status} />}
+                  title={subagent.name}
+                  primary={subagent.name}
+                  emphasized={isActive}
+                  onClick={() => onSelect(subagent.id)}
+                />
+              );
+            })}
           </BlockStack>
         </Box>
       </ScrollRegion>

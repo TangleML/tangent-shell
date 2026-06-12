@@ -13,7 +13,6 @@ import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Divider } from "@/shared/ui/patterns/divider";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Text } from "@/shared/ui/typography";
 
@@ -23,7 +22,9 @@ import { BundlePanelLauncher } from "./BundlePanelLauncher";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
 import { MemorySuggestionCard } from "./MemorySuggestionCard";
-import { StatusDot } from "./StatusDot";
+import { SessionCard } from "./SessionCard";
+import { SessionSwitcher } from "./SessionSwitcher";
+import { SidebarColumn } from "./SidebarColumn";
 import { SubagentList } from "./SubagentList";
 
 interface SessionChatProps {
@@ -82,26 +83,16 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
   return (
     <BlockStack grow align="stretch">
-      <Toolbar chrome="light" gap="2" align="space-between">
-        <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-          <StatusDot connected={connected} />
-          <Text size="xs" tone="subdued">
-            {connected ? "Connected" : "Connecting..."}
-          </Text>
-          <Text size="xs" weight="medium">
-            {threadName}
-          </Text>
-        </InlineStack>
-        {threadBusy ? (
-          <Text size="xs" tone="subdued">
-            {threadName} is responding...
-          </Text>
-        ) : null}
-      </Toolbar>
       {/* Roster sidebar sits left of the message column; both share the row. */}
       <InlineStack grow wrap="nowrap" blockAlign="stretch">
-        <Box>
+        <SidebarColumn data-testid="sidepanel">
           <BlockStack gap="2">
+            <SessionCard
+              currentSessionId={sessionId}
+              name={session?.name ?? "Session"}
+              rootPath={session?.rootPath}
+              connected={connected}
+            />
             <SubagentList
               subagents={subagents}
               selectedId={isOrphaned ? null : selectedAgentId}
@@ -109,8 +100,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               isConversationBusy={isConversationBusy}
             />
             <TriggerList sessionId={sessionId} triggers={triggers} />
+            <SessionSwitcher currentSessionId={sessionId} />
           </BlockStack>
-        </Box>
+        </SidebarColumn>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value={CHAT_TAB_VALUE}>

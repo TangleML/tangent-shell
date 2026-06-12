@@ -25,6 +25,7 @@ import {
 } from "@/shared/ui/patterns/table";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
+import { DEFAULT_BUNDLE_ID } from "@/features/sessions/constants";
 
 export function SessionsPage() {
   const { data: sessions, isLoading, error } = useSessions();
@@ -52,6 +53,16 @@ export function SessionsPage() {
 
   const startFromBundle = (bundleId: string, name: string) =>
     createSession.mutate({ bundleId, name }, { onSuccess: openSession });
+
+  const createDefaultSession = (
+    <Button
+      variant="outline"
+      onClick={() => startFromBundle(DEFAULT_BUNDLE_ID, "Session")}
+      disabled={createSession.isPending}
+    >
+      {createSession.isPending ? "Creating..." : "New session"}
+    </Button>
+  );
 
   const sidebar = (
     <SideNav>
@@ -143,53 +154,62 @@ export function SessionsPage() {
             icon="FolderOpen"
             title="No sessions yet"
             description="Create one from the sidebar to get started."
-            action={
-              <Button
-                variant="outline"
-                onClick={createBlank}
-                disabled={createSession.isPending}
-              >
-                {createSession.isPending ? "Creating..." : "New session"}
-              </Button>
-            }
+            action={createDefaultSession}
           />
         ) : null}
 
         {sessions && sessions.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Bundle</TableHead>
-                <TableHead>Path</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sessions.map((session) => (
-                <TableRow key={session.id} onClick={() => openSession(session)}>
-                  <TableCell>
-                    <Text weight="medium">{session.name}</Text>
-                  </TableCell>
-                  <TableCell>
-                    {session.config ? (
-                      <Text size="sm" tone="subdued">
-                        {session.config.name} v{session.config.version}
-                      </Text>
-                    ) : (
-                      <Text size="sm" tone="subdued">
-                        &mdash;
-                      </Text>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Text font="mono" size="xs" tone="subdued">
-                      {session.rootPath}
-                    </Text>
-                  </TableCell>
+          <BlockStack gap="2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Bundle</TableHead>
+                  <TableHead>Action</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {sessions.map((session) => (
+                  <TableRow
+                    key={session.id}
+                    onClick={() => openSession(session)}
+                  >
+                    <TableCell>
+                      <Text weight="medium" truncate>
+                        {session.name}
+                      </Text>
+                    </TableCell>
+                    <TableCell>
+                      {session.config ? (
+                        <Text size="sm" tone="subdued">
+                          {session.config.name} v{session.config.version}
+                        </Text>
+                      ) : (
+                        <Text size="sm" tone="subdued">
+                          &mdash;
+                        </Text>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => openSession(session)}
+                      >
+                        <Icon name="ArrowRight" size="xs" tone="subdued" />
+                        <Text tone="subdued">Open session</Text>
+                      </Button>
+                      <Button variant="ghost" size="xs" disabled>
+                        <Icon name="Trash" size="xs" tone="subdued" />
+                        <Text tone="subdued">Delete session</Text>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {createDefaultSession}
+          </BlockStack>
         ) : null}
       </BlockStack>
     </WorkArea>
