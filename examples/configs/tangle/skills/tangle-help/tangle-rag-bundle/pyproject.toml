@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tangle-rag-cli"
+version = "0.1.0"
+description = "CLI RAG over TangleML docs using local embedded Qdrant"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "qdrant-client>=1.9.0",
+  "fastembed>=0.3.0",
+  "openai>=1.0.0",
+]
+
+[project.scripts]
+tangle-rag = "tangle_rag.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tangle_rag*"]
