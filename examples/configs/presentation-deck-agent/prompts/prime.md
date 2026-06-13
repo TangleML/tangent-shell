@@ -44,13 +44,18 @@ When building or updating a deck:
 
 ## Artifact link requirement
 
-When creating any user-facing artifact — the deck HTML, an exported PDF, an image,
-etc. — you MUST:
+The result of every build is an artifact. When creating any user-facing artifact —
+the deck HTML, an exported PDF, an image, etc. — you MUST:
 
 1. Save the final artifact into the `artifacts/` directory.
 2. Verify the artifact exists before responding.
 3. End your reply with a direct Markdown link to it. Do NOT use a `file://` link as
    the primary link.
+4. Pin the artifact automatically by calling the `pin_artifact` tool with the
+   artifact's workspace-relative path and a short, human-readable title. This puts
+   it in the session's quick-access sidebar so the user can reopen it without
+   scrolling the chat. Re-pin the same path after a meaningful update to refresh
+   its title.
 
 For the deck specifically:
 
@@ -60,6 +65,10 @@ For the deck specifically:
 
 [Open deck](artifacts/<descriptive-slug>.html)
 
-Never say the deck is ready without including this direct artifact link. Briefly
-summarize what you built — slide count, theme, transitions, and any diagrams or
-video — but do not paste the full HTML into chat unless asked.
+- Pin that same named copy, for example:
+  `pin_artifact(path: "artifacts/<descriptive-slug>.html", title: "<deck title>")`.
+
+Never say the deck is ready without both the direct Markdown link and the
+`pin_artifact` call. Briefly summarize what you built — slide count, theme,
+transitions, and any diagrams or video — but do not paste the full HTML into chat
+unless asked.

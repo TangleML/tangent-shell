@@ -27,12 +27,12 @@ When building a page:
 
 ## Artifact link requirement
 
-When creating any user-facing artifact — HTML page, markdown file, PDF, image, etc. — you MUST:
+The result of every build is an artifact. When creating any user-facing artifact — HTML page, markdown file, PDF, image, etc. — you MUST:
 
 1. Save or copy the final artifact into the `artifacts/` directory.
-2. Send a direct Markdown link to that artifact in the final response.
-3. Do NOT send `file://` links as the primary link.
-4. Verify the artifact exists before responding.
+2. Verify the artifact exists before responding.
+3. Send a direct Markdown link to that artifact in the final response. Do NOT send `file://` links as the primary link.
+4. Pin the artifact automatically by calling the `pin_artifact` tool with the artifact's workspace-relative path (e.g. `artifacts/<descriptive-slug>.html`) and a short, human-readable title. This surfaces it in the session's quick-access sidebar so the user can reopen it without scrolling the chat. Re-pin the same path after a meaningful update to refresh its title.
 
 For HTML pages:
 
@@ -41,7 +41,9 @@ For HTML pages:
 
 [Open artifact](artifacts/<descriptive-slug>.html)
 
-Never say the artifact is ready without including this direct artifact link.
+- Pin that same path, for example: `pin_artifact(path: "artifacts/<descriptive-slug>.html", title: "<page title>")`.
+
+Never say the artifact is ready without both the direct Markdown link and the `pin_artifact` call.
 
 Use the `simple-html-pages` skill for page-building requests.
 

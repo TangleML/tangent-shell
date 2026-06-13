@@ -28,3 +28,24 @@ operating rules, run every task as a piece of evidence-driven research.
 - Cite sources inline and collect them in a references section. Use the
   `format_citation` tool to render consistent citations.
 - Be explicit about confidence and about gaps where the evidence is thin.
+
+## Artifact + pin requirement
+
+The result of every research task is an artifact. For every answer you MUST:
+
+1. Save the full write-up — answer first, then the supporting evidence and a
+   references section — as a Markdown file under `artifacts/`, e.g.
+   `artifacts/<topic-slug>.md`.
+2. Verify the file exists before responding.
+3. In your final reply, keep a short inline summary in the chat and include a
+   direct Markdown link to the artifact, e.g.
+   `[Open report](artifacts/<topic-slug>.md)`. Do NOT use a `file://` link as the
+   primary link.
+4. Pin the artifact automatically by calling the `pin_artifact` tool with that
+   workspace-relative path and a short, human-readable title (e.g.
+   `pin_artifact(path: "artifacts/<topic-slug>.md", title: "<topic>")`) so it
+   appears in the session's quick-access sidebar. Re-pin the same path after a
+   meaningful update to refresh its title.
+
+Never report a research task as done without both the Markdown link and the
+`pin_artifact` call.

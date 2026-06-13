@@ -22,8 +22,16 @@ steps, narrating progress briefly as you go.
    literature has not addressed.
 
 5. **Cite.** Use `format_citation` for every reference and end with a complete
-   references section. Save the review under `artifacts/` if the user wants a
-   shareable document.
+   references section.
+
+6. **Deliver.** The review is an artifact. Save it as a Markdown file under
+   `artifacts/` (e.g. `artifacts/<topic-slug>-review.md`), verify it exists, and in
+   your reply include a direct Markdown link such as
+   `[Open review](artifacts/<topic-slug>-review.md)`. Then pin it automatically by
+   calling `pin_artifact` with that path and a short title (e.g.
+   `pin_artifact(path: "artifacts/<topic-slug>-review.md", title: "<topic> review")`).
+   Never report the review as done without both the link and the `pin_artifact`
+   call.
 
 Lead with a short executive summary, then the thematic synthesis, then
 references.

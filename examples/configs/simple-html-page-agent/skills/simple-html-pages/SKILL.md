@@ -38,11 +38,13 @@ Prefer inline SVG with CSS classes so the animation is easy to inspect and edit.
 
 ## Response pattern
 
-After writing or editing the page, respond briefly with:
+The page is the artifact. Save it under `artifacts/` and verify it exists, then respond briefly with:
 
-- the file path,
+- a direct Markdown link to the artifact, e.g. `[Open artifact](artifacts/<descriptive-slug>.html)`,
 - what was built,
 - the animated SVG element(s),
 - how to open it locally.
 
-Do not paste the entire HTML in chat if the file was written successfully, unless the user asks for it.
+Pin the artifact automatically: call the `pin_artifact` tool with the same workspace-relative path and a short title (e.g. `pin_artifact(path: "artifacts/<descriptive-slug>.html", title: "<page title>")`) so it shows in the quick-access sidebar.
+
+Do not paste the entire HTML in chat if the file was written successfully, unless the user asks for it. Never report the page as done without both the Markdown link and the `pin_artifact` call.

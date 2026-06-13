@@ -441,4 +441,9 @@ can drive headless Chrome with the `?print-pdf` URL.
 
 [Open deck](artifacts/<slug>.html)
 
-Do not paste the full HTML into chat unless asked.
+8. Pin the deck automatically: call `pin_artifact` with the named copy's path and a
+   short title, e.g. `pin_artifact(path: "artifacts/<slug>.html", title: "<deck title>")`,
+   so it appears in the quick-access sidebar.
+
+Do not paste the full HTML into chat unless asked. Never report the deck as done
+without both the Markdown link and the `pin_artifact` call.
