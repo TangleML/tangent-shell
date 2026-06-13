@@ -4,7 +4,6 @@ import {
   Outlet,
   redirect,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/router-devtools";
 
 import { env } from "@/shared/config/env";
 import { AppShell } from "@/shared/ui/patterns/app-shell";
@@ -20,7 +19,6 @@ function RootLayout() {
   return (
     <>
       <Outlet />
-      {env.isDev ? <TanStackRouterDevtools /> : null}
     </>
   );
 }
