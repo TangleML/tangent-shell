@@ -14,6 +14,17 @@ interface RenameBody {
   name?: string;
 }
 
+interface PinArtifactBody {
+  sessionId?: string;
+  path?: string;
+  title?: string;
+}
+
+interface UnpinArtifactBody {
+  sessionId?: string;
+  path?: string;
+}
+
 /** Rejects any request not bearing the shared internal token. */
 function requireInternalToken(
   req: Request,
@@ -56,11 +67,75 @@ async function handleRename(
 }
 
 /**
+ * `POST /pin-artifact`: pins an artifact (by workspace-relative path) for quick
+ * access and broadcasts the updated list to the UI over the generic
+ * `ui:command` channel.
+ */
+async function handlePinArtifact(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const body = (req.body ?? {}) as PinArtifactBody;
+  const path = body.path?.trim();
+  if (!body.sessionId || !path) {
+    res.status(400).json({ error: "sessionId and path are required" });
+    return;
+  }
+
+  const session = await store.getSession(body.sessionId);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const title = fallbackTitle(body.title, path);
+  const artifacts = await store.pinArtifact(session.id, { path, title });
+  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+  res.json({ artifacts });
+}
+
+/** Returns a trimmed title, falling back to the path when none was given. */
+function fallbackTitle(title: string | undefined, path: string): string {
+  return title?.trim() || path;
+}
+
+/**
+ * `POST /unpin-artifact`: unpins an artifact by path and broadcasts the updated
+ * list to the UI.
+ */
+async function handleUnpinArtifact(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const body = (req.body ?? {}) as UnpinArtifactBody;
+  const path = body.path?.trim();
+  if (!body.sessionId || !path) {
+    res.status(400).json({ error: "sessionId and path are required" });
+    return;
+  }
+
+  const session = await store.getSession(body.sessionId);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const artifacts = await store.unpinArtifact(session.id, path);
+  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+  res.json({ artifacts });
+}
+
+/**
  * Internal API used only by the session extension running inside each Pi
  * process. It lets Prime rename the session (e.g. to a concise,
- * conversation-derived title); the server owns the session record and broadcasts
- * the change to the room. Guarded by the same bearer token as the other
- * internal APIs so arbitrary local callers can't rename a session.
+ * conversation-derived title) and lets any agent pin/unpin artifacts for quick
+ * access; the server owns the session record and broadcasts changes to the
+ * room. Guarded by the same bearer token as the other internal APIs so
+ * arbitrary local callers can't mutate a session.
  */
 export function createInternalSessionRouter(
   store: SessionStore,
@@ -72,6 +147,14 @@ export function createInternalSessionRouter(
 
   router.post("/rename", (req: Request, res: Response) =>
     handleRename(store, emitUiCommand, req, res),
+  );
+
+  router.post("/pin-artifact", (req: Request, res: Response) =>
+    handlePinArtifact(store, emitUiCommand, req, res),
+  );
+
+  router.post("/unpin-artifact", (req: Request, res: Response) =>
+    handleUnpinArtifact(store, emitUiCommand, req, res),
   );
 
   return router;

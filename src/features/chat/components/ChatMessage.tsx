@@ -216,6 +216,10 @@ interface ChatMessageProps {
   onSendPrompt?: (text: string) => void;
   /** Opens a browser-viewable "page" artifact in an in-app tab. */
   onOpenArtifact?: (url: string, title: string) => void;
+  /** The set of currently pinned artifact paths, for chip pin state. */
+  pinnedPaths?: Set<string>;
+  /** Toggles an artifact's pinned state from its chip. */
+  onTogglePinArtifact?: (path: string, title: string) => void;
   /** Collapses this message into the hidden state; omitted disables collapse. */
   onCollapse?: () => void;
 }
@@ -293,6 +297,8 @@ export function ChatMessage({
   bundleId,
   onSendPrompt,
   onOpenArtifact,
+  pinnedPaths,
+  onTogglePinArtifact,
   onCollapse,
 }: ChatMessageProps) {
   if (message.memory)
@@ -341,6 +347,8 @@ export function ChatMessage({
             bundleId={bundleId}
             onSendPrompt={onSendPrompt}
             onOpenArtifact={onOpenArtifact}
+            pinnedPaths={pinnedPaths}
+            onTogglePinArtifact={onTogglePinArtifact}
           >
             {message.content}
           </Markdown>

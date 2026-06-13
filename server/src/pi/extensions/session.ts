@@ -55,6 +55,43 @@ function textResult(text: string) {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Pinning artifacts is available to every agent: any agent that produces a
+  // user-facing artifact can surface it in the UI's quick-access list.
+  pi.registerTool({
+    name: "pin_artifact",
+    label: "Pin Artifact",
+    description:
+      "Pin an artifact so it stays quickly accessible in the session's UI " +
+      "sidebar. Use this after writing a user-facing file into the session's " +
+      "`artifacts/` folder (e.g. a report, chart, or page) so the user can " +
+      "reopen it without scrolling the chat. Pass the artifact's path relative " +
+      "to your workspace root (e.g. `artifacts/report.html`). Re-pinning the " +
+      "same path just updates its title.",
+    promptSnippet: "Pin this artifact to the UI for quick access",
+    parameters: Type.Object({
+      path: Type.String({
+        description:
+          "Path to the artifact relative to your workspace root, e.g. " +
+          "`artifacts/report.html`.",
+      }),
+      title: Type.Optional(
+        Type.String({
+          description:
+            "Short, human-readable label shown in the UI. Defaults to the path.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      await callApi("POST", "pin-artifact", {
+        sessionId: SESSION_ID,
+        path: params.path,
+        title: params.title,
+      });
+      const label = params.title?.trim() || params.path;
+      return textResult(`Pinned "${label}" to the UI.`);
+    },
+  });
+
   // Renaming the session is a Prime-only concern; sub-agents get nothing.
   if (ROLE !== "prime") return;
 

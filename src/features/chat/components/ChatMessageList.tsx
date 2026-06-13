@@ -23,6 +23,10 @@ interface ChatMessageListProps {
   onSendPrompt?: (text: string) => void;
   /** Opens a browser-viewable "page" artifact in an in-app tab. */
   onOpenArtifact?: (url: string, title: string) => void;
+  /** The set of currently pinned artifact paths, for chip pin state. */
+  pinnedPaths?: Set<string>;
+  /** Toggles an artifact's pinned state from its chip. */
+  onTogglePinArtifact?: (path: string, title: string) => void;
   /** Whether a given message id is still receiving streamed deltas. */
   isMessageStreaming: (messageId: string) => boolean;
 }
@@ -72,6 +76,8 @@ export function ChatMessageList({
   bundleId,
   onSendPrompt,
   onOpenArtifact,
+  pinnedPaths,
+  onTogglePinArtifact,
   isMessageStreaming,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -177,6 +183,8 @@ export function ChatMessageList({
                       bundleId={bundleId}
                       onSendPrompt={onSendPrompt}
                       onOpenArtifact={onOpenArtifact}
+                      pinnedPaths={pinnedPaths}
+                      onTogglePinArtifact={onTogglePinArtifact}
                       isStreaming={isMessageStreaming(msg.id)}
                       onCollapse={() => collapse(msg.id)}
                     />

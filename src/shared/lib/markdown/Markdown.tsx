@@ -10,6 +10,12 @@ import remarkGfm from "remark-gfm";
 
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
 import { apiUrl } from "@/shared/lib/basePath";
+import {
+  artifactPath,
+  isAbsoluteUrl,
+  isViewableArtifact,
+  resolveUrl,
+} from "@/shared/lib/markdown/artifact";
 import { cn } from "@/shared/lib/utils";
 import { Icon } from "@/shared/ui/icon";
 import { InlineStack } from "@/shared/ui/layout";
@@ -77,26 +83,21 @@ type MarkdownProps = {
    * links fall back to the same download chip as plain file artifacts.
    */
   onOpenArtifact?: (url: string, title: string) => void;
+  /**
+   * The set of currently pinned artifact paths (workspace-relative), used to
+   * show whether an artifact chip is already pinned.
+   */
+  pinnedPaths?: Set<string>;
+  /**
+   * Toggles an artifact's pinned state from its chip, identified by its
+   * workspace-relative path. When omitted, chips render without a pin control
+   * (e.g. read-only contexts).
+   */
+  onTogglePinArtifact?: (path: string, title: string) => void;
 };
 
 const INLINE_CODE_CLASS =
   "rounded bg-muted px-1 py-0.5 text-xs font-mono break-words";
-
-/** True for URLs we must not rewrite (absolute, anchor, or non-file schemes). */
-function isAbsoluteUrl(url: string): boolean {
-  return (
-    /^[a-z][a-z0-9+.-]*:/i.test(url) || // http:, https:, data:, mailto:, ...
-    url.startsWith("/") ||
-    url.startsWith("#")
-  );
-}
-
-/** Resolves a relative artifact reference against the session's file base. */
-function resolveUrl(url: string | undefined, base: string): string | undefined {
-  if (!url || isAbsoluteUrl(url)) return url;
-  const cleaned = url.replace(/^\.\//, "");
-  return `${base}/${cleaned}`;
-}
 
 /**
  * Special link scheme that turns a markdown link into a chat action: clicking it
@@ -126,35 +127,6 @@ function urlTransform(url: string): string {
   return url.startsWith(PROMPT_SCHEME) ? url : defaultUrlTransform(url);
 }
 
-/**
- * File extensions a browser can render inline (HTML pages, PDFs, images, and
- * plain-text formats). Links to these "page" artifacts open in an in-app tab;
- * anything else stays a download chip.
- */
-const VIEWABLE_ARTIFACT_EXTENSIONS = new Set([
-  "html",
-  "htm",
-  "pdf",
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "svg",
-  "webp",
-  "txt",
-  "md",
-  "json",
-  "csv",
-  "log",
-]);
-
-/** True when an artifact URL points at a browser-viewable "page" artifact. */
-function isViewableArtifact(url: string): boolean {
-  const path = url.split(/[?#]/, 1)[0];
-  const ext = path.split(".").pop()?.toLowerCase();
-  return ext != null && VIEWABLE_ARTIFACT_EXTENSIONS.has(ext);
-}
-
 /** Derives a short tab title from the link text, falling back to the filename. */
 function artifactLabel(children: ReactNode, url: string): string {
   if (typeof children === "string" && children.trim()) return children.trim();
@@ -169,49 +141,76 @@ function artifactLabel(children: ReactNode, url: string): string {
 
 /**
  * Artifact chip — a recognizable, padded pill-style reference for artifact
- * output. With `onOpen` it renders a button that opens the artifact in an
- * in-app tab; otherwise a download link. Raw `<a>`/`<button>`, so scoped
- * classes are fine.
+ * output. The main action opens the artifact in an in-app tab (`onOpen`) or
+ * links to it for download. When `onTogglePin` is set, an adjacent pin toggle
+ * lets the user keep the artifact in the sidebar's quick-access list. Raw
+ * `<span>`/`<a>`/`<button>`, so scoped classes are fine.
  */
 const ARTIFACT_CHIP_CLASS =
-  "inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 align-middle text-xs font-medium text-foreground no-underline transition hover:bg-muted/70";
+  "inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 align-middle text-xs font-medium text-foreground";
+const ARTIFACT_ACTION_CLASS =
+  "inline-flex min-w-0 items-center gap-1 text-foreground no-underline transition hover:opacity-70";
+const ARTIFACT_PIN_CLASS =
+  "inline-flex shrink-0 items-center transition hover:opacity-70";
 
 function ArtifactChip({
   href,
   title,
   children,
   onOpen,
+  pinned,
+  onTogglePin,
 }: {
   href?: string;
   title?: string;
   children?: ReactNode;
   onOpen?: () => void;
+  pinned?: boolean;
+  onTogglePin?: () => void;
 }) {
-  if (onOpen) {
-    return (
-      <button
-        type="button"
-        title={title}
-        onClick={onOpen}
-        className={ARTIFACT_CHIP_CLASS}
-      >
-        <Icon name="FileText" size="xs" tone="subdued" />
-        <span className="truncate">{children}</span>
-      </button>
-    );
-  }
-
-  return (
+  const action = onOpen ? (
+    <button
+      type="button"
+      title={title}
+      onClick={onOpen}
+      className={ARTIFACT_ACTION_CLASS}
+    >
+      <Icon name="FileText" size="xs" tone="subdued" />
+      <span className="truncate">{children}</span>
+    </button>
+  ) : (
     <a
       href={href}
       title={title}
       target="_blank"
       rel="noreferrer"
-      className={ARTIFACT_CHIP_CLASS}
+      className={ARTIFACT_ACTION_CLASS}
     >
       <Icon name="Paperclip" size="xs" tone="subdued" />
       <span className="truncate">{children}</span>
     </a>
+  );
+
+  return (
+    <span className={ARTIFACT_CHIP_CLASS}>
+      {action}
+      {onTogglePin ? (
+        <button
+          type="button"
+          title={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
+          aria-label={pinned ? "Unpin artifact" : "Pin artifact"}
+          aria-pressed={pinned}
+          onClick={onTogglePin}
+          className={ARTIFACT_PIN_CLASS}
+        >
+          <Icon
+            name={pinned ? "PinOff" : "Pin"}
+            size="xs"
+            tone={pinned ? "accent" : "subdued"}
+          />
+        </button>
+      ) : null}
+    </span>
   );
 }
 
@@ -309,6 +308,8 @@ function buildComponents(
   bundleId?: string,
   onSendPrompt?: (text: string) => void,
   onOpenArtifact?: (url: string, title: string) => void,
+  pinnedPaths?: Set<string>,
+  onTogglePinArtifact?: (path: string, title: string) => void,
 ): Components {
   return {
     h1: ({ children }) => (
@@ -387,14 +388,20 @@ function buildComponents(
       if (isArtifact) {
         const resolved = resolveUrl(href, artifactBaseUrl) ?? href;
         const openable = onOpenArtifact != null && isViewableArtifact(href);
+        // The workspace-relative path is the stable identity used for pinning.
+        const path = artifactPath(href);
+        const label = artifactLabel(children, resolved);
         return (
           <ArtifactChip
             href={resolved}
             title={title}
             onOpen={
-              openable
-                ? () =>
-                    onOpenArtifact(resolved, artifactLabel(children, resolved))
+              openable ? () => onOpenArtifact(resolved, label) : undefined
+            }
+            pinned={pinnedPaths?.has(path)}
+            onTogglePin={
+              onTogglePinArtifact
+                ? () => onTogglePinArtifact(path, label)
                 : undefined
             }
           >
@@ -470,6 +477,8 @@ export function Markdown({
   bundleId,
   onSendPrompt,
   onOpenArtifact,
+  pinnedPaths,
+  onTogglePinArtifact,
 }: MarkdownProps) {
   return (
     <div className={cn("w-full min-w-0 space-y-2", className)}>
@@ -483,6 +492,8 @@ export function Markdown({
           bundleId,
           onSendPrompt,
           onOpenArtifact,
+          pinnedPaths,
+          onTogglePinArtifact,
         )}
       >
         {children}

@@ -101,7 +101,15 @@ app.use(
 // Internal API for the session extension running inside each Pi process.
 app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
 
-registerChatHandlers(io, store, pi, memory, onMemoryRemembered, triggerEngine);
+registerChatHandlers(
+  io,
+  store,
+  pi,
+  memory,
+  onMemoryRemembered,
+  triggerEngine,
+  emitUiCommand,
+);
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);

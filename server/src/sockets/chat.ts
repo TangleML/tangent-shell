@@ -9,6 +9,8 @@ import {
   type AgentErrorPayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
+  type ArtifactPinPayload,
+  type ArtifactUnpinPayload,
   type Attachment,
   type ChatAuthor,
   type ChatJoinPayload,
@@ -403,6 +405,7 @@ export function registerChatHandlers(
   memory: MemoryManager,
   onRemembered: MemoryRememberedHandler,
   triggerEngine: TriggerEngine,
+  emitUiCommand: UiCommandEmitter,
 ): void {
   io.on("connection", (socket: Socket) => {
     socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
@@ -423,6 +426,14 @@ export function registerChatHandlers(
 
     socket.on(SocketEvents.MemoryDismiss, (payload: MemoryDismissPayload) =>
       handleMemoryDismiss(pi, memory, payload),
+    );
+
+    socket.on(SocketEvents.ArtifactPin, (payload: ArtifactPinPayload) =>
+      handleArtifactPin(store, emitUiCommand, payload),
+    );
+
+    socket.on(SocketEvents.ArtifactUnpin, (payload: ArtifactUnpinPayload) =>
+      handleArtifactUnpin(store, emitUiCommand, payload),
     );
 
     // Terminal streaming channel is reserved for a later phase. Registered
@@ -471,6 +482,64 @@ async function handleChatJoin(
     triggers: triggerEngine.list(session.id),
   };
   socket.emit(SocketEvents.TriggerRoster, triggerRoster);
+
+  // Surface the current pinned-artifact list to just this joining socket, using
+  // the same `artifacts.update` directive that broadcasts later mutations.
+  const artifacts = await store.getArtifacts(session.id);
+  const artifactsPayload: UiCommandPayload = {
+    sessionId: session.id,
+    command: { kind: "artifacts.update", artifacts },
+  };
+  socket.emit(SocketEvents.UiCommand, artifactsPayload);
+}
+
+/** A validated artifact reference extracted from a pin/unpin payload. */
+interface ArtifactRef {
+  sessionId: string;
+  path: string;
+}
+
+/** Validates a pin/unpin payload, returning a trimmed ref or null if invalid. */
+function readArtifactRef(
+  payload?: { sessionId?: string; path?: string },
+): ArtifactRef | null {
+  if (!payload) return null;
+  const path = payload.path?.trim();
+  if (!payload.sessionId || !path) return null;
+  return { sessionId: payload.sessionId, path };
+}
+
+/** Pins an artifact, then broadcasts the updated list to the session room. */
+async function handleArtifactPin(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  payload: ArtifactPinPayload,
+): Promise<void> {
+  const ref = readArtifactRef(payload);
+  if (!ref) return;
+  const session = await store.getSession(ref.sessionId);
+  if (!session) return;
+
+  const artifacts = await store.pinArtifact(session.id, {
+    path: ref.path,
+    title: payload.title?.trim() || ref.path,
+  });
+  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+}
+
+/** Unpins an artifact, then broadcasts the updated list to the session room. */
+async function handleArtifactUnpin(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  payload: ArtifactUnpinPayload,
+): Promise<void> {
+  const ref = readArtifactRef(payload);
+  if (!ref) return;
+  const session = await store.getSession(ref.sessionId);
+  if (!session) return;
+
+  const artifacts = await store.unpinArtifact(session.id, ref.path);
+  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
 }
 
 /** Persists + broadcasts a human message and relays it into the Pi process. */

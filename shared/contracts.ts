@@ -153,6 +153,21 @@ export interface Trigger {
   lastFiredAt?: string;
 }
 
+/**
+ * An artifact the user (or an agent) pinned for quick access. Identified by its
+ * workspace-relative `path` (e.g. `artifacts/report.html`) so the client can
+ * resolve it against the session's file API the same way artifact chips do,
+ * independent of any base-prefix the server is unaware of.
+ */
+export interface PinnedArtifact {
+  /** Path relative to the session root, e.g. `artifacts/report.html`. */
+  path: string;
+  /** Display label for the pinned artifact. */
+  title: string;
+  /** ISO-8601 timestamp the artifact was pinned. */
+  pinnedAt: string;
+}
+
 /** Response from `GET /api/sessions/:id/triggers`. */
 export interface ListTriggersResponse {
   triggers: Trigger[];
@@ -420,6 +435,22 @@ export interface TriggerRemovedPayload {
   triggerId: string;
 }
 
+/** Sent (client -> server) to pin an artifact for quick access. */
+export interface ArtifactPinPayload {
+  sessionId: string;
+  /** Path relative to the session root, e.g. `artifacts/report.html`. */
+  path: string;
+  /** Display label for the pinned artifact. */
+  title: string;
+}
+
+/** Sent (client -> server) to unpin a previously pinned artifact. */
+export interface ArtifactUnpinPayload {
+  sessionId: string;
+  /** Path relative to the session root identifying the artifact to unpin. */
+  path: string;
+}
+
 /**
  * Sent (client -> server) to abort an agent's in-progress run. `conversationId`
  * is the target agent's id (`"prime"` or a sub-agent id), matching how messages
@@ -437,7 +468,8 @@ export interface AgentAbortPayload {
  * matching client dispatch case, without introducing new socket events.
  */
 export type UiCommand =
-  | { kind: "session.update"; session: Session };
+  | { kind: "session.update"; session: Session }
+  | { kind: "artifacts.update"; artifacts: PinnedArtifact[] };
 // Future variants, e.g.
 //   | { kind: "theme.set"; theme: "light" | "dark" }
 //   | { kind: "panel.add"; panel: PanelSpec }
@@ -475,6 +507,8 @@ export const SocketEvents = {
   TriggerRoster: "trigger:roster",
   TriggerUpdate: "trigger:update",
   TriggerRemoved: "trigger:removed",
+  ArtifactPin: "artifact:pin",
+  ArtifactUnpin: "artifact:unpin",
   UiCommand: "ui:command",
 } as const;
 

@@ -22,6 +22,7 @@ import { BundlePanelLauncher } from "./BundlePanelLauncher";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
 import { MemorySuggestionCard } from "./MemorySuggestionCard";
+import { PinnedArtifactList } from "./PinnedArtifactList";
 import { SessionCard } from "./SessionCard";
 import { SessionSwitcher } from "./SessionSwitcher";
 import { SidebarColumn } from "./SidebarColumn";
@@ -36,6 +37,10 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     messages,
     subagents,
     triggers,
+    artifacts,
+    pinnedPaths,
+    pinArtifact,
+    unpinArtifact,
     connected,
     memorySuggestions,
     confirmMemory,
@@ -81,6 +86,17 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const threadName = isSubagentView ? selectedSubagent.name : PI_AGENT.name;
   const threadBusy = isConversationBusy(effectiveConversationId);
 
+  // Pin an artifact if it isn't already pinned, else unpin it. The chip's
+  // pinned state and the sidebar list both update via the `artifacts.update`
+  // directive once the server confirms.
+  const togglePinArtifact = (path: string, title: string) => {
+    if (pinnedPaths.has(path)) {
+      unpinArtifact(path);
+    } else {
+      pinArtifact(path, title);
+    }
+  };
+
   return (
     <BlockStack grow align="stretch">
       {/* Roster sidebar sits left of the message column; both share the row. */}
@@ -100,6 +116,12 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               isConversationBusy={isConversationBusy}
             />
             <TriggerList sessionId={sessionId} triggers={triggers} />
+            <PinnedArtifactList
+              sessionId={sessionId}
+              artifacts={artifacts}
+              onOpen={openArtifact}
+              onUnpin={unpinArtifact}
+            />
             <SessionSwitcher currentSessionId={sessionId} />
           </BlockStack>
         </SidebarColumn>
@@ -129,6 +151,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 bundleId={bundleId}
                 onSendPrompt={isSubagentView ? undefined : send}
                 onOpenArtifact={openArtifact}
+                pinnedPaths={pinnedPaths}
+                onTogglePinArtifact={togglePinArtifact}
                 isMessageStreaming={isMessageStreaming}
               />
               {isSubagentView ? (

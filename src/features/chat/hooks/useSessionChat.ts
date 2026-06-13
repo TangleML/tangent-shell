@@ -7,6 +7,8 @@ import {
   type AgentErrorPayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
+  type ArtifactPinPayload,
+  type ArtifactUnpinPayload,
   type Attachment,
   type ChatAuthor,
   type ChatMessage,
@@ -15,6 +17,7 @@ import {
   type MemoryDismissPayload,
   type MemorySuggestionPayload,
   PI_AGENT,
+  type PinnedArtifact,
   type Session,
   SocketEvents,
   type SubagentInfo,
@@ -68,6 +71,9 @@ export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
   const [triggers, setTriggers] = useState<Trigger[]>([]);
+  // Artifacts the user (or an agent) pinned for quick access, kept in sync with
+  // the room via the `artifacts.update` UI directive.
+  const [artifacts, setArtifacts] = useState<PinnedArtifact[]>([]);
   const [connected, setConnected] = useState(false);
   // Pending agent-initiated memory suggestions awaiting the user's confirmation.
   const [memorySuggestions, setMemorySuggestions] = useState<
@@ -114,6 +120,7 @@ export function useSessionChat(sessionId: string) {
       setMessages([]);
       setSubagents([]);
       setTriggers([]);
+      setArtifacts([]);
       setConnected(true);
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
@@ -124,6 +131,7 @@ export function useSessionChat(sessionId: string) {
     });
     socket.on("disconnect", () => {
       setConnected(false);
+      setArtifacts([]);
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
@@ -289,7 +297,14 @@ export function useSessionChat(sessionId: string) {
     );
 
     // A generic agent->UI directive (e.g. a session rename): dispatch by kind.
+    // `artifacts.update` carries the pinned-artifact list, which lives in this
+    // hook's state (and drives the sidebar), so it's applied here directly;
+    // everything else goes through the shared, cache-writing dispatcher.
     socket.on(SocketEvents.UiCommand, ({ command }: UiCommandPayload) => {
+      if (command.kind === "artifacts.update") {
+        setArtifacts(command.artifacts);
+        return;
+      }
       dispatchUiCommand(command);
     });
 
@@ -357,6 +372,35 @@ export function useSessionChat(sessionId: string) {
     [resolveSuggestion],
   );
 
+  // Pins an artifact (by workspace-relative path) for quick access. The server
+  // dedupes by path and broadcasts the updated list back over `artifacts.update`.
+  const pinArtifact = useCallback(
+    (path: string, title: string) => {
+      const socket = socketRef.current;
+      if (!socket) return;
+      const payload: ArtifactPinPayload = { sessionId, path, title };
+      socket.emit(SocketEvents.ArtifactPin, payload);
+    },
+    [sessionId],
+  );
+
+  const unpinArtifact = useCallback(
+    (path: string) => {
+      const socket = socketRef.current;
+      if (!socket) return;
+      const payload: ArtifactUnpinPayload = { sessionId, path };
+      socket.emit(SocketEvents.ArtifactUnpin, payload);
+    },
+    [sessionId],
+  );
+
+  // The set of pinned paths, for O(1) "is this artifact pinned?" checks when
+  // rendering artifact chips.
+  const pinnedPaths = useMemo(
+    () => new Set(artifacts.map((a) => a.path)),
+    [artifacts],
+  );
+
   // A conversation is busy while a message streams OR while it has a non-null
   // activity (thinking between turns / running a tool). Together these bracket
   // the whole run, even across multiple messages and tool calls.
@@ -384,6 +428,10 @@ export function useSessionChat(sessionId: string) {
     messages,
     subagents,
     triggers,
+    artifacts,
+    pinnedPaths,
+    pinArtifact,
+    unpinArtifact,
     connected,
     memorySuggestions,
     confirmMemory,

@@ -5,6 +5,7 @@ import path from "node:path";
 import type {
   ChatMessage,
   CreateSessionRequest,
+  PinnedArtifact,
   Session,
   SessionConfigMeta,
   UpdateSessionRequest,
@@ -16,6 +17,7 @@ import type { SessionStore } from "./sessionStore.ts";
 export class InMemorySessionStore implements SessionStore {
   private readonly sessions = new Map<string, Session>();
   private readonly messages = new Map<string, ChatMessage[]>();
+  private readonly artifacts = new Map<string, PinnedArtifact[]>();
 
   async listSessions(): Promise<Session[]> {
     return [...this.sessions.values()].sort((a, b) =>
@@ -86,6 +88,7 @@ export class InMemorySessionStore implements SessionStore {
 
   async deleteSession(id: string): Promise<boolean> {
     this.messages.delete(id);
+    this.artifacts.delete(id);
     return this.sessions.delete(id);
   }
 
@@ -100,5 +103,39 @@ export class InMemorySessionStore implements SessionStore {
     } else {
       this.messages.set(message.sessionId, [message]);
     }
+  }
+
+  async getArtifacts(sessionId: string): Promise<PinnedArtifact[]> {
+    return this.artifacts.get(sessionId) ?? [];
+  }
+
+  async pinArtifact(
+    sessionId: string,
+    artifact: { path: string; title: string },
+  ): Promise<PinnedArtifact[]> {
+    const existing = this.artifacts.get(sessionId) ?? [];
+    // Re-pinning a known path refreshes its title in place (preserving order);
+    // a new path appends to the end so the list reads oldest-first.
+    const prior = existing.find((a) => a.path === artifact.path);
+    const next: PinnedArtifact = {
+      path: artifact.path,
+      title: artifact.title,
+      pinnedAt: prior?.pinnedAt ?? new Date().toISOString(),
+    };
+    const updated = prior
+      ? existing.map((a) => (a.path === artifact.path ? next : a))
+      : [...existing, next];
+    this.artifacts.set(sessionId, updated);
+    return updated;
+  }
+
+  async unpinArtifact(
+    sessionId: string,
+    path: string,
+  ): Promise<PinnedArtifact[]> {
+    const existing = this.artifacts.get(sessionId) ?? [];
+    const updated = existing.filter((a) => a.path !== path);
+    this.artifacts.set(sessionId, updated);
+    return updated;
   }
 }

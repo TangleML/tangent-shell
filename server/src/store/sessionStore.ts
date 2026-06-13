@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   CreateSessionRequest,
+  PinnedArtifact,
   Session,
   SessionConfigMeta,
   UpdateSessionRequest,
@@ -30,4 +31,17 @@ export interface SessionStore {
 
   getMessages(sessionId: string): Promise<ChatMessage[]>;
   appendMessage(message: ChatMessage): Promise<void>;
+
+  /** Returns the session's pinned artifacts, oldest first. */
+  getArtifacts(sessionId: string): Promise<PinnedArtifact[]>;
+  /**
+   * Pins an artifact (deduped by `path`) and returns the updated list. Re-pinning
+   * an existing `path` refreshes its title without creating a duplicate.
+   */
+  pinArtifact(
+    sessionId: string,
+    artifact: { path: string; title: string },
+  ): Promise<PinnedArtifact[]>;
+  /** Unpins an artifact by `path` and returns the updated list. */
+  unpinArtifact(sessionId: string, path: string): Promise<PinnedArtifact[]>;
 }

@@ -31,16 +31,19 @@ export const PRIME_ORCHESTRATION_TOOLS = [
 ] as const;
 
 /**
- * Tools every agent gets: read the shared room transcript and its memory, and
- * push a directed update to Prime. `message_prime` is only registered by the
- * orchestrator extension for sub-agents (Prime never gets the tool), but it is
- * granted in the allowlist for all agents since Pi's `--tools` filter would
- * otherwise strip the extension's tool from sub-agents.
+ * Tools every agent gets: read the shared room transcript and its memory, push
+ * a directed update to Prime, and pin an artifact to the UI's quick-access list.
+ * `message_prime` is only registered by the orchestrator extension for
+ * sub-agents (Prime never gets the tool), but it is granted in the allowlist for
+ * all agents since Pi's `--tools` filter would otherwise strip the extension's
+ * tool from sub-agents. `pin_artifact` is registered by the session extension
+ * for every agent, so it must be in the allowlist or Pi would filter it out.
  */
 export const SHARED_AGENT_TOOLS = [
   "read_room",
   "read_memory",
   "message_prime",
+  "pin_artifact",
 ] as const;
 
 /**
