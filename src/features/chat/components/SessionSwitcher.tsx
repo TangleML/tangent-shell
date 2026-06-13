@@ -12,9 +12,9 @@ interface SessionSwitcherProps {
 }
 
 export function SessionSwitcher({ currentSessionId }: SessionSwitcherProps) {
-  const { otherSessions, onSelect } = useSessionSwitcher(currentSessionId);
+  const { sessions, onSelect } = useSessionSwitcher(currentSessionId);
 
-  if (!otherSessions || otherSessions.length === 0) {
+  if (!sessions || sessions.length === 0) {
     return null;
   }
 
@@ -30,7 +30,11 @@ export function SessionSwitcher({ currentSessionId }: SessionSwitcherProps) {
       </Toolbar>
       <Box maxBlockSize="md" overflow="scroll-y" data-testid="session-switcher">
         <Box paddingBlock="sm" paddingInline="sm">
-          <SessionSwitcherList sessions={otherSessions} onSelect={onSelect} />
+          <SessionSwitcherList
+            sessions={sessions}
+            onSelect={onSelect}
+            selectedId={currentSessionId}
+          />
         </Box>
       </Box>
     </BlockStack>

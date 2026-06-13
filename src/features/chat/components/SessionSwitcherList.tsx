@@ -1,10 +1,15 @@
 import type { Session } from "@shared/contracts";
 import { useEffect, useRef } from "react";
 
-import { BlockStack } from "@/shared/ui/layout";
+import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
+import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
+import { Icon } from "@/shared/ui/icon";
+import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Text } from "@/shared/ui/typography";
+
+import { StatusDot } from "./StatusDot";
 
 interface SessionSwitcherListProps {
   sessions: Session[];
@@ -35,17 +40,42 @@ export function SessionSwitcherList({
           key={session.id}
           ref={session.id === selectedId ? selectedRef : undefined}
           as="li"
-          density="cozy"
-          gap="2"
+          density="comfortable"
+          gap="3"
           hoverable
+          border="sm"
           selected={session.id === selectedId}
           onClick={() => onSelect(session.id)}
         >
-          <Truncating>
-            <Text size="sm" truncate title={session.name}>
-              {session.name}
-            </Text>
-          </Truncating>
+          {session.config?.icon ? (
+            <BundleIconImage
+              size="sm"
+              src={agentBundleIconUrl(session.config.id)}
+              alt={`${session.config.name} icon`}
+            />
+          ) : (
+            <Icon name="Package" size="lg" tone="subdued" />
+          )}
+          <BlockStack grow>
+            <Truncating>
+              <Text size="xs" weight="medium" truncate title={session.name}>
+                {session.name}
+              </Text>
+            </Truncating>
+            {/* Placeholder metadata — reserves space for live running status
+                and execution stats until those are wired up. */}
+            <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+              <InlineStack gap="1" blockAlign="center" wrap="nowrap">
+                <StatusDot connected={false} />
+                <Text size="xs" tone="subdued">
+                  Idle
+                </Text>
+              </InlineStack>
+              <Text size="xs" tone="subdued">
+                0 runs &middot; 0 tokens
+              </Text>
+            </InlineStack>
+          </BlockStack>
         </ListRow>
       ))}
     </BlockStack>

@@ -1,5 +1,6 @@
 // local primitive
-import type { PropsWithChildren } from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import type { ImgHTMLAttributes, PropsWithChildren } from "react";
 
 /** Responsive card grid for the agent bundle marketplace. */
 export function BundleGrid({ children }: PropsWithChildren) {
@@ -10,9 +11,27 @@ export function BundleGrid({ children }: PropsWithChildren) {
   );
 }
 
+const bundleIconCva = cva("rounded-md object-contain", {
+  variants: {
+    size: {
+      xs: "h-4 w-4",
+      sm: "h-6 w-6",
+      md: "h-10 w-10",
+    },
+  },
+  defaultVariants: {
+    size: "md",
+  },
+});
+
 /** Square thumbnail rendering a bundle's preview SVG. */
-export function BundleIconImage({ src, alt }: { src: string; alt: string }) {
+export function BundleIconImage({
+  src,
+  alt,
+  size,
+  ...props
+}: VariantProps<typeof bundleIconCva> & ImgHTMLAttributes<HTMLImageElement>) {
   return (
-    <img src={src} alt={alt} className="h-10 w-10 rounded-md object-contain" />
+    <img src={src} alt={alt} className={bundleIconCva({ size })} {...props} />
   );
 }

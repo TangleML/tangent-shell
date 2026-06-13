@@ -32,15 +32,20 @@ const listRowVariants = cva("group w-full rounded-sm transition-colors", {
       false: "",
     },
     selected: {
-      true: "bg-muted",
+      true: "bg-muted border-primary",
       false: "",
     },
     zebra: {
       true: "even:bg-muted/30",
       false: "",
     },
+    border: {
+      none: "",
+      sm: "border rounded-sm",
+    },
   },
   defaultVariants: {
+    border: "none",
     density: "cozy",
     hoverable: false,
     selected: false,
@@ -66,6 +71,7 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
       hoverable = false,
       selected = false,
       zebra = false,
+      border = "none",
       onClick,
       gap = "2",
     },
@@ -93,6 +99,7 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
             hoverable: isInteractive,
             selected,
             zebra,
+            border,
           }),
         )}
       >

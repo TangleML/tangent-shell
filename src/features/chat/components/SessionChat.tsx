@@ -102,27 +102,34 @@ export function SessionChat({ sessionId }: SessionChatProps) {
       {/* Roster sidebar sits left of the message column; both share the row. */}
       <InlineStack grow wrap="nowrap" blockAlign="stretch">
         <SidebarColumn data-testid="sidepanel">
-          <BlockStack gap="2">
-            <SessionCard
-              currentSessionId={sessionId}
-              name={session?.name ?? "Session"}
-              rootPath={session?.rootPath}
-              connected={connected}
-            />
-            <SubagentList
-              subagents={subagents}
-              selectedId={isOrphaned ? null : selectedAgentId}
-              onSelect={setSelectedAgentId}
-              isConversationBusy={isConversationBusy}
-            />
-            <TriggerList sessionId={sessionId} triggers={triggers} />
-            <PinnedArtifactList
-              sessionId={sessionId}
-              artifacts={artifacts}
-              onOpen={openArtifact}
-              onUnpin={unpinArtifact}
-            />
-            <SessionSwitcher currentSessionId={sessionId} />
+          <BlockStack fill inlineAlign="space-between">
+            <BlockStack gap="2">
+              <SessionCard
+                currentSessionId={sessionId}
+                name={session?.name ?? "Session"}
+                rootPath={session?.rootPath}
+                connected={connected}
+              />
+              <SubagentList
+                subagents={subagents}
+                selectedId={isOrphaned ? null : selectedAgentId}
+                onSelect={setSelectedAgentId}
+                isConversationBusy={isConversationBusy}
+              />
+              <TriggerList sessionId={sessionId} triggers={triggers} />
+              <PinnedArtifactList
+                sessionId={sessionId}
+                artifacts={artifacts}
+                onOpen={openArtifact}
+                onUnpin={unpinArtifact}
+              />
+            </BlockStack>
+
+            <BlockStack gap="4">
+              <SessionSwitcher currentSessionId={sessionId} />
+              {/** Tmp pusher */}
+              <div className="h-[100px]"></div>
+            </BlockStack>
           </BlockStack>
         </SidebarColumn>
         <Tabs value={activeTab} onValueChange={setActiveTab}>

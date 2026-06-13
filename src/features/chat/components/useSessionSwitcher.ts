@@ -20,5 +20,5 @@ export function useSessionSwitcher(currentSessionId: string) {
     void navigate({ to: "/sessions/$sessionId", params: { sessionId: id } });
   };
 
-  return { otherSessions, onSelect };
+  return { sessions, otherSessions, onSelect };
 }
