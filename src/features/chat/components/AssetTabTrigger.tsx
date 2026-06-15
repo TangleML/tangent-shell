@@ -2,24 +2,28 @@
 // Tabs primitive's TabsTrigger with an overlaid close button; the raw <div>/
 // <span>/<button> wrappers carry the scoped classNames needed to position the
 // close affordance, which the Tangle primitives don't express.
+import type { AssetKind } from "@/features/chat/model/assets";
+import { ASSET_ICON } from "@/features/chat/model/assets";
 import { Icon } from "@/shared/ui/icon";
 import { TabsTrigger } from "@/shared/ui/tabs";
 
-interface ArtifactTabTriggerProps {
+interface AssetTabTriggerProps {
   value: string;
   title: string;
+  kind: AssetKind;
   onClose: () => void;
 }
 
-export function ArtifactTabTrigger({
+export function AssetTabTrigger({
   value,
   title,
+  kind,
   onClose,
-}: ArtifactTabTriggerProps) {
+}: AssetTabTriggerProps) {
   return (
     <div className="relative inline-flex items-center">
       <TabsTrigger value={value} className="max-w-44 pr-7">
-        <Icon name="FileText" size="xs" tone="subdued" />
+        <Icon name={ASSET_ICON[kind]} size="xs" tone="subdued" />
         <span className="min-w-0 truncate">{title}</span>
       </TabsTrigger>
       <button

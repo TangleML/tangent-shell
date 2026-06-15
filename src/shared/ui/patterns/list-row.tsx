@@ -4,6 +4,7 @@ import {
   type KeyboardEventHandler,
   type MouseEventHandler,
   type PropsWithChildren,
+  type ReactNode,
   type Ref,
 } from "react";
 
@@ -53,6 +54,24 @@ const listRowVariants = cva("group w-full rounded-sm transition-colors", {
   },
 });
 
+/**
+ * Negative margins applied to the prefix slot so it bleeds past the row's
+ * own padding, spanning the full border-box height and sitting flush against
+ * the leading edge. Must mirror the per-density padding above.
+ */
+const prefixBleedVariants = cva("flex shrink-0 items-stretch self-stretch", {
+  variants: {
+    density: {
+      compact: "-my-0.5 -ms-1",
+      cozy: "-my-1 -ms-2",
+      comfortable: "-my-2 -ms-3",
+    },
+  },
+  defaultVariants: {
+    density: "cozy",
+  },
+});
+
 type ListRowVariantProps = VariantProps<typeof listRowVariants>;
 
 interface ListRowProps extends ListRowVariantProps {
@@ -60,6 +79,13 @@ interface ListRowProps extends ListRowVariantProps {
   onClick?: MouseEventHandler<HTMLElement>;
   /** Inter-item gap. @default '2' */
   gap?: "0" | "0.5" | "1" | "1.5" | "2" | "3" | "4" | "5" | "6" | "8";
+  /**
+   * Leading slot rendered flush against the row's edges. It bleeds past the
+   * row padding to span the full row height, producing a "prefix" strip
+   * (e.g. a tinted icon column). The row clips overflow so the prefix inherits
+   * the row's rounded corners.
+   */
+  prefix?: ReactNode;
 }
 
 export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
@@ -74,6 +100,7 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
       border = "none",
       onClick,
       gap = "2",
+      prefix,
     },
     ref,
   ) {
@@ -101,9 +128,13 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
             zebra,
             border,
           }),
+          prefix != null && "overflow-hidden",
         )}
       >
         <InlineStack gap={gap} wrap="nowrap" blockAlign="center">
+          {prefix != null ? (
+            <div className={cn(prefixBleedVariants({ density }))}>{prefix}</div>
+          ) : null}
           {children}
         </InlineStack>
       </Element>

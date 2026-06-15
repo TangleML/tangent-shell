@@ -1,32 +1,37 @@
-import { PI_AGENT } from "@shared/contracts";
-import { useMemo, useState } from "react";
+import {
+  PI_AGENT,
+  type SubagentInfo,
+  type Trigger,
+} from "@shared/contracts";
+import { useMemo } from "react";
 
 import {
   CHAT_TAB_VALUE,
-  useArtifactTabs,
-} from "@/features/chat/hooks/useArtifactTabs";
+  useAssetTabs,
+} from "@/features/chat/hooks/useAssetTabs";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
+import { buildAssets } from "@/features/chat/model/assets";
 import { useSession } from "@/features/sessions/hooks/useSession";
-import { TriggerList } from "@/features/triggers/components/TriggerList";
+import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Divider } from "@/shared/ui/patterns/divider";
-import { IconButton } from "@/shared/ui/patterns/icon-button";
+import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
-import { Text } from "@/shared/ui/typography";
 
-import { ArtifactTabTrigger } from "./ArtifactTabTrigger";
 import { ArtifactTabView } from "./ArtifactTabView";
+import { AssetList } from "./AssetList";
+import { AssetTabTrigger } from "./AssetTabTrigger";
 import { BundlePanelLauncher } from "./BundlePanelLauncher";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
 import { MemorySuggestionCard } from "./MemorySuggestionCard";
-import { PinnedArtifactList } from "./PinnedArtifactList";
 import { SessionCard } from "./SessionCard";
 import { SessionSwitcher } from "./SessionSwitcher";
 import { SidebarColumn } from "./SidebarColumn";
-import { SubagentList } from "./SubagentList";
+import { SubagentTabTrigger } from "./SubagentTabTrigger";
+import { SubagentTabView } from "./SubagentTabView";
+import { TriggerTabView } from "./TriggerTabView";
 
 interface SessionChatProps {
   sessionId: string;
@@ -59,32 +64,37 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const { data: session } = useSession(sessionId);
   const bundleId = session?.config?.id;
 
-  // Which thread is open: `null` is Prime's main thread, else a sub-agent id.
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  // Opened asset tabs, each shown beside the chat in its own closeable tab.
+  const { tabs, activeTab, setActiveTab, openAsset, closeAsset } =
+    useAssetTabs();
 
-  // Opened "page" artifacts, each shown beside the chat in its own closeable tab.
-  const { tabs, activeTab, setActiveTab, openArtifact, closeArtifact } =
-    useArtifactTabs();
-
-  // The active conversation: Prime's main thread or the selected sub-agent's.
-  const conversationId = selectedAgentId ?? PI_AGENT.id;
-  const selectedSubagent = selectedAgentId
-    ? subagents.find((s) => s.id === selectedAgentId)
-    : undefined;
-
-  // A sub-agent can leave the roster (killed/garbage-collected) while selected;
-  // fall back to Prime so we never render an empty, orphaned thread.
-  const isOrphaned = selectedAgentId !== null && !selectedSubagent;
-  const effectiveConversationId = isOrphaned ? PI_AGENT.id : conversationId;
-
-  const visibleMessages = useMemo(
-    () => messages.filter((m) => m.conversationId === effectiveConversationId),
-    [messages, effectiveConversationId],
+  // The session's pages, files, and triggers as one uniform list of cards.
+  const assets = useMemo(
+    () => buildAssets({ sessionId, artifacts, triggers }),
+    [sessionId, artifacts, triggers],
   );
 
-  const isSubagentView = selectedSubagent !== undefined && !isOrphaned;
-  const threadName = isSubagentView ? selectedSubagent.name : PI_AGENT.name;
-  const threadBusy = isConversationBusy(effectiveConversationId);
+  // Each sub-agent is its own tab in the strip, driven directly by the live
+  // roster. Active agents float to the top so the strip is easy to scan.
+  const agentTabs = useMemo(() => sortSubagents(subagents), [subagents]);
+
+  // The Chat tab is Prime's main thread; each sub-agent has its own thread tab.
+  const primeMessages = useMemo(
+    () => messages.filter((m) => m.conversationId === PI_AGENT.id),
+    [messages],
+  );
+
+  // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
+  // viewable "page" asset keyed by its resolved URL, so both dedupe to one tab.
+  const openArtifactTab = (url: string, title: string) => {
+    openAsset({
+      kind: isViewableArtifact(url) ? "page" : "file",
+      id: url,
+      title,
+      url,
+      path: url,
+    });
+  };
 
   // Pin an artifact if it isn't already pinned, else unpin it. The chip's
   // pinned state and the sidebar list both update via the `artifacts.update`
@@ -99,7 +109,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
   return (
     <BlockStack grow align="stretch">
-      {/* Roster sidebar sits left of the message column; both share the row. */}
+      {/* Asset sidebar sits left of the message column; both share the row. */}
       <InlineStack grow wrap="nowrap" blockAlign="stretch">
         <SidebarColumn data-testid="sidepanel">
           <BlockStack fill inlineAlign="space-between">
@@ -110,17 +120,11 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 rootPath={session?.rootPath}
                 connected={connected}
               />
-              <SubagentList
-                subagents={subagents}
-                selectedId={isOrphaned ? null : selectedAgentId}
-                onSelect={setSelectedAgentId}
-                isConversationBusy={isConversationBusy}
-              />
-              <TriggerList sessionId={sessionId} triggers={triggers} />
-              <PinnedArtifactList
+              <AssetList
                 sessionId={sessionId}
-                artifacts={artifacts}
-                onOpen={openArtifact}
+                assets={assets}
+                selectedId={activeTab}
+                onOpen={openAsset}
                 onUnpin={unpinArtifact}
               />
             </BlockStack>
@@ -138,12 +142,22 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               <Icon name="MessageSquare" size="xs" tone="subdued" />
               Chat
             </TabsTrigger>
+            {agentTabs.map((agent) => (
+              <SubagentTabTrigger
+                key={agent.id}
+                value={agent.id}
+                name={agent.name}
+                status={agent.status}
+                busy={isConversationBusy(agent.id)}
+              />
+            ))}
             {tabs.map((tab) => (
-              <ArtifactTabTrigger
+              <AssetTabTrigger
                 key={tab.id}
                 value={tab.id}
                 title={tab.title}
-                onClose={() => closeArtifact(tab.id)}
+                kind={tab.kind}
+                onClose={() => closeAsset(tab.id)}
               />
             ))}
           </TabsList>
@@ -152,88 +166,134 @@ export function SessionChat({ sessionId }: SessionChatProps) {
             <BlockStack grow>
               <ChatMessageList
                 sessionId={sessionId}
-                messages={visibleMessages}
+                messages={primeMessages}
                 currentAuthorId={currentAuthorId}
-                activity={getActivity(effectiveConversationId)}
+                activity={getActivity(PI_AGENT.id)}
                 bundleId={bundleId}
-                onSendPrompt={isSubagentView ? undefined : send}
-                onOpenArtifact={openArtifact}
+                onSendPrompt={send}
+                onOpenArtifact={openArtifactTab}
                 pinnedPaths={pinnedPaths}
                 onTogglePinArtifact={togglePinArtifact}
                 isMessageStreaming={isMessageStreaming}
               />
-              {isSubagentView ? (
-                <>
-                  <Divider orientation="horizontal" />
-                  <Box paddingInline="base" paddingBlock="sm">
-                    <InlineStack
-                      gap="2"
-                      blockAlign="center"
-                      align="space-between"
-                      wrap="nowrap"
-                    >
-                      <Text size="xs" tone="subdued">
-                        Viewing {threadName}'s thread (read-only). Humans
-                        message Prime; Prime directs sub-agents.
-                      </Text>
-                      {threadBusy ? (
-                        <IconButton
-                          icon="Square"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => abort(effectiveConversationId)}
-                          aria-label={`Stop ${threadName}`}
-                        />
-                      ) : null}
-                    </InlineStack>
-                  </Box>
-                </>
-              ) : (
-                <>
-                  {memorySuggestions.length > 0 ? (
-                    <Box paddingInline="base" paddingBlock="sm">
-                      <BlockStack gap="2">
-                        {memorySuggestions.map((suggestion) => (
-                          <MemorySuggestionCard
-                            key={suggestion.suggestionId}
-                            suggestion={suggestion}
-                            onConfirm={confirmMemory}
-                            onDismiss={dismissMemory}
-                          />
-                        ))}
-                      </BlockStack>
-                    </Box>
-                  ) : null}
-                  {bundleId ? (
-                    <BundlePanelLauncher
-                      bundleId={bundleId}
-                      onSendPrompt={send}
-                    />
-                  ) : null}
-                  <ChatInput
-                    sessionId={sessionId}
-                    disabled={!connected || agentBusy}
-                    agentBusy={agentBusy}
-                    onAbort={() => abort(PI_AGENT.id)}
-                    onSubmit={send}
-                  />
-                </>
-              )}
+              {memorySuggestions.length > 0 ? (
+                <Box paddingInline="base" paddingBlock="sm">
+                  <BlockStack gap="2">
+                    {memorySuggestions.map((suggestion) => (
+                      <MemorySuggestionCard
+                        key={suggestion.suggestionId}
+                        suggestion={suggestion}
+                        onConfirm={confirmMemory}
+                        onDismiss={dismissMemory}
+                      />
+                    ))}
+                  </BlockStack>
+                </Box>
+              ) : null}
+              {bundleId ? (
+                <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
+              ) : null}
+              <ChatInput
+                sessionId={sessionId}
+                disabled={!connected || agentBusy}
+                agentBusy={agentBusy}
+                onAbort={() => abort(PI_AGENT.id)}
+                onSubmit={send}
+              />
             </BlockStack>
           </TabsContent>
 
+          {agentTabs.map((agent) => (
+            <TabsContent key={agent.id} value={agent.id} forceMount>
+              <SubagentTabView
+                sessionId={sessionId}
+                agentId={agent.id}
+                name={agent.name}
+                messages={messages}
+                currentAuthorId={currentAuthorId}
+                bundleId={bundleId}
+                activity={getActivity(agent.id)}
+                busy={isConversationBusy(agent.id)}
+                isMessageStreaming={isMessageStreaming}
+                onAbort={() => abort(agent.id)}
+                onOpenArtifact={openArtifactTab}
+                pinnedPaths={pinnedPaths}
+                onTogglePinArtifact={togglePinArtifact}
+              />
+            </TabsContent>
+          ))}
+
           {tabs.map((tab) => (
             <TabsContent key={tab.id} value={tab.id} forceMount>
-              <ArtifactTabView
-                sessionId={sessionId}
-                url={tab.url}
-                title={tab.title}
-                onSendPrompt={send}
-              />
+              {tab.kind === "trigger" ? (
+                <TriggerTabPanel
+                  sessionId={sessionId}
+                  triggerId={tab.triggerId}
+                  triggers={triggers}
+                  onClose={() => closeAsset(tab.id)}
+                />
+              ) : (
+                <ArtifactTabView
+                  sessionId={sessionId}
+                  url={tab.url}
+                  title={tab.title}
+                  onSendPrompt={send}
+                />
+              )}
             </TabsContent>
           ))}
         </Tabs>
       </InlineStack>
     </BlockStack>
+  );
+}
+
+// Active sub-agents float to the top so the live tabs are easy to scan; ended
+// ones (completed/killed/error) settle after, in their most recent order.
+function sortSubagents(subagents: SubagentInfo[]): SubagentInfo[] {
+  return [...subagents].sort((a, b) => {
+    const aActive = a.status === "active" ? 0 : 1;
+    const bActive = b.status === "active" ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+}
+
+interface TriggerTabPanelProps {
+  sessionId: string;
+  triggerId: string;
+  triggers: Trigger[];
+  onClose: () => void;
+}
+
+/**
+ * Resolves a trigger tab's id against the live roster. A trigger removed
+ * elsewhere (e.g. the sidebar) leaves a stale tab; surface a clear placeholder
+ * rather than a blank panel until the user closes it.
+ */
+function TriggerTabPanel({
+  sessionId,
+  triggerId,
+  triggers,
+  onClose,
+}: TriggerTabPanelProps) {
+  const trigger = triggers.find((t) => t.id === triggerId);
+  if (!trigger) {
+    return (
+      <Box padding="base">
+        <EmptyState
+          icon="Zap"
+          title="Trigger no longer exists"
+          description="This trigger was deleted. Close this tab to dismiss it."
+        />
+      </Box>
+    );
+  }
+  return (
+    <TriggerTabView
+      sessionId={sessionId}
+      trigger={trigger}
+      onClose={onClose}
+    />
   );
 }
