@@ -13,6 +13,14 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const piSrc = path.join(root, "server", "src", "pi");
+const migrationsSrc = path.join(
+  root,
+  "server",
+  "src",
+  "store",
+  "db",
+  "migrations",
+);
 const outDir = path.join(root, "dist");
 
 await rm(outDir, { recursive: true, force: true });
@@ -28,7 +36,9 @@ await build({
   alias: { "@shared": path.join(root, "shared") },
   // esbuild now runs at runtime (to transpile bundle UI sources); it ships a
   // native binary and cannot be inlined, so keep it as a runtime dependency.
-  external: ["esbuild"],
+  // better-sqlite3 is a native addon and likewise stays external (resolved from
+  // node_modules at runtime).
+  external: ["esbuild", "better-sqlite3"],
   // Provide `require` in the ESM output for CJS deps that reach for it.
   banner: {
     js: 'import { createRequire as _cr } from "node:module"; const require = _cr(import.meta.url);',
@@ -36,8 +46,14 @@ await build({
 });
 
 // Assets are resolved against the bundle's directory (dist/) at runtime.
-await cp(path.join(piSrc, "systemPrompt.md"), path.join(outDir, "systemPrompt.md"));
-await cp(path.join(piSrc, "primePrompt.md"), path.join(outDir, "primePrompt.md"));
+await cp(
+  path.join(piSrc, "systemPrompt.md"),
+  path.join(outDir, "systemPrompt.md"),
+);
+await cp(
+  path.join(piSrc, "primePrompt.md"),
+  path.join(outDir, "primePrompt.md"),
+);
 await cp(path.join(piSrc, "agents"), path.join(outDir, "agents"), {
   recursive: true,
 });
@@ -47,6 +63,10 @@ await cp(path.join(piSrc, "agents"), path.join(outDir, "agents"), {
 await cp(path.join(piSrc, "extensions"), path.join(outDir, "extensions"), {
   recursive: true,
 });
+
+// drizzle-kit migrations applied at startup. The bundled db client resolves
+// these via `new URL("./migrations", import.meta.url)`, i.e. `dist/migrations`.
+await cp(migrationsSrc, path.join(outDir, "migrations"), { recursive: true });
 
 // Fail the build loudly if any asset the server reads relative to dist/ is
 // missing, so drift surfaces here instead of as a runtime "path does not
@@ -61,6 +81,7 @@ const requiredAssets = [
   path.join("extensions", "memory.ts"),
   path.join("extensions", "triggers.ts"),
   path.join("extensions", "session.ts"),
+  path.join("migrations", "meta", "_journal.json"),
 ];
 
 const missing = [];

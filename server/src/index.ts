@@ -24,11 +24,13 @@ import {
   createUiCommandEmitter,
   registerChatHandlers,
 } from "./sockets/chat.ts";
+import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
-import { InMemorySessionStore } from "./store/inMemorySessionStore.ts";
+import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 
 // Single shared store instance backs both REST routes and socket handlers.
-const store = new InMemorySessionStore();
+// Opening the DB applies pending drizzle-kit migrations on startup.
+const store = new SqliteSessionStore(openDb());
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
 

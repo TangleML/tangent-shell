@@ -13,6 +13,15 @@ export const SESSIONS_ROOT =
   process.env.SESSIONS_ROOT ?? path.resolve(process.cwd(), ".sessions");
 
 /**
+ * SQLite database file backing session, asset, and agent-roster metadata.
+ * Chat history is not stored here; it lives as per-conversation JSONL files
+ * inside each session's folder. Defaults to a `tangent.db` alongside the
+ * session folders so a single persistent volume covers everything.
+ */
+export const SESSIONS_DB =
+  process.env.SESSIONS_DB ?? path.join(SESSIONS_ROOT, "tangent.db");
+
+/**
  * Root directory backing the agent bundle marketplace. Each saved bundle gets
  * its own subdirectory (`AGENT_BUNDLES_ROOT/<id>`) holding the original ZIP,
  * extracted metadata, and icon. Gitignored by default.
@@ -71,7 +80,8 @@ export const PI_BIN = process.env.PI_BIN ?? "pi";
  * `~/.pi/agent` extension; override in deployments (e.g. Cloud Run) to target a
  * different proxy. Mirrored here for logging; the extension reads it directly.
  */
-export const PI_PROXY_URL = process.env.PI_PROXY_URL ?? "https://proxy.shopify.ai";
+export const PI_PROXY_URL =
+  process.env.PI_PROXY_URL ?? "https://proxy.shopify.ai";
 
 /**
  * Provider/model Pi is pinned to when spawned. In the container there is no
@@ -100,7 +110,8 @@ export const INTERNAL_URL =
  * call the internal agent API. Generated per server start unless pinned via env
  * so arbitrary local processes can't drive a session's agents.
  */
-export const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? randomUUID();
+export const INTERNAL_TOKEN =
+  process.env.TANGENT_INTERNAL_TOKEN ?? randomUUID();
 
 /**
  * Base URL of the Tangle (Cloud Pipelines) API reached by the bundle-UI/agent
