@@ -209,7 +209,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 </InlineStack>
               </Box>
               <ChatInput
+                key={`${sessionId}:${PI_AGENT.id}`}
                 sessionId={sessionId}
+                agentId={PI_AGENT.id}
                 disabled={!connected}
                 agentBusy={agentBusy}
                 onAbort={() => abort(PI_AGENT.id)}

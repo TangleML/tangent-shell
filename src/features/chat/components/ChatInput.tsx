@@ -8,6 +8,11 @@ import {
   useState,
 } from "react";
 
+import {
+  clearDraft,
+  readDraft,
+  writeDraft,
+} from "@/features/chat/model/chatDraft";
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
 import { Box } from "@/shared/ui/box";
 import { Button } from "@/shared/ui/button";
@@ -29,6 +34,11 @@ interface QueuedMessage {
 
 interface ChatInputProps {
   sessionId: string;
+  /**
+   * The conversation/agent this composer targets (`"prime"` or a sub-agent id).
+   * Scopes the persisted draft so each session+agent keeps its own unsent text.
+   */
+  agentId: string;
   /** Disables the whole composer (e.g. while the socket is disconnected). */
   disabled?: boolean;
   /**
@@ -53,12 +63,16 @@ interface ChatInputProps {
 
 export function ChatInput({
   sessionId,
+  agentId,
   disabled,
   agentBusy,
   onAbort,
   onSubmit,
 }: ChatInputProps) {
-  const [value, setValue] = useState("");
+  // Drafts persist per session+agent so the unsent text survives navigation and
+  // reloads. Seed from storage on mount; callers key this component by
+  // session+agent, so it remounts (and re-seeds) when either changes.
+  const [value, setValue] = useState(() => readDraft(sessionId, agentId));
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   // Follow-ups composed while the agent is busy wait here until the run ends
@@ -72,6 +86,12 @@ export function ChatInput({
 
   const busy = disabled || uploading;
   const canSubmit = !busy && (value.trim().length > 0 || files.length > 0);
+
+  function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
+    const next = e.target.value;
+    setValue(next);
+    writeDraft(sessionId, agentId, next);
+  }
 
   function addFiles(picked: File[]) {
     if (picked.length) setFiles((prev) => [...prev, ...picked]);
@@ -132,6 +152,7 @@ export function ChatInput({
     if (attachments === null) return;
 
     setValue("");
+    clearDraft(sessionId, agentId);
     setFiles([]);
     onSubmit(trimmed, { delivery, attachments });
   }
@@ -147,6 +168,7 @@ export function ChatInput({
     if (attachments === null) return;
 
     setValue("");
+    clearDraft(sessionId, agentId);
     setFiles([]);
     setQueue((prev) => [
       ...prev,
@@ -290,7 +312,7 @@ export function ChatInput({
                 agentBusy ? "Nudge the agent..." : "Message the session..."
               }
               value={value}
-              onChange={(e) => setValue(e.target.value)}
+              onChange={handleChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               disabled={busy}

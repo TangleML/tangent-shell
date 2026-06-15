@@ -109,7 +109,9 @@ export function SubagentTabView({
         </InlineStack>
       </Box>
       <ChatInput
+        key={`${sessionId}:${agentId}`}
         sessionId={sessionId}
+        agentId={agentId}
         disabled={disabled}
         agentBusy={busy}
         onAbort={onAbort}
