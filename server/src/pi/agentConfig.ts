@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { THINKING_LEVELS, type ThinkingLevel } from "@shared/contracts.ts";
+
 /**
  * Curated allowlist of Pi tools every session gets by default. Because each
  * session's Pi process runs with its `cwd` set to the session's scoped folder,
@@ -81,6 +83,10 @@ export interface AgentConfig {
   tools: readonly string[];
   /** Appended to Pi's built-in prompt via `--append-system-prompt`. */
   appendSystemPrompt: string;
+  /** `provider/model` id for Pi's `--model`; falls back to the server default. */
+  model?: string;
+  /** Thinking depth for Pi's `--thinking`; falls back to the server default. */
+  thinkingDepth?: ThinkingLevel;
 }
 
 /** A reusable sub-agent definition loaded from `agents/<name>.md`. */
@@ -89,6 +95,10 @@ export interface AgentTemplate {
   description: string;
   tools?: readonly string[];
   systemPrompt: string;
+  /** Default `provider/model` id for sub-agents spawned from this template. */
+  model?: string;
+  /** Default thinking depth for sub-agents spawned from this template. */
+  thinkingDepth?: ThinkingLevel;
 }
 
 /** Sub-agent defaults sourced from a bundle's `subagents` manifest block. */
@@ -97,6 +107,10 @@ export interface SubagentDefaults {
   tools?: readonly string[];
   /** Default appended system prompt for sub-agents. */
   appendSystemPrompt?: string;
+  /** Default `provider/model` id for sub-agents lacking an explicit one. */
+  model?: string;
+  /** Default thinking depth for sub-agents lacking an explicit one. */
+  thinkingDepth?: ThinkingLevel;
 }
 
 /**
@@ -132,8 +146,23 @@ export interface SubagentSpawnRequest {
   systemPrompt?: string;
   /** Inline tool allowlist; overrides the template's tools. */
   tools?: string[];
+  /** Inline `provider/model` id; overrides the template/default model. */
+  model?: string;
+  /** Inline thinking depth; overrides the template/default thinking depth. */
+  thinkingDepth?: ThinkingLevel;
   /** Optional initial task to deliver to the sub-agent right after spawn. */
   task?: string;
+}
+
+/** Narrows an arbitrary string to a valid {@link ThinkingLevel}, else undefined. */
+export function parseThinkingLevel(
+  raw: string | undefined,
+): ThinkingLevel | undefined {
+  if (!raw) return undefined;
+  const value = raw.trim();
+  return (THINKING_LEVELS as readonly string[]).includes(value)
+    ? (value as ThinkingLevel)
+    : undefined;
 }
 
 function readPrompt(file: string): string {
@@ -173,6 +202,12 @@ function parseFrontmatter(content: string): {
   return { frontmatter, body: match[2].trim() };
 }
 
+/** Trims a frontmatter scalar, returning `undefined` for empty/missing values. */
+function optionalTrimmed(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  return value || undefined;
+}
+
 function parseToolList(raw: string | undefined): string[] | undefined {
   if (!raw) return undefined;
   const tools = raw
@@ -202,9 +237,11 @@ function parseTemplateFile(dir: string, entry: string): AgentTemplate | null {
   if (!name) return null;
   return {
     name,
-    description: frontmatter.description?.trim() ?? "",
+    description: optionalTrimmed(frontmatter.description) ?? "",
     tools: parseToolList(frontmatter.tools),
     systemPrompt: body,
+    model: optionalTrimmed(frontmatter.model),
+    thinkingDepth: parseThinkingLevel(frontmatter.thinking),
   };
 }
 
@@ -311,6 +348,30 @@ function pickPrompt(
 }
 
 /**
+ * Resolves the model id: inline request wins, then the template's, then the
+ * session/bundle default. `undefined` falls back to the server default when Pi
+ * is spawned.
+ */
+function pickModel(
+  request: SubagentSpawnRequest,
+  template: AgentTemplate | undefined,
+  defaults: SubagentDefaults | undefined,
+): string | undefined {
+  return request.model ?? template?.model ?? defaults?.model;
+}
+
+/** Resolves the thinking depth with the same precedence as {@link pickModel}. */
+function pickThinking(
+  request: SubagentSpawnRequest,
+  template: AgentTemplate | undefined,
+  defaults: SubagentDefaults | undefined,
+): ThinkingLevel | undefined {
+  return (
+    request.thinkingDepth ?? template?.thinkingDepth ?? defaults?.thinkingDepth
+  );
+}
+
+/**
  * Resolves a sub-agent's effective config from a spawn request: a template
  * supplies defaults for tools and system prompt, and inline fields override
  * them. When `options` carries a session's bundle templates/defaults those are
@@ -328,5 +389,7 @@ export function resolveSubagentConfig(
   return {
     tools: pickTools(request, template, options.defaults),
     appendSystemPrompt: pickPrompt(request, template, options.defaults),
+    model: pickModel(request, template, options.defaults),
+    thinkingDepth: pickThinking(request, template, options.defaults),
   };
 }

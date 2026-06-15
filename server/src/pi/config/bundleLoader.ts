@@ -288,6 +288,8 @@ function resolveSubagentDefaults(
     appendSystemPrompt: defaultPrompt
       ? readTextEntry(entries, defaultPrompt)
       : undefined,
+    model: manifest.subagents?.defaultModel,
+    thinkingDepth: manifest.subagents?.defaultThinking,
   };
 }
 
@@ -326,6 +328,8 @@ export async function installBundle(
     prime: {
       tools: resolvePrimeTools(manifest),
       appendSystemPrompt: readTextEntry(entries, manifest.prime.systemPrompt),
+      model: manifest.prime.model,
+      thinkingDepth: manifest.prime.thinking,
     },
     subagentDefaults: resolveSubagentDefaults(entries, manifest),
     templates: buildTemplatesFromDir(tangentDir(rootPath, BUNDLE_DIRS.agents)),

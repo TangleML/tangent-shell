@@ -7,6 +7,7 @@ import {
 } from "express";
 
 import { INTERNAL_TOKEN } from "../config.ts";
+import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
@@ -16,6 +17,8 @@ interface SpawnBody {
   template?: string;
   systemPrompt?: string;
   tools?: string[];
+  model?: string;
+  thinkingDepth?: string;
   task?: string;
 }
 
@@ -42,6 +45,48 @@ const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
 
 /**
+ * Spawns a sub-agent (resolving its model/thinking) and persists it so the
+ * roster survives a restart. Extracted from the router so the route function
+ * stays small.
+ */
+function handleSpawn(
+  store: SessionStore,
+  pi: PiAgentManager,
+  req: Request,
+  res: Response,
+): void {
+  const body = (req.body ?? {}) as SpawnBody;
+  if (!body.sessionId || !body.name) {
+    res.status(400).json({ error: "sessionId and name are required" });
+    return;
+  }
+  const sessionId = body.sessionId;
+  try {
+    const subagent = pi.spawnSubagent(sessionId, {
+      name: body.name,
+      template: body.template,
+      systemPrompt: body.systemPrompt,
+      tools: body.tools,
+      model: body.model,
+      thinkingDepth: parseThinkingLevel(body.thinkingDepth),
+      task: body.task,
+    });
+    void store.recordAgent(sessionId, {
+      id: subagent.id,
+      role: "subagent",
+      name: subagent.name,
+      status: "active",
+      model: subagent.model,
+      thinkingDepth: subagent.thinkingDepth,
+      template: subagent.template,
+    });
+    res.json({ subagent });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+}
+
+/**
  * Internal API used only by the orchestrator extension running inside each Pi
  * process. It lets Prime spawn/message/kill/list sub-agents and lets any agent
  * read the shared transcript. Guarded by a bearer token shared with the
@@ -62,25 +107,9 @@ export function createInternalAgentsRouter(
     next();
   });
 
-  router.post("/spawn", (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as SpawnBody;
-    if (!body.sessionId || !body.name) {
-      res.status(400).json({ error: "sessionId and name are required" });
-      return;
-    }
-    try {
-      const subagent = pi.spawnSubagent(body.sessionId, {
-        name: body.name,
-        template: body.template,
-        systemPrompt: body.systemPrompt,
-        tools: body.tools,
-        task: body.task,
-      });
-      res.json({ subagent });
-    } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
-    }
-  });
+  router.post("/spawn", (req: Request, res: Response) =>
+    handleSpawn(store, pi, req, res),
+  );
 
   router.post("/message", (req: Request, res: Response) => {
     const body = (req.body ?? {}) as MessageBody;

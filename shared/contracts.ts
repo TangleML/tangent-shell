@@ -49,6 +49,69 @@ export interface Session {
  */
 export type AgentRole = "prime" | "subagent";
 
+/**
+ * Thinking-depth levels accepted by Pi's `--thinking` flag, ordered from no
+ * reasoning to the deepest. Surfaced in the UI so a human can tune how hard an
+ * agent reasons; `"off"` disables the thinking process entirely.
+ */
+export const THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/**
+ * A model the user can assign to an agent. `id` is the `provider/model` string
+ * passed straight to Pi's `--model` flag; `provider` mirrors the prefix for
+ * display/grouping and `label` is the human-readable name shown in the picker.
+ */
+export interface ModelOption {
+  id: string;
+  label: string;
+  provider: string;
+}
+
+/**
+ * Curated set of models offered in the per-agent model picker. Kept small and
+ * static; the wire shape lets this later be replaced by a dynamic
+ * `pi --list-models` lookup without touching clients. `id` must match a model
+ * Pi can resolve through the proxy-provider extension.
+ */
+export const AVAILABLE_MODELS: ModelOption[] = [
+  { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai" },
+  { id: "openai/gpt-5-mini", label: "GPT-5 Mini", provider: "openai" },
+  {
+    id: "anthropic/claude-sonnet-4-5",
+    label: "Claude Sonnet 4.5",
+    provider: "anthropic",
+  },
+  {
+    id: "anthropic/claude-opus-4-1",
+    label: "Claude Opus 4.1",
+    provider: "anthropic",
+  },
+  {
+    id: "google/gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+    provider: "google",
+  },
+];
+
+/**
+ * Effective defaults an agent runs when it has no explicit selection. Single
+ * source of truth shared by the server's spawn fallback ({@link
+ * AVAILABLE_MODELS} `id` form) and the UI, so the picker can show the real
+ * default value rather than a generic "Default" label. `DEFAULT_MODEL_ID` is a
+ * `provider/model` string matching an {@link AVAILABLE_MODELS} entry.
+ */
+export const DEFAULT_MODEL_ID = "openai/gpt-5.5";
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
+
 /** Author of a chat message. Chats assume multiple humans and agents. */
 export interface ChatAuthor {
   id: string;
@@ -202,6 +265,10 @@ export interface SubagentInfo {
   status: SubagentStatus;
   /** Template the sub-agent was spawned from, if any. */
   template?: string;
+  /** The `provider/model` id this sub-agent runs, when set (else server default). */
+  model?: string;
+  /** The thinking depth this sub-agent runs, when set (else server default). */
+  thinkingDepth?: ThinkingLevel;
   /** ISO-8601 timestamp. */
   createdAt: string;
 }
@@ -494,6 +561,32 @@ export interface AgentAbortPayload {
 }
 
 /**
+ * Sent (client -> server) to change an agent's model and/or thinking depth.
+ * `agentId` is `"prime"` or a sub-agent id. Either field may be omitted to
+ * leave that setting unchanged. Applying it respawns the agent's Pi process, so
+ * the new settings take effect on subsequent runs.
+ */
+export interface AgentSetModelPayload {
+  sessionId: string;
+  agentId: string;
+  model?: string;
+  thinkingDepth?: ThinkingLevel;
+}
+
+/**
+ * Emitted (server -> client) with an agent's current model/thinking selection.
+ * Used for Prime (whose settings the sub-agent roster does not track) on join
+ * and after any change; sub-agent changes ride the existing roster/update
+ * events instead.
+ */
+export interface AgentModelPayload {
+  sessionId: string;
+  agentId: string;
+  model?: string;
+  thinkingDepth?: ThinkingLevel;
+}
+
+/**
  * A directive an agent issues to influence a session's UI, discriminated by
  * `kind`. This is the single, extensible shape every agent->UI push rides on:
  * new capabilities (theme, panels, windows, ...) add a variant here and a
@@ -531,6 +624,8 @@ export const SocketEvents = {
   AgentError: "agent:error",
   AgentActivity: "agent:activity",
   AgentAbort: "agent:abort",
+  AgentSetModel: "agent:set-model",
+  AgentModel: "agent:model",
   AgentQueue: "agent:queue",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",

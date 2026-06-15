@@ -5,7 +5,9 @@ import {
   type AgentDeltaPayload,
   type AgentEndPayload,
   type AgentErrorPayload,
+  type AgentModelPayload,
   type AgentQueuePayload,
+  type AgentSetModelPayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
   type ArtifactPinPayload,
@@ -25,6 +27,7 @@ import {
   type SubagentInfo,
   type SubagentRosterPayload,
   type SubagentUpdatePayload,
+  type ThinkingLevel,
   type Trigger,
   type TriggerRosterPayload,
   type TriggerUpdatePayload,
@@ -62,6 +65,12 @@ function applySessionUpdate(session: Session): void {
   );
 }
 
+/** An agent's current model/thinking selection (absent fields = server default). */
+export interface AgentModelSelection {
+  model?: string;
+  thinkingDepth?: ThinkingLevel;
+}
+
 /**
  * Manages a single Socket.IO connection for one session's chat room.
  *
@@ -72,6 +81,12 @@ function applySessionUpdate(session: Session): void {
 export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
+  // Per-agent model/thinking selection, keyed by agent id (`"prime"` or a
+  // sub-agent id). Seeded from the roster (sub-agents) and the `agent:model`
+  // event (Prime), and updated as either changes.
+  const [modelByAgent, setModelByAgent] = useState<
+    Map<string, AgentModelSelection>
+  >(() => new Map());
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   // Artifacts the user (or an agent) pinned for quick access, kept in sync with
   // the room via the `artifacts.update` UI directive.
@@ -126,6 +141,7 @@ export function useSessionChat(sessionId: string) {
       // ChatHistory and SubagentRoster events the server sends on join.
       setMessages([]);
       setSubagents([]);
+      setModelByAgent(new Map());
       setTriggers([]);
       setArtifacts([]);
       setConnected(true);
@@ -275,11 +291,19 @@ export function useSessionChat(sessionId: string) {
       },
     );
 
-    // Full roster snapshot (sent on join): replace local state.
+    // Full roster snapshot (sent on join): replace local state and seed each
+    // sub-agent's model/thinking selection.
     socket.on(
       SocketEvents.SubagentRoster,
       ({ subagents: roster }: SubagentRosterPayload) => {
         setSubagents(roster);
+        setModelByAgent((prev) => {
+          const next = new Map(prev);
+          for (const s of roster) {
+            next.set(s.id, { model: s.model, thinkingDepth: s.thinkingDepth });
+          }
+          return next;
+        });
       },
     );
     // A single sub-agent spawned or changed status: upsert by id.
@@ -291,6 +315,21 @@ export function useSessionChat(sessionId: string) {
           next.push(subagent);
           return next;
         });
+        setModelByAgent((prev) =>
+          new Map(prev).set(subagent.id, {
+            model: subagent.model,
+            thinkingDepth: subagent.thinkingDepth,
+          }),
+        );
+      },
+    );
+    // Prime's model/thinking (sent on join and after a change): upsert by id.
+    socket.on(
+      SocketEvents.AgentModel,
+      ({ agentId, model, thinkingDepth }: AgentModelPayload) => {
+        setModelByAgent((prev) =>
+          new Map(prev).set(agentId, { model, thinkingDepth }),
+        );
       },
     );
 
@@ -378,6 +417,32 @@ export function useSessionChat(sessionId: string) {
       socket.emit(SocketEvents.AgentAbort, payload);
     },
     [sessionId],
+  );
+
+  // Changes an agent's model and/or thinking depth (`"prime"` or a sub-agent
+  // id). The server respawns that agent's process and echoes the new selection
+  // back via `agent:model` (Prime) or the roster update (sub-agents).
+  const setAgentModel = useCallback(
+    (agentId: string, selection: AgentModelSelection) => {
+      const socket = socketRef.current;
+      if (!socket) return;
+      const payload: AgentSetModelPayload = {
+        sessionId,
+        agentId,
+        model: selection.model,
+        thinkingDepth: selection.thinkingDepth,
+      };
+      socket.emit(SocketEvents.AgentSetModel, payload);
+    },
+    [sessionId],
+  );
+
+  // The current model/thinking selection for an agent, or null when unknown
+  // (the agent then runs the server default).
+  const getAgentModel = useCallback(
+    (agentId: string): AgentModelSelection | null =>
+      modelByAgent.get(agentId) ?? null,
+    [modelByAgent],
   );
 
   // Resolves a memory suggestion: tells the server to apply or discard it and
@@ -493,5 +558,7 @@ export function useSessionChat(sessionId: string) {
     currentAuthorId: author.id,
     send,
     abort,
+    getAgentModel,
+    setAgentModel,
   };
 }

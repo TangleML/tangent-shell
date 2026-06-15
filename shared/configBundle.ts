@@ -10,6 +10,8 @@
  * Phase 1 defines the format only; runtime wiring (install/spawn) arrives later.
  */
 
+import type { ThinkingLevel } from "./contracts.ts";
+
 /**
  * Manifest schema version. Bump this integer when a change to {@link
  * BundleManifest} or the layout is backwards-incompatible. A bundle's own
@@ -69,6 +71,13 @@ export interface BundlePrimeConfig {
    * message at session creation (no LLM call). Lets the agent "speak first".
    */
   welcomeMessage?: string;
+  /** Default `provider/model` id Prime runs; falls back to the server default. */
+  model?: string;
+  /**
+   * Default thinking depth Prime runs (Pi's `--thinking`): off, minimal, low,
+   * medium, high, or xhigh. Falls back to the server default.
+   */
+  thinking?: ThinkingLevel;
 }
 
 /**
@@ -148,6 +157,10 @@ export interface BundleSubagentConfig {
   defaultSystemPrompt?: string;
   /** Default tool allowlist for sub-agents lacking an explicit list. */
   defaultTools?: string[];
+  /** Default `provider/model` id for sub-agents lacking an explicit one. */
+  defaultModel?: string;
+  /** Default thinking depth for sub-agents lacking an explicit one. */
+  defaultThinking?: ThinkingLevel;
 }
 
 /**

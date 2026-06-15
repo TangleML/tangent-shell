@@ -1,7 +1,11 @@
 import type { BundleManifest } from "@shared/configBundle.ts";
 import { ICON_FILENAME, SCHEMA_VERSION } from "@shared/configBundle.ts";
+import { THINKING_LEVELS } from "@shared/contracts.ts";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+
+/** Pi thinking-depth levels, as a zod enum for manifest validation. */
+const thinkingLevel = z.enum(THINKING_LEVELS);
 
 /**
  * Result of {@link parseManifest}: either a validated manifest or the list of
@@ -61,11 +65,15 @@ const manifestSchema = z.object({
     systemPrompt: safePath,
     tools: z.array(z.string()).optional(),
     welcomeMessage: safePath.optional(),
+    model: z.string().min(1).optional(),
+    thinking: thinkingLevel.optional(),
   }),
   subagents: z
     .object({
       defaultSystemPrompt: safePath.optional(),
       defaultTools: z.array(z.string()).optional(),
+      defaultModel: z.string().min(1).optional(),
+      defaultThinking: thinkingLevel.optional(),
     })
     .optional(),
   skills: z.array(safePath).optional(),

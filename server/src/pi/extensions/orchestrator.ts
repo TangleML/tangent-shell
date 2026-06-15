@@ -129,9 +129,12 @@ export default function (pi: ExtensionAPI) {
     description:
       "Create a new sub-agent in this session. Provide a short name. Either " +
       "pick a `template` (see list) and/or override `system_prompt` and " +
-      "`tools` inline. Optionally include a `task` to start the sub-agent " +
-      "working immediately. Returns the sub-agent's id for later messaging. " +
-      "Sub-agents share this session's workspace and can read the room.",
+      "`tools` inline. Optionally set `model` (a `provider/model` id) and " +
+      "`thinking` depth (off/minimal/low/medium/high/xhigh); both default to " +
+      "the session's settings when omitted. Optionally include a `task` to " +
+      "start the sub-agent working immediately. Returns the sub-agent's id for " +
+      "later messaging. Sub-agents share this session's workspace and can read " +
+      "the room.",
     promptSnippet:
       "Spawn a specialized sub-agent (by template or inline config)",
     parameters: Type.Object({
@@ -151,6 +154,18 @@ export default function (pi: ExtensionAPI) {
           description: "Inline tool allowlist; overrides template tools.",
         }),
       ),
+      model: Type.Optional(
+        Type.String({
+          description:
+            "Model id (`provider/model`); overrides template/default.",
+        }),
+      ),
+      thinking: Type.Optional(
+        Type.String({
+          description:
+            "Thinking depth: off, minimal, low, medium, high, or xhigh.",
+        }),
+      ),
       task: Type.Optional(
         Type.String({ description: "Initial task to send the sub-agent now." }),
       ),
@@ -162,6 +177,8 @@ export default function (pi: ExtensionAPI) {
         template: params.template,
         systemPrompt: params.system_prompt,
         tools: params.tools,
+        model: params.model,
+        thinkingDepth: params.thinking,
         task: params.task,
       })) as { subagent: { id: string; name: string } };
 

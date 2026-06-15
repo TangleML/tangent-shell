@@ -8,7 +8,7 @@ import type {
   SubagentStatus,
 } from "@shared/contracts.ts";
 
-import type { ResolvedSessionConfig } from "./agentConfig.ts";
+import type { AgentConfig, ResolvedSessionConfig } from "./agentConfig.ts";
 
 /** Fixed id of the session's Prime agent (one per session). */
 export const PRIME_AGENT_ID = "prime";
@@ -73,6 +73,12 @@ export interface AgentProcess {
   template?: string;
   status: SubagentStatus;
   createdAt: string;
+  /**
+   * The resolved config this agent was spawned with (tools, prompt, model,
+   * thinking depth). Retained so a model/thinking change can respawn the
+   * process with the same tools and prompt but new model settings.
+   */
+  config: AgentConfig;
   child: ChildProcessWithoutNullStreams;
   busy: boolean;
   /**

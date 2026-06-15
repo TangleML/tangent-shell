@@ -2,12 +2,18 @@ import type {
   AgentActivity,
   Attachment,
   MessageDelivery,
+  ThinkingLevel,
 } from "@shared/contracts";
 import { useMemo } from "react";
 
 import type { ChatMessage } from "@/features/chat/model/types";
-import { BlockStack } from "@/shared/ui/layout";
+import { Box } from "@/shared/ui/box";
+import { BlockStack, InlineStack } from "@/shared/ui/layout";
 
+import {
+  AgentModelPicker,
+  type AgentModelPickerValue,
+} from "./AgentModelPicker";
 import { ChatInput } from "./ChatInput";
 import { ChatMessageList } from "./ChatMessageList";
 
@@ -37,6 +43,12 @@ interface SubagentTabViewProps {
   ) => void;
   /** Pending steer/follow-up nudges for this sub-agent. */
   queued?: { steering: string[]; followUp: string[] } | null;
+  /** This sub-agent's current model id (absent = server default). */
+  model?: string;
+  /** This sub-agent's current thinking depth (absent = server default). */
+  thinkingDepth?: ThinkingLevel;
+  /** Changes this sub-agent's model and/or thinking depth. */
+  onSetModel: (selection: AgentModelPickerValue) => void;
   /** Opens a browser-viewable artifact referenced in a message. */
   onOpenArtifact: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
@@ -61,6 +73,9 @@ export function SubagentTabView({
   onAbort,
   onSubmit,
   queued,
+  model,
+  thinkingDepth,
+  onSetModel,
   onOpenArtifact,
   pinnedPaths,
   onTogglePinArtifact,
@@ -83,6 +98,16 @@ export function SubagentTabView({
         onTogglePinArtifact={onTogglePinArtifact}
         isMessageStreaming={isMessageStreaming}
       />
+      <Box paddingInline="base" paddingBlock="sm">
+        <InlineStack align="end">
+          <AgentModelPicker
+            model={model}
+            thinkingDepth={thinkingDepth}
+            onChange={onSetModel}
+            disabled={disabled}
+          />
+        </InlineStack>
+      </Box>
       <ChatInput
         sessionId={sessionId}
         disabled={disabled}

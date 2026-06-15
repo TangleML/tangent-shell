@@ -15,7 +15,6 @@ import {
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Pill } from "@/shared/ui/patterns/pill";
 import { Text } from "@/shared/ui/typography";
 
 import { BundleIconImage } from "./bundle-grid";
@@ -75,20 +74,6 @@ export function AgentBundleCard({ bundle }: AgentBundleCardProps) {
             <Text size="sm" tone="subdued">
               {bundle.description}
             </Text>
-          ) : null}
-          {bundle.author ? (
-            <Text size="xs" tone="subdued">
-              by {bundle.author}
-            </Text>
-          ) : null}
-          {bundle.tags && bundle.tags.length > 0 ? (
-            <InlineStack gap="1" wrap="wrap">
-              {bundle.tags.map((tag) => (
-                <Pill key={tag} size="xs" tone="subdued">
-                  {tag}
-                </Pill>
-              ))}
-            </InlineStack>
           ) : null}
         </BlockStack>
       </CardContent>

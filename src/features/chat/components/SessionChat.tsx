@@ -15,6 +15,7 @@ import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
+import { AgentModelPicker } from "./AgentModelPicker";
 import { ArtifactTabView } from "./ArtifactTabView";
 import { AssetList } from "./AssetList";
 import { AssetTabTrigger } from "./AssetTabTrigger";
@@ -54,7 +55,12 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     currentAuthorId,
     send,
     abort,
+    getAgentModel,
+    setAgentModel,
   } = useSessionChat(sessionId);
+
+  // Prime's current model/thinking selection (null = server default).
+  const primeModel = getAgentModel(PI_AGENT.id);
 
   // The bundle this session was created from (if any) drives both the
   // `tangent-ui:` message tokens and the composer's panel launcher.
@@ -190,6 +196,18 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               {bundleId ? (
                 <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
               ) : null}
+              <Box paddingInline="base" paddingBlock="sm">
+                <InlineStack align="end">
+                  <AgentModelPicker
+                    model={primeModel?.model}
+                    thinkingDepth={primeModel?.thinkingDepth}
+                    onChange={(selection) =>
+                      setAgentModel(PI_AGENT.id, selection)
+                    }
+                    disabled={!connected}
+                  />
+                </InlineStack>
+              </Box>
               <ChatInput
                 sessionId={sessionId}
                 disabled={!connected}
@@ -220,6 +238,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 busy={isConversationBusy(agent.id)}
                 disabled={!connected}
                 isMessageStreaming={isMessageStreaming}
+                model={getAgentModel(agent.id)?.model}
+                thinkingDepth={getAgentModel(agent.id)?.thinkingDepth}
+                onSetModel={(selection) => setAgentModel(agent.id, selection)}
                 onAbort={() => abort(agent.id)}
                 onSubmit={(content, { delivery, attachments }) =>
                   send(content, {

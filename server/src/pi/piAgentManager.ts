@@ -8,6 +8,7 @@ import {
   PI_AGENT,
   type SubagentInfo,
   type SubagentStatus,
+  type ThinkingLevel,
 } from "@shared/contracts.ts";
 
 import {
@@ -18,6 +19,7 @@ import {
   PI_MODEL,
   PI_PROVIDER,
   PI_PROXY_URL,
+  PI_THINKING,
 } from "../config.ts";
 import {
   type AgentConfig,
@@ -91,12 +93,71 @@ function appendWithMemory(config: AgentConfig, memoryPreamble: string): string {
   return `${config.appendSystemPrompt}\n\n${memoryPreamble}`;
 }
 
+/** A requested model/thinking change; either field may be omitted to keep it. */
+export interface AgentModelSelection {
+  model?: string;
+  thinkingDepth?: ThinkingLevel;
+}
+
+/**
+ * Returns a copy of `config` with the selection's model/thinking applied. An
+ * `undefined` field leaves the existing value untouched, so a change can target
+ * just the model or just the thinking depth.
+ */
+function withModelSelection(
+  config: AgentConfig,
+  selection: AgentModelSelection | undefined,
+): AgentConfig {
+  if (!selection) return config;
+  return {
+    ...config,
+    model: selection.model ?? config.model,
+    thinkingDepth: selection.thinkingDepth ?? config.thinkingDepth,
+  };
+}
+
+/** Effective provider/model/thinking for a spawn, with server-default fallback. */
+interface ModelArgs {
+  provider: string;
+  model: string;
+  thinking: string;
+}
+
+/**
+ * Splits a selected model id into provider + model. A `provider/id` value
+ * carries its own provider; a bare id keeps the server default provider, and an
+ * empty/unset value falls back to the server default model.
+ */
+function splitModel(selected: string | undefined): {
+  provider: string;
+  model: string;
+} {
+  if (selected && selected.includes("/")) {
+    const slash = selected.indexOf("/");
+    return {
+      provider: selected.slice(0, slash),
+      model: selected.slice(slash + 1),
+    };
+  }
+  return { provider: PI_PROVIDER, model: selected || PI_MODEL };
+}
+
+/**
+ * Resolves an agent's effective `--provider`/`--model`/`--thinking`, falling
+ * back to the server defaults ({@link PI_MODEL} / {@link PI_THINKING}).
+ */
+function resolveModelArgs(config: AgentConfig): ModelArgs {
+  const { provider, model } = splitModel(config.model?.trim());
+  return { provider, model, thinking: config.thinkingDepth ?? PI_THINKING };
+}
+
 /** Builds the `pi --mode rpc` CLI args for an agent process. */
 function buildPiArgs(
   config: AgentConfig,
   extras: SpawnExtras,
   memoryPreamble: string,
 ): string[] {
+  const { provider, model, thinking } = resolveModelArgs(config);
   const args = [
     "--mode",
     "rpc",
@@ -106,9 +167,11 @@ function buildPiArgs(
     // HOME=/tmp leaves nothing to discover.
     "--no-skills",
     "--provider",
-    PI_PROVIDER,
+    provider,
     "--model",
-    PI_MODEL,
+    model,
+    "--thinking",
+    thinking,
     "--tools",
     config.tools.join(","),
     "--append-system-prompt",
@@ -181,14 +244,16 @@ function logSpawn(
   config: AgentConfig,
   extras: SpawnExtras,
 ): void {
+  const { provider, model, thinking } = resolveModelArgs(config);
   console.log(
     `[pi:${sessionId}:${descriptor.agentId}] spawning`,
     JSON.stringify({
       bin: PI_BIN,
       role: descriptor.role,
       cwd,
-      provider: PI_PROVIDER,
-      model: PI_MODEL,
+      provider,
+      model,
+      thinking,
       proxyUrl: PI_PROXY_URL,
       hasProxyApiKey: Boolean(process.env.PI_PROXY_API_KEY),
       tools: config.tools.join(","),
@@ -271,6 +336,7 @@ export class PiAgentManager {
     sessionId: string,
     rootPath: string,
     config?: ResolvedSessionConfig,
+    primeOverride?: AgentModelSelection,
   ): void {
     let session = this.sessions.get(sessionId);
     if (session?.agents.has(PRIME_AGENT_ID)) return;
@@ -286,12 +352,52 @@ export class PiAgentManager {
       this.sessions.set(sessionId, session);
     }
 
+    const primeConfig = session.config?.prime ?? getPrimeAgentConfig();
     this.spawnAgent(
       sessionId,
       session,
       { agentId: PRIME_AGENT_ID, role: "prime", name: "Prime" },
-      session.config?.prime ?? getPrimeAgentConfig(),
+      withModelSelection(primeConfig, primeOverride),
     );
+  }
+
+  /**
+   * Changes an agent's model and/or thinking depth and respawns its Pi process
+   * so the new settings apply to subsequent runs. Pi is ephemeral
+   * (`--no-session`), so the in-flight conversation context is dropped and any
+   * running turn is aborted. Returns the agent's new selection (for the caller
+   * to persist/broadcast), or `undefined` if the agent is unknown.
+   */
+  setAgentModel(
+    sessionId: string,
+    agentId: string,
+    selection: AgentModelSelection,
+  ): { role: AgentProcess["role"]; info: SubagentInfo } | undefined {
+    const session = this.sessions.get(sessionId);
+    const existing = session?.agents.get(agentId);
+    if (!session || !existing) return undefined;
+
+    const descriptor: AgentDescriptor & { template?: string } = {
+      agentId: existing.agentId,
+      role: existing.role,
+      name: existing.name,
+      template: existing.template,
+    };
+    const nextConfig = withModelSelection(existing.config, selection);
+
+    // Quiet the outgoing process so its kill-triggered exit handler doesn't
+    // emit a spurious in-flight error for the run we're intentionally cutting.
+    existing.busy = false;
+    existing.currentMessageId = null;
+    existing.aborted = true;
+    existing.child.kill();
+
+    const agent = this.spawnAgent(sessionId, session, descriptor, nextConfig);
+    const info = toSubagentInfo(agent);
+    if (agent.role === "subagent") {
+      this.handlers.onSubagentUpdate(sessionId, info);
+    }
+    return { role: agent.role, info };
   }
 
   /**
@@ -484,6 +590,23 @@ export class PiAgentManager {
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
   }
 
+  /**
+   * Returns an agent's current model/thinking selection (resolved from its
+   * spawn config), or `undefined` if the agent/session is unknown. Used to seed
+   * the UI for Prime, whose selection the sub-agent roster does not carry.
+   */
+  getAgentSelection(
+    sessionId: string,
+    agentId: string,
+  ): AgentModelSelection | undefined {
+    const agent = this.sessions.get(sessionId)?.agents.get(agentId);
+    if (!agent) return undefined;
+    return {
+      model: agent.config.model,
+      thinkingDepth: agent.config.thinkingDepth,
+    };
+  }
+
   /** Returns the session's sub-agent roster (Prime excluded). */
   listSubagents(sessionId: string): SubagentInfo[] {
     const session = this.sessions.get(sessionId);
@@ -540,6 +663,7 @@ export class PiAgentManager {
       template: descriptor.template,
       status: "active",
       createdAt: new Date().toISOString(),
+      config,
       child,
       busy: false,
       aborted: false,

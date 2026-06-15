@@ -7,7 +7,9 @@ import {
   type AgentDeltaPayload,
   type AgentEndPayload,
   type AgentErrorPayload,
+  type AgentModelPayload,
   type AgentQueuePayload,
+  type AgentSetModelPayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
   type ArtifactPinPayload,
@@ -26,12 +28,14 @@ import {
   SocketEvents,
   type SubagentRosterPayload,
   type SubagentUpdatePayload,
+  type ThinkingLevel,
   type TriggerRosterPayload,
   type UiCommand,
   type UiCommandPayload,
 } from "@shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
+import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import {
   type AgentDescriptor,
@@ -392,6 +396,58 @@ async function handleMemoryConfirm(
   );
 }
 
+/**
+ * Applies a human-requested model/thinking change: respawns the target agent's
+ * Pi process with the new settings, persists the selection so it survives a
+ * restart, and surfaces it. Sub-agent changes ride the roster-update handler
+ * (fired inside {@link PiAgentManager.setAgentModel}); Prime's change is
+ * broadcast here via the dedicated `agent:model` event.
+ */
+function handleAgentSetModel(
+  io: Server,
+  store: SessionStore,
+  pi: PiAgentManager,
+  payload: AgentSetModelPayload,
+): void {
+  if (!payload) return;
+  const { sessionId, agentId, model, thinkingDepth } = payload;
+  if (!sessionId || !agentId) return;
+
+  const result = pi.setAgentModel(sessionId, agentId, { model, thinkingDepth });
+  if (!result) return;
+
+  persistAndBroadcastSelection(io, store, sessionId, result);
+}
+
+/** Persists an agent's new selection and broadcasts it (Prime only). */
+function persistAndBroadcastSelection(
+  io: Server,
+  store: SessionStore,
+  sessionId: string,
+  result: NonNullable<ReturnType<PiAgentManager["setAgentModel"]>>,
+): void {
+  void store.recordAgent(sessionId, {
+    id: result.info.id,
+    role: result.role,
+    name: result.info.name,
+    status: "active",
+    model: result.info.model,
+    thinkingDepth: result.info.thinkingDepth,
+    template: result.info.template,
+  });
+
+  // Sub-agent changes already broadcast via the roster-update handler fired
+  // inside setAgentModel; Prime has no roster entry, so emit its own event.
+  if (result.role !== "prime") return;
+  const out: AgentModelPayload = {
+    sessionId,
+    agentId: result.info.id,
+    model: result.info.model,
+    thinkingDepth: result.info.thinkingDepth,
+  };
+  io.to(roomFor(sessionId)).emit(SocketEvents.AgentModel, out);
+}
+
 /** Tells Prime a suggestion was declined; nothing is written. */
 function handleMemoryDismiss(
   pi: PiAgentManager,
@@ -437,6 +493,10 @@ export function registerChatHandlers(
       pi.abort(payload?.sessionId, payload?.conversationId),
     );
 
+    socket.on(SocketEvents.AgentSetModel, (payload: AgentSetModelPayload) =>
+      handleAgentSetModel(io, store, pi, payload),
+    );
+
     socket.on(SocketEvents.MemoryConfirm, (payload: MemoryConfirmPayload) =>
       handleMemoryConfirm(store, pi, memory, onRemembered, payload),
     );
@@ -461,6 +521,36 @@ export function registerChatHandlers(
   });
 }
 
+/** Reads Prime's persisted model/thinking selection, parsing the stored depth. */
+async function loadPrimeOverride(
+  store: SessionStore,
+  sessionId: string,
+): Promise<{ model?: string; thinkingDepth?: ThinkingLevel } | undefined> {
+  const agents = await store.listAgents(sessionId);
+  const prime = agents.find((a) => a.id === PRIME_AGENT_ID);
+  if (!prime) return undefined;
+  return {
+    model: prime.model,
+    thinkingDepth: parseThinkingLevel(prime.thinkingDepth),
+  };
+}
+
+/** Emits Prime's current resolved model/thinking to the joining socket. */
+function emitPrimeSelection(
+  socket: Socket,
+  pi: PiAgentManager,
+  sessionId: string,
+): void {
+  const selection = pi.getAgentSelection(sessionId, PRIME_AGENT_ID);
+  const payload: AgentModelPayload = {
+    sessionId,
+    agentId: PRIME_AGENT_ID,
+    model: selection?.model,
+    thinkingDepth: selection?.thinkingDepth,
+  };
+  socket.emit(SocketEvents.AgentModel, payload);
+}
+
 /** Joins the session room, then replays history and the sub-agent roster. */
 async function handleChatJoin(
   socket: Socket,
@@ -479,8 +569,10 @@ async function handleChatJoin(
   await socket.join(room);
 
   // Lazily (re)spawn the agent in case the server restarted or the session was
-  // created before the process manager existed.
-  pi.ensure(session.id, session.rootPath);
+  // created before the process manager existed, restoring any persisted Prime
+  // model/thinking selection so a respawn keeps the human's prior choice.
+  const primeOverride = await loadPrimeOverride(store, session.id);
+  pi.ensure(session.id, session.rootPath, undefined, primeOverride);
 
   // Re-arm the session's schedule triggers (idempotent) and surface the roster.
   triggerEngine.sync(session.id, session.rootPath);
@@ -493,6 +585,9 @@ async function handleChatJoin(
     subagents: pi.listSubagents(session.id),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
+
+  // Surface Prime's current model/thinking (the roster only tracks sub-agents).
+  emitPrimeSelection(socket, pi, session.id);
 
   const triggerRoster: TriggerRosterPayload = {
     sessionId: session.id,

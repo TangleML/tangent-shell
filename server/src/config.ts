@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import { DEFAULT_MODEL_ID, DEFAULT_THINKING_LEVEL } from "@shared/contracts.ts";
+
 /** Port the dev server listens on. Vite proxies /api and /socket.io here. */
 export const PORT = Number(process.env.PORT ?? 8787);
 
@@ -88,8 +90,17 @@ export const PI_PROXY_URL =
  * `~/.pi/agent/settings.json`, so these are passed explicitly to match the
  * local defaults (`openai` / `gpt-5.5`).
  */
-export const PI_PROVIDER = process.env.PI_PROVIDER ?? "openai";
-export const PI_MODEL = process.env.PI_MODEL ?? "gpt-5.5";
+const [DEFAULT_PROVIDER, DEFAULT_MODEL] = DEFAULT_MODEL_ID.split("/");
+
+export const PI_PROVIDER = process.env.PI_PROVIDER ?? DEFAULT_PROVIDER;
+export const PI_MODEL = process.env.PI_MODEL ?? DEFAULT_MODEL;
+
+/**
+ * Default thinking depth Pi is spawned with via `--thinking` when an agent has
+ * no explicit selection. One of Pi's levels: off, minimal, low, medium, high,
+ * xhigh. Overridable per environment and per agent at runtime.
+ */
+export const PI_THINKING = process.env.PI_THINKING ?? DEFAULT_THINKING_LEVEL;
 
 /**
  * When enabled, the Pi manager emits verbose logs including raw stdout RPC

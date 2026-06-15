@@ -148,6 +148,10 @@ export function toSubagentInfo(agent: AgentProcess): SubagentInfo {
     name: agent.name,
     status: agent.status,
     ...(agent.template ? { template: agent.template } : {}),
+    ...(agent.config.model ? { model: agent.config.model } : {}),
+    ...(agent.config.thinkingDepth
+      ? { thinkingDepth: agent.config.thinkingDepth }
+      : {}),
     createdAt: agent.createdAt,
   };
 }
