@@ -9,6 +9,7 @@ import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
 import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
 import { Button } from "@/shared/ui/button";
+import { ButtonGroup } from "@/shared/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,7 +64,7 @@ export function SessionsPage() {
     createSession.mutate({ bundleId, name }, { onSuccess: openSession });
 
   const createDefaultSession = (
-    <InlineStack gap="0.5" blockAlign="center">
+    <ButtonGroup aria-label="New session">
       <Button
         variant="outline"
         onClick={() => startFromBundle(DEFAULT_BUNDLE_ID, "Session")}
@@ -103,7 +104,7 @@ export function SessionsPage() {
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-    </InlineStack>
+    </ButtonGroup>
   );
 
   const sidebar = (
