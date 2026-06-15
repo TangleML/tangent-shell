@@ -17,7 +17,6 @@ const MODULE_REGISTRY_KEY = "__TANGENT_BUNDLE_UI_MODULES__";
 type Namespace = Record<string, unknown>;
 
 declare global {
-   
   var __TANGENT_BUNDLE_UI_MODULES__: Record<string, Namespace> | undefined;
 }
 
@@ -42,7 +41,9 @@ function shimUrlFor(specifier: string): string {
 
   const source = [
     `const __m = globalThis[${JSON.stringify(MODULE_REGISTRY_KEY)}][${JSON.stringify(specifier)}];`,
-    ...names.map((name) => `export const ${name} = __m[${JSON.stringify(name)}];`),
+    ...names.map(
+      (name) => `export const ${name} = __m[${JSON.stringify(name)}];`,
+    ),
     `export default (__m && "default" in __m ? __m.default : __m);`,
   ].join("\n");
 
@@ -65,8 +66,10 @@ function rewriteImports(code: string, specifiers: readonly string[]): string {
       "g",
     );
     const url = shimUrlFor(specifier);
-    out = out.replace(pattern, (_match, keyword, middle, quote) =>
-      `${keyword}${middle}${quote}${url}${quote}`,
+    out = out.replace(
+      pattern,
+      (_match, keyword, middle, quote) =>
+        `${keyword}${middle}${quote}${url}${quote}`,
     );
   }
   return out;
@@ -76,7 +79,9 @@ function rewriteImports(code: string, specifiers: readonly string[]): string {
  * Registers the worker's own module namespaces so the shims can re-export them.
  * Call once at worker startup, before loading any component.
  */
-export function registerWorkerModules(modules: Record<string, Namespace>): void {
+export function registerWorkerModules(
+  modules: Record<string, Namespace>,
+): void {
   globalThis.__TANGENT_BUNDLE_UI_MODULES__ = {
     ...globalThis.__TANGENT_BUNDLE_UI_MODULES__,
     ...modules,
@@ -91,7 +96,9 @@ export function registerWorkerModules(modules: Record<string, Namespace>): void 
 export async function loadComponent(
   moduleUrl: string,
 ): Promise<(props: Record<string, unknown>) => unknown> {
-  const specifiers = Object.keys(globalThis.__TANGENT_BUNDLE_UI_MODULES__ ?? {});
+  const specifiers = Object.keys(
+    globalThis.__TANGENT_BUNDLE_UI_MODULES__ ?? {},
+  );
 
   const response = await fetch(moduleUrl, { cache: "no-store" });
   if (!response.ok) {

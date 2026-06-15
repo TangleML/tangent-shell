@@ -18,24 +18,24 @@ Run `tangle-deploy quickstart` to discover available commands. Use `--help-exten
 or `--help-full` on any command for detailed usage. For schema details, run
 `tangle-deploy docs pipeline` and `tangle-deploy docs component`.
 
-| What you need | Command |
-|---|---|
-| Export run as YAML | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate` |
-| Inspect a component | `tangle-deploy component inspect --name "Name" --full-spec` |
-| Search components | `tangle-deploy component search --name "Name"` |
-| Generate from Python | `tangle-deploy component generate from-python source.py` |
-| Generate from dbt | `tangle-deploy component generate from-dbt output.yaml --model <model>` |
-| Build from Dockerfile | `tangle-deploy component generate from-docker <Dockerfile> -o component.yaml` |
-| Bump version | `tangle-deploy component bump-version component.yaml` |
-| Hydrate refs | `tangle-deploy pipeline hydrate template.yaml output.yaml` |
-| Dehydrate to refs | `tangle-deploy pipeline dehydrate full.yaml template.yaml` |
+| What you need                              | Command                                                                                                            |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Export run as YAML                         | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate`                                                 |
+| Inspect a component                        | `tangle-deploy component inspect --name "Name" --full-spec`                                                        |
+| Search components                          | `tangle-deploy component search --name "Name"`                                                                     |
+| Generate from Python                       | `tangle-deploy component generate from-python source.py`                                                           |
+| Generate from dbt                          | `tangle-deploy component generate from-dbt output.yaml --model <model>`                                            |
+| Build from Dockerfile                      | `tangle-deploy component generate from-docker <Dockerfile> -o component.yaml`                                      |
+| Bump version                               | `tangle-deploy component bump-version component.yaml`                                                              |
+| Hydrate refs                               | `tangle-deploy pipeline hydrate template.yaml output.yaml`                                                         |
+| Dehydrate to refs                          | `tangle-deploy pipeline dehydrate full.yaml template.yaml`                                                         |
 | Promote artifact to a reusable data source | wire the `Promote to data source` component (see [`../references/data-sources.md`](../references/data-sources.md)) |
-| Load an existing data source | wire the `Load data source` component (see [`../references/data-sources.md`](../references/data-sources.md)) |
-| Validate pipeline | `tangle-deploy pipeline-run validate pipeline.yaml` |
-| Auto-layout DAG | `tangle-deploy pipeline auto-layout pipeline.yaml` |
-| Submit pipeline | `tangle-deploy pipeline-run submit pipeline.yaml -f config.yaml --hydrate --no-wait` |
-| Run details | `tangle-deploy pipeline-run details RUN_ID --state` |
-| Component as used | `tangle-deploy pipeline-run details RUN_ID --execution-id EXEC_ID --include-implementations` |
+| Load an existing data source               | wire the `Load data source` component (see [`../references/data-sources.md`](../references/data-sources.md))       |
+| Validate pipeline                          | `tangle-deploy pipeline-run validate pipeline.yaml`                                                                |
+| Auto-layout DAG                            | `tangle-deploy pipeline auto-layout pipeline.yaml`                                                                 |
+| Submit pipeline                            | `tangle-deploy pipeline-run submit pipeline.yaml -f config.yaml --hydrate --no-wait`                               |
+| Run details                                | `tangle-deploy pipeline-run details RUN_ID --state`                                                                |
+| Component as used                          | `tangle-deploy pipeline-run details RUN_ID --execution-id EXEC_ID --include-implementations`                       |
 
 ## Credentials & secrets — read before wiring any API key
 
@@ -153,16 +153,20 @@ See `references/iterating-on-runs.md` for the full workflow.
 See `references/containerized-component-iteration.md` for full details and gotchas.
 
 1. **Find source code**: Inspect the published component to get source annotations:
+
    ```bash
    tangle-deploy component inspect --name "Component Name" --full-spec
    ```
+
    Check annotations: `component_yaml_path`, `git_relative_dir`, `git_remote_url`,
    `dockerfile_path`, `documentation_path`.
 
 2. **Build and push**:
+
    ```bash
    tangle-deploy component generate from-docker <Dockerfile> -o component.yaml --quick
    ```
+
    `--quick` builds, pushes, and updates the image ref without re-introspecting the CLI.
    Without `--quick`, it also introspects the entrypoint to regenerate inputs/outputs.
    Uses podman by default — pass `--engine docker` only if podman is unavailable.
@@ -173,20 +177,25 @@ See `references/containerized-component-iteration.md` for full details and gotch
 ### Generating a new component
 
 **Before generating, search for existing components** that already do what you need:
+
 ```bash
 tangle-deploy component search --name "<keyword>"
 tangle-deploy docs standard_components
 ```
+
 Only generate a new component if nothing suitable exists.
 
 **From Python**:
+
 ```bash
 tangle-deploy component generate from-python my_module.py
 ```
+
 Generates component YAML from a Python function. Looks for a function matching the
 filename by default; use `--function <name>` to pick a different one.
 
 **From dbt**:
+
 ```bash
 tangle-deploy component generate from-dbt output.yaml --model <model_name> --image <dbt-image:tag>
 ```
@@ -205,9 +214,11 @@ tangle-deploy component publish component.yaml
 
 Always validate before submitting. See Submission Rules in `references/tangle-tools.md`
 for the full pre-submit checklist (dehydration check, `--hydrate`, annotations).
+
 ```bash
 tangle-deploy pipeline-run validate pipeline.yaml
 ```
+
 Use `--verbose` only if validation fails and you need full error details.
 
 ## Key Gotchas

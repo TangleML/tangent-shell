@@ -48,7 +48,9 @@ async function callApi(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`internal API ${endpoint} failed (${response.status}): ${text}`);
+    throw new Error(
+      `internal API ${endpoint} failed (${response.status}): ${text}`,
+    );
   }
   return response.json();
 }
@@ -96,14 +98,16 @@ export default function (pi: ExtensionAPI) {
       "across all sessions — otherwise use suggest_memory instead. To revise " +
       "an existing fact, pass the exact prior text in `replaces`. After it " +
       "succeeds, tell the user plainly what you stored.",
-    promptSnippet: "Store a fact in session (or, on explicit request, global) memory",
+    promptSnippet:
+      "Store a fact in session (or, on explicit request, global) memory",
     parameters: Type.Object({
       text: Type.String({
         description: "The fact to store, as a concise markdown line or block.",
       }),
       scope: Type.Optional(
         Type.Union([Type.Literal("session"), Type.Literal("global")], {
-          description: "'session' (default) or 'global' (explicit request only).",
+          description:
+            "'session' (default) or 'global' (explicit request only).",
         }),
       ),
       replaces: Type.Optional(

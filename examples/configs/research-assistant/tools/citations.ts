@@ -32,7 +32,9 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       title: Type.String({ description: "Title of the work." }),
       author: Type.Optional(
-        Type.String({ description: "Author or publisher. Defaults to 'Anon'." }),
+        Type.String({
+          description: "Author or publisher. Defaults to 'Anon'.",
+        }),
       ),
       year: Type.Optional(
         Type.String({ description: "Publication year, if known." }),

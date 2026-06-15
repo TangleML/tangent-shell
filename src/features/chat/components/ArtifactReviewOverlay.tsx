@@ -2,7 +2,12 @@
 // screenshot. The selection surface, rubber-band rect, and dimming mask are raw
 // DOM with scoped classes (an allowed escape hatch, like the artifact iframe);
 // the annotation panel uses Tangle UI primitives.
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Box } from "@/shared/ui/box";
 import { Button } from "@/shared/ui/button";
@@ -38,7 +43,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number }): Rect {
+function normalizeRect(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): Rect {
   return {
     x: Math.min(a.x, b.x),
     y: Math.min(a.y, b.y),
@@ -128,7 +136,9 @@ export function ArtifactReviewOverlay({
     const ctx = out.getContext("2d");
     if (!ctx) return Promise.resolve(null);
     ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
-    return new Promise((resolve) => out.toBlob((blob) => resolve(blob), "image/png"));
+    return new Promise((resolve) =>
+      out.toBlob((blob) => resolve(blob), "image/png"),
+    );
   }
 
   async function handleSend() {
@@ -232,7 +242,11 @@ export function ArtifactReviewOverlay({
                   >
                     Cancel
                   </Button>
-                  <Button size="sm" onClick={() => void handleSend()} disabled={submitting}>
+                  <Button
+                    size="sm"
+                    onClick={() => void handleSend()}
+                    disabled={submitting}
+                  >
                     {submitting ? "Sending..." : "Send to Prime"}
                   </Button>
                 </InlineStack>

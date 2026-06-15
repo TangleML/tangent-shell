@@ -3,11 +3,12 @@
 [< Back to index](./index.md)
 
 Every `pi` process in a session is spawned from an `AgentConfig` (tool allowlist
-+ appended system prompt) plus a set of `SpawnExtras` (skills, workflows, extra
-extensions). How that config is produced differs between a **blank session**
-(created without a bundle) and a **bundle session** (created from a Configuration
-Bundle). This document explains both paths, the five always-on extensions, the
-per-role tool gating, and the prompt resolution precedence.
+
+- appended system prompt) plus a set of `SpawnExtras` (skills, workflows, extra
+  extensions). How that config is produced differs between a **blank session**
+  (created without a bundle) and a **bundle session** (created from a Configuration
+  Bundle). This document explains both paths, the five always-on extensions, the
+  per-role tool gating, and the prompt resolution precedence.
 
 The relevant code: [agentConfig.ts](../../server/src/pi/agentConfig.ts),
 [piAgentManager.ts](../../server/src/pi/piAgentManager.ts) (`buildPiArgs`,
@@ -24,13 +25,13 @@ Regardless of how a session is created, `buildPiArgs` adds these five
 against Pi's extension runtime (`@ts-nocheck`, never imported by the server) and
 are thin clients over the server's `/internal/*` API:
 
-| Extension | File | Tools registered | Role gating |
-| --- | --- | --- | --- |
-| Orchestrator | [extensions/orchestrator.ts](../../server/src/pi/extensions/orchestrator.ts) | `read_room`; `message_prime`; `spawn_subagent` / `message_subagent` / `kill_subagent` / `list_subagents` | all; sub-agent; Prime |
-| Proxy provider | [extensions/proxyProvider.ts](../../server/src/pi/extensions/proxyProvider.ts) | registers `anthropic`/`openai`/`google`/`groq`/`xai` providers against `PI_PROXY_URL` | n/a (no tools) |
-| Memory | [extensions/memory.ts](../../server/src/pi/extensions/memory.ts) | `read_memory`; `remember` / `suggest_memory` | all; Prime |
-| Triggers | [extensions/triggers.ts](../../server/src/pi/extensions/triggers.ts) | `create_trigger` / `list_triggers` / `enable_trigger` / `disable_trigger` / `delete_trigger` | Prime only |
-| Session | [extensions/session.ts](../../server/src/pi/extensions/session.ts) | `pin_artifact`; `rename_session` | all; Prime |
+| Extension      | File                                                                           | Tools registered                                                                                         | Role gating           |
+| -------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | --------------------- |
+| Orchestrator   | [extensions/orchestrator.ts](../../server/src/pi/extensions/orchestrator.ts)   | `read_room`; `message_prime`; `spawn_subagent` / `message_subagent` / `kill_subagent` / `list_subagents` | all; sub-agent; Prime |
+| Proxy provider | [extensions/proxyProvider.ts](../../server/src/pi/extensions/proxyProvider.ts) | registers `anthropic`/`openai`/`google`/`groq`/`xai` providers against `PI_PROXY_URL`                    | n/a (no tools)        |
+| Memory         | [extensions/memory.ts](../../server/src/pi/extensions/memory.ts)               | `read_memory`; `remember` / `suggest_memory`                                                             | all; Prime            |
+| Triggers       | [extensions/triggers.ts](../../server/src/pi/extensions/triggers.ts)           | `create_trigger` / `list_triggers` / `enable_trigger` / `disable_trigger` / `delete_trigger`             | Prime only            |
+| Session        | [extensions/session.ts](../../server/src/pi/extensions/session.ts)             | `pin_artifact`; `rename_session`                                                                         | all; Prime            |
 
 Each extension reads `TANGENT_AGENT_ROLE` and only registers the higher-privilege
 tools when the role is `prime`. The proxy-provider extension exists because in a
@@ -47,7 +48,7 @@ unioned into the allowlist:
 
 - `DEFAULT_TOOLS` = `read, write, edit, bash, grep, find, ls`.
 - `SHARED_AGENT_TOOLS` = `read_room, read_memory, message_prime, pin_artifact`
-  (granted to every agent, even though `message_prime` is only *registered* for
+  (granted to every agent, even though `message_prime` is only _registered_ for
   sub-agents — the allowlist must still permit it).
 - `PRIME_ORCHESTRATION_TOOLS`, `PRIME_MEMORY_TOOLS`, `PRIME_TRIGGER_TOOLS`,
   `PRIME_SESSION_TOOLS` — Prime-only tool names.

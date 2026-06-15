@@ -44,7 +44,9 @@ async function callApi(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`internal API ${endpoint} failed (${response.status}): ${text}`);
+    throw new Error(
+      `internal API ${endpoint} failed (${response.status}): ${text}`,
+    );
   }
   return response.json();
 }
@@ -63,7 +65,7 @@ export default function (pi: ExtensionAPI) {
     description:
       "Create a trigger for this session. A trigger turns an external signal " +
       "into a prompt sent to you (Prime). Two kinds: `schedule` fires on a " +
-      "timer (provide `schedule.every` like \"1h\"/\"30m\"/\"45s\", or a " +
+      'timer (provide `schedule.every` like "1h"/"30m"/"45s", or a ' +
       "`schedule.cron` expression); `callback` returns a secret URL an " +
       "external system can POST to. Provide a `prompt` — the message you'll " +
       "receive when it fires (callback payload fields can be interpolated with " +
@@ -87,7 +89,9 @@ export default function (pi: ExtensionAPI) {
         Type.Object(
           {
             every: Type.Optional(
-              Type.String({ description: 'Interval, e.g. "1h", "30m", "45s".' }),
+              Type.String({
+                description: 'Interval, e.g. "1h", "30m", "45s".',
+              }),
             ),
             cron: Type.Optional(
               Type.String({ description: "Cron expression (5- or 6-field)." }),
@@ -152,9 +156,10 @@ export default function (pi: ExtensionAPI) {
       }
       const lines = data.triggers.map((t) => {
         const state = t.enabled ? "enabled" : "disabled";
-        const detail = t.kind === "schedule"
-          ? `every ${t.schedule?.every ?? t.schedule?.cron ?? "?"}`
-          : (t.callbackPath ?? "callback");
+        const detail =
+          t.kind === "schedule"
+            ? `every ${t.schedule?.every ?? t.schedule?.cron ?? "?"}`
+            : (t.callbackPath ?? "callback");
         return `- ${t.name} (${t.kind}, ${state}) — ${detail}`;
       });
       return textResult(lines.join("\n"));

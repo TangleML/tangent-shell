@@ -40,9 +40,7 @@ export function ThemeMenu() {
                 <Icon name={option.icon} size="sm" />
                 <Text size="sm">{option.label}</Text>
               </InlineStack>
-              {option.value === theme ? (
-                <Icon name="Check" size="sm" />
-              ) : null}
+              {option.value === theme ? <Icon name="Check" size="sm" /> : null}
             </InlineStack>
           </DropdownMenuItem>
         ))}

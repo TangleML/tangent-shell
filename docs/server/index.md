@@ -14,17 +14,17 @@ triggers, session rename, and artifact pinning possible.
 
 ## Table of contents
 
-| Doc | What it covers |
-| --- | --- |
-| [ui-server-protocol.md](./ui-server-protocol.md) | The full UI <-> Server protocol: REST surface, Socket.IO event catalog, and the chat/stream sequence diagrams (**requested diagram 1**). |
-| [orchestrator.md](./orchestrator.md) | The core: `PiAgentManager`, the `pi` RPC stdin/stdout protocol, the stdout event dispatch table, and the internal callback loop. |
-| [human-prime-subagents.md](./human-prime-subagents.md) | The Human <-> Prime <-> Sub-agent protocols: delegation, async relay, reporting, abort, kill (**requested diagram 3**). |
-| [extensions-and-prompts.md](./extensions-and-prompts.md) | How extensions and prompts are applied for a blank session vs a bundle-based session (**requested diagram 2**). |
-| [configuration-bundles.md](./configuration-bundles.md) | The Configuration Bundle format, install pipeline, and the marketplace store. |
-| [triggers.md](./triggers.md) | The trigger subsystem: manager, engine, scheduling, callbacks, and signal-to-prompt resolution. |
-| [memory.md](./memory.md) | Global + session memory stores, the injected preamble, and the suggest/confirm flow. |
-| [sessions-and-storage.md](./sessions-and-storage.md) | The session model, the `SessionStore` abstraction, the per-session root folder, and the artifact/upload file server. |
-| [egress-and-security.md](./egress-and-security.md) | The internal-token trust model, the egress allowlist proxy, sandboxing, and security findings. |
+| Doc                                                      | What it covers                                                                                                                           |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| [ui-server-protocol.md](./ui-server-protocol.md)         | The full UI <-> Server protocol: REST surface, Socket.IO event catalog, and the chat/stream sequence diagrams (**requested diagram 1**). |
+| [orchestrator.md](./orchestrator.md)                     | The core: `PiAgentManager`, the `pi` RPC stdin/stdout protocol, the stdout event dispatch table, and the internal callback loop.         |
+| [human-prime-subagents.md](./human-prime-subagents.md)   | The Human <-> Prime <-> Sub-agent protocols: delegation, async relay, reporting, abort, kill (**requested diagram 3**).                  |
+| [extensions-and-prompts.md](./extensions-and-prompts.md) | How extensions and prompts are applied for a blank session vs a bundle-based session (**requested diagram 2**).                          |
+| [configuration-bundles.md](./configuration-bundles.md)   | The Configuration Bundle format, install pipeline, and the marketplace store.                                                            |
+| [triggers.md](./triggers.md)                             | The trigger subsystem: manager, engine, scheduling, callbacks, and signal-to-prompt resolution.                                          |
+| [memory.md](./memory.md)                                 | Global + session memory stores, the injected preamble, and the suggest/confirm flow.                                                     |
+| [sessions-and-storage.md](./sessions-and-storage.md)     | The session model, the `SessionStore` abstraction, the per-session root folder, and the artifact/upload file server.                     |
+| [egress-and-security.md](./egress-and-security.md)       | The internal-token trust model, the egress allowlist proxy, sandboxing, and security findings.                                           |
 
 ## Component map
 

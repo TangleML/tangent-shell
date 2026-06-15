@@ -4,6 +4,7 @@
 
 **Launch the reviewer as a subagent using the Agent tool.** Read `agents/reviewer.md`
 and pass its full content as the agent prompt, with this task context appended:
+
 ```
 ---
 Task context:
@@ -20,6 +21,7 @@ The same `<best_run_id>` keys the report (Step 6), this review, and the final
 `learning-<best_run_id>.json` upload below.
 
 Act on the verdict:
+
 - **APPROVE** — proceed with convergence check below
 - **CONCERNS** — address the issues, then re-evaluate
 - **BLOCK** — fix blocking issues first (go to Step 1)
@@ -62,6 +64,7 @@ gcloud storage cp \
 If the upload fails, log a `learning_upload_failed` event and keep going.
 
 ## Gate — do NOT finalize until all pass:
+
 - [ ] **`review-<best_run_id>.md` exists at `$SCENARIO_DIR/logs/`** (verify with Read — per-round file; if missing, reviewer did not run)
 - [ ] Verdict is APPROVE (not CONCERNS or BLOCK)
 - [ ] Convergence criteria evaluated against scenario.budget

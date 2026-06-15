@@ -1,7 +1,7 @@
 // local primitive — single-line quick-filter input for the session dropdown
 // switcher. Styles a raw <input>, so it is exempt from
 // tangle-ui/no-classname-on-primitives.
-import { type ComponentProps,forwardRef } from "react";
+import { type ComponentProps, forwardRef } from "react";
 
 import { cn } from "@/shared/lib/utils";
 

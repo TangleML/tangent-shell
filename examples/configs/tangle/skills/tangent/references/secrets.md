@@ -9,7 +9,7 @@ This is a hard rule, not a soft preference. Pipeline YAML and pipeline-run
 arguments are stored in plaintext in the Tangle backend, surface in Oasis run
 detail pages, get copied by `tangle-deploy pipeline-run export`, get logged by
 the runner, and end up in agent transcripts. A raw key pasted into an input
-node *is a leaked credential*.
+node _is a leaked credential_.
 
 ## The rule
 
@@ -26,10 +26,10 @@ token, GCS/BQ service-account JSON, Slack bot key, Comet API key, etc.):
    value at task-launch time, inside the container, with no plaintext on the
    pipeline spec.
 3. **The human creates / rotates the secret value**, via `tangle-deploy
-   secrets create ... --from-env VAR_NAME` (preferred — agent never touches
+secrets create ... --from-env VAR_NAME` (preferred — agent never touches
    the value) or via the Oasis UI secrets settings page. The agent's job is
-   to identify *that a secret is needed*, *what to name it*, and *how to wire
-   it through the pipeline*. Not to source the value.
+   to identify _that a secret is needed_, _what to name it_, and _how to wire
+   it through the pipeline_. Not to source the value.
 
 If the credential is missing from the user's Tangle account, **stop and ask**.
 Do not "temporarily" inline a value to unblock yourself.
@@ -38,16 +38,16 @@ Do not "temporarily" inline a value to unblock yourself.
 
 The agent does **not** halt mid-construction every time it sees a credential
 argument. That would make scaffolding LLM/API pipelines miserable and would
-break `tangent auto` outright. The actual halt boundary is at *submission*,
+break `tangent auto` outright. The actual halt boundary is at _submission_,
 not at authoring. Concretely:
 
-| Stage | What the agent does | Halt? |
-|---|---|---|
-| 1. Detect a secret is needed | Detection heuristics match (`*_KEY`, `*_TOKEN`, `dynamicData.secret`-typed input, GCP Secret Manager input, etc.) | No — proceed |
-| 2. Wire it into the pipeline YAML | Pattern A: `dynamicData.secret: { name: "X" }`. Pattern B: plain string `gcp_secret_name: "X"`. **Never the value.** | No — proceed |
-| 3. Validate the pipeline | `tangle-deploy pipeline-run validate` — passes without the value (it only checks structure) | No — proceed |
-| 4. **Submission boundary** | Run the pre-submit credential-grep guard from [`step-3-submit.md`](step-3-submit.md). If the referenced secret doesn't yet exist under the running account, surface a copy-pasteable `tangle-deploy secrets create --from-env` command for the human. | **Yes** — hard halt until the human confirms the secret exists |
-| 5. After human creates the secret | Resume: `pipeline-run submit ... --hydrate --no-wait` | — |
+| Stage                             | What the agent does                                                                                                                                                                                                                                   | Halt?                                                          |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 1. Detect a secret is needed      | Detection heuristics match (`*_KEY`, `*_TOKEN`, `dynamicData.secret`-typed input, GCP Secret Manager input, etc.)                                                                                                                                     | No — proceed                                                   |
+| 2. Wire it into the pipeline YAML | Pattern A: `dynamicData.secret: { name: "X" }`. Pattern B: plain string `gcp_secret_name: "X"`. **Never the value.**                                                                                                                                  | No — proceed                                                   |
+| 3. Validate the pipeline          | `tangle-deploy pipeline-run validate` — passes without the value (it only checks structure)                                                                                                                                                           | No — proceed                                                   |
+| 4. **Submission boundary**        | Run the pre-submit credential-grep guard from [`step-3-submit.md`](step-3-submit.md). If the referenced secret doesn't yet exist under the running account, surface a copy-pasteable `tangle-deploy secrets create --from-env` command for the human. | **Yes** — hard halt until the human confirms the secret exists |
+| 5. After human creates the secret | Resume: `pipeline-run submit ... --hydrate --no-wait`                                                                                                                                                                                                 | —                                                              |
 
 The agent's job at construction time is to produce a complete, reviewable
 artifact (pipeline YAML + scaffolding + a list of exactly which secrets the
@@ -59,7 +59,7 @@ submit if any credential value is inlined or any referenced secret is missing.
 - **Validation doesn't need the value.** A pipeline file with
   `dynamicData.secret: { name: "FOO" }` validates and is safe to share,
   commit to a repo, paste in Slack. The leak risk only materializes when a
-  *value* enters the pipeline spec or run arguments — which only happens at
+  _value_ enters the pipeline spec or run arguments — which only happens at
   submit.
 - **The human gets a full artifact to review.** Half-finished scaffolds plus
   an interactive prompt are worse UX than a complete pipeline plus a clear
@@ -68,10 +68,10 @@ submit if any credential value is inlined or any referenced secret is missing.
   unsupervised; halting on every credential reference per round means no
   LLM-using scenario ever advances past round 1.
 
-### When the agent *should* halt during construction
+### When the agent _should_ halt during construction
 
 One legitimate construction-time halt: when the agent doesn't know the
-correct secret *name* and would have to guess. Identifier names are not
+correct secret _name_ and would have to guess. Identifier names are not
 credentials — inlining `gcp_secret_name: "shopify-openai-proxy-key"` is
 safe even if the name is wrong — but a wrong name causes a runtime
 "secret not found" failure that wastes the user's time and budget.
@@ -95,7 +95,7 @@ vs a one-shot prompt. When in doubt: ask.
 Good:
 
 > I'm wiring a `Run llm on rows` task and it needs `gcp_secret_name` and
-> `gcp_secret_project` (these are *identifiers* the component uses to fetch
+> `gcp_secret_project` (these are _identifiers_ the component uses to fetch
 > the API key from GCP Secret Manager at runtime — not the key value itself).
 >
 > What name + project should I use? If you don't have one yet, you'll need to
@@ -139,7 +139,7 @@ Output lists `secret_name`, `updated_at`, optional `expires_at`, optional
 
 Secrets are **account-scoped** — they belong to whoever created them. If the
 pipeline will run under a service account (e.g. scheduled via
-`tangle-deploy pipeline schedule`), the secret must exist under *that* SA's
+`tangle-deploy pipeline schedule`), the secret must exist under _that_ SA's
 account, not the human's. See [Account scoping](#account-scoping) below.
 
 ### 2. If the secret is missing, ask the human to create it
@@ -166,9 +166,11 @@ unset MY_API_KEY                  # clear it from the current shell
 ```
 
 **Anti-pattern — do not propose this form**:
+
 ```bash
 export MY_API_KEY='…paste value here…'   # ❌ value lands in shell history
 ```
+
 Even with `HISTCONTROL=ignorespace` (prepend a space) or `set +o history`,
 relying on a per-shell config is fragile. `read -rs` works the same way
 everywhere and is the recommended form.
@@ -212,7 +214,7 @@ tasks:
       api_key:
         dynamicData:
           secret:
-            name: "OPENAI_API_KEY"   # ← exactly as listed by `tangle-deploy secrets list`
+            name: "OPENAI_API_KEY" # ← exactly as listed by `tangle-deploy secrets list`
       base_url:
         constantValue: "https://proxy.shopify.ai/v1"
 ```
@@ -273,8 +275,8 @@ run_llm:
   componentRef: { digest: 2d08f7a5... }
   arguments:
     model: "gpt-4o-mini"
-    gcp_secret_name: "LLM_PROXY_API_KEY"      # name, NOT value
-    gcp_secret_project: "my-gcp-project"      # project id, NOT value
+    gcp_secret_name: "LLM_PROXY_API_KEY" # name, NOT value
+    gcp_secret_project: "my-gcp-project" # project id, NOT value
 ```
 
 **Rules for this pattern:**
@@ -307,10 +309,10 @@ Inspect the component (`tangle-deploy component inspect --name ...
 Secrets in Tangle belong to the authenticated account that created them.
 Three common cases:
 
-| Run-as identity | Where to create the secret |
-|---|---|
-| Your personal `@shopify.com` account | `tangle-deploy secrets create …` with default auth |
-| A service account (scheduled pipelines, Cloud Run, CI) | Impersonate the SA first, then create the secret as that SA |
+| Run-as identity                                                             | Where to create the secret                                                      |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Your personal `@shopify.com` account                                        | `tangle-deploy secrets create …` with default auth                              |
+| A service account (scheduled pipelines, Cloud Run, CI)                      | Impersonate the SA first, then create the secret as that SA                     |
 | River session (`river-sandbox@shopify-river-forge.iam.gserviceaccount.com`) | River's own credentials proxy — secrets live under the `river-session` identity |
 
 To create or rotate a secret under a service account from a human shell,
@@ -361,7 +363,7 @@ need `TANGLE_AUTH` for a one-off command, source it via `read -rs` the
 same way as `MY_API_KEY` above.
 
 If a scheduled run fails with a "secret not found" or empty-value error, the
-first thing to check is *whose* account holds the secret. Symptom: pipeline
+first thing to check is _whose_ account holds the secret. Symptom: pipeline
 works when you submit it manually but fails the moment Cloud Scheduler
 triggers it under the SA.
 

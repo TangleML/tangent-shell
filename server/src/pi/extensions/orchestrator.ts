@@ -48,7 +48,9 @@ async function callApi(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`internal API ${endpoint} failed (${response.status}): ${text}`);
+    throw new Error(
+      `internal API ${endpoint} failed (${response.status}): ${text}`,
+    );
   }
   return response.json();
 }
@@ -70,7 +72,8 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       limit: Type.Optional(
         Type.Number({
-          description: "Max number of most recent messages to return (default 30).",
+          description:
+            "Max number of most recent messages to return (default 30).",
         }),
       ),
     }),
@@ -129,14 +132,19 @@ export default function (pi: ExtensionAPI) {
       "`tools` inline. Optionally include a `task` to start the sub-agent " +
       "working immediately. Returns the sub-agent's id for later messaging. " +
       "Sub-agents share this session's workspace and can read the room.",
-    promptSnippet: "Spawn a specialized sub-agent (by template or inline config)",
+    promptSnippet:
+      "Spawn a specialized sub-agent (by template or inline config)",
     parameters: Type.Object({
-      name: Type.String({ description: "Short display name for the sub-agent." }),
+      name: Type.String({
+        description: "Short display name for the sub-agent.",
+      }),
       template: Type.Optional(
         Type.String({ description: "Name of a predefined agent template." }),
       ),
       system_prompt: Type.Optional(
-        Type.String({ description: "Inline system prompt; overrides template." }),
+        Type.String({
+          description: "Inline system prompt; overrides template.",
+        }),
       ),
       tools: Type.Optional(
         Type.Array(Type.String(), {
@@ -174,7 +182,9 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Send a directed task to a sub-agent (non-blocking)",
     parameters: Type.Object({
       id: Type.String({ description: "The sub-agent id from spawn_subagent." }),
-      message: Type.String({ description: "Instruction or task for the sub-agent." }),
+      message: Type.String({
+        description: "Instruction or task for the sub-agent.",
+      }),
     }),
     async execute(_toolCallId, params) {
       await callApi("POST", "message", {
@@ -196,7 +206,9 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       id: Type.String({ description: "The sub-agent id to terminate." }),
       completed: Type.Optional(
-        Type.Boolean({ description: "True if the sub-agent finished its work." }),
+        Type.Boolean({
+          description: "True if the sub-agent finished its work.",
+        }),
       ),
     }),
     async execute(_toolCallId, params) {

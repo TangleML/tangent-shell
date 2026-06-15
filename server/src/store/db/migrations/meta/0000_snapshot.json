@@ -82,17 +82,12 @@
       "indexes": {
         "session_agents_session_idx": {
           "name": "session_agents_session_idx",
-          "columns": [
-            "session_id"
-          ],
+          "columns": ["session_id"],
           "isUnique": false
         },
         "session_agents_session_id": {
           "name": "session_agents_session_id",
-          "columns": [
-            "session_id",
-            "id"
-          ],
+          "columns": ["session_id", "id"],
           "isUnique": true
         }
       },
@@ -101,12 +96,8 @@
           "name": "session_agents_session_id_sessions_id_fk",
           "tableFrom": "session_agents",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -157,17 +148,12 @@
       "indexes": {
         "session_assets_session_idx": {
           "name": "session_assets_session_idx",
-          "columns": [
-            "session_id"
-          ],
+          "columns": ["session_id"],
           "isUnique": false
         },
         "session_assets_session_path": {
           "name": "session_assets_session_path",
-          "columns": [
-            "session_id",
-            "path"
-          ],
+          "columns": ["session_id", "path"],
           "isUnique": true
         }
       },
@@ -176,12 +162,8 @@
           "name": "session_assets_session_id_sessions_id_fk",
           "tableFrom": "session_assets",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

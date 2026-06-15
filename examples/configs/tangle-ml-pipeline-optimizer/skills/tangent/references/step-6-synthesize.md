@@ -41,6 +41,7 @@ only run. Multi-run rounds: the run with the best target metric. The same
 `learning-<run_id>.json` upload.
 
 ## Gate — do NOT proceed to Step 7 until all pass:
+
 - [ ] Session log updated with full metrics and analysis
 - [ ] MEMORY.md updated (best config, lessons, Active Runs empty)
 - [ ] `audit.yaml` round entry appended

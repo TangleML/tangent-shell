@@ -12,7 +12,7 @@ import { Cron } from "croner";
 import type { Server } from "socket.io";
 
 import type { SessionStore } from "../../store/sessionStore.ts";
-import { type PiAgentManager,PRIME_AGENT_ID } from "../piAgentManager.ts";
+import { type PiAgentManager, PRIME_AGENT_ID } from "../piAgentManager.ts";
 import { resolveTriggerPrompt } from "./handlerRunner.ts";
 import type { StoredTrigger, TriggerManager } from "./triggerManager.ts";
 
@@ -35,10 +35,14 @@ function parseEvery(every: string | undefined): number | undefined {
   if (!match) return undefined;
   const value = Number(match[1]);
   const unit = match[2];
-  const factor = unit === "s" ? 1000
-    : unit === "m" ? 60_000
-    : unit === "h" ? 3_600_000
-    : 86_400_000;
+  const factor =
+    unit === "s"
+      ? 1000
+      : unit === "m"
+        ? 60_000
+        : unit === "h"
+          ? 3_600_000
+          : 86_400_000;
   return value * factor;
 }
 
@@ -152,10 +156,7 @@ export class TriggerEngine {
         const cron = new Cron(trigger.schedule.cron, run);
         return { stop: () => cron.stop() };
       } catch (err) {
-        console.error(
-          `[triggers] invalid cron for "${trigger.name}":`,
-          err,
-        );
+        console.error(`[triggers] invalid cron for "${trigger.name}":`, err);
         return undefined;
       }
     }

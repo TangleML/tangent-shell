@@ -92,9 +92,7 @@ export default function TangentScenario() {
       const parsed = parseScenario(props);
       if (parsed) {
         setScenario(parsed);
-        setSelected(
-          new Set(parsed.ideas.map((_idea, index) => index)),
-        );
+        setSelected(new Set(parsed.ideas.map((_idea, index) => index)));
       }
     });
   }, []);

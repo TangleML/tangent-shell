@@ -12,6 +12,7 @@ Trains and evaluates LLM/VLM models for two Shopify catalog classification tasks
 ## Pipeline Flow
 
 Both pipelines share identical structure:
+
 ```
 Materialize Taxonomy Config -> Preprocess Training Data -> SFT Train -> Prepare Model Dir -> Upload to GCS
 Materialize Training Config ---^                               ^                  |
@@ -27,19 +28,19 @@ Download Model (HuggingFace) ---------------------------------+                 
 
 ## ML Techniques
 
-| Aspect | Details |
-|--------|---------|
-| **Framework** | Unified Distillation (same as UPI reranker, search relevance) |
-| **Training** | SFT with TRL trainers, FSDP2 distributed |
-| **Hardware** | 4x NVIDIA H100 GPUs (Nebius cluster), 120 CPU, 900Gi memory |
-| **Model input** | Multi-modal: product text + product images (VLM) |
-| **Data format** | TRL chat format with messages + images columns |
-| **Experiment tracking** | Comet ML (`taxonomy-category`, `taxonomy-variant-attribute`) |
+| Aspect                  | Details                                                       |
+| ----------------------- | ------------------------------------------------------------- |
+| **Framework**           | Unified Distillation (same as UPI reranker, search relevance) |
+| **Training**            | SFT with TRL trainers, FSDP2 distributed                      |
+| **Hardware**            | 4x NVIDIA H100 GPUs (Nebius cluster), 120 CPU, 900Gi memory   |
+| **Model input**         | Multi-modal: product text + product images (VLM)              |
+| **Data format**         | TRL chat format with messages + images columns                |
+| **Experiment tracking** | Comet ML (`taxonomy-category`, `taxonomy-variant-attribute`)  |
 
 ## Active Users
 
-| User | Pipelines | Activity |
-|------|-----------|----------|
+| User         | Pipelines                                         | Activity                      |
+| ------------ | ------------------------------------------------- | ----------------------------- |
 | xinjing.wang | Category Train+Eval, Variant Attribute Train+Eval | 5+ runs/day, both in parallel |
 
 ## Key Links

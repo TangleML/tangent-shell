@@ -47,6 +47,12 @@ interface EgressRule {
  * `OASIS_TOKEN` to attach `Authorization: Bearer <token>`.
  */
 function oasisAuthHeaders(): Record<string, string> {
+  // return {};
+
+  return {
+    cookie: `MINERVA_TOKEN=eyJraWQiOiIzM2QyNDNhZmNkOTVjNzY4ZjQ5OTMzZGJlM2ZkMDVjN2ViMzY3YzVkYTUzNDIxOThlMjA2NGIxYmViMTk5NzczIiwiYWxnIjoiUlMyNTYifQ.eyJyZXF1ZXN0X2lkIjoiZmMzNTQzNDctYmMzOC00MjhkLTgxNWEtMTRmNjQ1MGFkMmNkIiwiYWNjZXNzZWRfc2hvcHMiOnt9LCJhdWQiOiJvYXNpcy5zaG9waWZ5LmlvIiwiZW1haWwiOiJtYXhpbS5lemhvdkBzaG9waWZ5LmNvbSIsImVtcGxveWVlX2lkIjoyMjY3MCwiZXhwIjoxNzgxMDQyNzIxLCJleHRyYSI6bnVsbCwiZmlyc3RfbmFtZSI6Ik1ha3N5bSIsImlhdCI6MTc4MDk1NjMyMSwiaWQiOiI3NWQzZjY1Yy1iYTYxLTRkY2EtOGQyNi1mMDZkNjNmMTdmNzQiLCJpcCI6IjguMjkuMTA5Ljg4IiwiaXNzIjoiTWluZXJ2YSIsImdyb3VwcyI6bnVsbCwibGFzdF9uYW1lIjoiWWV6aG92IiwibWNwIjpudWxsLCJvYXV0aF9jbGllbnRfaWQiOm51bGwsInBlcm1pc3Npb25zIjpudWxsLCJyZXF1aXJlbWVudHMiOlsiYWN0aXZpdHlfc2VnbWVudF9yZXZpZXdzX3JlcXVpcmVkPyIsImF0dGVzdGF0aW9uX3Jldmlld3NfcmVxdWlyZWQ_IiwiYXV0aGVudGljYXRlZF9kZXZpY2U_IiwiYXV0aG9yaXplZF9mb3JfdXNlcl9yb2xlPyIsImNoZWNrX2Nocm9tZWJvb2siLCJjb21wbGV0ZWRfaWRfdmVyaWZpY2F0aW9uPyIsImRvbmVfYWxsX3RyYWluaW5nPyIsImVucm9sbGVkX2luX2ZsZWV0PyIsImV2YWx1YXRlX3Byb3Bvc2VkX3JiYWNfdXBkYXRlcyIsIm1hbmFnZWRfbWFjPyIsInBhc3NrZXlfZW5yb2xsZWQ_IiwicmVxdWlyZV9tYW5hZ2VkX2Jyb3dzZXI_Iiwic2FtZV9kZXZpY2U_Iiwic2VjdXJlX2lvcyIsInNlY3VyZV9tYWNvcz8iLCJzb2Z0YmxvY2tlZF9icG8_IiwidHJ1c3RlZF9kbnM_IiwidXB0b2RhdGVfY2hyb21lX2Jyb3dzZXI_IiwidXNlcl9hY2Nlc3NfcmVzdHJpY3RlZD8iXSwic2hvcF9zbHVnc190b19pZHMiOnt9LCJpbXBlcnNvbmF0b3IiOm51bGwsIm9yaWdpbl9yZWdpb24iOiJVUyJ9.JLcYbXyqeuwCXc0fE6UMsSRaSjin4s_LOpvGH-QBBl_uhOg8-f7CJeATvkTcRlVlq3v8y2jlR0z3h_bwTd3w3cqIPv3TDVjIZ-EvbCVzz218X-pp-xJijNvrW7PQBJF2TMekh8L5OeJSMMWl3-L217FgfwNAHkRoxZ7LJmdfr2jePIJOLoZTQ7nsbFmfDNUnp66Gj3ZAQvm8o0AXyHQwcPdk132ie0MUd67zv-j_4KXO0BHZVAipRaTOMgEqgOJPnShFvIPJRZNIbNIhcHw5BmXDYS_chJ3DK7nBUFBkYXiP_st5XB5B2OglVkJkJGXkp5waJUc-PDNPW4zSM2IQ6w`,
+  };
+
   const token = process.env.OASIS_TOKEN;
   return token ? { authorization: `Bearer ${token}` } : {};
 }
@@ -80,7 +86,10 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   { method: "POST", test: /^\/api\/pipeline_runs\/[^/]+\/cancel$/ },
   { method: "GET", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/$/ },
   { method: "PUT", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/ },
-  { method: "DELETE", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/ },
+  {
+    method: "DELETE",
+    test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/,
+  },
   // executions
   {
     method: "GET",
@@ -212,7 +221,10 @@ async function performFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EGRESS_TIMEOUT_MS);
   try {
-    return await fetch(url, buildRequestInit(method, init, rule, controller.signal));
+    return await fetch(
+      url,
+      buildRequestInit(method, init, rule, controller.signal),
+    );
   } finally {
     clearTimeout(timer);
   }

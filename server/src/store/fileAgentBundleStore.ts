@@ -202,7 +202,10 @@ export class FileAgentBundleStore implements AgentBundleStore {
   async get(id: string): Promise<AgentBundleMeta | undefined> {
     if (isUnsafeId(id)) return undefined;
     try {
-      const raw = await readFile(path.join(this.dir(id), META_FILENAME), "utf8");
+      const raw = await readFile(
+        path.join(this.dir(id), META_FILENAME),
+        "utf8",
+      );
       return JSON.parse(raw) as AgentBundleMeta;
     } catch {
       return undefined;
@@ -283,10 +286,7 @@ export class FileAgentBundleStore implements AgentBundleStore {
     }
   }
 
-  async readUiComponent(
-    id: string,
-    name: string,
-  ): Promise<string | undefined> {
+  async readUiComponent(id: string, name: string): Promise<string | undefined> {
     // `name` becomes a filename, so reject anything that isn't a plain slug.
     if (isUnsafeId(id) || !/^[a-z0-9][a-z0-9-]*$/.test(name)) return undefined;
     try {

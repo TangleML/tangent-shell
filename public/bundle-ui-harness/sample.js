@@ -77,7 +77,8 @@ export default function PipelineProgress() {
     setSent(true);
   };
 
-  const progress = summary && summary.total > 0 ? summary.ended / summary.total : 0;
+  const progress =
+    summary && summary.total > 0 ? summary.ended / summary.total : 0;
   const label = summary
     ? `${summary.done ? "Complete" : "Running"} — ${summary.ended}/${summary.total}`
     : "loading...";

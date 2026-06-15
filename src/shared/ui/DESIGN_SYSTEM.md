@@ -53,21 +53,21 @@ flowchart TB
   L4 --> L3 --> L2 --> L1
 ```
 
-| Layer                   | Where                                  | Use it when                                                   |
-| ----------------------- | -------------------------------------- | ------------------------------------------------------------ |
-| 4 — feature/domain      | `src/features/*`, `src/routes/*`       | The component encodes app behavior specific to a screen.     |
-| 3 — semantic patterns   | `@/shared/ui/patterns/*`               | An intent is named (a panel, a scroll region, a row, ...).   |
-| 2 — base primitives     | `@/shared/ui/{layout,typography,...}`  | You need raw layout, text, or interactive controls.          |
-| 1 — `Box`               | `@/shared/ui/box`                      | Nothing higher fits and you need a styled container.         |
+| Layer                 | Where                                 | Use it when                                                |
+| --------------------- | ------------------------------------- | ---------------------------------------------------------- |
+| 4 — feature/domain    | `src/features/*`, `src/routes/*`      | The component encodes app behavior specific to a screen.   |
+| 3 — semantic patterns | `@/shared/ui/patterns/*`              | An intent is named (a panel, a scroll region, a row, ...). |
+| 2 — base primitives   | `@/shared/ui/{layout,typography,...}` | You need raw layout, text, or interactive controls.        |
+| 1 — `Box`             | `@/shared/ui/box`                     | Nothing higher fits and you need a styled container.       |
 
 Code is expected to live in the upper layers. Reaching for a lower one is a smell.
 
 ## Intent catalog
 
 | Layer-3 primitive                            | Replaces className signature                                                    |
-| -------------------------------------------- | ------------------------------------------------------------------------------ |
+| -------------------------------------------- | ------------------------------------------------------------------------------- |
 | `<Surface>` / `<Section>` / `<Card>`         | `bg-* rounded-* border-* p-*` panels                                            |
-| `<ScrollRegion axis="y">`                    | `flex-1 min-h-0 overflow-y-auto`                                               |
+| `<ScrollRegion axis="y">`                    | `flex-1 min-h-0 overflow-y-auto`                                                |
 | `<Truncating>`                               | `min-w-0 flex-1` around a shrinkable cell                                       |
 | `<ListRow hoverable onClick>`                | `<InlineStack className="group hover:bg-* px-* py-*">` rows                     |
 | `<HoverReveal>`                              | `opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity` |
@@ -77,7 +77,7 @@ Code is expected to live in the upper layers. Reaching for a lower one is a smel
 | `<IconButton icon size variant tone>`        | `<Button h-5 w-5 p-0><Icon /></Button>`                                         |
 | `<Pill tone size>`                           | `text-xs rounded-md px-2 py-1 bg-black/5` chips                                 |
 | `<Divider>`                                  | `<Separator className="...">`                                                   |
-| `<Page height padded>`                       | `mx-auto w-full max-w-2xl flex flex-col {min-,}h-svh p-*` page columns           |
+| `<Page height padded>`                       | `mx-auto w-full max-w-2xl flex flex-col {min-,}h-svh p-*` page columns          |
 | `<CenteredScreen gap>`                       | `flex min-h-svh flex-col items-center justify-center p-6` full-screen centering |
 
 For text use props on `Text` / `Paragraph` / `Heading`: `truncate`, `align`, `italic`,

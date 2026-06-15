@@ -168,8 +168,10 @@ export function createAgentBundlesRouter(store: AgentBundleStore): Router {
 
   router.get("/", (req: Request, res: Response) => handleList(store, req, res));
 
-  router.post("/", bundleUpload.single("bundle"), (req: Request, res: Response) =>
-    handleUpload(store, req, res),
+  router.post(
+    "/",
+    bundleUpload.single("bundle"),
+    (req: Request, res: Response) => handleUpload(store, req, res),
   );
 
   router.post("/ui-egress", (req: Request, res: Response) =>

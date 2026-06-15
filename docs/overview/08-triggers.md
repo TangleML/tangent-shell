@@ -32,11 +32,11 @@ flowchart TB
   end
 ```
 
-| | **Schedule** | **Callback** |
-| --- | --- | --- |
-| Wakes on | A timer or cron (e.g. every `1h`, or `0 9 * * *`) | An external system calling a private URL |
-| Best for | Periodic checks, digests, reminders | Webhooks, integrations, event reactions |
-| You provide | A cadence + what to do | A handler/template; share the secret URL |
+|             | **Schedule**                                      | **Callback**                             |
+| ----------- | ------------------------------------------------- | ---------------------------------------- |
+| Wakes on    | A timer or cron (e.g. every `1h`, or `0 9 * * *`) | An external system calling a private URL |
+| Best for    | Periodic checks, digests, reminders               | Webhooks, integrations, event reactions  |
+| You provide | A cadence + what to do                            | A handler/template; share the secret URL |
 
 ## Tradeoffs to be honest about
 

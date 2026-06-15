@@ -19,7 +19,7 @@ primitives, real theme, real spacing) while keeping it from:
 a serialized tree of **remote elements** (e.g. `tangent-button`) that is streamed
 to the host over a message channel. The host owns a fixed map from each remote
 element to a real Tangle primitive and renders the tree itself. The component
-therefore *cannot* render anything outside the allowlisted vocabulary, and every
+therefore _cannot_ render anything outside the allowlisted vocabulary, and every
 side effect must go through an explicit, allowlisted bridge.
 
 [remote-dom]: https://github.com/Shopify/remote-dom
@@ -94,7 +94,7 @@ This feature reuses existing seams rather than introducing a parallel pipeline.
 
 - Agent markdown is rendered by
   [`src/shared/lib/markdown/Markdown.tsx`](../../src/shared/lib/markdown/Markdown.tsx).
-  Its `code` handler currently detects a language with `` /language-(\w+)/ ``.
+  Its `code` handler currently detects a language with `/language-(\w+)/`.
   That regex matches only word characters, so it will **not** match a
   `tangent-ui:<name>` token (it contains a hyphen and a colon). Phase 6 widens
   this detection and, when a `tangent-ui:` token is found, renders a
@@ -131,12 +131,12 @@ sequenceDiagram
 
 ## Phase map
 
-| Phase | Concern | Key artifacts |
-| --- | --- | --- |
-| 1 | This spec | `docs/bundle-ui/*` |
-| 2 | Manifest contract | `ui:` in `shared/configBundle.ts`, zod in `manifest.ts` |
-| 3 | Compile + serve | esbuild in `save()`, `GET .../ui/:name.js` |
-| 4 | Vocabulary + `tangent-progress` | shared element module + host map |
-| 5 | Runtime + bridge | `bundle-ui.worker.ts`, `BundleUiHost`, `host.fetch` egress proxy |
-| 6 | Chat integration | `Markdown.tsx` token hook, composer panel slot |
-| 7 | Example PoC | extended Tangent ML bundle |
+| Phase | Concern                         | Key artifacts                                                    |
+| ----- | ------------------------------- | ---------------------------------------------------------------- |
+| 1     | This spec                       | `docs/bundle-ui/*`                                               |
+| 2     | Manifest contract               | `ui:` in `shared/configBundle.ts`, zod in `manifest.ts`          |
+| 3     | Compile + serve                 | esbuild in `save()`, `GET .../ui/:name.js`                       |
+| 4     | Vocabulary + `tangent-progress` | shared element module + host map                                 |
+| 5     | Runtime + bridge                | `bundle-ui.worker.ts`, `BundleUiHost`, `host.fetch` egress proxy |
+| 6     | Chat integration                | `Markdown.tsx` token hook, composer panel slot                   |
+| 7     | Example PoC                     | extended Tangent ML bundle                                       |

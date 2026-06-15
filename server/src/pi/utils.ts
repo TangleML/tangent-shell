@@ -126,10 +126,13 @@ export interface NormalizedDelta {
  * Normalizes a raw `message_update` delta into the streaming variant the chat
  * layer understands, or `null` for deltas we don't surface.
  */
-export function readDelta(raw: AssistantDelta | undefined): NormalizedDelta | null {
+export function readDelta(
+  raw: AssistantDelta | undefined,
+): NormalizedDelta | null {
   if (!raw || typeof raw.delta !== "string") return null;
   if (raw.type === "text_delta") return { kind: "delta", text: raw.delta };
-  if (raw.type === "thinking_delta") return { kind: "thinking", text: raw.delta };
+  if (raw.type === "thinking_delta")
+    return { kind: "thinking", text: raw.delta };
   return null;
 }
 
@@ -171,7 +174,9 @@ function assistantText(message: unknown): string | undefined {
 }
 
 /** True when a `message_*` event's message is an assistant message. */
-export function isAssistantRole(message: { role?: string } | undefined): boolean {
+export function isAssistantRole(
+  message: { role?: string } | undefined,
+): boolean {
   return message?.role === "assistant";
 }
 
@@ -179,9 +184,7 @@ export function isAssistantRole(message: { role?: string } | undefined): boolean
  * Extracts the final text of a `message_end` assistant message. Authoritative
  * over the streamed accumulator, which can miss late or non-streamed parts.
  */
-export function assistantTextFromMessage(
-  message: unknown,
-): string | undefined {
+export function assistantTextFromMessage(message: unknown): string | undefined {
   return assistantText(message);
 }
 
@@ -260,10 +263,12 @@ const TOOL_FORMATTERS: Record<string, ArgFormatter> = {
   suggest_memory: (a) => labelWith("Suggesting to remember", str(a.text), ""),
   create_trigger: (a) => labelWith("Creating trigger", str(a.name), ""),
   list_triggers: () => "Listing triggers",
-  enable_trigger: (a) => labelWith("Enabling trigger", str(a.name) ?? str(a.id), ""),
+  enable_trigger: (a) =>
+    labelWith("Enabling trigger", str(a.name) ?? str(a.id), ""),
   disable_trigger: (a) =>
     labelWith("Disabling trigger", str(a.name) ?? str(a.id), ""),
-  delete_trigger: (a) => labelWith("Deleting trigger", str(a.name) ?? str(a.id), ""),
+  delete_trigger: (a) =>
+    labelWith("Deleting trigger", str(a.name) ?? str(a.id), ""),
   rename_session: (a) => labelWith("Renaming session", str(a.name), ""),
 };
 
@@ -282,5 +287,7 @@ export function toolActivityLabel(toolName: string, args: unknown): string {
   if (formatter) return formatter(a);
 
   const hint = genericHint(a);
-  return hint ? `Running ${toolName}: ${truncateHint(hint)}` : `Running ${toolName}`;
+  return hint
+    ? `Running ${toolName}: ${truncateHint(hint)}`
+    : `Running ${toolName}`;
 }

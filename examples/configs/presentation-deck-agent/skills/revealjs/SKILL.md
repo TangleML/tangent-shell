@@ -21,10 +21,23 @@ A complete standalone deck. Save it as `artifacts/index.html`.
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Deck</title>
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css" />
-    <link rel="stylesheet" id="theme" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css"
+    />
+    <link
+      rel="stylesheet"
+      id="theme"
+      href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css"
+    />
   </head>
   <body>
     <div class="reveal">
@@ -61,6 +74,7 @@ DOM contract: the deck root is `.reveal`, which contains exactly one `.slides`,
 which contains top-level `<section>` elements — one per horizontal slide.
 
 Notes:
+
 - The ESM modules above are self-bootstrapping. If you prefer the classic global
   build, use `dist/reveal.js` + a `<script>` that calls `Reveal.initialize({...})`,
   and load plugins from their `plugin/<name>/<name>.js` UMD files; do not mix the
@@ -94,7 +108,12 @@ Inline template (preferred for a single self-contained file — embed the upload
 Markdown here):
 
 ```html
-<section data-markdown data-separator="^\n---\n" data-separator-vertical="^\n--\n" data-separator-notes="^Note:">
+<section
+  data-markdown
+  data-separator="^\n---\n"
+  data-separator-vertical="^\n--\n"
+  data-separator-notes="^Note:"
+>
   <textarea data-template>
 ## First slide
 
@@ -115,10 +134,12 @@ Note: speaker note for slide two.
 External file:
 
 ```html
-<section data-markdown="slides.md"
-         data-separator="^\r?\n---\r?\n"
-         data-separator-vertical="^\r?\n--\r?\n"
-         data-separator-notes="^Note:"></section>
+<section
+  data-markdown="slides.md"
+  data-separator="^\r?\n---\r?\n"
+  data-separator-vertical="^\r?\n--\r?\n"
+  data-separator-notes="^Note:"
+></section>
 ```
 
 - `data-separator` splits horizontal slides; `data-separator-vertical` splits a
@@ -135,7 +156,11 @@ External file:
 Global, in `initialize`:
 
 ```js
-new Reveal({ transition: "slide", transitionSpeed: "default", backgroundTransition: "fade" });
+new Reveal({
+  transition: "slide",
+  transitionSpeed: "default",
+  backgroundTransition: "fade",
+});
 ```
 
 - `transition`: `none` | `fade` | `slide` | `convex` | `concave` | `zoom`.
@@ -145,7 +170,8 @@ Per-slide overrides on a `<section>`:
 
 ```html
 <section data-transition="zoom">…</section>
-<section data-transition="fade-in slide-out">…</section>     <!-- split: different in/out -->
+<section data-transition="fade-in slide-out">…</section>
+<!-- split: different in/out -->
 <section data-background-transition="convex">…</section>
 ```
 
@@ -163,15 +189,22 @@ to pair elements — essential for SVG and for elements whose text changes.
 ```html
 <section data-auto-animate>
   <h2>Pipeline</h2>
-  <div data-id="box" style="width:120px;height:80px;background:#3b82f6;border-radius:8px"></div>
+  <div
+    data-id="box"
+    style="width:120px;height:80px;background:#3b82f6;border-radius:8px"
+  ></div>
 </section>
 <section data-auto-animate>
   <h2>Pipeline (scaled out)</h2>
-  <div data-id="box" style="width:260px;height:140px;background:#22c55e;border-radius:24px"></div>
+  <div
+    data-id="box"
+    style="width:260px;height:140px;background:#22c55e;border-radius:24px"
+  ></div>
 </section>
 ```
 
 Tuning attributes (on the section or per element):
+
 - `data-auto-animate-easing="cubic-bezier(...)"`, `data-auto-animate-duration="0.8"`,
   `data-auto-animate-delay="0.2"`.
 - `data-auto-animate-unmatched="false"` to stop unmatched elements from fading in.
@@ -248,9 +281,11 @@ Inline video (sized within the slide):
 Full-bleed background video:
 
 ```html
-<section data-background-video="bg.mp4,bg.webm"
-         data-background-video-loop
-         data-background-video-muted>
+<section
+  data-background-video="bg.mp4,bg.webm"
+  data-background-video-loop
+  data-background-video-muted
+>
   <h2>Title over video</h2>
 </section>
 ```
@@ -279,7 +314,11 @@ correctly).
   import Markdown from "https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/markdown/markdown.esm.js";
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 
-  mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: "dark",
+    securityLevel: "loose",
+  });
 
   const deck = new Reveal({ plugins: [Markdown], transition: "slide" });
   await deck.initialize();
@@ -317,23 +356,82 @@ morph it between two slides. The technique:
 <section data-auto-animate>
   <h3>v1</h3>
   <svg viewBox="0 0 400 200" width="640">
-    <rect data-id="svc-a" x="40"  y="80" width="90" height="50" rx="8" fill="#3b82f6" />
-    <rect data-id="db"    x="270" y="80" width="90" height="50" rx="8" fill="#64748b" />
-    <line data-id="edge"  x1="130" y1="105" x2="270" y2="105" stroke="#94a3b8" stroke-width="3" />
+    <rect
+      data-id="svc-a"
+      x="40"
+      y="80"
+      width="90"
+      height="50"
+      rx="8"
+      fill="#3b82f6"
+    />
+    <rect
+      data-id="db"
+      x="270"
+      y="80"
+      width="90"
+      height="50"
+      rx="8"
+      fill="#64748b"
+    />
+    <line
+      data-id="edge"
+      x1="130"
+      y1="105"
+      x2="270"
+      y2="105"
+      stroke="#94a3b8"
+      stroke-width="3"
+    />
   </svg>
 </section>
 <section data-auto-animate>
   <h3>v2 — cache added</h3>
   <svg viewBox="0 0 400 200" width="640">
-    <rect data-id="svc-a" x="40"  y="40" width="90" height="50" rx="8" fill="#3b82f6" />
-    <rect data-id="db"    x="270" y="40" width="90" height="50" rx="8" fill="#64748b" />
-    <rect data-id="edge"  x="155" y="120" width="90" height="50" rx="8" fill="#22c55e" /><!-- becomes a cache node -->
-    <text data-id="cache-label" x="200" y="150" fill="#fff" font-size="12" text-anchor="middle">cache</text>
+    <rect
+      data-id="svc-a"
+      x="40"
+      y="40"
+      width="90"
+      height="50"
+      rx="8"
+      fill="#3b82f6"
+    />
+    <rect
+      data-id="db"
+      x="270"
+      y="40"
+      width="90"
+      height="50"
+      rx="8"
+      fill="#64748b"
+    />
+    <rect
+      data-id="edge"
+      x="155"
+      y="120"
+      width="90"
+      height="50"
+      rx="8"
+      fill="#22c55e"
+    />
+    <!-- becomes a cache node -->
+    <text
+      data-id="cache-label"
+      x="200"
+      y="150"
+      fill="#fff"
+      font-size="12"
+      text-anchor="middle"
+    >
+      cache
+    </text>
   </svg>
 </section>
 ```
 
 Tips:
+
 - Reuse `data-id` values only for elements that truly correspond; mismatched ids
   produce odd morphs.
 - For continuous motion within a single slide (not slide-to-slide), use SVG SMIL
@@ -373,14 +471,16 @@ Common `initialize` options:
 
 ```js
 new Reveal({
-  hash: true,            // sync URL to current slide
-  controls: true,        // arrow controls
-  progress: true,        // progress bar
-  center: true,          // vertical centering
-  slideNumber: "c/t",    // false | true | "c" | "c/t"
-  width: 960, height: 700, margin: 0.04, // logical presentation size
-  autoAnimate: true,     // global Auto-Animate default
-  autoSlide: 0,          // ms per slide for auto-advance (0 = off)
+  hash: true, // sync URL to current slide
+  controls: true, // arrow controls
+  progress: true, // progress bar
+  center: true, // vertical centering
+  slideNumber: "c/t", // false | true | "c" | "c/t"
+  width: 960,
+  height: 700,
+  margin: 0.04, // logical presentation size
+  autoAnimate: true, // global Auto-Animate default
+  autoSlide: 0, // ms per slide for auto-advance (0 = off)
   loop: false,
   rtl: false,
   transition: "slide",
@@ -388,6 +488,7 @@ new Reveal({
 ```
 
 API & events (after `await deck.initialize()`):
+
 - Methods: `deck.slide(h, v)`, `deck.next()`, `deck.prev()`, `deck.getIndices()`,
   `deck.layout()`, `deck.toggleOverview()`.
 - Events: `deck.on("ready", …)`, `"slidechanged"`, `"fragmentshown"`,
@@ -416,7 +517,9 @@ can drive headless Chrome with the `?print-pdf` URL.
 
 ```css
 @media (prefers-reduced-motion: reduce) {
-  .reveal .slides section { transition: none !important; }
+  .reveal .slides section {
+    transition: none !important;
+  }
 }
 ```
 

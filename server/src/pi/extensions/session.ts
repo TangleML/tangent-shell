@@ -45,7 +45,9 @@ async function callApi(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`internal API ${endpoint} failed (${response.status}): ${text}`);
+    throw new Error(
+      `internal API ${endpoint} failed (${response.status}): ${text}`,
+    );
   }
   return response.json();
 }

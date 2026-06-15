@@ -4,13 +4,13 @@ The canonical way to preserve a Tangle run's output for indefinite reuse —
 or to consume someone else's preserved artifact in a new run — is the
 **data-source family of components**:
 
-| Component | Use it to | Inputs → Outputs |
-|---|---|---|
-| `Promote to data source` | Snapshot a local file/directory artifact into a stable, ID-addressable storage location with provenance metadata | `input` (`Data`), `resource_name` (`String`) → `data_source_id` (`String`) |
-| `Load data source` | Materialize a previously-promoted snapshot back into a downstream task | `data_source_id` (`String`) → `output` (`Data`), `metadata` (`Json`) |
-| `Find data source` | Resolve the latest `data_source_id` for a known `(author, resource_name)` pair, optionally bounded by created-at date | `author` (`String`), `resource_name` (`String`), optional `min_created_at` / `max_created_at` (`String`) → `data_source_id` (`String`) |
+| Component                | Use it to                                                                                                             | Inputs → Outputs                                                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `Promote to data source` | Snapshot a local file/directory artifact into a stable, ID-addressable storage location with provenance metadata      | `input` (`Data`), `resource_name` (`String`) → `data_source_id` (`String`)                                                             |
+| `Load data source`       | Materialize a previously-promoted snapshot back into a downstream task                                                | `data_source_id` (`String`) → `output` (`Data`), `metadata` (`Json`)                                                                   |
+| `Find data source`       | Resolve the latest `data_source_id` for a known `(author, resource_name)` pair, optionally bounded by created-at date | `author` (`String`), `resource_name` (`String`), optional `min_created_at` / `max_created_at` (`String`) → `data_source_id` (`String`) |
 
-A "data source" is opinionated about *preservation*: every promote records
+A "data source" is opinionated about _preservation_: every promote records
 a verbatim provenance metadata blob alongside the payload (producer's
 email, timestamp, source kind, file count, the producing `pipeline_run_id`,
 …) so a consumer can always trace data back to the experiment that made
@@ -76,7 +76,7 @@ Promote belongs in **interactive or one-off submissions**: a human (or
 an agent on a human's behalf) decided this particular artifact is worth
 preserving. If you genuinely need a periodically-refreshed data source
 — e.g. a weekly catalog snapshot — get explicit sign-off from the user
-*and* a plan for cleaning up older snapshots before wiring promote into
+_and_ a plan for cleaning up older snapshots before wiring promote into
 a scheduled pipeline.
 
 When iterating on a pipeline that contains a promote task, drop the
@@ -86,8 +86,8 @@ you actually want preserved.
 ## The `data_source_id`
 
 The `data_source_id` is an opaque string identifying one snapshot.
-`Promote to data source` and `Find data source` both *emit* one;
-`Load data source` *consumes* one. Pass it verbatim — don't parse or
+`Promote to data source` and `Find data source` both _emit_ one;
+`Load data source` _consumes_ one. Pass it verbatim — don't parse or
 construct it yourself. Save it to the scenario's `MEMORY.md` or session
 log so other runs can reuse it.
 
@@ -117,16 +117,15 @@ run's TTL or share with other scenarios.
          # Optional: pin by digest after first use for reproducibility.
        arguments:
          input:
-           taskOutput: {taskId: buildEvalSet, outputName: dataset}
+           taskOutput: { taskId: buildEvalSet, outputName: dataset }
          resource_name:
            constant: "ranking-eval-v3"
    ```
 
 3. **Optional: capture the resulting `data_source_id` after the run.**
    Two ways:
-
    - **Read the promote task's logs.** The component prints `PROMOTED.
-     data_source_id = <id>` near the end of its own task log — fetch
+data_source_id = <id>` near the end of its own task log — fetch
      with `tangle-deploy pipeline-run logs <execution_id>`. Simplest
      and works without modifying the pipeline.
    - **Wire it into a downstream task.** Connect the promote task's
@@ -136,7 +135,7 @@ run's TTL or share with other scenarios.
      run) rather than be recovered out-of-band.
 
    Don't try to recover the value with `tangle-deploy artifacts get` —
-   that returns artifact *URIs*, not the contents of scalar `String`
+   that returns artifact _URIs_, not the contents of scalar `String`
    outputs.
 
 4. **Record it.** Once the run completes, add the `data_source_id` to the
@@ -177,7 +176,7 @@ you downloaded from elsewhere, an annotation bundle — the path is
          name: "Promote to data source"
        arguments:
          input:
-           taskOutput: {taskId: downloadEvalSet, outputName: Data}
+           taskOutput: { taskId: downloadEvalSet, outputName: Data }
          resource_name:
            constant: "ranking-eval-v3"
    ```
@@ -199,7 +198,6 @@ for example, a baseline eval set, a frozen feature snapshot, a model
 checkpoint another scenario published.
 
 1. **Get the `data_source_id`.** Three ways:
-
    - It was recorded in your scenario's `MEMORY.md` / `case_studies/` /
      `sessions/` log from an earlier run.
    - A teammate handed it to you directly.
@@ -220,9 +218,9 @@ checkpoint another scenario published.
      myEvaluator:
        arguments:
          eval_data:
-           taskOutput: {taskId: loadEvalSet, outputName: output}
+           taskOutput: { taskId: loadEvalSet, outputName: output }
          eval_metadata:
-           taskOutput: {taskId: loadEvalSet, outputName: metadata}
+           taskOutput: { taskId: loadEvalSet, outputName: metadata }
    ```
 
 3. **Inspect the metadata if needed.** The `metadata` output is the
@@ -264,7 +262,7 @@ tasks:
       name: "Load data source"
     arguments:
       data_source_id:
-        taskOutput: {taskId: findEvalSet, outputName: data_source_id}
+        taskOutput: { taskId: findEvalSet, outputName: data_source_id }
 ```
 
 `Find data source` fails the task (and writes no output) if no snapshot
@@ -297,7 +295,7 @@ tasks:
       name: "Load data source"
     arguments:
       data_source_id:
-        graphInput: {inputName: eval_set_id}
+        graphInput: { inputName: eval_set_id }
 ```
 
 ```yaml

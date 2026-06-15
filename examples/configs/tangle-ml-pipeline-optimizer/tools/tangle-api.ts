@@ -39,7 +39,10 @@ interface EgressResponse {
 }
 
 /** Calls the server-side egress proxy for one allowlisted Tangle request. */
-async function egress(path: string, init: EgressInit = {}): Promise<EgressResponse> {
+async function egress(
+  path: string,
+  init: EgressInit = {},
+): Promise<EgressResponse> {
   const input = `${TANGLE_API_URL}${path}`;
   const response = await fetch(`${INTERNAL_URL}/internal/egress`, {
     method: "POST",
@@ -52,7 +55,9 @@ async function egress(path: string, init: EgressInit = {}): Promise<EgressRespon
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`tangle egress ${path} failed (${response.status}): ${text}`);
+    throw new Error(
+      `tangle egress ${path} failed (${response.status}): ${text}`,
+    );
   }
   return response.json() as Promise<EgressResponse>;
 }
@@ -68,7 +73,9 @@ function renderResult(res: EgressResponse) {
       ? JSON.stringify(res.json, null, 2)
       : (res.text ?? "");
   const status = res.ok ? "" : ` (HTTP ${res.status})`;
-  return textResult(`${status}${status ? "\n" : ""}${body || `HTTP ${res.status}`}`);
+  return textResult(
+    `${status}${status ? "\n" : ""}${body || `HTTP ${res.status}`}`,
+  );
 }
 
 const enc = encodeURIComponent;
@@ -82,9 +89,15 @@ export default function (pi: ExtensionAPI) {
       "results; `page_token` pages through them. Returns the raw API JSON.",
     promptSnippet: "List Tangle pipeline runs",
     parameters: Type.Object({
-      filter: Type.Optional(Type.String({ description: "Server-side filter expression." })),
-      filter_query: Type.Optional(Type.String({ description: "Free-text filter query." })),
-      page_token: Type.Optional(Type.String({ description: "Pagination token from a prior call." })),
+      filter: Type.Optional(
+        Type.String({ description: "Server-side filter expression." }),
+      ),
+      filter_query: Type.Optional(
+        Type.String({ description: "Free-text filter query." }),
+      ),
+      page_token: Type.Optional(
+        Type.String({ description: "Pagination token from a prior call." }),
+      ),
       include_execution_stats: Type.Optional(
         Type.Boolean({ description: "Include per-run execution stats." }),
       ),
@@ -140,9 +153,13 @@ export default function (pi: ExtensionAPI) {
       "`tangle_run_annotation_set`.",
     promptSnippet: "Submit a Tangle pipeline run from a hydrated run body",
     parameters: Type.Object({
-      root_task: Type.Unknown({ description: "The root TaskSpec for the run." }),
+      root_task: Type.Unknown({
+        description: "The root TaskSpec for the run.",
+      }),
       components: Type.Optional(
-        Type.Array(Type.Unknown(), { description: "Optional ComponentReference list." }),
+        Type.Array(Type.Unknown(), {
+          description: "Optional ComponentReference list.",
+        }),
       ),
       annotations: Type.Optional(
         Type.Record(Type.String(), Type.Unknown(), {
@@ -212,7 +229,9 @@ export default function (pi: ExtensionAPI) {
       id: Type.String({ description: "Execution id (root or child)." }),
     }),
     async execute(_id, params) {
-      return renderResult(await egress(`/api/executions/${enc(params.id)}/state`));
+      return renderResult(
+        await egress(`/api/executions/${enc(params.id)}/state`),
+      );
     },
   });
 

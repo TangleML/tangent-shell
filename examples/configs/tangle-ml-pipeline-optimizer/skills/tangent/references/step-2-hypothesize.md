@@ -26,6 +26,7 @@ Do NOT proceed without explicit user approval.
 ## Round 2+: Evidence-Driven Hypothesis
 
 State clearly:
+
 - **What** you're changing and **why** (cite Step 5 Direction Proposal or MEMORY.md)
 - **Expected outcome** and how you'll measure it
 - **How many runs** — justify why not fewer
@@ -34,6 +35,7 @@ State clearly:
 directly with 1-2 runs. Don't sweep when you already know the answer.
 
 ## Gate — do NOT proceed to Step 3 until all pass:
+
 - [ ] Round 1: research directions presented verbatim from research-brief.md
 - [ ] Round 1: user explicitly approved
 - [ ] Round 2+: evidence cited, run count justified

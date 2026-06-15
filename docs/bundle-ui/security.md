@@ -52,7 +52,7 @@ of explicitly allowlisted operations, and **nothing else**.
 
 The egress allowlist is enforced for **`host.fetch`**: that path is proxied
 through the server, so the destination allowlist and credential injection always
-apply. The caveat is the worker's *own* global `fetch` — a Web Worker has access
+apply. The caveat is the worker's _own_ global `fetch` — a Web Worker has access
 to the `fetch` API by default. **This is the main limitation of the Worker-only
 sandbox**: a determined component could attempt a network request from inside the
 worker, bypassing `host.fetch` and its allowlist entirely.

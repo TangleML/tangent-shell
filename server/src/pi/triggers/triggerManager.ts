@@ -1,10 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { BundleTrigger } from "@shared/configBundle.ts";
@@ -124,7 +119,10 @@ function toContract(sessionId: string, t: StoredTrigger): Trigger {
 }
 
 /** Builds a stored trigger from a bundle's declared trigger. */
-function bundleToStored(bundleTrigger: BundleTrigger, now: string): StoredTrigger {
+function bundleToStored(
+  bundleTrigger: BundleTrigger,
+  now: string,
+): StoredTrigger {
   return {
     id: randomUUID(),
     name: bundleTrigger.name,
@@ -247,7 +245,9 @@ export class TriggerManager {
   ): void {
     if (!name) throw new Error("trigger name is required");
     if (!NAME_RE.test(name)) {
-      throw new Error("trigger name must be a slug matching ^[a-z0-9][a-z0-9-]*$");
+      throw new Error(
+        "trigger name must be a slug matching ^[a-z0-9][a-z0-9-]*$",
+      );
     }
     if ([...state.triggers.values()].some((t) => t.name === name)) {
       throw new Error(`a trigger named "${name}" already exists`);
@@ -272,7 +272,9 @@ export class TriggerManager {
 
     this.assertCreatable(state, name, prompt);
     if (req.kind === "schedule" && !schedule) {
-      throw new Error("schedule triggers require `schedule.every` or `schedule.cron`");
+      throw new Error(
+        "schedule triggers require `schedule.every` or `schedule.cron`",
+      );
     }
 
     const now = new Date().toISOString();

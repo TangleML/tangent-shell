@@ -48,11 +48,9 @@ const safePath = z
  */
 const manifestSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
-  id: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9-]*$/, {
-      message: "must be a slug matching ^[a-z0-9][a-z0-9-]*$",
-    }),
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, {
+    message: "must be a slug matching ^[a-z0-9][a-z0-9-]*$",
+  }),
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string().optional(),
@@ -76,9 +74,7 @@ const manifestSchema = z.object({
   contextFiles: z.array(safePath).optional(),
   memory: z.array(safePath).optional(),
   extensions: z.array(safePath).optional(),
-  software: z
-    .record(z.string().min(1), z.array(z.string().min(1)))
-    .optional(),
+  software: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   ui: z
     .object({
       components: z

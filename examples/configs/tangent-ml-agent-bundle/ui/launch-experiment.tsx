@@ -6,7 +6,13 @@
  * `host.sendPrompt(text)`, which posts a normal chat message to Prime exactly as
  * if the user had typed it.
  */
-import { BlockStack, Button, Heading, host, Textarea } from "@tangent/bundle-ui";
+import {
+  BlockStack,
+  Button,
+  Heading,
+  host,
+  Textarea,
+} from "@tangent/bundle-ui";
 import { useState } from "react";
 
 export default function LaunchExperiment() {

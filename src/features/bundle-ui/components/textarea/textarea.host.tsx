@@ -10,7 +10,8 @@ export const TextareaHost = makeHostComponent(Textarea, attributes, (props) => {
   return {
     onChange:
       typeof onInput === "function"
-        ? (event: ChangeEvent<HTMLTextAreaElement>) => onInput(event.target.value)
+        ? (event: ChangeEvent<HTMLTextAreaElement>) =>
+            onInput(event.target.value)
         : undefined,
   };
 });

@@ -97,7 +97,9 @@ function listOrDiscover(
   if (declared) return declared;
   const prefix = `${dir}/`;
   return Object.keys(entries)
-    .filter((name) => name.startsWith(prefix) && matches(name.slice(prefix.length)))
+    .filter(
+      (name) => name.startsWith(prefix) && matches(name.slice(prefix.length)),
+    )
     .sort();
 }
 

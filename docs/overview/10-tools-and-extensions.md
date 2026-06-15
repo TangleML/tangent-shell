@@ -5,7 +5,7 @@
 Out of the box, the agent can read and write files and run commands in its
 workspace. **Extensions** take it further: a [bundle](03-agent-bundles.md) can
 ship **custom tools** that connect the agent to your systems — your ML platform,
-your internal APIs, your services — so it can actually *do* things, not just talk
+your internal APIs, your services — so it can actually _do_ things, not just talk
 about them. And it does this safely: every tool is on an explicit allowlist, and
 every outbound call is routed through a server-side gateway that holds the
 credentials and only permits pre-approved destinations.

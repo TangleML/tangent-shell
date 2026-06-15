@@ -23,16 +23,16 @@ Run `tangle-deploy quickstart` to discover available commands. Use `--help-exten
 or `--help-full` on any command for detailed usage. For debugging guidance, run
 `tangle-deploy docs debugging_runs`.
 
-| What you need | Command |
-|---|---|
-| Execution tree & task states | `tangle-deploy pipeline-run details RUN_ID --state` |
-| Container logs (application stack traces, code errors) | `tangle-deploy pipeline-run logs EXECUTION_ID` |
+| What you need                                                        | Command                                                                                                                                                                   |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Execution tree & task states                                         | `tangle-deploy pipeline-run details RUN_ID --state`                                                                                                                       |
+| Container logs (application stack traces, code errors)               | `tangle-deploy pipeline-run logs EXECUTION_ID`                                                                                                                            |
 | K8s system events (eviction reasons, OOM kills, scheduling failures) | Use the `observe-data` skill (queries Observe directly via the MCP). Do **NOT** use `--source observe` in River sessions — it fails with `observe: OBSERVE_AUTH not set`. |
-| Search for runs | `tangle-deploy pipeline-run search --name <name>` |
-| Component spec (per-task) | `tangle-deploy pipeline-run details RUN_ID --execution-id EXEC_ID --implementations` |
-| Artifact URIs | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'` |
-| Download artifacts | `tangle-deploy artifacts download RUN_ID -q '{"tasks": {...}}' -o ./artifacts` |
-| Export pipeline spec | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate` |
+| Search for runs                                                      | `tangle-deploy pipeline-run search --name <name>`                                                                                                                         |
+| Component spec (per-task)                                            | `tangle-deploy pipeline-run details RUN_ID --execution-id EXEC_ID --implementations`                                                                                      |
+| Artifact URIs                                                        | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'`                                                                                                                |
+| Download artifacts                                                   | `tangle-deploy artifacts download RUN_ID -q '{"tasks": {...}}' -o ./artifacts`                                                                                            |
+| Export pipeline spec                                                 | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate`                                                                                                        |
 
 ## Debugging Workflow
 
@@ -77,23 +77,29 @@ or `--help-full` on any command for detailed usage. For debugging guidance, run
 ## Output
 
 1. **Snapshot file** at `<snapshot_path>`:
+
 ```markdown
 # Failure: <run_id>
+
 - **Execution ID**: <exec_id>
 - **Failed Task**: <task_name>
 - **Failure Type**: <PERMISSION|INFRA|CONFIG|TRAINING|EVAL|UNKNOWN>
 - **Timestamp**: <iso8601>
 
 ## Error
+
 <root cause>
 
 ## Container Logs (last 50 lines)
+
 <logs>
 
 ## Resolution
+
 - **Action**: <retry|record|fix|investigate>
 
 ## Lesson Learned
+
 <one-line takeaway>
 ```
 

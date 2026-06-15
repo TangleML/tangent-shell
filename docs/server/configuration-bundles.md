@@ -21,17 +21,17 @@ The required manifest is `tangent.yaml` at the bundle root (`MANIFEST_FILENAME`)
 schema-versioned by `SCHEMA_VERSION` (currently `1`). Conventional directories
 (`BUNDLE_DIRS`):
 
-| Dir | Contents | Pi flag / use |
-| --- | --- | --- |
-| `prompts/` | `prime.md`, `subagent.md` appended prompts | `--append-system-prompt` source |
-| `skills/<name>/SKILL.md` | skills | `--skill <dir>` |
-| `workflows/<name>.md` | prompt templates | `--prompt-template <file>` |
-| `agents/<name>.md` | sub-agent templates (frontmatter + body) | resolved into `templates` |
-| `rules/AGENTS.md` | rules file | copied to workspace root (Pi auto-discovers) |
-| `memory/*.md` | seed memory | copied to workspace root |
-| `tools/*.ts` | custom tool extensions | extra `--extension <file>` |
-| `ui/<name>.tsx` | sandboxed UI components | transpiled, served by marketplace |
-| `triggers/<name>.ts` | trigger transform handlers | compiled to JS at install |
+| Dir                      | Contents                                   | Pi flag / use                                |
+| ------------------------ | ------------------------------------------ | -------------------------------------------- |
+| `prompts/`               | `prime.md`, `subagent.md` appended prompts | `--append-system-prompt` source              |
+| `skills/<name>/SKILL.md` | skills                                     | `--skill <dir>`                              |
+| `workflows/<name>.md`    | prompt templates                           | `--prompt-template <file>`                   |
+| `agents/<name>.md`       | sub-agent templates (frontmatter + body)   | resolved into `templates`                    |
+| `rules/AGENTS.md`        | rules file                                 | copied to workspace root (Pi auto-discovers) |
+| `memory/*.md`            | seed memory                                | copied to workspace root                     |
+| `tools/*.ts`             | custom tool extensions                     | extra `--extension <file>`                   |
+| `ui/<name>.tsx`          | sandboxed UI components                    | transpiled, served by marketplace            |
+| `triggers/<name>.ts`     | trigger transform handlers                 | compiled to JS at install                    |
 
 The `BundleManifest` (validated to a `zod` schema in
 [config/manifest.ts](../../server/src/pi/config/manifest.ts)) carries: `id`

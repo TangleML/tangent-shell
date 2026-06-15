@@ -55,7 +55,11 @@ export function BundlePanelLauncher({
         {active ? (
           <Box border="sm" borderRadius="base" padding="sm">
             <BlockStack gap="2">
-              <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
+              <InlineStack
+                align="space-between"
+                blockAlign="center"
+                wrap="nowrap"
+              >
                 <Text size="xs" weight="medium" tone="subdued">
                   {active.title ?? active.name}
                 </Text>
@@ -70,7 +74,9 @@ export function BundlePanelLauncher({
               <BundleUiHost
                 key={active.name}
                 kind="panel"
-                moduleUrl={apiUrl(`/api/agent-bundles/${bundleId}/ui/${active.name}.js`)}
+                moduleUrl={apiUrl(
+                  `/api/agent-bundles/${bundleId}/ui/${active.name}.js`,
+                )}
                 onSendPrompt={(text) => {
                   onSendPrompt(text);
                   setSelected(null);

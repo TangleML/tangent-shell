@@ -12,6 +12,7 @@ Tangent is an **autonomous ML experiment agent** that iterates on Tangle pipelin
 ## Tangent Agent Architecture
 
 ### 8-Step Autonomous Loop
+
 ```
 Step 0: Initialize (read scenario, find baseline)
 Step 1: Analyze (extract baseline metrics, SHAP, weak segments)
@@ -24,15 +25,17 @@ Step 7: Decide (converged? → Stop. Else → Loop to Step 1)
 ```
 
 ### 5 Subagents
-| Agent | Purpose |
-|-------|---------|
-| **Researcher** | Pre-experiment research (code, literature, Slack, BigQuery) |
-| **Debugger** | Diagnose pipeline failures |
-| **Reporter** | Generate metrics reports |
-| **Reviewer** | Code review for experiment changes |
-| **Scenario-Builder** | Interactive scenario generation |
+
+| Agent                | Purpose                                                     |
+| -------------------- | ----------------------------------------------------------- |
+| **Researcher**       | Pre-experiment research (code, literature, Slack, BigQuery) |
+| **Debugger**         | Diagnose pipeline failures                                  |
+| **Reporter**         | Generate metrics reports                                    |
+| **Reviewer**         | Code review for experiment changes                          |
+| **Scenario-Builder** | Interactive scenario generation                             |
 
 ### Memory System
+
 - `MEMORY.md`: Long-term memory (best config, baseline metrics, active runs, session index)
 - `sessions/YYYY-MM-DD.md`: Detailed daily session logs (append-only)
 - `research-brief.md`: Pre-experiment research findings
@@ -41,24 +44,26 @@ Step 7: Decide (converged? → Stop. Else → Loop to Step 1)
 
 ## Scenario 1: Combined L2 Ranker
 
-| Field | Value |
-|-------|-------|
-| **Config** | `discovery/prototypes/tangent/scenarios/combined_ranker/scenario.yaml` |
-| **Baseline Run** | [019d06d757bb0ca740d3](https://oasis.shopify.io/runs/019d06d757bb0ca740d3) |
-| **Target Metric** | oneNDCG v3 @10 overall = 0.4237 |
-| **Budget** | 60 runs max, 4 parallel, 10 rounds |
-| **Status** | Initialized + analyzed (Step 0-1 completed 2026-03-20), 0/60 runs used |
+| Field             | Value                                                                      |
+| ----------------- | -------------------------------------------------------------------------- |
+| **Config**        | `discovery/prototypes/tangent/scenarios/combined_ranker/scenario.yaml`     |
+| **Baseline Run**  | [019d06d757bb0ca740d3](https://oasis.shopify.io/runs/019d06d757bb0ca740d3) |
+| **Target Metric** | oneNDCG v3 @10 overall = 0.4237                                            |
+| **Budget**        | 60 runs max, 4 parallel, 10 rounds                                         |
+| **Status**        | Initialized + analyzed (Step 0-1 completed 2026-03-20), 0/60 runs used     |
 
 ### Search Space
-| Action Type | Actions Available |
-|-------------|-------------------|
-| **Feature selection** | SHAP pruning, category pruning, feature_fraction reduction |
-| **Hyperparameter tuning** | LR, num_leaves, regularization, truncation, early stopping |
-| **Data actions** | Label switching, label gain, position debiasing, clickstream ablation |
-| **Ensemble actions** | Weight sweep 0.0-0.18, score transform: zscore/sigmoid/minmax |
-| **Analysis** | SHAP inspection, prediction analysis, run details |
+
+| Action Type               | Actions Available                                                     |
+| ------------------------- | --------------------------------------------------------------------- |
+| **Feature selection**     | SHAP pruning, category pruning, feature_fraction reduction            |
+| **Hyperparameter tuning** | LR, num_leaves, regularization, truncation, early stopping            |
+| **Data actions**          | Label switching, label gain, position debiasing, clickstream ablation |
+| **Ensemble actions**      | Weight sweep 0.0-0.18, score transform: zscore/sigmoid/minmax         |
+| **Analysis**              | SHAP inspection, prediction analysis, run details                     |
 
 ### Research Findings (from research-brief.md)
+
 - Ensemble hurts primary metric: combined 0.4237 < relevance-only 0.4525 (2.88pp gap)
 - GTE embedding at 18.6% SHAP (3.2x gap to #2 feature); feature_fraction=0.9 too high
 - 29 zero-SHAP features, 79 near-zero — pruning opportunity
@@ -67,22 +72,24 @@ Step 7: Decide (converged? → Stop. Else → Loop to Step 1)
 
 ## Scenario 2: Cross-Shop L3 UPI Matching
 
-| Field | Value |
-|-------|-------|
-| **Config** | `discovery/prototypes/tangent/scenarios/cross_shop_l3/scenario.yaml` |
-| **Baseline Run** | [019cadee6c9cb6802848](https://oasis.shopify.io/runs/019cadee6c9cb6802848) |
-| **Target Metric** | F1 > 0.99 (current: 0.8269, gap +17.3 points) |
-| **Budget** | 30 runs max, 2 parallel, 8 rounds |
-| **Status** | Scenario defined, no experiments run yet |
+| Field             | Value                                                                      |
+| ----------------- | -------------------------------------------------------------------------- |
+| **Config**        | `discovery/prototypes/tangent/scenarios/cross_shop_l3/scenario.yaml`       |
+| **Baseline Run**  | [019cadee6c9cb6802848](https://oasis.shopify.io/runs/019cadee6c9cb6802848) |
+| **Target Metric** | F1 > 0.99 (current: 0.8269, gap +17.3 points)                              |
+| **Budget**        | 30 runs max, 2 parallel, 8 rounds                                          |
+| **Status**        | Scenario defined, no experiments run yet                                   |
 
 ### Search Space (Prioritized Tiers)
-| Tier | Actions |
-|------|---------|
-| **Tier 1 (HIGH)** | unfreeze_mlp, add_search_data, hard_negative_mining, scale_to_8b |
-| **Tier 2 (MEDIUM)** | enable_eval_checkpointing, more_epochs_cosine_lr, dpo_after_sft, listwise_loss |
+
+| Tier                    | Actions                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| **Tier 1 (HIGH)**       | unfreeze_mlp, add_search_data, hard_negative_mining, scale_to_8b                              |
+| **Tier 2 (MEDIUM)**     | enable_eval_checkpointing, more_epochs_cosine_lr, dpo_after_sft, listwise_loss                |
 | **Tier 3 (LOW-MEDIUM)** | add_sku_barcode_features, positive_upsampling, increase_image_resolution, relax_grad_clipping |
 
 ### Research Findings (from research-brief.md)
+
 - MLP merger frozen -- prevents visual projection learning (Tier 1 fix)
 - Only 2 epochs with linear decay to 0; LR=2e-5 is 3.3x higher than recommended 6e-6
 - max_grad_norm=0.02 is extremely conservative (standard: 1.0)

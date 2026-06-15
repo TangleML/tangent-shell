@@ -31,12 +31,12 @@ ui:
 
 `ui.components[]` — array of component declarations:
 
-| Field | Required | Rule | Purpose |
-| --- | --- | --- | --- |
-| `name` | yes | slug, `^[a-z0-9][a-z0-9-]*$` | Stable id. For `message`, the value after `tangent-ui:` in the agent token. Unique within the bundle. |
-| `kind` | yes | enum: `message` \| `panel` | Which surface (see [`README.md`](README.md)). |
-| `entry` | yes | safe relative path | Path to the component source, conventionally under `ui/`. |
-| `title` | no | non-empty string | Display label for `panel` launcher buttons. Ignored for `message`. |
+| Field   | Required | Rule                         | Purpose                                                                                               |
+| ------- | -------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `name`  | yes      | slug, `^[a-z0-9][a-z0-9-]*$` | Stable id. For `message`, the value after `tangent-ui:` in the agent token. Unique within the bundle. |
+| `kind`  | yes      | enum: `message` \| `panel`   | Which surface (see [`README.md`](README.md)).                                                         |
+| `entry` | yes      | safe relative path           | Path to the component source, conventionally under `ui/`.                                             |
+| `title` | no       | non-empty string             | Display label for `panel` launcher buttons. Ignored for `message`.                                    |
 
 ### Validation rules
 

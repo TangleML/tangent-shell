@@ -60,7 +60,11 @@ export default tseslint.config(
       // Flat `recommended-latest` includes the React Compiler rules.
       reactHooks.configs.flat["recommended-latest"],
     ],
-    files: ["src/**/*.{ts,tsx}", "shared/**/*.{ts,tsx}", "server/**/*.{ts,tsx}"],
+    files: [
+      "src/**/*.{ts,tsx}",
+      "shared/**/*.{ts,tsx}",
+      "server/**/*.{ts,tsx}",
+    ],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.browser,
@@ -103,7 +107,9 @@ export default tseslint.config(
     // they style raw HTML elements (div/span/textarea), which the rule ignores.
     files: ["src/features/**/*.tsx", "src/routes/**/*.tsx"],
     plugins: {
-      "tangle-ui": { rules: { "no-classname-on-primitives": noClassnameOnPrimitives } },
+      "tangle-ui": {
+        rules: { "no-classname-on-primitives": noClassnameOnPrimitives },
+      },
     },
     rules: {
       // `Box` is intentionally NOT soft-banned here: it is the token-only escape

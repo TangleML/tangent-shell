@@ -14,13 +14,13 @@ into a pipeline.
 
 ## The "Download from GCS" component
 
-| Field | Value |
-|---|---|
-| Name | `Download from GCS` |
-| Digest | `30c424ac6156c478aa0c3027b470baf9cb7dbbf90aebcabde7469bfbd02a512e` |
-| Image | `google/cloud-sdk` |
-| Input | `GCS path` (URI — single blob or directory; trailing slash means directory) |
-| Output | `Data` (file path or directory path the next task can consume) |
+| Field  | Value                                                                       |
+| ------ | --------------------------------------------------------------------------- |
+| Name   | `Download from GCS`                                                         |
+| Digest | `30c424ac6156c478aa0c3027b470baf9cb7dbbf90aebcabde7469bfbd02a512e`          |
+| Image  | `google/cloud-sdk`                                                          |
+| Input  | `GCS path` (URI — single blob or directory; trailing slash means directory) |
+| Output | `Data` (file path or directory path the next task can consume)              |
 
 It runs `gsutil cp` for single blobs and `gsutil rsync -r` for directories.
 Inspect it any time with:
@@ -38,12 +38,14 @@ need to introduce one — e.g., a new feature dataset, a model checkpoint to
 fine-tune from, an external evaluation set.
 
 1. **Export and dehydrate** the pipeline (see `iterating-on-runs.md`):
+
    ```bash
    shadowenv exec -- tangle-deploy pipeline-run export <RUN_ID> \
      /tmp/pipeline.yaml --dehydrate
    ```
 
 2. **Add the ingest task** to the top-level graph or the appropriate subgraph:
+
    ```yaml
    tasks:
      downloadInputData:
@@ -59,6 +61,7 @@ fine-tune from, an external evaluation set.
 
 3. **Wire the `Data` output** into the consumer task by replacing whatever
    argument used to supply the artifact:
+
    ```yaml
    tasks:
      myTrainer:
@@ -70,6 +73,7 @@ fine-tune from, an external evaluation set.
    ```
 
 4. **Validate, then submit**:
+
    ```bash
    shadowenv exec -- tangle-deploy pipeline-run validate /tmp/pipeline.yaml
    if grep -q '  spec:' /tmp/pipeline.yaml; then
@@ -123,11 +127,11 @@ that rotate through uploaded variants.
          digest: 30c424ac6156c478aa0c3027b470baf9cb7dbbf90aebcabde7469bfbd02a512e
        arguments:
          GCS path:
-           graphInput: {inputName: input_artifact_uri}
+           graphInput: { inputName: input_artifact_uri }
    ```
 3. Supply the URI per run via the config file passed with `-f`. **The
    run-config schema uses top-level `args:`** (not `arguments:` — that
-   key is reserved for *task-level* argument wiring inside the pipeline
+   key is reserved for _task-level_ argument wiring inside the pipeline
    YAML, as shown in step 2 above). See
    `tangle-deploy pipeline-run submit --help-full` for the full schema.
    ```yaml
@@ -142,10 +146,10 @@ that rotate through uploaded variants.
 
 Two different keys, two different files:
 
-| Key | Where it lives | What it does |
-|---|---|---|
-| `arguments:` | Pipeline YAML, under each `tasks.<TaskName>:` | Wires a task input to a `constant`, `graphInput`, or `taskOutput`. |
-| `args:` | Run-config YAML passed via `-f` to `pipeline-run submit` | Binds values to the pipeline's top-level `inputs:` for a single run. |
+| Key          | Where it lives                                           | What it does                                                         |
+| ------------ | -------------------------------------------------------- | -------------------------------------------------------------------- |
+| `arguments:` | Pipeline YAML, under each `tasks.<TaskName>:`            | Wires a task input to a `constant`, `graphInput`, or `taskOutput`.   |
+| `args:`      | Run-config YAML passed via `-f` to `pipeline-run submit` | Binds values to the pipeline's top-level `inputs:` for a single run. |
 
 If you mix them up, the submit may succeed with an unset/default input,
 leaving the pipeline pointed at a stale or unrelated artifact. Verify before

@@ -3,9 +3,11 @@
 When modifying and re-running an existing pipeline (e.g. change params for failed tasks):
 
 1. **Export the run (dehydrated)**:
+
    ```bash
    tangle-deploy pipeline-run export <run_id> /tmp/pipeline.yaml --dehydrate
    ```
+
    This produces the pipeline YAML and a `.config.yaml` with the run arguments.
    `--dehydrate` replaces inline component specs with compact references (`digest:` for
    published components, `url: file://` for local ones), making the YAML smaller and

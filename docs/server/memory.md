@@ -14,7 +14,7 @@ Agents have two memory stores, both owned by the
   `MEMORY.md`. Created lazily on Prime's first `remember`.
 
 A defining principle: **the server is the sole writer.** The agent's memory tools
-only *request* writes; the server performs the file edit and surfaces the
+only _request_ writes; the server performs the file edit and surfaces the
 "remembered" highlight from the actual change, so the UI shows ground truth
 rather than the agent's narration (keeping the agent honest).
 

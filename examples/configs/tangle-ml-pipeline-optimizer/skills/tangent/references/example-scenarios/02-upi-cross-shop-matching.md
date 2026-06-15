@@ -16,6 +16,7 @@ Determines whether two products from different Shopify stores are the same produ
 The ecosystem has 4 distinct pipeline types that form a complete ML lifecycle:
 
 ### 1. Dataset Generation Pipeline
+
 ```
 Materialize BQ Template -> Create BQ Dataset -> Render Template Column -> Filter Columns
                                                                      |-> Split Prompt/Completion -> Strip Trailing Assistant -> Publish TRL Dataset
@@ -23,10 +24,12 @@ Materialize BQ Template -> Create BQ Dataset -> Render Template Column -> Filter
 Materialize Prompt Template -> Render Template Column
 Create BQ Dataset -> HF to OpenAI Batch
 ```
+
 **Input**: 8 BQ matching tables (consideration_100k, consideration_50k x4, search_100k, random_25k, ann_highsim_gmv_50k)
 **Output**: HuggingFace datasets in TRL format (text) + B64 format (with images) + OpenAI batch format
 
 ### 2. SFT Training + Eval Pipeline
+
 ```
 Download Model (Qwen3-VL-Reranker-2B) ----\
 Download Train Dataset --------------------> SFT Train -> Inference (vLLM) -> Upload Predictions to BQ -> Unified Eval
@@ -36,6 +39,7 @@ Materialize Inference Config -> Inference
 ```
 
 ### 3. Full Multi-Stage Eval (Unified Eval)
+
 ```
 [7 Parallel Evals]:
   ANN Eval (FAISS results) | L1 Eval | L3 Eval | GTIN Eval | CC Eval | UPI Eval | Prod UPI Eval
@@ -47,50 +51,51 @@ Materialize Inference Config -> Inference
 ```
 
 ### 4. UPI Options Judge (Quality Audit)
+
 ```
 Prompt Resolver -> UPI Data Loader -> Payload Formatter -> Row Cached LLM Judge -> Error Rate Checker -> Results Writer
 ```
 
 ## ML Techniques
 
-| Aspect | Details |
-|--------|---------|
-| **Base model** | Qwen3-VL-Reranker-2B (2B param vision-language model) |
-| **Training** | SFT with TRL, completion-only loss, frozen visual encoder (`model.visual`) |
-| **Optimizer** | AdamW (beta1=0.9, beta2=0.95, eps=1e-7), weight decay 1.3e-8 |
-| **LR** | 2e-05, linear scheduler, 20 warmup steps |
-| **Grad clipping** | max_grad_norm=0.02 (extremely conservative) |
-| **Precision** | bf16, flash_attention_2, gradient_checkpointing |
-| **Distributed** | FSDP2 on 8x NVIDIA H200 (Nebius) |
-| **Inference** | vLLM with prefix caching + chunked prefill on 1x H200 |
-| **Scoring** | Extract P(positive) from logprobs as matching score |
-| **Evaluation** | Multi-threshold precision/recall + LLM judge (GPT-5.2 via Airflow DAG) |
-| **Options audit** | GPT-5.2 judge with row-level caching (table: `options_judge_cache`) |
-| **Experiment tracking** | Comet ML (`upi-cross-store-clustering-eval`) |
+| Aspect                  | Details                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- |
+| **Base model**          | Qwen3-VL-Reranker-2B (2B param vision-language model)                      |
+| **Training**            | SFT with TRL, completion-only loss, frozen visual encoder (`model.visual`) |
+| **Optimizer**           | AdamW (beta1=0.9, beta2=0.95, eps=1e-7), weight decay 1.3e-8               |
+| **LR**                  | 2e-05, linear scheduler, 20 warmup steps                                   |
+| **Grad clipping**       | max_grad_norm=0.02 (extremely conservative)                                |
+| **Precision**           | bf16, flash_attention_2, gradient_checkpointing                            |
+| **Distributed**         | FSDP2 on 8x NVIDIA H200 (Nebius)                                           |
+| **Inference**           | vLLM with prefix caching + chunked prefill on 1x H200                      |
+| **Scoring**             | Extract P(positive) from logprobs as matching score                        |
+| **Evaluation**          | Multi-threshold precision/recall + LLM judge (GPT-5.2 via Airflow DAG)     |
+| **Options audit**       | GPT-5.2 judge with row-level caching (table: `options_judge_cache`)        |
+| **Experiment tracking** | Comet ML (`upi-cross-store-clustering-eval`)                               |
 
 ## Key Components
 
-| Component | Digest | Purpose |
-|-----------|--------|---------|
-| `Unified Distillation: Train` | `8a0773d5` | SFT fine-tuning via TRL |
-| `Inference Only` (subgraph) | `90c0a6a1` | vLLM batch inference |
-| `UPI Reranker: Create HF Dataset from BQ` | `1cfc5a03` | BQ SQL -> HuggingFace dataset |
-| `UPI Reranker: Render Template Column` | `887b2fa4` | Apply Jinja prompt to each row |
-| `UPI Reranker: Prepare VL Dataset` | `650b7302` | Download images, encode base64 |
-| `[UPI Clustering] Unified Eval` | `f62253d1` | Precision/recall at thresholds |
-| `Trigger Airflow DAG` | `6cce1855` | Trigger external LLM judge |
-| `Upi options llm judge` | (inline) | GPT-5.2 quality audit |
+| Component                                 | Digest     | Purpose                        |
+| ----------------------------------------- | ---------- | ------------------------------ |
+| `Unified Distillation: Train`             | `8a0773d5` | SFT fine-tuning via TRL        |
+| `Inference Only` (subgraph)               | `90c0a6a1` | vLLM batch inference           |
+| `UPI Reranker: Create HF Dataset from BQ` | `1cfc5a03` | BQ SQL -> HuggingFace dataset  |
+| `UPI Reranker: Render Template Column`    | `887b2fa4` | Apply Jinja prompt to each row |
+| `UPI Reranker: Prepare VL Dataset`        | `650b7302` | Download images, encode base64 |
+| `[UPI Clustering] Unified Eval`           | `f62253d1` | Precision/recall at thresholds |
+| `Trigger Airflow DAG`                     | `6cce1855` | Trigger external LLM judge     |
+| `Upi options llm judge`                   | (inline)   | GPT-5.2 quality audit          |
 
 ## Active Experiment Variants
 
-| Pipeline Name | What's Different | Runs |
-|--------------|-----------------|------|
-| `UPI Reranker SFT Metafields v2 Old Recipe` | Baseline training recipe | Many |
-| `UPI Reranker SFT Metafields v2 UD Recipe` | Updated Unified Distillation recipe | Many |
-| `UPI Reranker SFT Dir6 Full + ANN 50k` | Added Dir6 data + ANN high-sim pairs | Many |
-| `UPI Reranker SFT Metafields + Collections` | Added collection metadata features | Many |
-| `UPI Reranker MF+Dir6+ANN v6` | Latest iteration combining all features | Latest |
-| `Unified Eval — All Stages` | Full 7-stage + 3-judge evaluation | Periodic |
+| Pipeline Name                               | What's Different                        | Runs     |
+| ------------------------------------------- | --------------------------------------- | -------- |
+| `UPI Reranker SFT Metafields v2 Old Recipe` | Baseline training recipe                | Many     |
+| `UPI Reranker SFT Metafields v2 UD Recipe`  | Updated Unified Distillation recipe     | Many     |
+| `UPI Reranker SFT Dir6 Full + ANN 50k`      | Added Dir6 data + ANN high-sim pairs    | Many     |
+| `UPI Reranker SFT Metafields + Collections` | Added collection metadata features      | Many     |
+| `UPI Reranker MF+Dir6+ANN v6`               | Latest iteration combining all features | Latest   |
+| `Unified Eval — All Stages`                 | Full 7-stage + 3-judge evaluation       | Periodic |
 
 ## Key Links
 

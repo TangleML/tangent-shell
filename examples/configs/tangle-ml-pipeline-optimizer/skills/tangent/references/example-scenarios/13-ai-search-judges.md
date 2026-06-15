@@ -13,12 +13,15 @@ Evaluates AI-powered search quality using LLM judges. Three pipeline types: (1) 
 ## Pipeline Flow
 
 ### Nightly Judge (ai_search / ai_search_grounding)
+
 ```
 Extract Evaluable Objects (sample production conversations) -> Nightly Batch Score (flywheel judge) -> Summarize Scores (per-criterion averages)
 ```
+
 Runs daily ~12:00-12:30 UTC as a parallel pair (ai_search + ai_search_grounding). Uses flywheel judge ID `c3e3c858-aa8f-40e1-a2f6-ba3497fbaffe`.
 
 ### GEPA Per-Criteria: Help Search Judge (5 criteria)
+
 ```
 Flywheel Resolve Conversations (ground truth from BQ)
   |
@@ -33,21 +36,21 @@ GEPA (Generalized Evaluation via Prompt Alignment) / Playbook Builder: automated
 
 ## ML Techniques
 
-| Aspect | Details |
-|--------|---------|
-| **Nightly Judge** | LLM-as-judge scoring on production traffic samples |
-| **GEPA** | Automated prompt engineering -- optimizes judge prompts to align with ground truth labels |
-| **5 Criteria** | safety, language, response, grounding, goal_fulfillment |
-| **Judge model** | Deployed flywheel judge (same judge ID shared with GraphQL gist) |
-| **Data source** | Production evaluable objects (conversations) extracted from BQ |
-| **Output** | Per-criterion scores to BQ, aggregated summaries to GCS |
+| Aspect            | Details                                                                                   |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| **Nightly Judge** | LLM-as-judge scoring on production traffic samples                                        |
+| **GEPA**          | Automated prompt engineering -- optimizes judge prompts to align with ground truth labels |
+| **5 Criteria**    | safety, language, response, grounding, goal_fulfillment                                   |
+| **Judge model**   | Deployed flywheel judge (same judge ID shared with GraphQL gist)                          |
+| **Data source**   | Production evaluable objects (conversations) extracted from BQ                            |
+| **Output**        | Per-criterion scores to BQ, aggregated summaries to GCS                                   |
 
 ## Active Users
 
-| User | Pipeline | Activity |
-|------|----------|----------|
-| sidekick-run SA | Nightly Judge (ai_search + ai_search_grounding) | Daily automated |
-| precious.kolawole | GEPA Help Search Judge | 10+ runs across Mar 30 - Apr 1 |
+| User              | Pipeline                                        | Activity                       |
+| ----------------- | ----------------------------------------------- | ------------------------------ |
+| sidekick-run SA   | Nightly Judge (ai_search + ai_search_grounding) | Daily automated                |
+| precious.kolawole | GEPA Help Search Judge                          | 10+ runs across Mar 30 - Apr 1 |
 
 ## Key Links
 

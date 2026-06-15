@@ -15,7 +15,11 @@ import { PI_AGENT } from "@shared/contracts.ts";
 import { type Request, type Response, Router, urlencoded } from "express";
 import multer from "multer";
 
-import { ARTIFACTS_DIRNAME, SESSIONS_ROOT, UPLOADS_DIRNAME } from "../config.ts";
+import {
+  ARTIFACTS_DIRNAME,
+  SESSIONS_ROOT,
+  UPLOADS_DIRNAME,
+} from "../config.ts";
 import { installBundle } from "../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";

@@ -21,27 +21,27 @@ chat fragment.
 
 ## Elements
 
-| Remote element | Host primitive | Notable props (host) | Notes |
-| --- | --- | --- | --- |
-| `tangent-block-stack` | `BlockStack` | `gap`, `align`, `inlineAlign` | Vertical layout. |
-| `tangent-inline-stack` | `InlineStack` | `gap`, `align`, `blockAlign`, `wrap` | Horizontal layout. |
-| `tangent-text` | `Text` | `size`, `tone`, `weight` | Inline text. |
-| `tangent-heading` | `Heading` | `level` (1-6), `size`, `weight`, `tone` | Section heading. |
-| `tangent-button` | `Button` | `variant`, `size`, `tone`, `disabled`; emits `press` | Click maps to a `press` event. |
-| `tangent-icon` | `Icon` | `name` (Lucide), `size`, `tone` | `name` validated against the icon set. |
-| `tangent-textarea` | `Textarea` | `value`, `placeholder`, `disabled`; emits `input` | Controlled by the component via `input` events. |
-| `tangent-spinner` | `Spinner` | `size` (number) | Loading indicator. |
-| `tangent-card` | `Card` | `density` | Container surface. |
-| `tangent-card-header` | `CardHeader` | `density`, `divider` | Card header region. |
-| `tangent-card-title` | `CardTitle` | — | Card title text. |
-| `tangent-card-description` | `CardDescription` | — | Card subtitle/description text. |
-| `tangent-card-content` | `CardContent` | `density` | Card body region. |
-| `tangent-card-footer` | `CardFooter` | `density` | Card footer region. |
-| `tangent-badge` | `Badge` | `variant`, `size`, `position`, `shape` | Small label/status badge. |
-| `tangent-pill` | `Pill` | `tone`, `size` | Small status chip. |
-| `tangent-progress` | `Progress` (**new**, Phase 4) | `value` (0-1), `tone` | No progress primitive exists today; Phase 4 adds `tangent-progress` to `src/shared/ui` and includes it here. |
-| `tangent-score-ring` | `ScoreRing` (**new**, Phase 4) | `score` (0-100), `size` (px) | Circular opportunity-score ring with the value centered. |
-| `tangent-checkbox` | `Checkbox` (**new**, Phase 4) | `checked`, `label`; emits `change` | Boolean toggle row; `change` carries the new checked value. |
+| Remote element             | Host primitive                 | Notable props (host)                                 | Notes                                                                                                        |
+| -------------------------- | ------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `tangent-block-stack`      | `BlockStack`                   | `gap`, `align`, `inlineAlign`                        | Vertical layout.                                                                                             |
+| `tangent-inline-stack`     | `InlineStack`                  | `gap`, `align`, `blockAlign`, `wrap`                 | Horizontal layout.                                                                                           |
+| `tangent-text`             | `Text`                         | `size`, `tone`, `weight`                             | Inline text.                                                                                                 |
+| `tangent-heading`          | `Heading`                      | `level` (1-6), `size`, `weight`, `tone`              | Section heading.                                                                                             |
+| `tangent-button`           | `Button`                       | `variant`, `size`, `tone`, `disabled`; emits `press` | Click maps to a `press` event.                                                                               |
+| `tangent-icon`             | `Icon`                         | `name` (Lucide), `size`, `tone`                      | `name` validated against the icon set.                                                                       |
+| `tangent-textarea`         | `Textarea`                     | `value`, `placeholder`, `disabled`; emits `input`    | Controlled by the component via `input` events.                                                              |
+| `tangent-spinner`          | `Spinner`                      | `size` (number)                                      | Loading indicator.                                                                                           |
+| `tangent-card`             | `Card`                         | `density`                                            | Container surface.                                                                                           |
+| `tangent-card-header`      | `CardHeader`                   | `density`, `divider`                                 | Card header region.                                                                                          |
+| `tangent-card-title`       | `CardTitle`                    | —                                                    | Card title text.                                                                                             |
+| `tangent-card-description` | `CardDescription`              | —                                                    | Card subtitle/description text.                                                                              |
+| `tangent-card-content`     | `CardContent`                  | `density`                                            | Card body region.                                                                                            |
+| `tangent-card-footer`      | `CardFooter`                   | `density`                                            | Card footer region.                                                                                          |
+| `tangent-badge`            | `Badge`                        | `variant`, `size`, `position`, `shape`               | Small label/status badge.                                                                                    |
+| `tangent-pill`             | `Pill`                         | `tone`, `size`                                       | Small status chip.                                                                                           |
+| `tangent-progress`         | `Progress` (**new**, Phase 4)  | `value` (0-1), `tone`                                | No progress primitive exists today; Phase 4 adds `tangent-progress` to `src/shared/ui` and includes it here. |
+| `tangent-score-ring`       | `ScoreRing` (**new**, Phase 4) | `score` (0-100), `size` (px)                         | Circular opportunity-score ring with the value centered.                                                     |
+| `tangent-checkbox`         | `Checkbox` (**new**, Phase 4)  | `checked`, `label`; emits `change`                   | Boolean toggle row; `change` carries the new checked value.                                                  |
 
 ## Props and events
 

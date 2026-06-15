@@ -29,7 +29,13 @@ const KIND_ICON: Record<Trigger["kind"], IconName> = {
 };
 
 /** A labelled detail row in the trigger's definition list. */
-function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+function DetailRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <InlineStack gap="3" wrap="nowrap" blockAlign="start">
       <Box>

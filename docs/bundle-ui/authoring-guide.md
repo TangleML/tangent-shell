@@ -10,10 +10,10 @@ upload (Phase 3); you ship plain `.tsx`.
 
 ## The two kinds
 
-| Kind | Trigger | Gets props from | Typical use |
-| --- | --- | --- | --- |
-| `message` | The agent emits a `tangent-ui:<name>` token | `host.getProps()` (the token's JSON) | Live status chip, result card |
-| `panel` | Listed in the composer for the session's bundle | none (`getProps()` is empty) | Input form, quick-action buttons |
+| Kind      | Trigger                                         | Gets props from                      | Typical use                      |
+| --------- | ----------------------------------------------- | ------------------------------------ | -------------------------------- |
+| `message` | The agent emits a `tangent-ui:<name>` token     | `host.getProps()` (the token's JSON) | Live status chip, result card    |
+| `panel`   | Listed in the composer for the session's bundle | none (`getProps()` is empty)         | Input form, quick-action buttons |
 
 Declare each one in `tangent.yaml`; see [`manifest.md`](manifest.md).
 
@@ -40,7 +40,7 @@ string is `tangent-ui:<name>`, with a JSON object as the body:
 The host markdown renderer
 ([`src/shared/lib/markdown/Markdown.tsx`](../../src/shared/lib/markdown/Markdown.tsx))
 detects fenced blocks in its `code` handler. Today that handler matches the
-language with `` /language-(\w+)/ ``, which only accepts word characters and so
+language with `/language-(\w+)/`, which only accepts word characters and so
 will **not** match `language-tangent-ui:pipeline-progress` (it contains a hyphen
 and a colon). Phase 6 widens this detection to recognize the `tangent-ui:` prefix,
 parse the JSON body, and mount a `BundleUiHost` instead of a `CodeBlock`. While
@@ -83,7 +83,11 @@ export default function PipelineProgress() {
         if (active && res.ok) {
           const s = (res.json as { child_execution_status_summary?: unknown })
             ?.child_execution_status_summary as
-            | { total_executions?: number; ended_executions?: number; has_ended?: boolean }
+            | {
+                total_executions?: number;
+                ended_executions?: number;
+                has_ended?: boolean;
+              }
             | undefined;
           if (s) {
             setSummary({
@@ -136,7 +140,13 @@ export default function PipelineProgress() {
 `ui/launch-experiment.tsx` — a form that composes and sends a prompt:
 
 ```tsx
-import { BlockStack, Button, Heading, host, Textarea } from "@tangent/bundle-ui";
+import {
+  BlockStack,
+  Button,
+  Heading,
+  host,
+  Textarea,
+} from "@tangent/bundle-ui";
 import { useState } from "react";
 
 export default function LaunchExperiment() {
