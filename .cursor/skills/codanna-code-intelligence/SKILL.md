@@ -31,7 +31,7 @@ Codanna is the **primary tool** for code analysis in this project. Prefer Codann
 
 ```
 CallMcpTool server:user-codanna toolName:semantic_search_with_context
-  arguments: { "query": "pipeline validation before run", "limit": 3 }
+  arguments: { "query": "trigger engine evaluation", "limit": 3 }
 ```
 
 Returns: symbol + docs + callers + callees + type usage + impact graph. Best for orienting on unfamiliar code.
@@ -40,7 +40,7 @@ Returns: symbol + docs + callers + callees + type usage + impact graph. Best for
 
 ```
 CallMcpTool server:user-codanna toolName:analyze_impact
-  arguments: { "symbol_name": "WindowStore", "max_depth": 3 }
+  arguments: { "symbol_name": "piAgentManager", "max_depth": 3 }
 ```
 
 Returns: everything that depends on the symbol (calls, type usage, JSX composition). Use before refactoring.
@@ -51,21 +51,21 @@ Returns: everything that depends on the symbol (calls, type usage, JSX compositi
 
 ```
 CallMcpTool server:user-codanna toolName:find_symbol
-  arguments: { "name": "useFlowStore" }
+  arguments: { "name": "useSessions" }
 ```
 
 **`search_symbols`** — Fuzzy text search across symbol names. Supports `kind` filter.
 
 ```
 CallMcpTool server:user-codanna toolName:search_symbols
-  arguments: { "query": "FlowCanvas", "kind": "Function", "limit": 5 }
+  arguments: { "query": "AgentBundle", "kind": "Function", "limit": 5 }
 ```
 
 **`get_calls`** / **`find_callers`** — Trace call relationships in one direction.
 
 ```
 CallMcpTool server:user-codanna toolName:find_callers
-  arguments: { "function_name": "createPipeline" }
+  arguments: { "function_name": "useAgentBundle" }
 ```
 
 Use `symbol_id` (returned by other tools) for unambiguous lookup when names are common.
@@ -104,14 +104,14 @@ Use `symbol_id` (returned by other tools) for unambiguous lookup when names are 
 
 ### "Find code related to a concept"
 
-1. `semantic_search_with_context` with descriptive query (e.g., "undo redo history management")
+1. `semantic_search_with_context` with descriptive query (e.g., "agent bundle upload flow")
 2. Refine with `search_symbols` if you need to narrow by kind or module
 
 ## Query Writing Tips
 
-- Be specific: "pipeline node validation before execution" not "validation"
-- Use domain terms: "task annotation schema" not "data format"
-- Add context: "React Flow edge connection rules" not "edges"
+- Be specific: "trigger callback URL handling" not "triggers"
+- Use domain terms: "agent bundle egress allowlist" not "network config"
+- Add context: "session storage on disk" not "storage"
 - Filter by language when needed: `lang: "typescript"`
 
 ## Rules

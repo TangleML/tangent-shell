@@ -16,9 +16,9 @@ Perform a holistic code review of recent changes against project standards. **Al
 
 2. **Read full files** — Always read the complete files being reviewed, not just diffs. Context matters.
 
-3. **Read project standards** — Before analyzing, read these two files to ground the review in project rules:
-   - `.cursorrules` (project root) — coding standards, patterns, and conventions.
+3. **Read project standards** — Before analyzing, read these files to ground the review in project rules:
    - `docs/react-best-practices.md` — React-specific patterns (stable values, co-location, Suspense, UI primitives).
+   - The relevant `.claude/skills/*` skills — `project-conventions`, `react-patterns`, `typescript-standards`, and `ui-primitives`.
      Use them as the primary source of truth. The checklist below summarizes and extends these rules, but defer to the source files when in doubt.
 
 4. **Switch to Plan mode** — Call `SwitchMode` with `target_mode_id: "plan"` before presenting findings. All suggestions must be delivered as a plan, not as direct edits.
@@ -178,15 +178,16 @@ Prefer project UI primitives over raw HTML:
 
 ```tsx
 // ❌ BAD
-function createNode(type: string, label: string, x: number, y: number) { ... }
+function createTrigger(name: string, prompt: string, cron: string, enabled: boolean) { ... }
 
 // ✅ GOOD
-interface CreateNodeOptions {
-  type: string;
-  label: string;
-  position: { x: number; y: number };
+interface CreateTriggerOptions {
+  name: string;
+  prompt: string;
+  cron: string;
+  enabled: boolean;
 }
-function createNode(options: CreateNodeOptions) { ... }
+function createTrigger(options: CreateTriggerOptions) { ... }
 ```
 
 ### 10. TypeScript Typings
@@ -259,21 +260,21 @@ const handleInputClick = (event: React.MouseEvent) => {
 <Component onClick={handleInputClick} />;
 ```
 
-### 12. Store & State Encapsulation
+### 12. State Management & Encapsulation
 
-Global stores (MobX, Zustand, etc.) should expose a public API through action helpers; external consumers should never import the store instance directly.
+State should live in the right layer and be accessed through a clear public API. This project keeps server state in TanStack Query, local UI state in hooks, and app-wide state in React context.
 
-- **Action helpers file**: Each store should have a co-located actions file (e.g., `windowActions.ts` next to `windowStore.ts`) that exports all public mutations and queries. Components and hooks import from the actions file, not the store.
-- **No direct store mutation from plugins/utilities**: State-modifying logic must route through store `@action` methods. Plugins or external modules that need to change state should call store methods (possibly "quiet" variants that skip event emission) rather than writing to observable properties directly.
-- **Store instance imports**: Only internal infrastructure (persistence, reactive subscriptions) should import the store instance for reactive reads. Components that need reactive data may access the store for reads, but all writes go through action helpers.
+- **Server state belongs in TanStack Query**: Fetching/caching/mutation logic lives in co-located query/mutation hooks (e.g., `useSessions`, `useAgentBundle`), not ad-hoc `useEffect` + `fetch` in components.
+- **Encapsulate behind hooks**: Components consume feature hooks rather than reaching into query keys, raw fetch clients, or context internals directly.
+- **Single source of truth**: Don't duplicate server-derived data into local `useState`; read it from the query cache. Don't duplicate the same state-change logic across modules — share a hook.
 
 **Red flags:**
 
-- External files (outside the store's feature folder) importing the store instance.
-- Utility functions directly mutating `store.someProperty = ...` instead of calling `store.updateSomething(...)`.
-- Multiple modules duplicating the same state-change logic instead of sharing a store method.
+- Components calling `fetch`/the API client directly instead of going through a feature hook.
+- Copying query data into local state, then keeping the two in sync manually.
+- Multiple modules duplicating the same mutation/cache-invalidation logic instead of sharing a hook.
 
-### 13. General Quality (from .cursorrules)
+### 13. General Quality (from docs/react-best-practices.md)
 
 - **Imports**: absolute `@/` paths, correct order (external → internal → relative).
 - **State**: Tanstack Query for server state, hooks for local state, Context for app-wide state.
@@ -284,7 +285,7 @@ Global stores (MobX, Zustand, etc.) should expose a public API through action he
 - **Comments**: explain "why" not "what". Remove obvious/narrating comments.
 - **No `console.log` / `console.debug` in production code** — remove debug logging before merging. Use a proper logger if runtime diagnostics are needed.
 - **No `setTimeout(..., 0)` to work around rendering timing** — this is a code smell that means state is initialized incorrectly. Initialize state in the correct phase (constructor, action, or effect) instead of deferring with a zero-delay timeout.
-- **No direct DOM mutations** (`element.style.x = ...`) inside React components without a documenting comment explaining why the React render cycle cannot handle the update (e.g., optimistic visual feedback during drag before the next MobX re-render).
+- **No direct DOM mutations** (`element.style.x = ...`) inside React components without a documenting comment explaining why the React render cycle cannot handle the update (e.g., optimistic visual feedback during a drag interaction before the next render).
 
 ### 14. Holistic View
 
@@ -310,7 +311,7 @@ Present findings as a plan using this structure:
 #### 1. [Title] — `file:line`
 
 **Severity**: High / Medium / Low
-**Category**: [React Compiler | Co-location | Duplication | Readability | Component Size | useMutation | UI Primitives | SOLID | Function Signature | TypeScript Typings | Event Handlers | Store Encapsulation | General Quality | Holistic]
+**Category**: [React Compiler | Co-location | Duplication | Readability | Component Size | useMutation | UI Primitives | SOLID | Function Signature | TypeScript Typings | Event Handlers | State Management | General Quality | Holistic]
 
 [Brief description with code snippet]
 
@@ -335,8 +336,8 @@ Present findings as a plan using this structure:
 
 ### Severity Guide
 
-- **High**: Bugs, runtime errors, security issues, missing React Compiler registration, SOLID violations causing maintenance burden, direct store mutation from external modules.
-- **Medium**: Co-location violations, missing UI primitives, duplication, readability issues, components > 200 lines with mixed concerns, undestructured `useMutation` usage, store instance imported outside its feature folder.
+- **High**: Bugs, runtime errors, security issues, missing React Compiler registration, SOLID violations causing maintenance burden, bypassing TanStack Query with ad-hoc data fetching.
+- **Medium**: Co-location violations, missing UI primitives, duplication, readability issues, components > 200 lines with mixed concerns, undestructured `useMutation` usage, server state copied into local component state.
 - **Low**: Style nits, minor naming inconsistencies, optional optimizations.
 
 ### Principles

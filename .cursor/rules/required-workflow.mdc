@@ -1,0 +1,41 @@
+---
+description: Required agent workflow — tooling, code quality, and validation
+alwaysApply: true
+---
+
+# Required Workflow
+
+## Code Navigation
+
+Use the Codanna code intelligence skill (`.cursor/skills/codanna-code-intelligence/SKILL.md`).
+Never use grep/ripgrep/find for symbol lookups — use Codanna MCP instead.
+
+- **Navigate with Codanna MCP, not grep/ripgrep/find.** Use `find_symbol` / `search_symbols` for symbol lookups and `semantic_search_with_context` to understand how code works.
+- **Trace relationships** with `find_callers` (who calls this) and `get_calls` (what this calls). Chain follow-ups with `symbol_id` to avoid ambiguity.
+- **Assess impact before changing a symbol.** Run `analyze_impact` (use `max_depth: 4` for thorough analysis) to find every dependent — direct callers, type consumers, JSX renderers — then read affected files to plan the change.
+- **Fall back to Grep only for literal matches** (error strings, config keys, CSS classes, URLs).
+- **Confirm with Read** — Codanna results are pointers; read the actual file before editing.
+
+## Refactoring
+
+Use the TypeScript refactoring skill (`.cursor/skills/typescript-refactoring/SKILL.md`) for moving/extracting symbols. Never use manual sed/grep/mv.
+
+## Code Quality
+
+- **No nested ifs or nested loops** — flatten with early returns, guard clauses, or extract helpers.
+- **Keep FTA score low** — check a single file with `pnpm exec fta <file-path> --json`, or scan the whole backend with `pnpm analyze:server` (`fta server/src`).
+- **No `className` on Tangle UI primitives** — use semantic props or the layer-3 patterns (`Surface`, `ListRow`, `ScrollRegion`, `Truncating`, `IconButton`, ...) from `@/shared/ui/patterns/*`. See `.claude/skills/ui-primitives/SKILL.md`. Enforced by the ESLint rule `tangle-ui/no-classname-on-primitives` (set to `error` in `eslint.config.js`).
+
+## React Compiler
+
+**Do NOT use `useCallback` or `useMemo`** — the compiler handles memoization automatically.
+
+## Validation (run at the end)
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm format
+```
+
+- **Lint issues** → run `pnpm lint --fix` first, then re-run the checks above.
