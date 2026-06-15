@@ -2,14 +2,23 @@ import type { Session } from "@shared/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useRef } from "react";
 
+import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
+import { DEFAULT_BUNDLE_ID } from "@/features/sessions/constants";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
+import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
 import { Button } from "@/shared/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Breadcrumbs, CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
+import { IconButton } from "@/shared/ui/patterns/icon-button";
 import {
   SideNav,
   SideNavLink,
@@ -24,8 +33,7 @@ import {
   TableRow,
 } from "@/shared/ui/patterns/table";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
-import { Heading, Paragraph, Text } from "@/shared/ui/typography";
-import { DEFAULT_BUNDLE_ID } from "@/features/sessions/constants";
+import { Paragraph, Text } from "@/shared/ui/typography";
 
 export function SessionsPage() {
   const { data: sessions, isLoading, error } = useSessions();
@@ -55,13 +63,47 @@ export function SessionsPage() {
     createSession.mutate({ bundleId, name }, { onSuccess: openSession });
 
   const createDefaultSession = (
-    <Button
-      variant="outline"
-      onClick={() => startFromBundle(DEFAULT_BUNDLE_ID, "Session")}
-      disabled={createSession.isPending}
-    >
-      {createSession.isPending ? "Creating..." : "New session"}
-    </Button>
+    <InlineStack gap="0.5" blockAlign="center">
+      <Button
+        variant="outline"
+        onClick={() => startFromBundle(DEFAULT_BUNDLE_ID, "Session")}
+        disabled={createSession.isPending}
+      >
+        {createSession.isPending ? "Creating..." : "New session"}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <IconButton
+            icon="ChevronDown"
+            variant="outline"
+            size="lg"
+            aria-label="Choose a bundle"
+            disabled={createSession.isPending || !bundles?.length}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {bundles?.map((bundle) => (
+            <DropdownMenuItem
+              key={bundle.id}
+              onSelect={() => startFromBundle(bundle.id, bundle.name)}
+            >
+              <InlineStack gap="2" blockAlign="center">
+                {bundle.hasIcon ? (
+                  <BundleIconImage
+                    src={agentBundleIconUrl(bundle.id)}
+                    alt=""
+                    size="xs"
+                  />
+                ) : (
+                  <Icon name="Package" size="sm" />
+                )}
+                <Text size="sm">{bundle.name}</Text>
+              </InlineStack>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </InlineStack>
   );
 
   const sidebar = (
