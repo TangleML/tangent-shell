@@ -24,7 +24,8 @@ export type AgentEvent =
   | { type: "thinking"; messageId: string; delta: string }
   | { type: "end"; messageId: string; content: string; thinking: string }
   | { type: "error"; messageId?: string; message: string }
-  | { type: "activity"; activity: AgentActivity | null };
+  | { type: "activity"; activity: AgentActivity | null }
+  | { type: "queue"; steering: string[]; followUp: string[] };
 
 /** Identifies which agent in a session produced an {@link AgentEvent}. */
 export interface AgentDescriptor {
@@ -135,4 +136,8 @@ export interface PiStdoutEvent {
   args?: unknown;
   /** Present on `tool_execution_end` events. */
   isError?: boolean;
+  /** Present on `queue_update` events: pending steering messages. */
+  steering?: unknown;
+  /** Present on `queue_update` events: pending follow-up messages. */
+  followUp?: unknown;
 }

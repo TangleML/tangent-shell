@@ -11,14 +11,17 @@ It builds on the mechanics in [orchestrator.md](./orchestrator.md).
 From [server/src/pi/primePrompt.md](../../server/src/pi/primePrompt.md) and the
 orchestrator extension's role gating:
 
-- **The human only talks to Prime.** Human messages are always relayed to Prime
-  (`pi.prompt` -> `sendToAgent("prime", ...)`); sub-agents never receive human
-  input directly.
+- **The human talks to Prime, and can nudge any sub-agent.** Human messages
+  default to Prime (`pi.prompt` -> `sendToAgent("prime", ...)`), but a
+  `chat:message` carrying a sub-agent `conversationId` is relayed to that
+  sub-agent (`sendToAgent(<subId>, ...)`) so the user can steer or follow-up an
+  in-flight sub-agent from its own thread tab. Prime still owns spawning and
+  directing sub-agents.
 - **Only Prime directs sub-agents.** Prime alone has `spawn_subagent`,
   `message_subagent`, `kill_subagent`, and `list_subagents`.
 - **Sub-agents are read-only observers of each other.** Every agent (Prime and
   sub-agents) has `read_room` to read the shared transcript, but a sub-agent
-  cannot message or spawn other agents. It can only push a directed update *up*
+  cannot message or spawn other agents. It can only push a directed update _up_
   to Prime via `message_prime`. Prime relays information between sub-agents when
   they need to coordinate.
 - **All work shares one workspace.** Every agent's `cwd` is the same session root
@@ -120,7 +123,9 @@ sequenceDiagram
 ```
 
 If the relayed sub-agent reply arrives while Prime is mid-run, `sendToAgent`
-attaches `streamingBehavior: "followUp"` so Pi queues it rather than dropping it.
+attaches `streamingBehavior: "followUp"` (the `"auto"` default) so Pi queues it
+rather than dropping it. Human nudges can instead pass `delivery: "steer"` to
+apply before the agent's next LLM call.
 
 ---
 
@@ -194,7 +199,7 @@ sequenceDiagram
 ```
 
 The difference from the automatic relay: `message_prime` is sub-agent-initiated
-and attributed to the sub-agent; the automatic relay fires for *every* finalized
+and attributed to the sub-agent; the automatic relay fires for _every_ finalized
 sub-agent message regardless, so milestones aren't dropped even if the sub-agent
 never calls `message_prime`.
 
@@ -263,7 +268,8 @@ templates ship under
 `reviewer`, `worker`); a bundle can override or add templates via its `agents/`
 directory. Resolution precedence (`resolveSubagentConfig` in
 [agentConfig.ts](../../server/src/pi/agentConfig.ts)): inline request > template
+
 > bundle/session default > global base. `read_room` (and the other shared tools)
-are always merged into the allowlist so the extension's tool is never filtered
-out. See [extensions-and-prompts.md](./extensions-and-prompts.md) for the full
-resolution rules.
+> are always merged into the allowlist so the extension's tool is never filtered
+> out. See [extensions-and-prompts.md](./extensions-and-prompts.md) for the full
+> resolution rules.

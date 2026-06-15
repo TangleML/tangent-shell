@@ -7,6 +7,7 @@ import {
   type AgentDeltaPayload,
   type AgentEndPayload,
   type AgentErrorPayload,
+  type AgentQueuePayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
   type ArtifactPinPayload,
@@ -190,6 +191,20 @@ function emitActivity(
   io.to(ctx.room).emit(SocketEvents.AgentActivity, payload);
 }
 
+function emitQueue(
+  io: Server,
+  ctx: EmitContext,
+  event: { steering: string[]; followUp: string[] },
+): void {
+  const payload: AgentQueuePayload = {
+    sessionId: ctx.sessionId,
+    conversationId: ctx.conversationId,
+    steering: event.steering,
+    followUp: event.followUp,
+  };
+  io.to(ctx.room).emit(SocketEvents.AgentQueue, payload);
+}
+
 /**
  * Builds the handler that relays agents' streaming events to the matching
  * session room, dispatching each event variant to its emit helper.
@@ -244,6 +259,8 @@ function relayTerminalEvent(
       return emitError(io, ctx, event);
     case "activity":
       return emitActivity(io, ctx, event.activity);
+    case "queue":
+      return emitQueue(io, ctx, event);
   }
 }
 
@@ -500,9 +517,10 @@ interface ArtifactRef {
 }
 
 /** Validates a pin/unpin payload, returning a trimmed ref or null if invalid. */
-function readArtifactRef(
-  payload?: { sessionId?: string; path?: string },
-): ArtifactRef | null {
+function readArtifactRef(payload?: {
+  sessionId?: string;
+  path?: string;
+}): ArtifactRef | null {
   if (!payload) return null;
   const path = payload.path?.trim();
   if (!payload.sessionId || !path) return null;
@@ -557,13 +575,18 @@ async function handleChatMessage(
   }
 
   const room = roomFor(session.id);
+  // Target agent thread: Prime by default, or a specific sub-agent so users can
+  // steer it from its own tab.
+  const conversationId = payload.conversationId ?? PRIME_AGENT_ID;
+  const delivery = payload.delivery ?? "auto";
 
   // Broadcast the user's own message to the room (including the sender, so it
-  // renders without optimistic updates and other participants see it).
+  // renders without optimistic updates and other participants see it). Tagged
+  // with the target conversation so it lands in the right thread.
   const userMessage = buildMessage(
     randomUUID(),
     session.id,
-    PRIME_AGENT_ID,
+    conversationId,
     payload.author,
     payload.content,
     undefined,
@@ -575,9 +598,13 @@ async function handleChatMessage(
   // Relay the message into the session's Pi process, surfacing any attached
   // files by their workspace-relative path so the agent knows to read them. The
   // reply streams back asynchronously through the agent event handler.
-  pi.prompt(
-    session.id,
-    session.rootPath,
-    promptWithAttachments(payload.content, payload.attachments),
-  );
+  // `delivery` controls whether a mid-run message steers (before the next LLM
+  // call) or queues as a follow-up. The message is already persisted/broadcast
+  // above, so sub-agent sends omit `surfaceAuthor` to avoid a duplicate bubble.
+  const text = promptWithAttachments(payload.content, payload.attachments);
+  if (conversationId === PRIME_AGENT_ID) {
+    pi.prompt(session.id, session.rootPath, text, delivery);
+    return;
+  }
+  pi.sendToAgent(session.id, conversationId, text, undefined, delivery);
 }

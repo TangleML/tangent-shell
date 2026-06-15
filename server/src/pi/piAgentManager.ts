@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   type AgentActivity,
   type ChatAuthor,
+  type MessageDelivery,
   PI_AGENT,
   type SubagentInfo,
   type SubagentStatus,
@@ -221,6 +222,24 @@ function logStdoutLine(
   }
 }
 
+/** Coerces an unknown Pi `queue_update` field into a string array, dropping
+ * non-string entries so a malformed line can't crash the relay. */
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+/**
+ * Maps a delivery mode to Pi's `streamingBehavior` for a mid-run message: only
+ * an explicit steer nudges before the next LLM call; everything else (including
+ * `"auto"`) queues as a follow-up so nothing is dropped.
+ */
+function busyStreamingBehavior(
+  delivery: MessageDelivery,
+): "steer" | "followUp" {
+  return delivery === "steer" ? "steer" : "followUp";
+}
+
 /**
  * Manages a roster of long-lived `pi --mode rpc` child processes per session:
  * one Prime agent plus the sub-agents Prime spawns at runtime.
@@ -278,10 +297,16 @@ export class PiAgentManager {
   /**
    * Relays a human message to the session's Prime process, spawning it first if
    * needed. Only Prime receives human input; sub-agents are directed by Prime.
+   * `delivery` controls how the message is queued when Prime is mid-run.
    */
-  prompt(sessionId: string, rootPath: string, text: string): void {
+  prompt(
+    sessionId: string,
+    rootPath: string,
+    text: string,
+    delivery: MessageDelivery = "auto",
+  ): void {
     this.ensure(sessionId, rootPath);
-    this.sendToAgent(sessionId, PRIME_AGENT_ID, text);
+    this.sendToAgent(sessionId, PRIME_AGENT_ID, text, undefined, delivery);
   }
 
   /**
@@ -327,7 +352,10 @@ export class PiAgentManager {
 
   /**
    * Delivers a message to a specific agent's stdin. If that agent is already
-   * streaming, the message is queued with `followUp` so nothing is dropped.
+   * streaming, the message is queued: `delivery: "steer"` applies it after the
+   * current tool call (before the next LLM call), while `"followUp"` (and the
+   * `"auto"` default) waits until the run fully stops. The default preserves
+   * the original behavior so internal relays never drop a message.
    *
    * When `surfaceAuthor` is provided and the target is a sub-agent, the message
    * is also surfaced into that sub-agent's transcript (attributed to
@@ -339,6 +367,7 @@ export class PiAgentManager {
     agentId: string,
     text: string,
     surfaceAuthor?: ChatAuthor,
+    delivery: MessageDelivery = "auto",
   ): void {
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
     if (!agent) {
@@ -350,28 +379,46 @@ export class PiAgentManager {
       return;
     }
 
-    if (surfaceAuthor && agent.role === "subagent") {
-      this.handlers.onAgentMessage(sessionId, agentId, surfaceAuthor, text);
-    }
+    this.surfaceDirectedMessage(sessionId, agent, text, surfaceAuthor);
 
     const command: Record<string, unknown> = {
       id: randomUUID(),
       type: "prompt",
       message: text,
     };
-    if (agent.busy) command.streamingBehavior = "followUp";
+    // `streamingBehavior` is only valid while the agent is streaming; when idle,
+    // send a plain prompt.
+    if (agent.busy) {
+      command.streamingBehavior = busyStreamingBehavior(delivery);
+    }
 
     console.log(
       `[pi:${sessionId}:${agentId}] prompt`,
       JSON.stringify({
         role: agent.role,
         wasBusy: agent.busy,
+        delivery,
         textLength: text.length,
       }),
     );
 
     agent.busy = true;
     agent.child.stdin.write(`${JSON.stringify(command)}\n`);
+  }
+
+  /**
+   * Surfaces a directed message into a sub-agent's transcript (attributed to
+   * `surfaceAuthor`) so directed tasks and human nudges read as a real
+   * conversation. No-op for Prime or when no author is given (internal relays).
+   */
+  private surfaceDirectedMessage(
+    sessionId: string,
+    agent: AgentProcess,
+    text: string,
+    surfaceAuthor?: ChatAuthor,
+  ): void {
+    if (!surfaceAuthor || agent.role !== "subagent") return;
+    this.handlers.onAgentMessage(sessionId, agent.agentId, surfaceAuthor, text);
   }
 
   /**
@@ -411,7 +458,10 @@ export class PiAgentManager {
     if (!agent || !agent.busy) return;
 
     agent.aborted = true;
-    console.log(`[pi:${sessionId}:${agentId}] abort`, JSON.stringify({ role: agent.role }));
+    console.log(
+      `[pi:${sessionId}:${agentId}] abort`,
+      JSON.stringify({ role: agent.role }),
+    );
     agent.child.stdin.write(
       `${JSON.stringify({ id: randomUUID(), type: "abort" })}\n`,
     );
@@ -556,6 +606,8 @@ export class PiAgentManager {
         this.onMessageEnd(sessionId, agent, descriptor, event),
       tool_execution_start: ({ sessionId, descriptor, event }) =>
         this.onToolExecutionStart(sessionId, descriptor, event),
+      queue_update: ({ sessionId, descriptor, event }) =>
+        this.onQueueUpdate(sessionId, descriptor, event),
       agent_end: ({ sessionId, agent, descriptor }) =>
         this.onAgentEnd(sessionId, agent, descriptor),
     };
@@ -684,7 +736,8 @@ export class PiAgentManager {
     descriptor: AgentDescriptor,
     event: PiStdoutEvent,
   ): void {
-    const content = assistantTextFromMessage(event.message) || agent.accum || "";
+    const content =
+      assistantTextFromMessage(event.message) || agent.accum || "";
     if (content.trim()) agent.lastFinalContent = content;
 
     this.handlers.onAgentEvent(sessionId, descriptor, {
@@ -719,6 +772,23 @@ export class PiAgentManager {
       kind: "tool",
       label: toolActivityLabel(toolName, event.args),
       toolName,
+    });
+  }
+
+  /**
+   * Relays Pi's pending steer/follow-up queue to the chat layer so the UI can
+   * surface queued nudges and clear them once the agent picks them up. Pi emits
+   * this whenever the queue changes (message queued or drained).
+   */
+  private onQueueUpdate(
+    sessionId: string,
+    descriptor: AgentDescriptor,
+    event: PiStdoutEvent,
+  ): void {
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      type: "queue",
+      steering: toStringArray(event.steering),
+      followUp: toStringArray(event.followUp),
     });
   }
 

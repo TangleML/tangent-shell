@@ -25,33 +25,33 @@ implemented under [server/src/routes/](../../server/src/routes).
 
 ### Sessions — [routes/sessions.ts](../../server/src/routes/sessions.ts)
 
-| Method + path | Purpose |
-| --- | --- |
-| `GET /api/sessions` | List sessions (sorted by `createdAt`). |
-| `POST /api/sessions` | Create a session. Plain JSON, or a multipart `config` ZIP, or `{ bundleId }` referencing a marketplace bundle. |
-| `GET /api/sessions/:id` | Fetch one session. |
-| `PATCH /api/sessions/:id` | Rename a session. |
-| `DELETE /api/sessions/:id` | Delete a session; disposes its `pi` processes and triggers. |
-| `POST /api/sessions/:id/files` | Upload chat attachments into the session's `uploads/`. |
-| `GET /api/sessions/:id/triggers` | List the session's triggers. |
-| `POST /api/sessions/:id/triggers` | Create a runtime trigger. |
-| `PATCH /api/sessions/:id/triggers/:triggerId` | Update a mutable trigger field. |
-| `DELETE /api/sessions/:id/triggers/:triggerId` | Delete a trigger. |
-| `POST /api/sessions/:id/triggers/:triggerId/callback/:secret` | Public, secret-guarded inbound callback that fires a callback trigger. |
-| `GET /api/sessions/:id/files/*splat` | Serve a file from the session's `artifacts/` or `uploads/` subtree (path-traversal guarded). |
+| Method + path                                                 | Purpose                                                                                                        |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET /api/sessions`                                           | List sessions (sorted by `createdAt`).                                                                         |
+| `POST /api/sessions`                                          | Create a session. Plain JSON, or a multipart `config` ZIP, or `{ bundleId }` referencing a marketplace bundle. |
+| `GET /api/sessions/:id`                                       | Fetch one session.                                                                                             |
+| `PATCH /api/sessions/:id`                                     | Rename a session.                                                                                              |
+| `DELETE /api/sessions/:id`                                    | Delete a session; disposes its `pi` processes and triggers.                                                    |
+| `POST /api/sessions/:id/files`                                | Upload chat attachments into the session's `uploads/`.                                                         |
+| `GET /api/sessions/:id/triggers`                              | List the session's triggers.                                                                                   |
+| `POST /api/sessions/:id/triggers`                             | Create a runtime trigger.                                                                                      |
+| `PATCH /api/sessions/:id/triggers/:triggerId`                 | Update a mutable trigger field.                                                                                |
+| `DELETE /api/sessions/:id/triggers/:triggerId`                | Delete a trigger.                                                                                              |
+| `POST /api/sessions/:id/triggers/:triggerId/callback/:secret` | Public, secret-guarded inbound callback that fires a callback trigger.                                         |
+| `GET /api/sessions/:id/files/*splat`                          | Serve a file from the session's `artifacts/` or `uploads/` subtree (path-traversal guarded).                   |
 
 ### Agent bundles — [routes/agentBundles.ts](../../server/src/routes/agentBundles.ts)
 
-| Method + path | Purpose |
-| --- | --- |
-| `GET /api/agent-bundles` | List saved bundle metadata. |
-| `POST /api/agent-bundles` | Upload + validate + store a bundle ZIP (multipart `bundle`). |
-| `GET /api/agent-bundles/:id` | Fetch one bundle's metadata. |
-| `GET /api/agent-bundles/:id/icon` | Serve the preview SVG. |
-| `GET /api/agent-bundles/:id/download` | Download the original ZIP. |
-| `GET /api/agent-bundles/:id/ui/:file` | Serve a compiled UI component JS asset. |
-| `POST /api/agent-bundles/ui-egress` | The bundle-UI `host.fetch` egress proxy. |
-| `DELETE /api/agent-bundles/:id` | Delete a saved bundle. |
+| Method + path                         | Purpose                                                      |
+| ------------------------------------- | ------------------------------------------------------------ |
+| `GET /api/agent-bundles`              | List saved bundle metadata.                                  |
+| `POST /api/agent-bundles`             | Upload + validate + store a bundle ZIP (multipart `bundle`). |
+| `GET /api/agent-bundles/:id`          | Fetch one bundle's metadata.                                 |
+| `GET /api/agent-bundles/:id/icon`     | Serve the preview SVG.                                       |
+| `GET /api/agent-bundles/:id/download` | Download the original ZIP.                                   |
+| `GET /api/agent-bundles/:id/ui/:file` | Serve a compiled UI component JS asset.                      |
+| `POST /api/agent-bundles/ui-egress`   | The bundle-UI `host.fetch` egress proxy.                     |
+| `DELETE /api/agent-bundles/:id`       | Delete a saved bundle.                                       |
 
 `GET /api/health` returns `{ ok: true }`.
 
@@ -65,8 +65,13 @@ Event names come from `SocketEvents` in
 ### Client -> Server
 
 - `chat:join` `{ sessionId }` — join the session room.
-- `chat:message` `{ sessionId, author, content, attachments? }` — post a human
-  message.
+- `chat:message` `{ sessionId, author, content, conversationId?, delivery?, attachments? }` —
+  post a human message. `conversationId` targets the thread (`"prime"` by
+  default, or a sub-agent id so users can steer it from its own tab).
+  `delivery` (`"auto" | "steer" | "followUp"`, default `"auto"`) controls how a
+  message is queued when the target agent is mid-run: `"steer"` nudges it before
+  the next LLM call, `"followUp"` waits until the run stops; both are ignored
+  when the agent is idle.
 - `agent:abort` `{ sessionId, conversationId }` — abort an agent's in-progress
   run (`conversationId` is `"prime"` or a sub-agent id).
 - `memory:confirm` `{ sessionId, suggestionId }` — accept a memory suggestion.
@@ -87,6 +92,9 @@ Event names come from `SocketEvents` in
 - `agent:error` `{ sessionId, messageId?, message }` — a run failed.
 - `agent:activity` `{ sessionId, conversationId, activity }` — ephemeral
   spinner state (`thinking` / `tool` / `null`); never persisted.
+- `agent:queue` `{ sessionId, conversationId, steering, followUp }` — the
+  agent's pending steer/follow-up nudges changed; drives the composer's
+  queued-nudge indicator. Empty arrays mean the queue drained.
 - `subagent:roster` `{ sessionId, subagents }` — full roster on join.
 - `subagent:update` `{ sessionId, subagent }` — one sub-agent's spawn/status
   change (upserted by id).
@@ -151,7 +159,7 @@ sequenceDiagram
   deactivate Socket
 ```
 
-Note: the artifact list is sent to *only the joining socket* using the same
+Note: the artifact list is sent to _only the joining socket_ using the same
 `artifacts.update` directive that later broadcasts mutations to the whole room.
 
 ---

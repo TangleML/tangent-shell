@@ -5,6 +5,7 @@ import {
   type AgentDeltaPayload,
   type AgentEndPayload,
   type AgentErrorPayload,
+  type AgentQueuePayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
   type ArtifactPinPayload,
@@ -16,6 +17,7 @@ import {
   type MemoryConfirmPayload,
   type MemoryDismissPayload,
   type MemorySuggestionPayload,
+  type MessageDelivery,
   PI_AGENT,
   type PinnedArtifact,
   type Session,
@@ -93,6 +95,11 @@ export function useSessionChat(sessionId: string) {
   const [activityByConversation, setActivityByConversation] = useState<
     Map<string, AgentActivity>
   >(() => new Map());
+  // Pending steer/follow-up nudges per conversation, mirrored from the agent's
+  // `agent:queue` events so the composer can surface what's waiting.
+  const [queuedByConversation, setQueuedByConversation] = useState<
+    Map<string, { steering: string[]; followUp: string[] }>
+  >(() => new Map());
   const socketRef = useRef<Socket | null>(null);
   // Maps an in-flight message id to its conversation so `agent:error` (which
   // only carries a messageId) can clear the right thread's streaming state.
@@ -125,6 +132,7 @@ export function useSessionChat(sessionId: string) {
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
+      setQueuedByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
       socket.emit(SocketEvents.ChatJoin, { sessionId });
@@ -135,6 +143,7 @@ export function useSessionChat(sessionId: string) {
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
+      setQueuedByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
     });
@@ -218,6 +227,22 @@ export function useSessionChat(sessionId: string) {
             next.set(conversationId, activity);
           } else {
             next.delete(conversationId);
+          }
+          return next;
+        });
+      },
+    );
+    // The agent's pending steer/follow-up queue changed: mirror it so the
+    // composer can show what's waiting. Empty arrays clear the entry.
+    socket.on(
+      SocketEvents.AgentQueue,
+      ({ conversationId, steering, followUp }: AgentQueuePayload) => {
+        setQueuedByConversation((prev) => {
+          const next = new Map(prev);
+          if (steering.length === 0 && followUp.length === 0) {
+            next.delete(conversationId);
+          } else {
+            next.set(conversationId, { steering, followUp });
           }
           return next;
         });
@@ -315,9 +340,20 @@ export function useSessionChat(sessionId: string) {
     };
   }, [sessionId]);
 
-  function send(content: string, attachments?: Attachment[]) {
+  // Sends a message to an agent thread. `conversationId` targets Prime by
+  // default or a sub-agent; `delivery` controls how a mid-run message is queued
+  // (steer before the next LLM call, or follow-up after the run stops).
+  function send(
+    content: string,
+    options?: {
+      conversationId?: string;
+      delivery?: MessageDelivery;
+      attachments?: Attachment[];
+    },
+  ) {
     const trimmed = content.trim();
     const socket = socketRef.current;
+    const attachments = options?.attachments;
     const hasAttachments = Boolean(attachments && attachments.length);
     if ((!trimmed && !hasAttachments) || !socket) return;
 
@@ -325,6 +361,8 @@ export function useSessionChat(sessionId: string) {
       sessionId,
       author,
       content: trimmed,
+      conversationId: options?.conversationId ?? PI_AGENT.id,
+      delivery: options?.delivery ?? "auto",
       ...(hasAttachments ? { attachments } : {}),
     };
     socket.emit(SocketEvents.ChatMessage, payload);
@@ -424,6 +462,16 @@ export function useSessionChat(sessionId: string) {
     [streamingMessageIds],
   );
 
+  // Pending steer/follow-up nudges for a conversation, or null when none are
+  // queued. Drives the composer's "queued nudge" indicator.
+  const getQueued = useCallback(
+    (
+      conversationId: string,
+    ): { steering: string[]; followUp: string[] } | null =>
+      queuedByConversation.get(conversationId) ?? null,
+    [queuedByConversation],
+  );
+
   return {
     messages,
     subagents,
@@ -440,6 +488,7 @@ export function useSessionChat(sessionId: string) {
     agentBusy: isConversationBusy(PI_AGENT.id),
     isConversationBusy,
     getActivity,
+    getQueued,
     isMessageStreaming,
     currentAuthorId: author.id,
     send,

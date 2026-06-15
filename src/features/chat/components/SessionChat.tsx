@@ -1,8 +1,4 @@
-import {
-  PI_AGENT,
-  type SubagentInfo,
-  type Trigger,
-} from "@shared/contracts";
+import { PI_AGENT, type SubagentInfo, type Trigger } from "@shared/contracts";
 import { useMemo } from "react";
 
 import {
@@ -53,6 +49,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     agentBusy,
     isConversationBusy,
     getActivity,
+    getQueued,
     isMessageStreaming,
     currentAuthorId,
     send,
@@ -195,10 +192,17 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               ) : null}
               <ChatInput
                 sessionId={sessionId}
-                disabled={!connected || agentBusy}
+                disabled={!connected}
                 agentBusy={agentBusy}
                 onAbort={() => abort(PI_AGENT.id)}
-                onSubmit={send}
+                onSubmit={(content, { delivery, attachments }) =>
+                  send(content, {
+                    conversationId: PI_AGENT.id,
+                    delivery,
+                    attachments,
+                  })
+                }
+                queued={getQueued(PI_AGENT.id)}
               />
             </BlockStack>
           </TabsContent>
@@ -214,8 +218,17 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 bundleId={bundleId}
                 activity={getActivity(agent.id)}
                 busy={isConversationBusy(agent.id)}
+                disabled={!connected}
                 isMessageStreaming={isMessageStreaming}
                 onAbort={() => abort(agent.id)}
+                onSubmit={(content, { delivery, attachments }) =>
+                  send(content, {
+                    conversationId: agent.id,
+                    delivery,
+                    attachments,
+                  })
+                }
+                queued={getQueued(agent.id)}
                 onOpenArtifact={openArtifactTab}
                 pinnedPaths={pinnedPaths}
                 onTogglePinArtifact={togglePinArtifact}
@@ -237,7 +250,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                   sessionId={sessionId}
                   url={tab.url}
                   title={tab.title}
-                  onSendPrompt={send}
+                  onSendPrompt={(content, attachments) =>
+                    send(content, { attachments })
+                  }
                 />
               )}
             </TabsContent>
@@ -290,10 +305,6 @@ function TriggerTabPanel({
     );
   }
   return (
-    <TriggerTabView
-      sessionId={sessionId}
-      trigger={trigger}
-      onClose={onClose}
-    />
+    <TriggerTabView sessionId={sessionId} trigger={trigger} onClose={onClose} />
   );
 }

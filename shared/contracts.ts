@@ -303,11 +303,28 @@ export interface ChatJoinPayload {
   sessionId: string;
 }
 
+/**
+ * How a chat message is delivered when its target agent is mid-run:
+ * - `"auto"`: normal prompt (queued by Pi as a follow-up only if busy).
+ * - `"steer"`: nudge applied after the current tool call, before the next LLM
+ *   call (true mid-run steering).
+ * - `"followUp"`: queued until the run fully stops.
+ * Ignored when the target agent is idle (always sent as a plain prompt).
+ */
+export type MessageDelivery = "auto" | "steer" | "followUp";
+
 /** Payload sent by the client to post a new chat message. */
 export interface ChatMessagePayload {
   sessionId: string;
   author: ChatAuthor;
   content: string;
+  /**
+   * Target agent's id (`"prime"` or a sub-agent id). Defaults to `"prime"` when
+   * omitted, so existing clients keep messaging Prime.
+   */
+  conversationId?: string;
+  /** Mid-run delivery mode for the target agent. Defaults to `"auto"`. */
+  delivery?: MessageDelivery;
   /** Files the human attached, already uploaded into the session workspace. */
   attachments?: Attachment[];
 }
@@ -377,6 +394,21 @@ export interface AgentActivityPayload {
   sessionId: string;
   conversationId: string;
   activity: AgentActivity | null;
+}
+
+/**
+ * Emitted (server -> client) when an agent's pending message queue changes
+ * (steer/follow-up messages added while the agent is mid-run, or drained as the
+ * agent processes them). Lets the UI surface pending nudges and clear them once
+ * the agent picks them up.
+ */
+export interface AgentQueuePayload {
+  sessionId: string;
+  conversationId: string;
+  /** Steering messages waiting to be applied before the next LLM call. */
+  steering: string[];
+  /** Follow-up messages waiting until the run fully stops. */
+  followUp: string[];
 }
 
 /** Full sub-agent roster for a session, emitted on join and on reset. */
@@ -499,6 +531,7 @@ export const SocketEvents = {
   AgentError: "agent:error",
   AgentActivity: "agent:activity",
   AgentAbort: "agent:abort",
+  AgentQueue: "agent:queue",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
   MemorySuggestion: "memory:suggestion",
