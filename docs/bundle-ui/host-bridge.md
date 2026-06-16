@@ -8,7 +8,7 @@ directly — every side effect goes through one of these three calls, and networ
 egress in particular is mediated and allowlisted by the host via `fetch`.
 
 ```ts
-type UICommand = { type: "collapse" };
+type UICommand = { type: "collapse" } | { type: "openUrl"; url: string };
 
 interface HostBridge {
   getProps(): Promise<Record<string, unknown>>;
@@ -83,12 +83,21 @@ without growing the bridge surface.
 
 - `{ type: "collapse" }` — collapses the chat message the component is rendered
   in (the same collapse the message's own control performs); the user can expand
-  it again from the collapsed affordance.
-- Message-surface only: on a `panel`, or for an unrecognized command, the call
-  is a no-op.
+  it again from the collapsed affordance. Message-surface only: on a `panel`, or
+  for an unrecognized command, the call is a no-op.
+- `{ type: "openUrl", url }` — opens `url` in a new browser tab. The host only
+  honors absolute `https:` URLs and severs the new context with
+  `noopener,noreferrer`; anything else is ignored. Because the command crosses
+  the worker thread, the new tab opens outside the original click's
+  user-activation window, so a popup blocker may suppress it — trigger it
+  directly from a user gesture (e.g. a `Button` press) for the best result.
 
 ```ts
 await host.execUICommand({ type: "collapse" });
+await host.execUICommand({
+  type: "openUrl",
+  url: "https://oasis.shopify.io/runs/abc",
+});
 ```
 
 ## `fetch(input, init?)`

@@ -38,10 +38,11 @@ export interface HostResponse {
  *
  * Modeled as a discriminated union (rather than bespoke methods) so new actions
  * can be added — each carrying its own payload — without growing the bridge
- * surface. The only action today collapses the chat message the component is
- * rendered in; it is a no-op outside a message surface.
+ * surface. `collapse` collapses the chat message the component is rendered in
+ * (a no-op outside a message surface); `openUrl` opens an `https:` destination
+ * in a new browser tab.
  */
-export type UICommand = { type: "collapse" };
+export type UICommand = { type: "collapse" } | { type: "openUrl"; url: string };
 
 /**
  * The only channel a sandboxed component has to the host. Exposed to the worker

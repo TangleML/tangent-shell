@@ -52,6 +52,16 @@ function writePersistedState(
   }
 }
 
+/**
+ * Opens an `https:` destination in a new tab on the component's behalf. Anything
+ * that is not an absolute `https:` URL is ignored, and the new context is
+ * severed with `noopener,noreferrer` so it cannot reach back into the host.
+ */
+function openExternalUrl(url: unknown): void {
+  if (typeof url !== "string" || !/^https:\/\//.test(url)) return;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 const remoteComponents: RemoteComponentRendererMap = new Map([
   ...BUNDLE_UI_ELEMENT_NAMES.map(
     (name) =>
@@ -138,6 +148,7 @@ export function BundleUiHost({
       },
       onUICommand: (command: UICommand) => {
         if (command.type === "collapse") collapseRef.current?.();
+        if (command.type === "openUrl") openExternalUrl(command.url);
       },
     });
 
