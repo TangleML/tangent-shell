@@ -7,6 +7,9 @@
  *
  * No `as` casts: `A extends P` makes the parsed attributes assignable to `P`, and
  * the optional `wire` callback handles event / extra-prop wiring with full types.
+ * `createElement<P>` is called with an explicit type argument so the generic
+ * overload is selected directly, sidestepping the inference failure that the
+ * `ComponentType<P>` union otherwise triggers.
  */
 
 import { type ComponentType, createElement, type ReactNode } from "react";
@@ -14,7 +17,7 @@ import type { z } from "zod";
 
 import type { RemoteProps } from "./remote-props";
 
-export function makeHostComponent<P, A extends P>(
+export function makeHostComponent<P extends object, A extends P>(
   Component: ComponentType<P>,
   schema: z.ZodType<A>,
   /** Optional, fully-typed event / extra-prop wiring (host + primitive specific). */
@@ -25,7 +28,7 @@ export function makeHostComponent<P, A extends P>(
     // (children, on<Event>) are stripped, so the primitive uses its defaults.
     const parsed = schema.parse(props);
     const wired = wire?.(props);
-    return createElement(Component, { ...parsed, ...wired }, props.children);
+    return createElement<P>(Component, { ...parsed, ...wired }, props.children);
   }
   Host.displayName = `Host(${Component.displayName ?? Component.name})`;
   return Host;

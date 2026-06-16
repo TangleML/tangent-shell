@@ -83,7 +83,70 @@ function parseBundle(zipBuffer: Buffer): {
     );
   }
 
-  return { manifest, iconData: entries[manifest.icon], entries };
+  return {
+    manifest,
+    iconData: manifest.icon ? entries[manifest.icon] : undefined,
+    entries,
+  };
+}
+
+/** A single declared UI component entry from a bundle manifest. */
+type UiComponent = NonNullable<BundleManifest["ui"]>["components"][number];
+
+/** Throws when any declared UI entry is absent from the extracted zip. */
+function assertUiEntriesPresent(
+  components: readonly UiComponent[],
+  entries: BundleEntries,
+): void {
+  for (const component of components) {
+    if (entries[component.entry]) continue;
+    throw new AgentBundleValidationError(
+      `agent bundle: ui entry "${component.entry}" not found`,
+    );
+  }
+}
+
+/** Writes every extracted entry into `work` so esbuild can resolve siblings. */
+async function materializeEntries(
+  work: string,
+  entries: BundleEntries,
+): Promise<void> {
+  for (const [name, data] of Object.entries(entries)) {
+    const dest = path.join(work, name);
+    await mkdir(path.dirname(dest), { recursive: true });
+    await writeFile(dest, data);
+  }
+}
+
+/**
+ * Transpile-bundles a single component and writes `<outDir>/<name>.js`. Throws
+ * {@link AgentBundleValidationError} when the entry fails to compile.
+ */
+async function compileComponent(
+  work: string,
+  outDir: string,
+  component: UiComponent,
+): Promise<void> {
+  let output: string;
+  try {
+    const result = await build({
+      entryPoints: [path.join(work, component.entry)],
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      jsx: "automatic",
+      packages: "external",
+      write: false,
+      logLevel: "silent",
+    });
+    output = result.outputFiles[0].text;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new AgentBundleValidationError(
+      `agent bundle: failed to compile ui entry "${component.entry}"\n${message}`,
+    );
+  }
+  await writeFile(path.join(outDir, `${component.name}.js`), output);
 }
 
 /**
@@ -106,46 +169,17 @@ async function compileUiComponents(
   const components = manifest.ui?.components;
   if (!components || components.length === 0) return;
 
-  for (const component of components) {
-    if (!entries[component.entry]) {
-      throw new AgentBundleValidationError(
-        `agent bundle: ui entry "${component.entry}" not found`,
-      );
-    }
-  }
+  assertUiEntriesPresent(components, entries);
 
   const work = await mkdtemp(path.join(os.tmpdir(), "tangent-ui-"));
   try {
-    for (const [name, data] of Object.entries(entries)) {
-      const dest = path.join(work, name);
-      await mkdir(path.dirname(dest), { recursive: true });
-      await writeFile(dest, data);
-    }
+    await materializeEntries(work, entries);
 
     const outDir = path.join(dir, BUNDLE_DIRS.ui);
     await mkdir(outDir, { recursive: true });
 
     for (const component of components) {
-      let output: string;
-      try {
-        const result = await build({
-          entryPoints: [path.join(work, component.entry)],
-          bundle: true,
-          format: "esm",
-          platform: "browser",
-          jsx: "automatic",
-          packages: "external",
-          write: false,
-          logLevel: "silent",
-        });
-        output = result.outputFiles[0].text;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new AgentBundleValidationError(
-          `agent bundle: failed to compile ui entry "${component.entry}"\n${message}`,
-        );
-      }
-      await writeFile(path.join(outDir, `${component.name}.js`), output);
+      await compileComponent(work, outDir, component);
     }
   } finally {
     await rm(work, { recursive: true, force: true });
@@ -169,13 +203,41 @@ function toComponentMetas(
 }
 
 /**
+ * Builds the {@link AgentBundleMeta} record persisted alongside a saved bundle,
+ * preserving the original `createdAt` when replacing an existing version.
+ */
+function buildMeta(
+  manifest: BundleManifest,
+  iconData: Uint8Array | undefined,
+  existing: AgentBundleMeta | undefined,
+  now: string,
+): AgentBundleMeta {
+  return {
+    id: manifest.id,
+    name: manifest.name,
+    version: manifest.version,
+    description: manifest.description,
+    author: manifest.author,
+    tags: manifest.tags,
+    hasIcon: Boolean(iconData),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    components: toComponentMetas(manifest),
+  };
+}
+
+/**
  * Filesystem-backed {@link AgentBundleStore}. Each saved bundle lives under
  * `AGENT_BUNDLES_ROOT/<id>/` as the original `bundle.zip`, an extracted
  * `manifest.json` (the {@link AgentBundleMeta} used for fast listing), and an
  * optional `icon.svg`.
  */
 export class FileAgentBundleStore implements AgentBundleStore {
-  constructor(private readonly root: string = AGENT_BUNDLES_ROOT) {}
+  private readonly root: string;
+
+  constructor(root: string = AGENT_BUNDLES_ROOT) {
+    this.root = root;
+  }
 
   /** Absolute path to a bundle's storage directory. */
   private dir(id: string): string {
@@ -223,18 +285,7 @@ export class FileAgentBundleStore implements AgentBundleStore {
     }
 
     const now = new Date().toISOString();
-    const meta: AgentBundleMeta = {
-      id: manifest.id,
-      name: manifest.name,
-      version: manifest.version,
-      description: manifest.description,
-      author: manifest.author,
-      tags: manifest.tags,
-      hasIcon: Boolean(iconData),
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      components: toComponentMetas(manifest),
-    };
+    const meta = buildMeta(manifest, iconData, existing, now);
 
     const dir = this.dir(manifest.id);
     // Replace any prior version's files wholesale so a stale icon (or stale

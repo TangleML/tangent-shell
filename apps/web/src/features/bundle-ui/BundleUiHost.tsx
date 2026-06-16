@@ -26,12 +26,7 @@ import {
   hostAdapters,
 } from "./components/host-registry";
 import { createHostBridge } from "./hostBridge";
-import type {
-  BundleUiKind,
-  HostBridge,
-  UICommand,
-  WorkerApi,
-} from "./types";
+import type { BundleUiKind, HostBridge, UICommand, WorkerApi } from "./types";
 
 /** Reads a JSON value persisted under `<namespace>:<key>`, or `null`. */
 function readPersistedState(namespace: string, key: string): unknown {

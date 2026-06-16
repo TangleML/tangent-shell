@@ -51,7 +51,6 @@ function oasisAuthHeaders(): Record<string, string> {
   return token ? { cookie: token } : {};
 }
 
-
 /** Origin of the configured Tangle API; only this host is reachable. */
 const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
 

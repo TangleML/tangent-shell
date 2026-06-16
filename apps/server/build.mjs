@@ -14,13 +14,7 @@ import { build } from "esbuild";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const piSrc = path.join(serverDir, "src", "pi");
-const migrationsSrc = path.join(
-  serverDir,
-  "src",
-  "store",
-  "db",
-  "migrations",
-);
+const migrationsSrc = path.join(serverDir, "src", "store", "db", "migrations");
 const outDir = path.join(serverDir, "dist");
 
 await rm(outDir, { recursive: true, force: true });

@@ -1,7 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { THINKING_LEVELS, type ThinkingLevel } from "@tangent/shared/contracts.ts";
+import {
+  THINKING_LEVELS,
+  type ThinkingLevel,
+} from "@tangent/shared/contracts.ts";
 
 /**
  * Curated allowlist of Pi tools every session gets by default. Because each

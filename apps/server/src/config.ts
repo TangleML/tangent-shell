@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
-import { DEFAULT_MODEL_ID, DEFAULT_THINKING_LEVEL } from "@tangent/shared/contracts.ts";
+import {
+  DEFAULT_MODEL_ID,
+  DEFAULT_THINKING_LEVEL,
+} from "@tangent/shared/contracts.ts";
 
 /** Port the dev server listens on. Vite proxies /api and /socket.io here. */
 export const PORT = Number(process.env.PORT ?? 8787);
