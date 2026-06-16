@@ -180,6 +180,19 @@ export class MemoryManager {
     return { scope: "global", stored, added: text.trim() };
   }
 
+  /**
+   * Overwrites the entire global memory file with `content`. Unlike
+   * {@link writeGlobal} (which appends/replaces a fragment), this is a full
+   * replace used by the editor UI. Per-session snapshots refresh on the next
+   * session spawn via {@link initSession}.
+   */
+  replaceGlobal(content: string): string {
+    this.ensureGlobalFile();
+    const stored = content.endsWith("\n") ? content : `${content}\n`;
+    writeFileSync(this.globalFile(), stored);
+    return stored;
+  }
+
   /** Dispatches a write to the matching store. */
   write(
     rootPath: string,

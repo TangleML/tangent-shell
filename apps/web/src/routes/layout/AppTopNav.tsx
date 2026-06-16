@@ -25,6 +25,7 @@ export function AppTopNav() {
         <>
           <TopNavLink to="/sessions">Sessions</TopNavLink>
           <TopNavLink to="/agent-bundles">Agent bundles</TopNavLink>
+          <TopNavLink to="/global-memory">Global memory</TopNavLink>
         </>
       }
       actions={<ThemeMenu />}

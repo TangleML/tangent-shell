@@ -378,6 +378,21 @@ export interface UploadFilesResponse {
   files: Attachment[];
 }
 
+/** Response from `GET /api/global-memory`: the global memory file contents. */
+export interface GetGlobalMemoryResponse {
+  content: string;
+}
+
+/** Request body for `PUT /api/global-memory`: the full file contents to store. */
+export interface UpdateGlobalMemoryRequest {
+  content: string;
+}
+
+/** Response from `PUT /api/global-memory`: the stored file contents. */
+export interface UpdateGlobalMemoryResponse {
+  content: string;
+}
+
 /** Payload sent by the client when joining a session's chat room. */
 export interface ChatJoinPayload {
   sessionId: string;

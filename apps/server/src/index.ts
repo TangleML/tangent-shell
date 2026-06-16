@@ -10,6 +10,7 @@ import { PiAgentManager } from "./pi/piAgentManager.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
+import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
 import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
@@ -84,6 +85,7 @@ app.use(
   createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
+app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use("/internal/agents", createInternalAgentsRouter(store, pi));
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).

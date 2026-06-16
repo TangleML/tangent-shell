@@ -10,6 +10,7 @@ import { AppShell } from "@/shared/ui/patterns/app-shell";
 
 import { AgentBundlesPage } from "./agent-bundles/AgentBundlesPage";
 import { BundleUiHarnessPage } from "./bundle-ui-harness/BundleUiHarnessPage";
+import { GlobalMemoryPage } from "./global-memory/GlobalMemoryPage";
 import { AppTopNav } from "./layout/AppTopNav";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { SessionChatPage } from "./sessions/SessionChatPage";
@@ -70,6 +71,12 @@ const agentBundlesRoute = createRoute({
   component: AgentBundlesPage,
 });
 
+const globalMemoryRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/global-memory",
+  component: GlobalMemoryPage,
+});
+
 // Dev-only harness for the bundle-UI sandbox runtime (Phase 5).
 const bundleUiHarnessRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
@@ -83,6 +90,7 @@ export const routeTree = rootRoute.addChildren([
     sessionsRoute,
     sessionChatRoute,
     agentBundlesRoute,
+    globalMemoryRoute,
     ...(env.isDev ? [bundleUiHarnessRoute] : []),
   ]),
 ]);
