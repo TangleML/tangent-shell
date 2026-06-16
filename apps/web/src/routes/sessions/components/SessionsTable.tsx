@@ -1,7 +1,9 @@
 import type { Session } from "@tangent/shared/contracts";
 
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
+import { SessionRowActions } from "@/features/sessions/components/SessionRowActions";
+import { InlineStack } from "@/shared/ui/layout";
+import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
+import { Pill } from "@/shared/ui/patterns/pill";
 import {
   Table,
   TableBody,
@@ -25,7 +27,7 @@ export function SessionsTable({ sessions, onOpen }: SessionsTableProps) {
         <TableRow>
           <TableHead>Name</TableHead>
           <TableHead>Bundle</TableHead>
-          <TableHead>Action</TableHead>
+          <TableHead>Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -43,19 +45,20 @@ interface SessionRowProps {
 }
 
 function SessionRow({ session, onOpen }: SessionRowProps) {
-  // The whole row is the open affordance; the explicit "Open session" button
-  // stops propagation so it doesn't double-trigger the row handler.
-  const handleOpenClick = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    onOpen(session);
-  };
-
   return (
-    <TableRow onClick={() => onOpen(session)}>
+    // `group` lets the hover-revealed row actions appear on hover/focus.
+    <TableRow className="group" onClick={() => onOpen(session)}>
       <TableCell>
-        <Text weight="medium" truncate>
-          {session.name}
-        </Text>
+        <InlineStack gap="2" blockAlign="center">
+          <Text weight="medium" truncate>
+            {session.name}
+          </Text>
+          {session.archived ? (
+            <Pill size="xs" tone="subdued">
+              Archived
+            </Pill>
+          ) : null}
+        </InlineStack>
       </TableCell>
       <TableCell>
         {session.config ? (
@@ -69,19 +72,9 @@ function SessionRow({ session, onOpen }: SessionRowProps) {
         )}
       </TableCell>
       <TableCell>
-        <Button variant="ghost" size="xs" onClick={handleOpenClick}>
-          <Icon name="ArrowRight" size="xs" tone="subdued" />
-          <Text tone="subdued">Open session</Text>
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          disabled
-          aria-label="Delete session (coming soon)"
-        >
-          <Icon name="Trash" size="xs" tone="subdued" />
-          <Text tone="subdued">Delete session</Text>
-        </Button>
+        <HoverReveal>
+          <SessionRowActions session={session} />
+        </HoverReveal>
       </TableCell>
     </TableRow>
   );

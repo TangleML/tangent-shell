@@ -14,6 +14,7 @@ export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 /** Update-session body. */
 export const updateSessionSchema = z.object({
   name: z.string().optional(),
+  archived: z.boolean().optional(),
 });
 export type UpdateSessionInput = z.infer<typeof updateSessionSchema>;
 

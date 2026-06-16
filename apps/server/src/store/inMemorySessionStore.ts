@@ -75,6 +75,7 @@ export class InMemorySessionStore implements SessionStore {
       name: input.name?.trim() || `Session ${this.sessions.size + 1}`,
       rootPath,
       status: "created",
+      archived: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -99,6 +100,7 @@ export class InMemorySessionStore implements SessionStore {
     const updated: Session = {
       ...existing,
       name: input.name?.trim() || existing.name,
+      archived: input.archived ?? existing.archived,
       updatedAt: new Date().toISOString(),
     };
     this.sessions.set(id, updated);

@@ -28,6 +28,8 @@ export const sessions = sqliteTable("sessions", {
   status: text("status").notNull().default("created"),
   /** Serialized `SessionConfigMeta` (the bundle this session was created from). */
   config: text("config"),
+  /** Whether the session is archived (hidden from the default list). */
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

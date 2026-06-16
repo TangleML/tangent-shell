@@ -1,9 +1,11 @@
 import type { Session } from "@tangent/shared/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { BlockStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
@@ -23,6 +25,12 @@ export function SessionsPage() {
     error: createError,
   } = useCreateSession();
   const navigate = useNavigate();
+  const [showArchived, setShowArchived] = useState(false);
+
+  const archivedCount = sessions?.filter((s) => s.archived).length ?? 0;
+  const visibleSessions = showArchived
+    ? sessions
+    : sessions?.filter((session) => !session.archived);
 
   const openSession = (session: Session) =>
     void navigate({
@@ -88,7 +96,17 @@ export function SessionsPage() {
 
         {sessions && sessions.length > 0 ? (
           <BlockStack gap="2">
-            <SessionsTable sessions={sessions} onOpen={openSession} />
+            {archivedCount > 0 ? (
+              <Checkbox
+                checked={showArchived}
+                label={`Show archived (${archivedCount})`}
+                onCheckedChange={setShowArchived}
+              />
+            ) : null}
+            <SessionsTable
+              sessions={visibleSessions ?? []}
+              onOpen={openSession}
+            />
             {newSessionButton}
           </BlockStack>
         ) : null}

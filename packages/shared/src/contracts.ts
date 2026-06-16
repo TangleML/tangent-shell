@@ -37,6 +37,8 @@ export interface Session {
   status: SessionStatus;
   /** Configuration Bundle this session was created from, when applicable. */
   config?: SessionConfigMeta;
+  /** Whether the session is archived (hidden from the default list). */
+  archived: boolean;
   /** ISO-8601 timestamp. */
   createdAt: string;
   /** ISO-8601 timestamp. */
@@ -359,6 +361,7 @@ export interface CreateSessionRequest {
 
 export interface UpdateSessionRequest {
   name?: string;
+  archived?: boolean;
 }
 
 /** Response from `POST /api/sessions/:id/files`: the stored attachments. */

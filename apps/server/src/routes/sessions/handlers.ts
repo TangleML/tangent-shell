@@ -261,7 +261,10 @@ export async function handleUpdateSession(
   body: UpdateSessionInput,
   res: Response,
 ): Promise<void> {
-  const session = await store.updateSession(id, { name: body.name });
+  const session = await store.updateSession(id, {
+    name: body.name,
+    archived: body.archived,
+  });
   if (!session) {
     res.status(404).json({ error: "Session not found" });
     return;

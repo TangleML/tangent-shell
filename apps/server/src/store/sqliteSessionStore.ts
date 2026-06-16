@@ -46,6 +46,7 @@ function toSession(row: SessionRow): Session {
     config: row.config
       ? (JSON.parse(row.config) as SessionConfigMeta)
       : undefined,
+    archived: row.archived,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -123,6 +124,7 @@ export class SqliteSessionStore implements SessionStore {
       name: input.name?.trim() || `Session ${existing + 1}`,
       rootPath,
       status: "created",
+      archived: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -134,6 +136,7 @@ export class SqliteSessionStore implements SessionStore {
         name: session.name,
         rootPath: session.rootPath,
         status: session.status,
+        archived: session.archived,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       })
@@ -159,11 +162,16 @@ export class SqliteSessionStore implements SessionStore {
     const updated: Session = {
       ...existing,
       name: input.name?.trim() || existing.name,
+      archived: input.archived ?? existing.archived,
       updatedAt: new Date().toISOString(),
     };
     this.db
       .update(sessions)
-      .set({ name: updated.name, updatedAt: updated.updatedAt })
+      .set({
+        name: updated.name,
+        archived: updated.archived,
+        updatedAt: updated.updatedAt,
+      })
       .where(eq(sessions.id, id))
       .run();
     return updated;
