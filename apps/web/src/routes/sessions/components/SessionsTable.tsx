@@ -1,6 +1,7 @@
 import type { Session } from "@tangent/shared/contracts";
 
 import { SessionRowActions } from "@/features/sessions/components/SessionRowActions";
+import { SessionStatusIndicator } from "@/features/sessions/components/SessionStatusIndicator";
 import { InlineStack } from "@/shared/ui/layout";
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { Pill } from "@/shared/ui/patterns/pill";
@@ -26,6 +27,7 @@ export function SessionsTable({ sessions, onOpen }: SessionsTableProps) {
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
+          <TableHead>Status</TableHead>
           <TableHead>Bundle</TableHead>
           <TableHead>Actions</TableHead>
         </TableRow>
@@ -59,6 +61,9 @@ function SessionRow({ session, onOpen }: SessionRowProps) {
             </Pill>
           ) : null}
         </InlineStack>
+      </TableCell>
+      <TableCell>
+        <SessionStatusIndicator sessionId={session.id} />
       </TableCell>
       <TableCell>
         {session.config ? (

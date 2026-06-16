@@ -6,6 +6,8 @@ import {
   type ChatAuthor,
   type MessageDelivery,
   PI_AGENT,
+  type SessionRunStatus,
+  type SessionStatusPayload,
   type SubagentInfo,
   type SubagentStatus,
   type ThinkingLevel,
@@ -320,10 +322,56 @@ export class PiAgentManager {
   private readonly sessions = new Map<string, SessionAgents>();
   private readonly handlers: PiAgentHandlers;
   private readonly memory: MemoryManager;
+  /**
+   * Last run status emitted per session, so {@link notifyStatus} only fires the
+   * handler when the status actually changes (busy flags toggle frequently).
+   */
+  private readonly lastStatus = new Map<string, SessionRunStatus>();
 
   constructor(handlers: PiAgentHandlers, memory: MemoryManager) {
     this.handlers = handlers;
     this.memory = memory;
+  }
+
+  /**
+   * Computes a session's live run status from its process roster: `idle` when
+   * no Pi process is running, `busy` when any agent is mid-run, else `active`.
+   */
+  computeStatus(sessionId: string): SessionRunStatus {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.agents.size === 0) return "idle";
+    for (const agent of session.agents.values()) {
+      if (agent.busy) return "busy";
+    }
+    return "active";
+  }
+
+  /**
+   * Snapshot of every non-idle session's status, for seeding a socket that just
+   * subscribed to the lobby. Sessions absent from the result are `idle`.
+   */
+  getStatuses(): SessionStatusPayload[] {
+    const statuses: SessionStatusPayload[] = [];
+    for (const sessionId of this.sessions.keys()) {
+      const status = this.computeStatus(sessionId);
+      if (status !== "idle") statuses.push({ sessionId, status });
+    }
+    return statuses;
+  }
+
+  /**
+   * Recomputes a session's status and relays it to the lobby only when it
+   * changed since the last emit. Called after every busy/lifecycle transition.
+   */
+  private notifyStatus(sessionId: string): void {
+    const status = this.computeStatus(sessionId);
+    if (this.lastStatus.get(sessionId) === status) return;
+    if (status === "idle") {
+      this.lastStatus.delete(sessionId);
+    } else {
+      this.lastStatus.set(sessionId, status);
+    }
+    this.handlers.onSessionStatus(sessionId, status);
   }
 
   /**
@@ -510,6 +558,7 @@ export class PiAgentManager {
 
     agent.busy = true;
     agent.child.stdin.write(`${JSON.stringify(command)}\n`);
+    this.notifyStatus(sessionId);
   }
 
   /**
@@ -588,6 +637,7 @@ export class PiAgentManager {
     session.agents.delete(agentId);
     agent.child.kill();
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
+    this.notifyStatus(sessionId);
   }
 
   /**
@@ -624,6 +674,7 @@ export class PiAgentManager {
     for (const agent of session.agents.values()) {
       agent.child.kill();
     }
+    this.notifyStatus(sessionId);
   }
 
   /** Kills every managed process. Used on server shutdown. */
@@ -676,6 +727,7 @@ export class PiAgentManager {
     session.agents.set(descriptor.agentId, agent);
 
     this.wireChildStreams(sessionId, agent);
+    this.notifyStatus(sessionId);
     return agent;
   }
 
@@ -766,6 +818,7 @@ export class PiAgentManager {
     agent.accum = "";
     agent.thinkingAccum = "";
     agent.lastFinalContent = "";
+    this.notifyStatus(sessionId);
     this.emitActivity(sessionId, descriptor, {
       kind: "thinking",
       label: "Thinking...",
@@ -943,6 +996,7 @@ export class PiAgentManager {
     agent.busy = false;
     agent.aborted = false;
 
+    this.notifyStatus(sessionId);
     this.emitActivity(sessionId, descriptor, null);
   }
 
@@ -1002,6 +1056,7 @@ export class PiAgentManager {
       messageId,
       message,
     });
+    this.notifyStatus(sessionId);
     this.emitActivity(sessionId, descriptor, null);
   }
 
@@ -1024,5 +1079,6 @@ export class PiAgentManager {
       agent.status = terminalStatus;
       this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     }
+    this.notifyStatus(sessionId);
   }
 }

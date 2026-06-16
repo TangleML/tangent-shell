@@ -25,6 +25,8 @@ import {
   type MemoryScope,
   type MemorySuggestionPayload,
   PI_AGENT,
+  type SessionStatusPayload,
+  type SessionStatusSnapshotPayload,
   SocketEvents,
   type SubagentRosterPayload,
   type SubagentUpdatePayload,
@@ -47,10 +49,29 @@ import {
   type SubagentUpdateHandler,
 } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
+import type { SessionStatusHandler } from "../pi/types.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 function roomFor(sessionId: string): string {
   return `session:${sessionId}`;
+}
+
+/**
+ * Shared room every client viewing a session list (the switcher, the sessions
+ * table) joins to receive live run-status updates for all sessions at once,
+ * without subscribing to each session's individual room.
+ */
+const SESSIONS_LOBBY = "sessions:lobby";
+
+/**
+ * Builds the {@link SessionStatusHandler} that fans status changes out to the
+ * lobby room, so every list view reflects a session's run status live.
+ */
+export function createSessionStatusHandler(io: Server): SessionStatusHandler {
+  return (sessionId, status) => {
+    const payload: SessionStatusPayload = { sessionId, status };
+    io.to(SESSIONS_LOBBY).emit(SocketEvents.SessionStatus, payload);
+  };
 }
 
 function buildMessage(
@@ -513,6 +534,12 @@ export function registerChatHandlers(
       handleArtifactUnpin(store, emitUiCommand, payload),
     );
 
+    // Subscribe to the sessions lobby: join the shared room (so future status
+    // changes broadcast here) and seed the socket with the current snapshot.
+    socket.on(SocketEvents.SessionStatusSubscribe, () =>
+      handleSessionStatusSubscribe(socket, pi),
+    );
+
     // Terminal streaming channel is reserved for a later phase. Registered
     // here so the protocol is stable; it currently emits nothing.
     socket.on(SocketEvents.TerminalData, () => {
@@ -549,6 +576,21 @@ function emitPrimeSelection(
     thinkingDepth: selection?.thinkingDepth,
   };
   socket.emit(SocketEvents.AgentModel, payload);
+}
+
+/**
+ * Joins the shared sessions lobby and replies with the current status snapshot,
+ * so a list view reflects every session's run status immediately and stays live
+ * via later `session:status` broadcasts. Sessions absent from the snapshot are
+ * `idle`.
+ */
+async function handleSessionStatusSubscribe(
+  socket: Socket,
+  pi: PiAgentManager,
+): Promise<void> {
+  await socket.join(SESSIONS_LOBBY);
+  const payload: SessionStatusSnapshotPayload = { statuses: pi.getStatuses() };
+  socket.emit(SocketEvents.SessionStatusSnapshot, payload);
 }
 
 /** Joins the session room, then replays history and the sub-agent roster. */

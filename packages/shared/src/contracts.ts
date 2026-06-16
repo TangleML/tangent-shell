@@ -10,6 +10,15 @@
 export type SessionStatus = "created";
 
 /**
+ * Live run status of a session, derived from its Pi process roster on the
+ * server and pushed to clients over the socket:
+ * - `idle` — no Pi process is running for the session.
+ * - `active` — a Pi process is running but no agent is currently working.
+ * - `busy` — at least one of the session's agents is mid-run.
+ */
+export type SessionRunStatus = "idle" | "active" | "busy";
+
+/**
  * Metadata about the Configuration Bundle a session was created from, surfaced
  * so the UI can show which preset a session uses. Derived from the bundle's
  * `tangent.yaml` at install time.
@@ -615,6 +624,24 @@ export interface UiCommandPayload {
   command: UiCommand;
 }
 
+/**
+ * Emitted (server -> client) when a single session's live run status changes.
+ * Broadcast to the shared sessions lobby so list views (the switcher and the
+ * sessions table) can reflect status without joining each session's room.
+ */
+export interface SessionStatusPayload {
+  sessionId: string;
+  status: SessionRunStatus;
+}
+
+/**
+ * Full snapshot of non-idle session statuses, sent to a socket right after it
+ * subscribes to the lobby. Any session absent from `statuses` is `idle`.
+ */
+export interface SessionStatusSnapshotPayload {
+  statuses: SessionStatusPayload[];
+}
+
 /** Socket.IO event names shared by client and server. */
 export const SocketEvents = {
   ChatJoin: "chat:join",
@@ -642,6 +669,9 @@ export const SocketEvents = {
   ArtifactPin: "artifact:pin",
   ArtifactUnpin: "artifact:unpin",
   UiCommand: "ui:command",
+  SessionStatusSubscribe: "session:status:subscribe",
+  SessionStatusSnapshot: "session:status:snapshot",
+  SessionStatus: "session:status",
 } as const;
 
 export type SocketEvent = (typeof SocketEvents)[keyof typeof SocketEvents];

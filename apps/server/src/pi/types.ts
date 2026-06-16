@@ -4,6 +4,7 @@ import type {
   AgentActivity,
   AgentRole,
   ChatAuthor,
+  SessionRunStatus,
   SubagentInfo,
   SubagentStatus,
 } from "@tangent/shared/contracts.ts";
@@ -57,6 +58,12 @@ export type AgentMessageHandler = (
   content: string,
 ) => void;
 
+/** Relays a session's live run status change to the shared sessions lobby. */
+export type SessionStatusHandler = (
+  sessionId: string,
+  status: SessionRunStatus,
+) => void;
+
 export interface PiAgentHandlers {
   /** Relays an agent's streaming events to the session's room. */
   onAgentEvent: AgentEventHandler;
@@ -64,6 +71,8 @@ export interface PiAgentHandlers {
   onSubagentUpdate: SubagentUpdateHandler;
   /** Surfaces a directed message into a sub-agent's transcript. */
   onAgentMessage: AgentMessageHandler;
+  /** Broadcasts a session's live run status change to the sessions lobby. */
+  onSessionStatus: SessionStatusHandler;
 }
 
 export interface AgentProcess {

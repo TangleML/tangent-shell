@@ -21,6 +21,7 @@ import {
   createAgentMessageHandler,
   createMemoryRememberedHandler,
   createMemorySuggestionHandler,
+  createSessionStatusHandler,
   createSubagentUpdateHandler,
   createUiCommandEmitter,
   registerChatHandlers,
@@ -66,6 +67,7 @@ const pi = new PiAgentManager(
     onAgentEvent: createAgentEventHandler(io, store),
     onSubagentUpdate: createSubagentUpdateHandler(io),
     onAgentMessage: createAgentMessageHandler(io, store),
+    onSessionStatus: createSessionStatusHandler(io),
   },
   memory,
 );

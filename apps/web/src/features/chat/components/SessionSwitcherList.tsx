@@ -3,15 +3,14 @@ import { useEffect, useRef } from "react";
 
 import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
 import { SessionActionsMenu } from "@/features/sessions/components/SessionActionsMenu";
+import { SessionStatusIndicator } from "@/features/sessions/components/SessionStatusIndicator";
 import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
 import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { BlockStack } from "@/shared/ui/layout";
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Text } from "@/shared/ui/typography";
-
-import { StatusDot } from "./StatusDot";
 
 interface SessionSwitcherListProps {
   sessions: Session[];
@@ -71,16 +70,8 @@ export function SessionSwitcherList({
                 {session.name}
               </Text>
             </Truncating>
-            {/* Placeholder metadata — reserves space for live running status
-                and execution stats until those are wired up. */}
-            <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-              <InlineStack gap="1" blockAlign="center" wrap="nowrap">
-                <StatusDot connected={false} />
-                <Text size="xs" tone="subdued">
-                  Idle
-                </Text>
-              </InlineStack>
-            </InlineStack>
+            {/* Live run status from the lobby socket. */}
+            <SessionStatusIndicator sessionId={session.id} />
           </BlockStack>
           {onDeleted ? (
             <HoverReveal>

@@ -1,3 +1,5 @@
+import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
+import { SESSION_STATUS_DISPLAY } from "@/features/sessions/model/sessionStatusDisplay";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
@@ -23,9 +25,9 @@ function truncateMiddle(text: string, maxLength: number) {
 }
 
 /**
- * Top-level header of the session sidebar: the session name with its live
- * connection status and the working directory it is rooted at. Acts as the
- * parent that the agent roster nests under.
+ * Top-level header of the session sidebar: the session name with its live run
+ * status and the working directory it is rooted at. Acts as the parent that the
+ * agent roster nests under.
  */
 export function SessionCard({
   currentSessionId,
@@ -33,6 +35,13 @@ export function SessionCard({
   rootPath,
   connected,
 }: SessionCardProps) {
+  // Reflect the real run status (idle/active/busy) from the lobby feed, but fall
+  // back to disconnected when this chat's own socket is down.
+  const status = useSessionStatus(currentSessionId);
+  const variant = connected
+    ? SESSION_STATUS_DISPLAY[status].variant
+    : "disconnected";
+
   return (
     <Box
       paddingInline="base"
@@ -57,7 +66,7 @@ export function SessionCard({
                     {name}
                   </Heading>
                 </Truncating>
-                <StatusDot connected={connected} />
+                <StatusDot variant={variant} />
               </InlineStack>
             </Truncating>
           }
