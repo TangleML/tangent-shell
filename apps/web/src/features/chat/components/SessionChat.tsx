@@ -1,14 +1,11 @@
-import {
-  PI_AGENT,
-  type SubagentInfo,
-  type Trigger,
-} from "@tangent/shared/contracts";
+import { PI_AGENT, type Trigger } from "@tangent/shared/contracts";
 
 import {
   CHAT_TAB_VALUE,
   useAssetTabs,
 } from "@/features/chat/hooks/useAssetTabs";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
+import { type Agent, buildAgents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { useSession } from "@/features/sessions/hooks/useSession";
 import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
@@ -18,7 +15,9 @@ import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
+import { AgentList } from "./AgentList";
 import { AgentModelPicker } from "./AgentModelPicker";
+import { AgentTabTrigger } from "./AgentTabTrigger";
 import { ArtifactTabView } from "./ArtifactTabView";
 import { AssetList } from "./AssetList";
 import { AssetTabTrigger } from "./AssetTabTrigger";
@@ -29,7 +28,6 @@ import { MemorySuggestionCard } from "./MemorySuggestionCard";
 import { SessionCard } from "./SessionCard";
 import { SessionSwitcher } from "./SessionSwitcher";
 import { SidebarColumn } from "./SidebarColumn";
-import { SubagentTabTrigger } from "./SubagentTabTrigger";
 import { SubagentTabView } from "./SubagentTabView";
 import { TriggerTabView } from "./TriggerTabView";
 
@@ -69,16 +67,32 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const { data: session } = useSession(sessionId);
   const bundleId = session?.config?.id;
 
-  // Opened asset tabs, each shown beside the chat in its own closeable tab.
-  const { tabs, activeTab, setActiveTab, openAsset, closeAsset } =
+  // Opened tabs (assets and sub-agent threads), each shown beside the chat in
+  // its own closeable tab.
+  const { tabs, activeTab, setActiveTab, openAsset, openAgent, closeAsset } =
     useAssetTabs();
 
   // The session's pages, files, and triggers as one uniform list of cards.
   const assets = buildAssets({ sessionId, artifacts, triggers });
 
-  // Each sub-agent is its own tab in the strip, driven directly by the live
-  // roster. Active agents float to the top so the strip is easy to scan.
-  const agentTabs = sortSubagents(subagents);
+  // Prime first, then the live sub-agent roster, surfaced as sidebar cards.
+  const agents = buildAgents(subagents);
+
+  // The Chat tab is Prime's main thread; each sub-agent opens its own thread
+  // tab on demand. Prime's card selects the fixed Chat tab; sub-agent cards
+  // open (or focus) a closeable tab.
+  const openAgentTab = (agent: Agent) => {
+    if (agent.kind === "prime") {
+      setActiveTab(CHAT_TAB_VALUE);
+      return;
+    }
+    openAgent({ id: agent.id, name: agent.name });
+  };
+
+  // The Chat tab stands in for Prime's card, so map it back to Prime's id when
+  // deciding which agent card reads as selected.
+  const selectedAgentId =
+    activeTab === CHAT_TAB_VALUE ? PI_AGENT.id : activeTab;
 
   // The Chat tab is Prime's main thread; each sub-agent has its own thread tab.
   const primeMessages = messages.filter(
@@ -121,6 +135,12 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 rootPath={session?.rootPath}
                 connected={connected}
               />
+              <AgentList
+                agents={agents}
+                selectedId={selectedAgentId}
+                isBusy={isConversationBusy}
+                onOpen={openAgentTab}
+              />
               <AssetList
                 sessionId={sessionId}
                 assets={assets}
@@ -141,24 +161,30 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               <Icon name="MessageSquare" size="xs" tone="subdued" />
               Chat
             </TabsTrigger>
-            {agentTabs.map((agent) => (
-              <SubagentTabTrigger
-                key={agent.id}
-                value={agent.id}
-                name={agent.name}
-                status={agent.status}
-                busy={isConversationBusy(agent.id)}
-              />
-            ))}
-            {tabs.map((tab) => (
-              <AssetTabTrigger
-                key={tab.id}
-                value={tab.id}
-                title={tab.title}
-                kind={tab.kind}
-                onClose={() => closeAsset(tab.id)}
-              />
-            ))}
+            {tabs.map((tab) => {
+              if (tab.kind === "agent") {
+                const info = subagents.find((s) => s.id === tab.agentId);
+                return (
+                  <AgentTabTrigger
+                    key={tab.id}
+                    value={tab.id}
+                    name={info?.name ?? tab.title}
+                    status={info?.status ?? "completed"}
+                    busy={isConversationBusy(tab.agentId)}
+                    onClose={() => closeAsset(tab.id)}
+                  />
+                );
+              }
+              return (
+                <AssetTabTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  title={tab.title}
+                  kind={tab.kind}
+                  onClose={() => closeAsset(tab.id)}
+                />
+              );
+            })}
           </TabsList>
 
           <TabsContent value={CHAT_TAB_VALUE} forceMount>
@@ -222,40 +248,41 @@ export function SessionChat({ sessionId }: SessionChatProps) {
             </BlockStack>
           </TabsContent>
 
-          {agentTabs.map((agent) => (
-            <TabsContent key={agent.id} value={agent.id} forceMount>
-              <SubagentTabView
-                sessionId={sessionId}
-                agentId={agent.id}
-                name={agent.name}
-                messages={messages}
-                currentAuthorId={currentAuthorId}
-                bundleId={bundleId}
-                activity={getActivity(agent.id)}
-                busy={isConversationBusy(agent.id)}
-                disabled={!connected}
-                isMessageStreaming={isMessageStreaming}
-                model={getAgentModel(agent.id)?.model}
-                thinkingDepth={getAgentModel(agent.id)?.thinkingDepth}
-                onSetModel={(selection) => setAgentModel(agent.id, selection)}
-                onAbort={() => abort(agent.id)}
-                onSubmit={(content, { delivery, attachments }) =>
-                  send(content, {
-                    conversationId: agent.id,
-                    delivery,
-                    attachments,
-                  })
-                }
-                onOpenArtifact={openArtifactTab}
-                pinnedPaths={pinnedPaths}
-                onTogglePinArtifact={togglePinArtifact}
-              />
-            </TabsContent>
-          ))}
-
           {tabs.map((tab) => (
             <TabsContent key={tab.id} value={tab.id} forceMount>
-              {tab.kind === "trigger" ? (
+              {tab.kind === "agent" ? (
+                <SubagentTabView
+                  sessionId={sessionId}
+                  agentId={tab.agentId}
+                  name={
+                    subagents.find((s) => s.id === tab.agentId)?.name ??
+                    tab.title
+                  }
+                  messages={messages}
+                  currentAuthorId={currentAuthorId}
+                  bundleId={bundleId}
+                  activity={getActivity(tab.agentId)}
+                  busy={isConversationBusy(tab.agentId)}
+                  disabled={!connected}
+                  isMessageStreaming={isMessageStreaming}
+                  model={getAgentModel(tab.agentId)?.model}
+                  thinkingDepth={getAgentModel(tab.agentId)?.thinkingDepth}
+                  onSetModel={(selection) =>
+                    setAgentModel(tab.agentId, selection)
+                  }
+                  onAbort={() => abort(tab.agentId)}
+                  onSubmit={(content, { delivery, attachments }) =>
+                    send(content, {
+                      conversationId: tab.agentId,
+                      delivery,
+                      attachments,
+                    })
+                  }
+                  onOpenArtifact={openArtifactTab}
+                  pinnedPaths={pinnedPaths}
+                  onTogglePinArtifact={togglePinArtifact}
+                />
+              ) : tab.kind === "trigger" ? (
                 <TriggerTabPanel
                   sessionId={sessionId}
                   triggerId={tab.triggerId}
@@ -278,17 +305,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
       </InlineStack>
     </BlockStack>
   );
-}
-
-// Active sub-agents float to the top so the live tabs are easy to scan; ended
-// ones (completed/killed/error) settle after, in their most recent order.
-function sortSubagents(subagents: SubagentInfo[]): SubagentInfo[] {
-  return [...subagents].sort((a, b) => {
-    const aActive = a.status === "active" ? 0 : 1;
-    const bActive = b.status === "active" ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
-    return a.createdAt.localeCompare(b.createdAt);
-  });
 }
 
 interface TriggerTabPanelProps {

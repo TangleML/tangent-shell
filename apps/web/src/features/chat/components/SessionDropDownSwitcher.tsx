@@ -31,7 +31,7 @@ export function SessionDropDownSwitcher({
   currentSessionId,
   trigger,
 }: SessionDropDownSwitcherProps) {
-  const { otherSessions, onSelect } = useSessionSwitcher(currentSessionId);
+  const { sessions, onSelect } = useSessionSwitcher(currentSessionId);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -68,11 +68,12 @@ export function SessionDropDownSwitcher({
     setSelectedIndex(0);
   };
 
-  const sessions = otherSessions ?? [];
   const query = filter.trim().toLowerCase();
   const filtered = query
-    ? sessions.filter((session) => session.name.toLowerCase().includes(query))
-    : sessions;
+    ? (sessions ?? []).filter((session) =>
+        session.name.toLowerCase().includes(query),
+      )
+    : (sessions ?? []);
 
   // Keep the highlighted row in range as the filtered list shrinks/grows.
   const activeIndex =

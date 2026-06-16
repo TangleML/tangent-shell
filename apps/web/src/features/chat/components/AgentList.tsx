@@ -1,0 +1,59 @@
+import type { Agent } from "@/features/chat/model/agents";
+import { Box } from "@/shared/ui/box";
+import { Icon } from "@/shared/ui/icon";
+import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { Toolbar } from "@/shared/ui/patterns/toolbar";
+import { Text } from "@/shared/ui/typography";
+
+import { AgentCard } from "./AgentCard";
+
+interface AgentListProps {
+  agents: Agent[];
+  /** The active tab's id, so the matching card reads as selected. */
+  selectedId: string | null;
+  /** Whether the given agent's run is in flight. */
+  isBusy: (agentId: string) => boolean;
+  /** Opens (or focuses) an agent's in-app tab. */
+  onOpen: (agent: Agent) => void;
+}
+
+/**
+ * Sidebar list of the session's agents — Prime first, then the live sub-agent
+ * roster — each rendered as a uniform {@link AgentCard}. Clicking a card opens
+ * (or focuses) that agent's thread in its own in-app tab.
+ */
+export function AgentList({
+  agents,
+  selectedId,
+  isBusy,
+  onOpen,
+}: AgentListProps) {
+  return (
+    <BlockStack gap="0" align="stretch">
+      <Toolbar chrome="light" gap="2" align="space-between">
+        <InlineStack gap="2" blockAlign="center" wrap="nowrap">
+          <Icon name="Bot" size="md" tone="subdued" />
+          <Text size="xs" weight="medium">
+            Agents
+          </Text>
+        </InlineStack>
+        <Text size="xs" tone="subdued">
+          {agents.length}
+        </Text>
+      </Toolbar>
+      <Box padding="sm">
+        <BlockStack as="ul" gap="1">
+          {agents.map((agent) => (
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              selected={selectedId === agent.id}
+              busy={isBusy(agent.id)}
+              onOpen={() => onOpen(agent)}
+            />
+          ))}
+        </BlockStack>
+      </Box>
+    </BlockStack>
+  );
+}

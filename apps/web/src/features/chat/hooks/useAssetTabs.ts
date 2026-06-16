@@ -3,16 +3,18 @@ import { useState } from "react";
 import type { Asset } from "@/features/chat/model/assets";
 
 /**
- * A single opened asset tab in the SessionChat tab strip. Carries the asset
- * `kind` so SessionChat can dispatch to the matching per-type TabView, plus the
- * minimal payload each view needs. Deduped (and keyed) by the asset's `id`.
+ * A single opened tab in the SessionChat tab strip. Carries the `kind` so
+ * SessionChat can dispatch to the matching per-type TabView, plus the minimal
+ * payload each view needs. Deduped (and keyed) by `id`.
  *
- * Sub-agent tabs are not tracked here: they are driven directly by the live
- * sub-agent roster (one persistent tab per sub-agent), not opened on demand.
+ * Sub-agent tabs are opened on demand (one closeable tab per sub-agent, keyed
+ * by the sub-agent id); their live status/name is resolved against the roster
+ * when rendered. Prime is not tracked here: it is the fixed chat tab.
  */
 export type AssetTab =
   | { id: string; kind: "page" | "file"; title: string; url: string }
-  | { id: string; kind: "trigger"; title: string; triggerId: string };
+  | { id: string; kind: "trigger"; title: string; triggerId: string }
+  | { id: string; kind: "agent"; title: string; agentId: string };
 
 /** The fixed, non-closeable chat tab's value (Prime's main thread). */
 export const CHAT_TAB_VALUE = "chat";
@@ -40,12 +42,28 @@ export function useAssetTabs() {
   const [tabs, setTabs] = useState<AssetTab[]>([]);
   const [activeTab, setActiveTab] = useState<string>(CHAT_TAB_VALUE);
 
-  function openAsset(asset: Asset) {
-    const tab = toTab(asset);
+  function openTab(tab: AssetTab) {
     setTabs((prev) =>
       prev.some((existing) => existing.id === tab.id) ? prev : [...prev, tab],
     );
     setActiveTab(tab.id);
+  }
+
+  function openAsset(asset: Asset) {
+    openTab(toTab(asset));
+  }
+
+  /**
+   * Opens (or focuses) a sub-agent's thread tab. Keyed by the sub-agent id so
+   * reopening the same agent just focuses its existing tab.
+   */
+  function openAgent(agent: { id: string; name: string }) {
+    openTab({
+      id: agent.id,
+      kind: "agent",
+      title: agent.name,
+      agentId: agent.id,
+    });
   }
 
   function closeAsset(id: string) {
@@ -53,5 +71,5 @@ export function useAssetTabs() {
     setActiveTab((prev) => (prev === id ? CHAT_TAB_VALUE : prev));
   }
 
-  return { tabs, activeTab, setActiveTab, openAsset, closeAsset };
+  return { tabs, activeTab, setActiveTab, openAsset, openAgent, closeAsset };
 }

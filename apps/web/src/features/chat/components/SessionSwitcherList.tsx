@@ -66,7 +66,13 @@ export function SessionSwitcherList({
           )}
           <BlockStack grow align="stretch">
             <Truncating>
-              <Text as="p" size="xs" weight="medium" truncate title={session.name}>
+              <Text
+                as="p"
+                size="xs"
+                weight="medium"
+                truncate
+                title={session.name}
+              >
                 {session.name}
               </Text>
             </Truncating>
