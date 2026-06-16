@@ -1,5 +1,8 @@
-import { PI_AGENT, type SubagentInfo, type Trigger } from "@tangent/shared/contracts";
-import { useMemo } from "react";
+import {
+  PI_AGENT,
+  type SubagentInfo,
+  type Trigger,
+} from "@tangent/shared/contracts";
 
 import {
   CHAT_TAB_VALUE,
@@ -50,7 +53,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     agentBusy,
     isConversationBusy,
     getActivity,
-    getQueued,
     isMessageStreaming,
     currentAuthorId,
     send,
@@ -72,19 +74,15 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     useAssetTabs();
 
   // The session's pages, files, and triggers as one uniform list of cards.
-  const assets = useMemo(
-    () => buildAssets({ sessionId, artifacts, triggers }),
-    [sessionId, artifacts, triggers],
-  );
+  const assets = buildAssets({ sessionId, artifacts, triggers });
 
   // Each sub-agent is its own tab in the strip, driven directly by the live
   // roster. Active agents float to the top so the strip is easy to scan.
-  const agentTabs = useMemo(() => sortSubagents(subagents), [subagents]);
+  const agentTabs = sortSubagents(subagents);
 
   // The Chat tab is Prime's main thread; each sub-agent has its own thread tab.
-  const primeMessages = useMemo(
-    () => messages.filter((m) => m.conversationId === PI_AGENT.id),
-    [messages],
+  const primeMessages = messages.filter(
+    (m) => m.conversationId === PI_AGENT.id,
   );
 
   // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
@@ -134,8 +132,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
             <BlockStack gap="4">
               <SessionSwitcher currentSessionId={sessionId} />
-              {/** Tmp pusher */}
-              <div className="h-[100px]"></div>
             </BlockStack>
           </BlockStack>
         </SidebarColumn>
@@ -222,7 +218,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                     attachments,
                   })
                 }
-                queued={getQueued(PI_AGENT.id)}
               />
             </BlockStack>
           </TabsContent>
@@ -251,7 +246,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                     attachments,
                   })
                 }
-                queued={getQueued(agent.id)}
                 onOpenArtifact={openArtifactTab}
                 pinnedPaths={pinnedPaths}
                 onTogglePinArtifact={togglePinArtifact}

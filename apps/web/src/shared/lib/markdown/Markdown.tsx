@@ -40,7 +40,7 @@ type MarkdownSize = "xs" | "sm" | "md";
 /** Text tone applied to flowing body content (paragraphs, list items, headings). */
 type MarkdownTone = "inherit" | "subdued";
 
-type MarkdownProps = {
+interface MarkdownProps {
   children: string;
   className?: string;
   /**
@@ -110,7 +110,26 @@ type MarkdownProps = {
    * components so they can request collapse via `host.execUICommand`.
    */
   onCollapse?: () => void;
-};
+}
+
+/**
+ * Options for {@link buildComponents}. Mirrors the body-content and artifact
+ * props on {@link MarkdownProps}, with `size`/`tone` resolved to concrete
+ * defaults by the caller.
+ */
+interface MarkdownComponentsOptions {
+  artifactBaseUrl?: string;
+  size: MarkdownSize;
+  tone: MarkdownTone;
+  bundleId?: string;
+  onSendPrompt?: (text: string) => void;
+  onOpenArtifact?: (url: string, title: string) => void;
+  pinnedPaths?: Set<string>;
+  onTogglePinArtifact?: (path: string, title: string) => void;
+  sessionId?: string;
+  messageId?: string;
+  onCollapse?: () => void;
+}
 
 const INLINE_CODE_CLASS =
   "rounded bg-muted px-1 py-0.5 text-xs font-mono break-words";
@@ -169,6 +188,15 @@ const ARTIFACT_ACTION_CLASS =
 const ARTIFACT_PIN_CLASS =
   "inline-flex shrink-0 items-center transition hover:opacity-70";
 
+interface ArtifactChipProps {
+  href?: string;
+  title?: string;
+  children?: ReactNode;
+  onOpen?: () => void;
+  pinned?: boolean;
+  onTogglePin?: () => void;
+}
+
 function ArtifactChip({
   href,
   title,
@@ -176,14 +204,7 @@ function ArtifactChip({
   onOpen,
   pinned,
   onTogglePin,
-}: {
-  href?: string;
-  title?: string;
-  children?: ReactNode;
-  onOpen?: () => void;
-  pinned?: boolean;
-  onTogglePin?: () => void;
-}) {
+}: ArtifactChipProps) {
   const action = onOpen ? (
     <button
       type="button"
@@ -239,17 +260,14 @@ function ArtifactChip({
 const PROMPT_LINK_CLASS =
   "inline cursor-pointer text-primary underline decoration-dashed underline-offset-2 hover:decoration-solid";
 
-function PromptLink({
-  prompt,
-  children,
-  onSend,
-  size,
-}: {
+interface PromptLinkProps {
   prompt: string;
   children?: ReactNode;
   onSend?: (text: string) => void;
   size: MarkdownSize;
-}) {
+}
+
+function PromptLink({ prompt, children, onSend, size }: PromptLinkProps) {
   if (!onSend) {
     return (
       <Text as="span" size={size}>
@@ -278,16 +296,7 @@ function PromptLink({
  * message component. While the agent message is still streaming the JSON body
  * may be incomplete; a quiet placeholder is shown until it parses.
  */
-function BundleUiMessage({
-  bundleId,
-  name,
-  body,
-  index,
-  onSendPrompt,
-  sessionId,
-  messageId,
-  onCollapse,
-}: {
+interface BundleUiMessageProps {
   bundleId: string;
   name: string;
   body: string;
@@ -297,7 +306,18 @@ function BundleUiMessage({
   sessionId?: string;
   messageId?: string;
   onCollapse?: () => void;
-}) {
+}
+
+function BundleUiMessage({
+  bundleId,
+  name,
+  body,
+  index,
+  onSendPrompt,
+  sessionId,
+  messageId,
+  onCollapse,
+}: BundleUiMessageProps) {
   let props: Record<string, unknown> | undefined;
   try {
     const parsed: unknown = JSON.parse(body);
@@ -335,19 +355,21 @@ function BundleUiMessage({
   );
 }
 
-function buildComponents(
-  artifactBaseUrl?: string,
-  size: MarkdownSize = "sm",
-  tone: MarkdownTone = "inherit",
-  bundleId?: string,
-  onSendPrompt?: (text: string) => void,
-  onOpenArtifact?: (url: string, title: string) => void,
-  pinnedPaths?: Set<string>,
-  onTogglePinArtifact?: (path: string, title: string) => void,
-  sessionId?: string,
-  messageId?: string,
-  onCollapse?: () => void,
-): Components {
+function buildComponents(options: MarkdownComponentsOptions): Components {
+  const {
+    artifactBaseUrl,
+    size,
+    tone,
+    bundleId,
+    onSendPrompt,
+    onOpenArtifact,
+    pinnedPaths,
+    onTogglePinArtifact,
+    sessionId,
+    messageId,
+    onCollapse,
+  } = options;
+
   // Counts occurrences of each bundle component name within a single render so
   // repeated components get a stable index for their persisted-state namespace.
   const componentIndex = new Map<string, number>();
@@ -536,7 +558,7 @@ export function Markdown({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         urlTransform={urlTransform}
-        components={buildComponents(
+        components={buildComponents({
           artifactBaseUrl,
           size,
           tone,
@@ -548,7 +570,7 @@ export function Markdown({
           sessionId,
           messageId,
           onCollapse,
-        )}
+        })}
       >
         {children}
       </ReactMarkdown>

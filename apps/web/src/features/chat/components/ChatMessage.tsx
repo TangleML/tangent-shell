@@ -19,14 +19,13 @@ import { Paragraph, Text } from "@/shared/ui/typography";
 import { AgentThinking, ThinkingDisclosure } from "./AgentThinking";
 import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
 
-/** Renders the message's attached files as links to the session file API. */
-function Attachments({
-  sessionId,
-  attachments,
-}: {
+interface AttachmentsProps {
   sessionId: string;
   attachments: Attachment[];
-}) {
+}
+
+/** Renders the message's attached files as links to the session file API. */
+function Attachments({ sessionId, attachments }: AttachmentsProps) {
   return (
     <InlineStack gap="1" wrap="wrap">
       {attachments.map((attachment) => (
@@ -48,7 +47,11 @@ function Attachments({
 
 type CopiedFormat = "plain" | "markdown" | null;
 
-function CopyButton({ content }: { content: string }) {
+interface CopyButtonProps {
+  content: string;
+}
+
+function CopyButton({ content }: CopyButtonProps) {
   const [copied, setCopied] = useState<CopiedFormat>(null);
   const disabled = !content.trim();
 
@@ -74,14 +77,13 @@ function CopyButton({ content }: { content: string }) {
   );
 }
 
-/** Hover-revealed row of message-level actions (copy, collapse). */
-function MessageActions({
-  content,
-  onCollapse,
-}: {
+interface MessageActionsProps {
   content: string;
   onCollapse?: () => void;
-}) {
+}
+
+/** Hover-revealed row of message-level actions (copy, collapse). */
+function MessageActions({ content, onCollapse }: MessageActionsProps) {
   return (
     <HoverReveal>
       <InlineStack gap="0.5" wrap="nowrap">
@@ -100,17 +102,19 @@ function MessageActions({
   );
 }
 
+interface MessageHeaderProps {
+  authorName: string;
+  roleLabel: string;
+  content: string;
+  onCollapse?: () => void;
+}
+
 function MessageHeader({
   authorName,
   roleLabel,
   content,
   onCollapse,
-}: {
-  authorName: string;
-  roleLabel: string;
-  content: string;
-  onCollapse?: () => void;
-}) {
+}: MessageHeaderProps) {
   return (
     <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
       <Text size="xs" weight="medium" tone="subdued">
@@ -128,8 +132,12 @@ function roleLabelFor(message: ChatMessageType): string {
   return isSubagent ? " (sub-agent)" : isAgent ? " (agent)" : "";
 }
 
+interface HeaderCollapseButtonProps {
+  onCollapse?: () => void;
+}
+
 /** Standalone collapse control for headers that lack a copy action. */
-function HeaderCollapseButton({ onCollapse }: { onCollapse?: () => void }) {
+function HeaderCollapseButton({ onCollapse }: HeaderCollapseButtonProps) {
   if (!onCollapse) return null;
   return (
     <HoverReveal>
@@ -148,13 +156,12 @@ function HeaderCollapseButton({ onCollapse }: { onCollapse?: () => void }) {
  * A single collapsed message: just the author and an Expand affordance, with no
  * bubble. Not selectable/copyable (the content is hidden until expanded).
  */
-export function CollapsedMessage({
-  message,
-  onExpand,
-}: {
+interface CollapsedMessageProps {
   message: ChatMessageType;
   onExpand: () => void;
-}) {
+}
+
+export function CollapsedMessage({ message, onExpand }: CollapsedMessageProps) {
   // Raw <div> for the `select-none` escape hatch (collapsed content is hidden
   // and intentionally not selectable/copyable), exempt from
   // tangle-ui/no-classname-on-primitives.
@@ -178,13 +185,15 @@ export function CollapsedMessage({
  * A run of 2+ consecutive collapsed messages, shown as a single "<n> messages
  * hidden" affordance that expands the entire run on click.
  */
+interface CollapsedMessageGroupProps {
+  count: number;
+  onExpandAll: () => void;
+}
+
 export function CollapsedMessageGroup({
   count,
   onExpandAll,
-}: {
-  count: number;
-  onExpandAll: () => void;
-}) {
+}: CollapsedMessageGroupProps) {
   // Raw <div> for the `select-none` escape hatch, exempt from
   // tangle-ui/no-classname-on-primitives.
   return (
@@ -229,13 +238,12 @@ interface ChatMessageProps {
  * text is the exact fact written to memory (so the user sees ground truth, not
  * the agent's claim).
  */
-function MemoryMessage({
-  message,
-  onCollapse,
-}: {
+interface MemoryMessageProps {
   message: ChatMessageType;
   onCollapse?: () => void;
-}) {
+}
+
+function MemoryMessage({ message, onCollapse }: MemoryMessageProps) {
   const scope = message.memory?.scope === "global" ? "global" : "session";
   return (
     <MessageBubble variant="memory" className="group">
@@ -255,19 +263,21 @@ function MemoryMessage({
   );
 }
 
+interface ThinkingOnlyMessageProps {
+  message: ChatMessageType;
+  variant: MessageBubbleVariant;
+  roleLabel: string;
+  isStreaming: boolean;
+  onCollapse?: () => void;
+}
+
 function ThinkingOnlyMessage({
   message,
   variant,
   roleLabel,
   isStreaming,
   onCollapse,
-}: {
-  message: ChatMessageType;
-  variant: MessageBubbleVariant;
-  roleLabel: string;
-  isStreaming: boolean;
-  onCollapse?: () => void;
-}) {
+}: ThinkingOnlyMessageProps) {
   const thinkingDone = isThinkingDone(message, isStreaming);
   const { open, onOpenChange } = useThinkingCollapse(thinkingDone);
 

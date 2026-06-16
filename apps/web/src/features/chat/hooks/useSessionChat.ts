@@ -6,7 +6,6 @@ import {
   type AgentEndPayload,
   type AgentErrorPayload,
   type AgentModelPayload,
-  type AgentQueuePayload,
   type AgentSetModelPayload,
   type AgentStartPayload,
   type AgentThinkingPayload,
@@ -34,7 +33,7 @@ import {
   type UiCommand,
   type UiCommandPayload,
 } from "@tangent/shared/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
@@ -110,21 +109,18 @@ export function useSessionChat(sessionId: string) {
   const [activityByConversation, setActivityByConversation] = useState<
     Map<string, AgentActivity>
   >(() => new Map());
-  // Pending steer/follow-up nudges per conversation, mirrored from the agent's
-  // `agent:queue` events so the composer can surface what's waiting.
-  const [queuedByConversation, setQueuedByConversation] = useState<
-    Map<string, { steering: string[]; followUp: string[] }>
-  >(() => new Map());
   const socketRef = useRef<Socket | null>(null);
   // Maps an in-flight message id to its conversation so `agent:error` (which
   // only carries a messageId) can clear the right thread's streaming state.
   const conversationByMessageId = useRef<Map<string, string>>(new Map());
 
   // One author identity per mounted chat (a stand-in for real auth in Phase 1).
-  const author = useMemo<ChatAuthor>(
-    () => ({ id: crypto.randomUUID(), kind: "human", name: "You" }),
-    [],
-  );
+  // Held in lazy state so the id stays stable for the chat's lifetime.
+  const [author] = useState<ChatAuthor>(() => ({
+    id: crypto.randomUUID(),
+    kind: "human",
+    name: "You",
+  }));
 
   useEffect(() => {
     if (!sessionId) return;
@@ -148,7 +144,6 @@ export function useSessionChat(sessionId: string) {
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
-      setQueuedByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
       socket.emit(SocketEvents.ChatJoin, { sessionId });
@@ -159,7 +154,6 @@ export function useSessionChat(sessionId: string) {
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
-      setQueuedByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
     });
@@ -243,22 +237,6 @@ export function useSessionChat(sessionId: string) {
             next.set(conversationId, activity);
           } else {
             next.delete(conversationId);
-          }
-          return next;
-        });
-      },
-    );
-    // The agent's pending steer/follow-up queue changed: mirror it so the
-    // composer can show what's waiting. Empty arrays clear the entry.
-    socket.on(
-      SocketEvents.AgentQueue,
-      ({ conversationId, steering, followUp }: AgentQueuePayload) => {
-        setQueuedByConversation((prev) => {
-          const next = new Map(prev);
-          if (steering.length === 0 && followUp.length === 0) {
-            next.delete(conversationId);
-          } else {
-            next.set(conversationId, { steering, followUp });
           }
           return next;
         });
@@ -409,133 +387,98 @@ export function useSessionChat(sessionId: string) {
 
   // Aborts an agent's in-progress run by id (`"prime"` or a sub-agent id). The
   // server resets the run's state and the UI clears via the usual agent events.
-  const abort = useCallback(
-    (conversationId: string) => {
-      const socket = socketRef.current;
-      if (!socket) return;
-      const payload: AgentAbortPayload = { sessionId, conversationId };
-      socket.emit(SocketEvents.AgentAbort, payload);
-    },
-    [sessionId],
-  );
+  function abort(conversationId: string) {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const payload: AgentAbortPayload = { sessionId, conversationId };
+    socket.emit(SocketEvents.AgentAbort, payload);
+  }
 
   // Changes an agent's model and/or thinking depth (`"prime"` or a sub-agent
   // id). The server respawns that agent's process and echoes the new selection
   // back via `agent:model` (Prime) or the roster update (sub-agents).
-  const setAgentModel = useCallback(
-    (agentId: string, selection: AgentModelSelection) => {
-      const socket = socketRef.current;
-      if (!socket) return;
-      const payload: AgentSetModelPayload = {
-        sessionId,
-        agentId,
-        model: selection.model,
-        thinkingDepth: selection.thinkingDepth,
-      };
-      socket.emit(SocketEvents.AgentSetModel, payload);
-    },
-    [sessionId],
-  );
+  function setAgentModel(agentId: string, selection: AgentModelSelection) {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const payload: AgentSetModelPayload = {
+      sessionId,
+      agentId,
+      model: selection.model,
+      thinkingDepth: selection.thinkingDepth,
+    };
+    socket.emit(SocketEvents.AgentSetModel, payload);
+  }
 
   // The current model/thinking selection for an agent, or null when unknown
   // (the agent then runs the server default).
-  const getAgentModel = useCallback(
-    (agentId: string): AgentModelSelection | null =>
-      modelByAgent.get(agentId) ?? null,
-    [modelByAgent],
-  );
+  function getAgentModel(agentId: string): AgentModelSelection | null {
+    return modelByAgent.get(agentId) ?? null;
+  }
 
   // Resolves a memory suggestion: tells the server to apply or discard it and
   // optimistically removes the card so it can't be answered twice.
-  const resolveSuggestion = useCallback(
-    (suggestionId: string, accept: boolean) => {
-      const socket = socketRef.current;
-      if (!socket) return;
-      const event = accept
-        ? SocketEvents.MemoryConfirm
-        : SocketEvents.MemoryDismiss;
-      const payload: MemoryConfirmPayload | MemoryDismissPayload = {
-        sessionId,
-        suggestionId,
-      };
-      socket.emit(event, payload);
-      setMemorySuggestions((prev) =>
-        prev.filter((s) => s.suggestionId !== suggestionId),
-      );
-    },
-    [sessionId],
-  );
+  function resolveSuggestion(suggestionId: string, accept: boolean) {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const event = accept
+      ? SocketEvents.MemoryConfirm
+      : SocketEvents.MemoryDismiss;
+    const payload: MemoryConfirmPayload | MemoryDismissPayload = {
+      sessionId,
+      suggestionId,
+    };
+    socket.emit(event, payload);
+    setMemorySuggestions((prev) =>
+      prev.filter((s) => s.suggestionId !== suggestionId),
+    );
+  }
 
-  const confirmMemory = useCallback(
-    (suggestionId: string) => resolveSuggestion(suggestionId, true),
-    [resolveSuggestion],
-  );
-  const dismissMemory = useCallback(
-    (suggestionId: string) => resolveSuggestion(suggestionId, false),
-    [resolveSuggestion],
-  );
+  function confirmMemory(suggestionId: string) {
+    resolveSuggestion(suggestionId, true);
+  }
+  function dismissMemory(suggestionId: string) {
+    resolveSuggestion(suggestionId, false);
+  }
 
   // Pins an artifact (by workspace-relative path) for quick access. The server
   // dedupes by path and broadcasts the updated list back over `artifacts.update`.
-  const pinArtifact = useCallback(
-    (path: string, title: string) => {
-      const socket = socketRef.current;
-      if (!socket) return;
-      const payload: ArtifactPinPayload = { sessionId, path, title };
-      socket.emit(SocketEvents.ArtifactPin, payload);
-    },
-    [sessionId],
-  );
+  function pinArtifact(path: string, title: string) {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const payload: ArtifactPinPayload = { sessionId, path, title };
+    socket.emit(SocketEvents.ArtifactPin, payload);
+  }
 
-  const unpinArtifact = useCallback(
-    (path: string) => {
-      const socket = socketRef.current;
-      if (!socket) return;
-      const payload: ArtifactUnpinPayload = { sessionId, path };
-      socket.emit(SocketEvents.ArtifactUnpin, payload);
-    },
-    [sessionId],
-  );
+  function unpinArtifact(path: string) {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const payload: ArtifactUnpinPayload = { sessionId, path };
+    socket.emit(SocketEvents.ArtifactUnpin, payload);
+  }
 
   // The set of pinned paths, for O(1) "is this artifact pinned?" checks when
   // rendering artifact chips.
-  const pinnedPaths = useMemo(
-    () => new Set(artifacts.map((a) => a.path)),
-    [artifacts],
-  );
+  const pinnedPaths = new Set(artifacts.map((a) => a.path));
 
   // A conversation is busy while a message streams OR while it has a non-null
   // activity (thinking between turns / running a tool). Together these bracket
   // the whole run, even across multiple messages and tool calls.
-  const isConversationBusy = useCallback(
-    (conversationId: string) =>
+  function isConversationBusy(conversationId: string) {
+    return (
       streamingConversations.has(conversationId) ||
-      activityByConversation.has(conversationId),
-    [streamingConversations, activityByConversation],
-  );
+      activityByConversation.has(conversationId)
+    );
+  }
 
   // The current ephemeral activity for a conversation, or null when idle or a
   // message is actively streaming (the streaming bubble is the visual then).
-  const getActivity = useCallback(
-    (conversationId: string): AgentActivity | null =>
-      activityByConversation.get(conversationId) ?? null,
-    [activityByConversation],
-  );
+  function getActivity(conversationId: string): AgentActivity | null {
+    return activityByConversation.get(conversationId) ?? null;
+  }
 
-  const isMessageStreaming = useCallback(
-    (messageId: string) => streamingMessageIds.has(messageId),
-    [streamingMessageIds],
-  );
-
-  // Pending steer/follow-up nudges for a conversation, or null when none are
-  // queued. Drives the composer's "queued nudge" indicator.
-  const getQueued = useCallback(
-    (
-      conversationId: string,
-    ): { steering: string[]; followUp: string[] } | null =>
-      queuedByConversation.get(conversationId) ?? null,
-    [queuedByConversation],
-  );
+  function isMessageStreaming(messageId: string) {
+    return streamingMessageIds.has(messageId);
+  }
 
   return {
     messages,
@@ -553,7 +496,6 @@ export function useSessionChat(sessionId: string) {
     agentBusy: isConversationBusy(PI_AGENT.id),
     isConversationBusy,
     getActivity,
-    getQueued,
     isMessageStreaming,
     currentAuthorId: author.id,
     send,

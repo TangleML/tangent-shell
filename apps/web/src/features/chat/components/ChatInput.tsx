@@ -53,12 +53,6 @@ interface ChatInputProps {
     content: string,
     options: { delivery: MessageDelivery; attachments?: Attachment[] },
   ) => void;
-  /**
-   * Server-mirrored steer/follow-up queue from Pi. Superseded by the
-   * client-side follow-up queue (see {@link QueuedFollowUps}) and currently
-   * unused; kept so existing call sites compile without changes.
-   */
-  queued?: { steering: string[]; followUp: string[] } | null;
 }
 
 export function ChatInput({

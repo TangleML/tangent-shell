@@ -4,7 +4,6 @@ import type {
   MessageDelivery,
   ThinkingLevel,
 } from "@tangent/shared/contracts";
-import { useMemo } from "react";
 
 import type { ChatMessage } from "@/features/chat/model/types";
 import { Box } from "@/shared/ui/box";
@@ -41,8 +40,6 @@ interface SubagentTabViewProps {
     content: string,
     options: { delivery: MessageDelivery; attachments?: Attachment[] },
   ) => void;
-  /** Pending steer/follow-up nudges for this sub-agent. */
-  queued?: { steering: string[]; followUp: string[] } | null;
   /** This sub-agent's current model id (absent = server default). */
   model?: string;
   /** This sub-agent's current thinking depth (absent = server default). */
@@ -72,7 +69,6 @@ export function SubagentTabView({
   isMessageStreaming,
   onAbort,
   onSubmit,
-  queued,
   model,
   thinkingDepth,
   onSetModel,
@@ -80,10 +76,7 @@ export function SubagentTabView({
   pinnedPaths,
   onTogglePinArtifact,
 }: SubagentTabViewProps) {
-  const visibleMessages = useMemo(
-    () => messages.filter((m) => m.conversationId === agentId),
-    [messages, agentId],
-  );
+  const visibleMessages = messages.filter((m) => m.conversationId === agentId);
 
   return (
     <BlockStack grow>
@@ -116,7 +109,6 @@ export function SubagentTabView({
         agentBusy={busy}
         onAbort={onAbort}
         onSubmit={onSubmit}
-        queued={queued}
       />
     </BlockStack>
   );
