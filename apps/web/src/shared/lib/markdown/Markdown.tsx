@@ -1,10 +1,12 @@
 // local primitive — renders agent markdown output, styling the raw markdown
 // HTML elements (h1/ul/a/img/code/table/...). These are not Tangle UI
 // primitives, so the scoped classNames here are an allowed escape hatch.
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { createContext, useContext } from "react";
 import ReactMarkdown, {
   type Components,
   defaultUrlTransform,
+  type ExtraProps,
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -128,6 +130,38 @@ interface MarkdownComponentsOptions {
   sessionId?: string;
   messageId?: string;
   onCollapse?: () => void;
+}
+
+/**
+ * Supplies the active render options to the markdown element components below.
+ *
+ * The `components` map handed to `react-markdown` is a single, module-level
+ * object of stable component types (see {@link MARKDOWN_COMPONENTS}). Keeping
+ * those types referentially stable across renders is what stops `react-markdown`
+ * from unmounting and remounting a node's subtree every time `Markdown`
+ * re-renders — critical for `tangent-ui:` blocks, whose `BundleUiHost` would
+ * otherwise tear down and reboot its Web Worker (visible as flicker) on every
+ * chat message add/update. The per-render, possibly-changing options (callbacks,
+ * `pinnedPaths`, ...) flow in through this context instead of being baked into
+ * fresh closures, so the components stay current without changing identity.
+ */
+const MarkdownOptionsContext = createContext<MarkdownComponentsOptions | null>(
+  null,
+);
+
+function useMarkdownOptions(): MarkdownComponentsOptions {
+  const options = useContext(MarkdownOptionsContext);
+  if (!options) {
+    throw new Error(
+      "Markdown element components must render within <MarkdownOptionsContext>",
+    );
+  }
+  return options;
+}
+
+/** Resolves the heading text tone from the body content tone. */
+function headingToneFor(tone: MarkdownTone): "subdued" | "heading" {
+  return tone === "subdued" ? "subdued" : "heading";
 }
 
 const INLINE_CODE_CLASS =
@@ -299,8 +333,12 @@ interface BundleUiMessageProps {
   bundleId: string;
   name: string;
   body: string;
-  /** Occurrence index of this component name within the message (0-based). */
-  index: number;
+  /**
+   * Stable per-occurrence key derived from the block's source position, so
+   * repeated components of the same name in one message get distinct, render-
+   * stable persisted-state namespaces.
+   */
+  instanceKey: string;
   onSendPrompt?: (text: string) => void;
   sessionId?: string;
   messageId?: string;
@@ -311,7 +349,7 @@ function BundleUiMessage({
   bundleId,
   name,
   body,
-  index,
+  instanceKey,
   onSendPrompt,
   sessionId,
   messageId,
@@ -336,10 +374,10 @@ function BundleUiMessage({
   }
 
   // Stable per-instance namespace for `host.getState`/`setState`. Includes the
-  // occurrence index so repeated components of the same name don't collide.
+  // source-position key so repeated components of the same name don't collide.
   const stateNamespace =
     sessionId && messageId
-      ? `tangent-bundle-ui-state:${sessionId}:${messageId}:${name}:${index}`
+      ? `tangent-bundle-ui-state:${sessionId}:${messageId}:${name}:${instanceKey}`
       : undefined;
 
   return (
@@ -354,194 +392,234 @@ function BundleUiMessage({
   );
 }
 
-function buildComponents(options: MarkdownComponentsOptions): Components {
+// Props each element component receives: the intrinsic element's attributes
+// plus react-markdown's `node` (enabled via `passNode`). Dynamic render options
+// come from context, not props, so these component types stay referentially
+// stable (see {@link MarkdownOptionsContext}).
+type HeadingProps = ComponentPropsWithoutRef<"h1"> & ExtraProps;
+type ParagraphProps = ComponentPropsWithoutRef<"p"> & ExtraProps;
+type ListItemProps = ComponentPropsWithoutRef<"li"> & ExtraProps;
+type AnchorProps = ComponentPropsWithoutRef<"a"> & ExtraProps;
+type ImageProps = ComponentPropsWithoutRef<"img"> & ExtraProps;
+type CodeProps = ComponentPropsWithoutRef<"code"> & ExtraProps;
+
+function MdHeading1({ children }: HeadingProps) {
+  const { tone } = useMarkdownOptions();
+  return (
+    <Heading level={1} size="sm" weight="bold" tone={headingToneFor(tone)}>
+      {children}
+    </Heading>
+  );
+}
+
+function MdHeading2({ children }: HeadingProps) {
+  const { tone } = useMarkdownOptions();
+  return (
+    <Heading level={2} size="sm" weight="bold" tone={headingToneFor(tone)}>
+      {children}
+    </Heading>
+  );
+}
+
+function MdHeading3({ children }: HeadingProps) {
+  const { tone } = useMarkdownOptions();
+  return (
+    <Heading level={3} size="sm" weight="semibold" tone={headingToneFor(tone)}>
+      {children}
+    </Heading>
+  );
+}
+
+function MdHeading4({ children }: HeadingProps) {
+  const { tone } = useMarkdownOptions();
+  return (
+    <Heading level={4} size="sm" weight="semibold" tone={headingToneFor(tone)}>
+      {children}
+    </Heading>
+  );
+}
+
+function MdParagraph({ children }: ParagraphProps) {
+  const { size, tone } = useMarkdownOptions();
+  return (
+    <Paragraph size={size} leading="relaxed" tone={tone}>
+      {children}
+    </Paragraph>
+  );
+}
+
+function MdListItem({ children }: ListItemProps) {
+  const { size, tone } = useMarkdownOptions();
+  return (
+    <li className="my-0.5">
+      <Text as="span" size={size} leading="relaxed" tone={tone}>
+        {children}
+      </Text>
+    </li>
+  );
+}
+
+function MdAnchor({ href, title, children }: AnchorProps) {
   const {
     artifactBaseUrl,
     size,
-    tone,
-    bundleId,
     onSendPrompt,
     onOpenArtifact,
     pinnedPaths,
     onTogglePinArtifact,
-    sessionId,
-    messageId,
-    onCollapse,
-  } = options;
+  } = useMarkdownOptions();
 
-  // Counts occurrences of each bundle component name within a single render so
-  // repeated components get a stable index for their persisted-state namespace.
-  const componentIndex = new Map<string, number>();
+  if (typeof href === "string" && href.startsWith(PROMPT_SCHEME)) {
+    const promptText = parsePromptHref(href);
+    const text =
+      promptText ?? (typeof children === "string" ? children.trim() : "");
+    return (
+      <PromptLink prompt={text} onSend={onSendPrompt} size={size}>
+        {children}
+      </PromptLink>
+    );
+  }
 
-  // Headings use the dedicated `--message-heading` token (via the `heading`
-  // tone) unless the caller explicitly requested subdued body content.
-  const headingTone = tone === "subdued" ? "subdued" : "heading";
+  const isArtifact =
+    artifactBaseUrl != null && typeof href === "string" && !isAbsoluteUrl(href);
 
-  return {
-    h1: ({ children }) => (
-      <Heading level={1} size="sm" weight="bold" tone={headingTone}>
-        {children}
-      </Heading>
-    ),
-    h2: ({ children }) => (
-      <Heading level={2} size="sm" weight="bold" tone={headingTone}>
-        {children}
-      </Heading>
-    ),
-    h3: ({ children }) => (
-      <Heading level={3} size="sm" weight="semibold" tone={headingTone}>
-        {children}
-      </Heading>
-    ),
-    h4: ({ children }) => (
-      <Heading level={4} size="sm" weight="semibold" tone={headingTone}>
-        {children}
-      </Heading>
-    ),
-    p: ({ children }) => (
-      <Paragraph size={size} leading="relaxed" tone={tone}>
-        {children}
-      </Paragraph>
-    ),
-    ul: ({ children }) => <ul className="my-1 list-disc pl-4">{children}</ul>,
-    ol: ({ children }) => (
-      <ol className="my-1 list-decimal pl-4">{children}</ol>
-    ),
-    li: ({ children }) => (
-      <li className="my-0.5">
-        <Text as="span" size={size} leading="relaxed" tone={tone}>
-          {children}
-        </Text>
-      </li>
-    ),
-    blockquote: ({ children }) => (
-      <blockquote className="my-2 rounded-sm border-l-4 border-message-quote-border bg-message-table-header py-1 pl-3">
-        {children}
-      </blockquote>
-    ),
-    table: ({ children }) => (
-      <div className="my-2 overflow-x-auto rounded-md border border-message-table-border">
-        <table className="w-full text-xs">{children}</table>
-      </div>
-    ),
-    thead: ({ children }) => (
-      <thead className="bg-message-table-header">{children}</thead>
-    ),
-    tbody: ({ children }) => <tbody>{children}</tbody>,
-    tr: ({ children }) => (
-      <tr className="border-b last:border-b-0">{children}</tr>
-    ),
-    th: ({ children }) => (
-      <th className="px-2 py-1 text-left font-semibold">{children}</th>
-    ),
-    td: ({ children }) => <td className="px-2 py-1">{children}</td>,
-    hr: () => <Separator />,
-    a: ({ href, title, children }) => {
-      if (typeof href === "string" && href.startsWith(PROMPT_SCHEME)) {
-        const promptText = parsePromptHref(href);
-        const text =
-          promptText ?? (typeof children === "string" ? children.trim() : "");
-        return (
-          <PromptLink prompt={text} onSend={onSendPrompt} size={size}>
-            {children}
-          </PromptLink>
-        );
-      }
-
-      const isArtifact =
-        artifactBaseUrl != null &&
-        typeof href === "string" &&
-        !isAbsoluteUrl(href);
-
-      if (isArtifact) {
-        const resolved = resolveUrl(href, artifactBaseUrl) ?? href;
-        const openable = onOpenArtifact != null && isViewableArtifact(href);
-        // The workspace-relative path is the stable identity used for pinning.
-        const path = artifactPath(href);
-        const label = artifactLabel(children, resolved);
-        return (
-          <ArtifactChip
-            href={resolved}
-            title={title}
-            onOpen={
-              openable ? () => onOpenArtifact(resolved, label) : undefined
-            }
-            pinned={pinnedPaths?.has(path)}
-            onTogglePin={
-              onTogglePinArtifact
-                ? () => onTogglePinArtifact(path, label)
-                : undefined
-            }
-          >
-            {children}
-          </ArtifactChip>
-        );
-      }
-
-      return (
-        <Link href={href} title={title} variant="primary" size={size} external>
-          {children}
-        </Link>
-      );
-    },
-    img: ({ src, alt, title }) => (
-      <img
-        src={
-          artifactBaseUrl && typeof src === "string"
-            ? resolveUrl(src, artifactBaseUrl)
-            : src
-        }
-        alt={alt}
+  if (isArtifact) {
+    const resolved = resolveUrl(href, artifactBaseUrl) ?? href;
+    const openable = onOpenArtifact != null && isViewableArtifact(href);
+    // The workspace-relative path is the stable identity used for pinning.
+    const path = artifactPath(href);
+    const label = artifactLabel(children, resolved);
+    return (
+      <ArtifactChip
+        href={resolved}
         title={title}
-        className="max-w-full rounded border"
-      />
-    ),
-    code: ({ className, children }) => {
-      // Bundle-UI message token: render the bundle's sandboxed component when
-      // we know which bundle to load it from; otherwise treat it as code.
-      const bundleMatch = bundleId
-        ? className?.match(BUNDLE_UI_LANGUAGE)
-        : null;
-      if (bundleMatch && bundleId) {
-        const body = String(children).replace(/\n$/, "");
-        const name = bundleMatch[1];
-        const index = componentIndex.get(name) ?? 0;
-        componentIndex.set(name, index + 1);
-        return (
-          <BundleUiMessage
-            bundleId={bundleId}
-            name={name}
-            body={body}
-            index={index}
-            onSendPrompt={onSendPrompt}
-            sessionId={sessionId}
-            messageId={messageId}
-            onCollapse={onCollapse}
-          />
-        );
-      }
+        onOpen={openable ? () => onOpenArtifact(resolved, label) : undefined}
+        pinned={pinnedPaths?.has(path)}
+        onTogglePin={
+          onTogglePinArtifact
+            ? () => onTogglePinArtifact(path, label)
+            : undefined
+        }
+      >
+        {children}
+      </ArtifactChip>
+    );
+  }
 
-      const match = className?.match(/language-(\w+)/);
-
-      if (match) {
-        const code = String(children).replace(/\n$/, "");
-        return (
-          <CodeBlock
-            code={code}
-            language={match[1]}
-            showLineNumbers={false}
-            className="my-1 h-auto max-h-64 rounded-md text-xs"
-          />
-        );
-      }
-
-      return <code className={INLINE_CODE_CLASS}>{children}</code>;
-    },
-    // Fenced code blocks are rendered by the `code` handler above; the `pre`
-    // wrapper is flattened so it does not add an extra <pre> around CodeBlock.
-    pre: ({ children }) => <>{children}</>,
-  };
+  return (
+    <Link href={href} title={title} variant="primary" size={size} external>
+      {children}
+    </Link>
+  );
 }
+
+function MdImage({ src, alt, title }: ImageProps) {
+  const { artifactBaseUrl } = useMarkdownOptions();
+  return (
+    <img
+      src={
+        artifactBaseUrl && typeof src === "string"
+          ? resolveUrl(src, artifactBaseUrl)
+          : src
+      }
+      alt={alt}
+      title={title}
+      className="max-w-full rounded border"
+    />
+  );
+}
+
+function MdCode({ className, children, node }: CodeProps) {
+  const { bundleId, onSendPrompt, sessionId, messageId, onCollapse } =
+    useMarkdownOptions();
+
+  // Bundle-UI message token: render the bundle's sandboxed component when we
+  // know which bundle to load it from; otherwise treat it as code.
+  const bundleMatch = bundleId ? className?.match(BUNDLE_UI_LANGUAGE) : null;
+  if (bundleMatch && bundleId) {
+    const body = String(children).replace(/\n$/, "");
+    const name = bundleMatch[1];
+    // The block's source offset is stable across renders and unique within the
+    // message, so it disambiguates repeated components of the same name without
+    // a render-time occurrence counter (which would have to mutate per render).
+    const instanceKey = String(node?.position?.start.offset ?? 0);
+    return (
+      <BundleUiMessage
+        bundleId={bundleId}
+        name={name}
+        body={body}
+        instanceKey={instanceKey}
+        onSendPrompt={onSendPrompt}
+        sessionId={sessionId}
+        messageId={messageId}
+        onCollapse={onCollapse}
+      />
+    );
+  }
+
+  const match = className?.match(/language-(\w+)/);
+
+  if (match) {
+    const code = String(children).replace(/\n$/, "");
+    return (
+      <CodeBlock
+        code={code}
+        language={match[1]}
+        showLineNumbers={false}
+        className="my-1 h-auto max-h-64 rounded-md text-xs"
+      />
+    );
+  }
+
+  return <code className={INLINE_CODE_CLASS}>{children}</code>;
+}
+
+/**
+ * Tag-to-component map handed to `react-markdown`. Defined once at module scope
+ * so every component type is referentially stable across `Markdown` renders;
+ * `react-markdown` reconciles each node's subtree in place instead of
+ * unmounting and remounting it (which would reboot `BundleUiHost`'s worker).
+ * Dynamic render options reach these components through {@link
+ * MarkdownOptionsContext}.
+ */
+const MARKDOWN_COMPONENTS: Components = {
+  h1: MdHeading1,
+  h2: MdHeading2,
+  h3: MdHeading3,
+  h4: MdHeading4,
+  p: MdParagraph,
+  ul: ({ children }) => <ul className="my-1 list-disc pl-4">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1 list-decimal pl-4">{children}</ol>,
+  li: MdListItem,
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 rounded-sm border-l-4 border-message-quote-border bg-message-table-header py-1 pl-3">
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto rounded-md border border-message-table-border">
+      <table className="w-full text-xs">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-message-table-header">{children}</thead>
+  ),
+  tbody: ({ children }) => <tbody>{children}</tbody>,
+  tr: ({ children }) => (
+    <tr className="border-b last:border-b-0">{children}</tr>
+  ),
+  th: ({ children }) => (
+    <th className="px-2 py-1 text-left font-semibold">{children}</th>
+  ),
+  td: ({ children }) => <td className="px-2 py-1">{children}</td>,
+  hr: () => <Separator />,
+  a: MdAnchor,
+  img: MdImage,
+  code: MdCode,
+  // Fenced code blocks are rendered by the `code` handler above; the `pre`
+  // wrapper is flattened so it does not add an extra <pre> around CodeBlock.
+  pre: ({ children }) => <>{children}</>,
+};
 
 export function Markdown({
   children,
@@ -558,27 +636,31 @@ export function Markdown({
   messageId,
   onCollapse,
 }: MarkdownProps) {
+  const options: MarkdownComponentsOptions = {
+    artifactBaseUrl,
+    size,
+    tone,
+    bundleId,
+    onSendPrompt,
+    onOpenArtifact,
+    pinnedPaths,
+    onTogglePinArtifact,
+    sessionId,
+    messageId,
+    onCollapse,
+  };
+
   return (
     <div className={cn("w-full min-w-0 space-y-2", className)}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        urlTransform={urlTransform}
-        components={buildComponents({
-          artifactBaseUrl,
-          size,
-          tone,
-          bundleId,
-          onSendPrompt,
-          onOpenArtifact,
-          pinnedPaths,
-          onTogglePinArtifact,
-          sessionId,
-          messageId,
-          onCollapse,
-        })}
-      >
-        {children}
-      </ReactMarkdown>
+      <MarkdownOptionsContext.Provider value={options}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          urlTransform={urlTransform}
+          components={MARKDOWN_COMPONENTS}
+        >
+          {children}
+        </ReactMarkdown>
+      </MarkdownOptionsContext.Provider>
     </div>
   );
 }
