@@ -20,7 +20,6 @@ import { cn } from "@/shared/lib/utils";
 import { Icon } from "@/shared/ui/icon";
 import { InlineStack } from "@/shared/ui/layout";
 import { Link } from "@/shared/ui/link";
-import { Surface } from "@/shared/ui/patterns/surface";
 import { Separator } from "@/shared/ui/separator";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
@@ -132,7 +131,7 @@ interface MarkdownComponentsOptions {
 }
 
 const INLINE_CODE_CLASS =
-  "rounded bg-muted px-1 py-0.5 text-xs font-mono break-words";
+  "rounded bg-message-code text-message-code-foreground px-1 py-0.5 text-xs font-mono break-words";
 
 /**
  * Special link scheme that turns a markdown link into a chat action: clicking it
@@ -374,24 +373,28 @@ function buildComponents(options: MarkdownComponentsOptions): Components {
   // repeated components get a stable index for their persisted-state namespace.
   const componentIndex = new Map<string, number>();
 
+  // Headings use the dedicated `--message-heading` token (via the `heading`
+  // tone) unless the caller explicitly requested subdued body content.
+  const headingTone = tone === "subdued" ? "subdued" : "heading";
+
   return {
     h1: ({ children }) => (
-      <Heading level={1} size="sm" weight="bold" tone={tone}>
+      <Heading level={1} size="sm" weight="bold" tone={headingTone}>
         {children}
       </Heading>
     ),
     h2: ({ children }) => (
-      <Heading level={2} size="sm" weight="bold" tone={tone}>
+      <Heading level={2} size="sm" weight="bold" tone={headingTone}>
         {children}
       </Heading>
     ),
     h3: ({ children }) => (
-      <Heading level={3} size="sm" weight="semibold" tone={tone}>
+      <Heading level={3} size="sm" weight="semibold" tone={headingTone}>
         {children}
       </Heading>
     ),
     h4: ({ children }) => (
-      <Heading level={4} size="sm" weight="semibold" tone={tone}>
+      <Heading level={4} size="sm" weight="semibold" tone={headingTone}>
         {children}
       </Heading>
     ),
@@ -412,16 +415,18 @@ function buildComponents(options: MarkdownComponentsOptions): Components {
       </li>
     ),
     blockquote: ({ children }) => (
-      <Surface as="aside" level={2}>
+      <blockquote className="my-2 rounded-sm border-l-4 border-message-quote-border bg-message-table-header py-1 pl-3">
         {children}
-      </Surface>
+      </blockquote>
     ),
     table: ({ children }) => (
-      <div className="my-2 overflow-x-auto rounded-md border">
+      <div className="my-2 overflow-x-auto rounded-md border border-message-table-border">
         <table className="w-full text-xs">{children}</table>
       </div>
     ),
-    thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
+    thead: ({ children }) => (
+      <thead className="bg-message-table-header">{children}</thead>
+    ),
     tbody: ({ children }) => <tbody>{children}</tbody>,
     tr: ({ children }) => (
       <tr className="border-b last:border-b-0">{children}</tr>

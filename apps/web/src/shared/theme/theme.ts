@@ -1,6 +1,6 @@
 import type { IconName } from "@/shared/ui/icon";
 
-export type Theme = "light" | "dark" | "xterm";
+export type Theme = "light" | "dark" | "xterm" | "piforge";
 
 export interface ThemeOption {
   value: Theme;
@@ -12,6 +12,7 @@ export const THEMES: ThemeOption[] = [
   { value: "light", label: "Light", icon: "Sun" },
   { value: "dark", label: "Dark", icon: "Moon" },
   { value: "xterm", label: "Xterm", icon: "Terminal" },
+  { value: "piforge", label: "PiForge", icon: "Flame" },
 ];
 
 export const DEFAULT_THEME: Theme = "light";
@@ -19,22 +20,28 @@ export const DEFAULT_THEME: Theme = "light";
 export const THEME_STORAGE_KEY = "tangent-theme";
 
 function isTheme(value: unknown): value is Theme {
-  return value === "light" || value === "dark" || value === "xterm";
+  return (
+    value === "light" ||
+    value === "dark" ||
+    value === "xterm" ||
+    value === "piforge"
+  );
 }
 
 /**
  * Apply a theme by toggling classes on the document root. Light uses no class,
- * dark adds `dark`, and xterm adds `dark xterm` so `dark:` utilities keep
- * working while the xterm token overrides win (they are defined after `.dark`).
+ * dark adds `dark`, and the dark-derived themes (xterm, piforge) add
+ * `dark <theme>` so `dark:` utilities keep working while the theme's token
+ * overrides win (they are defined after `.dark`).
  */
 export function applyTheme(theme: Theme): void {
   const root = document.documentElement;
-  root.classList.remove("dark", "xterm");
-  if (theme === "dark" || theme === "xterm") {
+  root.classList.remove("dark", "xterm", "piforge");
+  if (theme === "dark" || theme === "xterm" || theme === "piforge") {
     root.classList.add("dark");
   }
-  if (theme === "xterm") {
-    root.classList.add("xterm");
+  if (theme === "xterm" || theme === "piforge") {
+    root.classList.add(theme);
   }
 }
 

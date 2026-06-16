@@ -42,6 +42,7 @@ const textVariants = cva("", {
       success: "text-success",
       accent: "text-accent-foreground",
       magic: "text-accent-foreground",
+      heading: "text-message-heading",
     },
     size: {
       xs: "text-xs",
