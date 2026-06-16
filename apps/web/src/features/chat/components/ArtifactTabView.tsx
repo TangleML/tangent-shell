@@ -5,12 +5,14 @@ import type { Attachment } from "@tangent/shared/contracts";
 import { useRef, useState } from "react";
 
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
+import { isMarkdownArtifact } from "@/shared/lib/markdown/artifact";
 import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack } from "@/shared/ui/layout";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 
 import { useViewportCapture } from "../hooks/useViewportCapture";
+import { ArtifactMarkdownContent } from "./ArtifactMarkdownContent";
 import { ArtifactReviewOverlay } from "./ArtifactReviewOverlay";
 
 interface ArtifactTabViewProps {
@@ -47,13 +49,14 @@ export function ArtifactTabView({
   onSendPrompt,
 }: ArtifactTabViewProps) {
   const { captureFrame } = useViewportCapture();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
   const [frozen, setFrozen] = useState<FrozenArtifact | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const isMarkdown = isMarkdownArtifact(url);
 
   function toggleFullscreen() {
-    void iframeRef.current?.requestFullscreen();
+    void viewerRef.current?.requestFullscreen();
   }
 
   function openInNewTab() {
@@ -64,11 +67,11 @@ export function ArtifactTabView({
     setCapturing(true);
     try {
       const frame = await captureFrame();
-      const iframe = iframeRef.current;
-      if (!frame || !iframe) return;
+      const viewer = viewerRef.current;
+      if (!frame || !viewer) return;
 
-      // Map the iframe's on-screen box into the capture-resolution frame.
-      const rect = iframe.getBoundingClientRect();
+      // Map the viewer's on-screen box into the capture-resolution frame.
+      const rect = viewer.getBoundingClientRect();
       const scaleX = frame.width / window.innerWidth;
       const scaleY = frame.height / window.innerHeight;
       const sx = clampToFrame(rect.left * scaleX, frame.width);
@@ -130,14 +133,17 @@ export function ArtifactTabView({
           {capturing ? "Capturing..." : "Review"}
         </Button>
       </Toolbar>
-      <div className="relative min-h-0 w-full flex-1">
-        <iframe
-          ref={iframeRef}
-          src={url}
-          title={title}
-          sandbox="allow-scripts allow-popups allow-forms"
-          className="absolute inset-0 h-full w-full border-0 bg-white"
-        />
+      <div ref={viewerRef} className="relative flex min-h-0 w-full flex-1">
+        {isMarkdown ? (
+          <ArtifactMarkdownContent sessionId={sessionId} url={url} />
+        ) : (
+          <iframe
+            src={url}
+            title={title}
+            sandbox="allow-scripts allow-popups allow-forms"
+            className="absolute inset-0 h-full w-full border-0 bg-white"
+          />
+        )}
         {frozen ? (
           <ArtifactReviewOverlay
             image={frozen.canvas}

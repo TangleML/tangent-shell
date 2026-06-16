@@ -60,3 +60,12 @@ export function isViewableArtifact(url: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase();
   return ext != null && VIEWABLE_ARTIFACT_EXTENSIONS.has(ext);
 }
+
+/**
+ * True when an artifact URL points at a Markdown document. These are fetched
+ * and rendered as formatted Markdown rather than shown as raw source.
+ */
+export function isMarkdownArtifact(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0];
+  return path.split(".").pop()?.toLowerCase() === "md";
+}

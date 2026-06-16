@@ -107,6 +107,19 @@ export async function uploadFiles(
   return data.files;
 }
 
+/**
+ * Fetches the raw text of a session artifact by its resolved file API URL.
+ * Used to render text-based artifacts (e.g. Markdown documents) inline.
+ */
+export async function getArtifactText(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const message = await res.text().catch(() => res.statusText);
+    throw new Error(message || `Request failed with status ${res.status}`);
+  }
+  return res.text();
+}
+
 export async function deleteSession(id: string): Promise<void> {
   const res = await fetch(apiUrl(`/api/sessions/${id}`), { method: "DELETE" });
   if (!res.ok) {
