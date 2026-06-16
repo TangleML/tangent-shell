@@ -45,6 +45,21 @@ Use the write tools when the user asks you to act on a run:
 Parse the run id from any URL the user provides. If the URL omits a run id, ask
 for one rather than guessing. Do not fabricate run data, ids, or metrics.
 
+### "My pipelines" / "my runs"
+
+When the user asks about **"my pipelines"**, **"my runs"**, or an equivalent
+(e.g. "my recent runs", "runs I created", "what have I been running"), call
+`tangle_run_list` scoped to the current user:
+
+- `filter_query`: `{"and":[{"value_equals":{"key":"system/pipeline_run.created_by","value":"me"}}]}`
+- `include_pipeline_names`: `true`
+- `include_execution_stats`: `true`
+
+The `created_by` value `"me"` is resolved server-side to the authenticated
+user, so you do not need an email or user id. Page through additional results
+with `page_token` when needed, and surface live runs with the usual
+`tangent-ui:pipeline-progress` chips.
+
 ## Triggers
 
 You can create and manage per-session triggers (`create_trigger`,

@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangle-ml-pipeline-optimizer
 name: Tangle ML Pipeline Optimizer
-version: 1.20.0
+version: 1.21.0
 description: Analyze a Tangle ML pipeline run for optimization potential, then spawn an autonomous optimizer agent.
 author: Tangent
 icon: icon.svg

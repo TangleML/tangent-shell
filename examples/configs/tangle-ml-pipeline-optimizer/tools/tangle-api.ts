@@ -101,6 +101,9 @@ export default function (pi: ExtensionAPI) {
       include_execution_stats: Type.Optional(
         Type.Boolean({ description: "Include per-run execution stats." }),
       ),
+      include_pipeline_names: Type.Optional(
+        Type.Boolean({ description: "Include pipeline names for each run." }),
+      ),
     }),
     async execute(_id, params) {
       const query: Record<string, string | boolean> = {};
@@ -109,6 +112,9 @@ export default function (pi: ExtensionAPI) {
       if (params.page_token) query.page_token = params.page_token;
       if (params.include_execution_stats !== undefined) {
         query.include_execution_stats = params.include_execution_stats;
+      }
+      if (params.include_pipeline_names !== undefined) {
+        query.include_pipeline_names = params.include_pipeline_names;
       }
       return renderResult(await egress("/api/pipeline_runs/", { query }));
     },

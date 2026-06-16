@@ -57,6 +57,19 @@ rely on hosted MCP tools either.
 The returned run metadata is the basis for your scoring. If the URL omits a run
 id, ask the user to provide one rather than guessing.
 
+If the user asks about **"my pipelines"**, **"my runs"**, or an equivalent
+(e.g. "my recent runs", "runs I created") instead of giving a single URL, call
+`tangle_run_list` scoped to the current user to help them pick a baseline run to
+analyze:
+
+- `filter_query`: `{"and":[{"value_equals":{"key":"system/pipeline_run.created_by","value":"me"}}]}`
+- `include_pipeline_names`: `true`
+- `include_execution_stats`: `true`
+
+The `created_by` value `"me"` is resolved server-side to the authenticated user.
+This stays within the read-only inspection phase — list the candidate runs and
+let the user choose which one to analyze; do not submit or modify anything.
+
 ## Scoring guidance
 
 Score 0-100 based on optimization potential. Award **high scores** for pipelines
