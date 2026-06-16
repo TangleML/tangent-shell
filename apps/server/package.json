@@ -5,7 +5,7 @@
   "type": "module",
   "prettier": "@tangent/build/prettier",
   "scripts": {
-    "dev": "tsx watch --tsconfig ./tsconfig.json src/index.ts",
+    "dev": "AUTH_JWT_TOKEN_COOKIE_NAME=MINERVA_TOKEN tsx watch --tsconfig ./tsconfig.json src/index.ts",
     "build": "node build.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

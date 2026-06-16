@@ -44,6 +44,7 @@ export SESSIONS_ROOT=/root/workspace/.sessions
 export SESSIONS_DB=/root/workspace/.sessions/tangent.db
 export AGENT_BUNDLES_ROOT=/root/workspace/.agent-bundles
 export GLOBAL_MEMORY_DIR=/root/workspace/memory
+export AUTH_JWT_TOKEN_COOKIE_NAME=MINERVA_TOKEN
 
 cd /app
 exec /app/docker/docker-entrypoint.sh

@@ -16,6 +16,7 @@ import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
 import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
+import { createMeRouter } from "./routes/me.ts";
 import { createSessionsRouter } from "./routes/sessions/index.ts";
 import {
   createAgentEventHandler,
@@ -76,8 +77,20 @@ const pi = new PiAgentManager(
 // Drives schedule timers and callback firings, delivering prompts to Prime.
 const triggerEngine = new TriggerEngine(io, store, pi, triggers);
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+app.get("/api/health", (req, res) => {
+  const cookies = Object.fromEntries(
+    (req.headers.cookie ?? "")
+      .split(";")
+      .map((pair) => pair.trim())
+      .filter(Boolean)
+      .map((pair) => {
+        const idx = pair.indexOf("=");
+        return idx === -1
+          ? [pair, ""]
+          : [pair.slice(0, idx), pair.slice(idx + 1)];
+      }),
+  );
+  res.json({ ok: true, headers: req.headers, cookies });
 });
 
 app.use(
@@ -86,6 +99,8 @@ app.use(
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
+// Returns the current user, derived from the Minerva JWT cookie.
+app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use("/internal/agents", createInternalAgentsRouter(store, pi));
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).

@@ -128,6 +128,14 @@ export const INTERNAL_TOKEN =
   process.env.TANGENT_INTERNAL_TOKEN ?? randomUUID();
 
 /**
+ * Name of the cookie holding the Minerva JWT that `GET /api/me` reads to resolve
+ * the current user. Empty by default so the route is effectively disabled until
+ * an environment supplies the cookie name (the local `dev` script sets it).
+ */
+export const AUTH_JWT_TOKEN_COOKIE_NAME =
+  process.env.AUTH_JWT_TOKEN_COOKIE_NAME ?? "";
+
+/**
  * Base URL of the Tangle (Cloud Pipelines) API reached by the bundle-UI/agent
  * egress allowlist. The OpenAPI doc declares no `servers`, so this is supplied
  * per environment: defaults to the local dev server and is overridden in
