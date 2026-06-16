@@ -1,4 +1,8 @@
-import type { Attachment, MessageDelivery } from "@tangent/shared/contracts";
+import type {
+  Attachment,
+  MessageDelivery,
+  SubagentStatus,
+} from "@tangent/shared/contracts";
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -21,6 +25,7 @@ import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { Pill } from "@/shared/ui/patterns/pill";
 import { Textarea } from "@/shared/ui/textarea";
+import { Text } from "@/shared/ui/typography";
 
 import { FileDropZone } from "./FileDropZone";
 import { QueuedFollowUps } from "./QueuedFollowUps";
@@ -47,6 +52,16 @@ interface ChatInputProps {
    * can nudge the agent without waiting for it to finish.
    */
   agentBusy?: boolean;
+  /**
+   * The target agent's lifecycle status. When `"killed"`, the composer is
+   * replaced with a terminal notice instead of the input controls.
+   */
+  agentStatus?: SubagentStatus;
+  /**
+   * Removes the (killed) agent from the roster and closes its tab. Wired to the
+   * "Remove from list" action shown in the killed-agent notice.
+   */
+  onRemove?: () => void;
   /** Aborts the agent's in-progress run. Required for the Stop control. */
   onAbort?: () => void;
   onSubmit: (
@@ -60,6 +75,8 @@ export function ChatInput({
   agentId,
   disabled,
   agentBusy,
+  agentStatus,
+  onRemove,
   onAbort,
   onSubmit,
 }: ChatInputProps) {
@@ -218,6 +235,43 @@ export function ChatInput({
       }
       void handleSubmit("auto");
     }
+  }
+
+  // A killed agent can't take input, so swap the composer for a terminal notice.
+  // The Revive button is a placeholder for a future action (no handler yet).
+  if (agentStatus === "killed") {
+    return (
+      <Box borderBlockStart="sm" padding="sm" inlineSize="full">
+        <BlockStack gap="2">
+          <InlineStack gap="2" blockAlign="center" wrap="wrap">
+            <Button variant="outline" size="sm">
+              <Icon name="RotateCcw" size="xs" />
+              Revive
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRemove}
+              disabled={!onRemove}
+            >
+              <Icon name="Trash" size="xs" />
+              Remove from list
+            </Button>
+          </InlineStack>
+          <InlineStack
+            gap="2"
+            blockAlign="center"
+            align="space-between"
+            wrap="wrap"
+          >
+            <InlineStack gap="2" blockAlign="center">
+              <Icon name="Ban" size="xs" tone="subdued" />
+              <Text tone="subdued">Agent killed</Text>
+            </InlineStack>
+          </InlineStack>
+        </BlockStack>
+      </Box>
+    );
   }
 
   return (

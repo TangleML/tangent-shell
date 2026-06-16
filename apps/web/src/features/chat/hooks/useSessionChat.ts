@@ -480,6 +480,13 @@ export function useSessionChat(sessionId: string) {
     return streamingMessageIds.has(messageId);
   }
 
+  // Removes a sub-agent from the local roster (e.g. dismissing a killed agent
+  // from the sidebar). The server still tracks it, so it reappears on the next
+  // `subagent:roster` snapshot after a reconnect.
+  function dismissSubagent(id: string) {
+    setSubagents((prev) => prev.filter((s) => s.id !== id));
+  }
+
   return {
     messages,
     subagents,
@@ -502,5 +509,6 @@ export function useSessionChat(sessionId: string) {
     abort,
     getAgentModel,
     setAgentModel,
+    dismissSubagent,
   };
 }

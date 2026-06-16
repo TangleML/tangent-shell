@@ -2,6 +2,7 @@ import type {
   AgentActivity,
   Attachment,
   MessageDelivery,
+  SubagentStatus,
   ThinkingLevel,
 } from "@tangent/shared/contracts";
 
@@ -28,6 +29,8 @@ interface SubagentTabViewProps {
   /** Bundle this session was created from; enables `tangent-ui:` components. */
   bundleId?: string;
   activity: AgentActivity | null;
+  /** This sub-agent's lifecycle status; a `"killed"` agent hides its composer. */
+  status: SubagentStatus;
   /** Whether this sub-agent's run is in flight. */
   busy: boolean;
   /** Disables the composer (e.g. while the socket is disconnected). */
@@ -35,6 +38,8 @@ interface SubagentTabViewProps {
   isMessageStreaming: (messageId: string) => boolean;
   /** Aborts this sub-agent's in-progress run. */
   onAbort: () => void;
+  /** Removes this (killed) sub-agent from the roster and closes its tab. */
+  onRemove: () => void;
   /** Sends (or nudges) a message to this sub-agent's thread. */
   onSubmit: (
     content: string,
@@ -64,6 +69,7 @@ export function SubagentTabView({
   currentAuthorId,
   bundleId,
   activity,
+  status,
   busy,
   disabled,
   isMessageStreaming,
@@ -73,6 +79,7 @@ export function SubagentTabView({
   thinkingDepth,
   onSetModel,
   onOpenArtifact,
+  onRemove,
   pinnedPaths,
   onTogglePinArtifact,
 }: SubagentTabViewProps) {
@@ -107,6 +114,8 @@ export function SubagentTabView({
         agentId={agentId}
         disabled={disabled}
         agentBusy={busy}
+        agentStatus={status}
+        onRemove={onRemove}
         onAbort={onAbort}
         onSubmit={onSubmit}
       />

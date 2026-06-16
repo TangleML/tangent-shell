@@ -57,6 +57,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     abort,
     getAgentModel,
     setAgentModel,
+    dismissSubagent,
   } = useSessionChat(sessionId);
 
   // Prime's current model/thinking selection (null = server default).
@@ -140,6 +141,10 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 selectedId={selectedAgentId}
                 isBusy={isConversationBusy}
                 onOpen={openAgentTab}
+                onRemove={(agent) => {
+                  dismissSubagent(agent.id);
+                  closeAsset(agent.id);
+                }}
               />
               <AssetList
                 sessionId={sessionId}
@@ -262,6 +267,10 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                   currentAuthorId={currentAuthorId}
                   bundleId={bundleId}
                   activity={getActivity(tab.agentId)}
+                  status={
+                    subagents.find((s) => s.id === tab.agentId)?.status ??
+                    "completed"
+                  }
                   busy={isConversationBusy(tab.agentId)}
                   disabled={!connected}
                   isMessageStreaming={isMessageStreaming}
@@ -271,6 +280,10 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                     setAgentModel(tab.agentId, selection)
                   }
                   onAbort={() => abort(tab.agentId)}
+                  onRemove={() => {
+                    dismissSubagent(tab.agentId);
+                    closeAsset(tab.id);
+                  }}
                   onSubmit={(content, { delivery, attachments }) =>
                     send(content, {
                       conversationId: tab.agentId,

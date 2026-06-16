@@ -2,6 +2,8 @@ import type { Agent } from "@/features/chat/model/agents";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
+import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Text } from "@/shared/ui/typography";
@@ -16,6 +18,11 @@ interface AgentCardProps {
   busy: boolean;
   /** Opens (or focuses) the agent's in-app tab. */
   onOpen: () => void;
+  /**
+   * Removes the agent from the list (e.g. dismissing a killed sub-agent).
+   * When provided, a hover-revealed remove action is shown.
+   */
+  onRemove?: () => void;
 }
 
 /**
@@ -24,7 +31,13 @@ interface AgentCardProps {
  * trailing indicator reflects its live status. Clicking the card opens (or
  * focuses) the agent's thread tab.
  */
-export function AgentCard({ agent, selected, busy, onOpen }: AgentCardProps) {
+export function AgentCard({
+  agent,
+  selected,
+  busy,
+  onOpen,
+  onRemove,
+}: AgentCardProps) {
   return (
     <ListRow
       as="li"
@@ -58,6 +71,20 @@ export function AgentCard({ agent, selected, busy, onOpen }: AgentCardProps) {
             </Text>
           </Truncating>
           <AgentStatusIndicator status={agent.status} busy={busy} />
+          {onRemove ? (
+            <HoverReveal>
+              <IconButton
+                icon="Trash2"
+                size="xs"
+                tone="critical"
+                aria-label={`Remove ${agent.name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemove();
+                }}
+              />
+            </HoverReveal>
+          ) : null}
         </InlineStack>
         <Text size="xs" tone="subdued" truncate>
           {agent.status}

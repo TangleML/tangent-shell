@@ -15,6 +15,8 @@ interface AgentListProps {
   isBusy: (agentId: string) => boolean;
   /** Opens (or focuses) an agent's in-app tab. */
   onOpen: (agent: Agent) => void;
+  /** Removes a (killed) sub-agent from the list and closes its tab. */
+  onRemove?: (agent: Agent) => void;
 }
 
 /**
@@ -27,6 +29,7 @@ export function AgentList({
   selectedId,
   isBusy,
   onOpen,
+  onRemove,
 }: AgentListProps) {
   return (
     <BlockStack gap="0" align="stretch">
@@ -50,6 +53,11 @@ export function AgentList({
               selected={selectedId === agent.id}
               busy={isBusy(agent.id)}
               onOpen={() => onOpen(agent)}
+              onRemove={
+                agent.kind === "subagent" && agent.status === "killed"
+                  ? () => onRemove?.(agent)
+                  : undefined
+              }
             />
           ))}
         </BlockStack>
