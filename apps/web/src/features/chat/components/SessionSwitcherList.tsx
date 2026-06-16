@@ -64,9 +64,9 @@ export function SessionSwitcherList({
           ) : (
             <Icon name="Package" size="lg" tone="subdued" />
           )}
-          <BlockStack grow>
+          <BlockStack grow align="stretch">
             <Truncating>
-              <Text size="xs" weight="medium" truncate title={session.name}>
+              <Text as="p" size="xs" weight="medium" truncate title={session.name}>
                 {session.name}
               </Text>
             </Truncating>

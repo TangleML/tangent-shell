@@ -29,8 +29,13 @@ export function SessionSwitcher({ currentSessionId }: SessionSwitcherProps) {
           </Text>
         </InlineStack>
       </Toolbar>
-      <Box maxBlockSize="md" overflow="scroll-y" data-testid="session-switcher">
-        <Box paddingBlock="sm" paddingInline="sm">
+      <Box
+        inlineSize="full"
+        maxBlockSize="md"
+        overflow="scroll-y"
+        data-testid="session-switcher"
+      >
+        <Box inlineSize="full" paddingBlock="sm" paddingInline="sm">
           <SessionSwitcherList
             sessions={sessions}
             onSelect={onSelect}
