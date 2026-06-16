@@ -6,11 +6,13 @@ import type {
   Attachment,
   SessionConfigMeta,
   UploadFilesResponse,
+  UserIdentity,
 } from "@tangent/shared/contracts.ts";
 import { PI_AGENT } from "@tangent/shared/contracts.ts";
 import type { Request, Response } from "express";
 import multer from "multer";
 
+import { resolveUserIdentity } from "../../auth/identity.ts";
 import {
   ARTIFACTS_DIRNAME,
   SESSIONS_ROOT,
@@ -118,6 +120,7 @@ async function createSessionFromBundle(
   sessionId: string,
   rootPath: string,
   zipBuffer: Buffer,
+  user: UserIdentity | undefined,
   res: Response,
 ): Promise<void> {
   try {
@@ -147,7 +150,7 @@ async function createSessionFromBundle(
       });
     }
 
-    pi.ensure(sessionId, rootPath, config);
+    pi.ensure(sessionId, rootPath, config, undefined, user);
     res.status(201).json({ session: withConfig });
   } catch (err) {
     await store.deleteSession(sessionId);
@@ -194,7 +197,10 @@ export async function handleCreateSession(
     return;
   }
 
-  const session = await store.createSession({ name: body.name });
+  // Resolve the creator's identity from their Minerva JWT cookie so every agent
+  // spawned for the session knows who it's helping.
+  const user = resolveUserIdentity(req.headers.cookie) ?? undefined;
+  const session = await store.createSession({ name: body.name, user });
 
   if (zipBuffer) {
     await createSessionFromBundle(
@@ -204,6 +210,7 @@ export async function handleCreateSession(
       session.id,
       session.rootPath,
       zipBuffer,
+      user,
       res,
     );
     return;
@@ -211,7 +218,7 @@ export async function handleCreateSession(
 
   // No bundle: spawn the session's Pi agent with the global config so it's
   // ready when the chat opens.
-  pi.ensure(session.id, session.rootPath);
+  pi.ensure(session.id, session.rootPath, undefined, undefined, user);
   res.status(201).json({ session });
 }
 

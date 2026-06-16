@@ -5,11 +5,11 @@ import path from "node:path";
 import type {
   AgentRole,
   ChatMessage,
-  CreateSessionRequest,
   PinnedArtifact,
   Session,
   SessionConfigMeta,
   UpdateSessionRequest,
+  UserIdentity,
 } from "@tangent/shared/contracts.ts";
 import { and, asc, count, eq } from "drizzle-orm";
 
@@ -27,6 +27,7 @@ import {
   sessions,
 } from "./db/schema.ts";
 import type {
+  CreateSessionParams,
   RecordAgentInput,
   SessionAgent,
   SessionAgentStatus,
@@ -45,6 +46,9 @@ function toSession(row: SessionRow): Session {
     status: row.status as Session["status"],
     config: row.config
       ? (JSON.parse(row.config) as SessionConfigMeta)
+      : undefined,
+    user: row.userIdentity
+      ? (JSON.parse(row.userIdentity) as UserIdentity)
       : undefined,
     archived: row.archived,
     createdAt: row.createdAt,
@@ -103,7 +107,7 @@ export class SqliteSessionStore implements SessionStore {
     return toSession(row);
   }
 
-  async createSession(input: CreateSessionRequest): Promise<Session> {
+  async createSession(input: CreateSessionParams): Promise<Session> {
     const id = randomUUID();
     const now = new Date().toISOString();
     const rootPath = path.join(SESSIONS_ROOT, id);
@@ -124,6 +128,7 @@ export class SqliteSessionStore implements SessionStore {
       name: input.name?.trim() || `Session ${existing + 1}`,
       rootPath,
       status: "created",
+      user: input.user,
       archived: false,
       createdAt: now,
       updatedAt: now,
@@ -136,6 +141,7 @@ export class SqliteSessionStore implements SessionStore {
         name: session.name,
         rootPath: session.rootPath,
         status: session.status,
+        userIdentity: session.user ? JSON.stringify(session.user) : null,
         archived: session.archived,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,

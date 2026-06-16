@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangle
 name: Tangle
-version: 1.7.0
+version: 1.8.0
 description: A Tangle-aware assistant with the Tangent skill toolkit and Tangle API tools for everyday work with Tangle ML pipelines and runs.
 author: Tangent
 icon: icon.svg

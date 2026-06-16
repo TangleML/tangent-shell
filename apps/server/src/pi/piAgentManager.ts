@@ -11,6 +11,7 @@ import {
   type SubagentInfo,
   type SubagentStatus,
   type ThinkingLevel,
+  type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
 import {
@@ -87,12 +88,41 @@ interface SpawnExtras {
 }
 
 /**
- * Joins an agent's base appended system prompt with the per-session memory
- * preamble, so every agent starts each session aware of its current memory.
+ * Joins an agent's base appended system prompt with extra spawn-time preambles
+ * (e.g. the current user and the per-session memory), so every agent starts each
+ * session aware of that standing context. Empty preambles are dropped.
  */
-function appendWithMemory(config: AgentConfig, memoryPreamble: string): string {
-  if (!memoryPreamble.trim()) return config.appendSystemPrompt;
-  return `${config.appendSystemPrompt}\n\n${memoryPreamble}`;
+function appendPreambles(config: AgentConfig, preambles: string[]): string {
+  const extras = preambles.map((preamble) => preamble.trim()).filter(Boolean);
+  if (extras.length === 0) return config.appendSystemPrompt;
+  return [config.appendSystemPrompt, ...extras].join("\n\n");
+}
+
+/**
+ * Builds the `## Current user` preamble appended to every agent's system prompt
+ * so it knows who it's helping. Returns an empty string for unauthenticated
+ * sessions so {@link appendPreambles} drops it.
+ */
+function buildUserPreamble(user: UserIdentity | undefined): string {
+  if (!user) return "";
+
+  const fullName = [user.first_name, user.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const who = fullName ? `${fullName} (${user.email})` : user.email;
+
+  const lines = ["## Current user", "", `You are assisting ${who}.`];
+  if (user.first_name) {
+    lines.push(
+      `Address them by their first name (${user.first_name}) when it reads naturally.`,
+    );
+  }
+  lines.push(
+    `Use their email (${user.email}) as the user id when constructing Tangle API requests (filters, annotations, attribution).`,
+    "Do not ask the user to identify themselves.",
+  );
+  return lines.join("\n");
 }
 
 /** A requested model/thinking change; either field may be omitted to keep it. */
@@ -157,7 +187,7 @@ function resolveModelArgs(config: AgentConfig): ModelArgs {
 function buildPiArgs(
   config: AgentConfig,
   extras: SpawnExtras,
-  memoryPreamble: string,
+  preambles: string[],
 ): string[] {
   const { provider, model, thinking } = resolveModelArgs(config);
   const args = [
@@ -177,7 +207,7 @@ function buildPiArgs(
     "--tools",
     config.tools.join(","),
     "--append-system-prompt",
-    appendWithMemory(config, memoryPreamble),
+    appendPreambles(config, preambles),
     // Orchestrator gives Prime its sub-agent tools; the proxy-provider
     // extension registers Pi's providers against the LLM proxy (required in
     // environments without an auto-discovered `~/.pi/agent` config); the memory
@@ -385,9 +415,10 @@ export class PiAgentManager {
     rootPath: string,
     config?: ResolvedSessionConfig,
     primeOverride?: AgentModelSelection,
+    user?: UserIdentity,
   ): void {
-    let session = this.sessions.get(sessionId);
-    if (session?.agents.has(PRIME_AGENT_ID)) return;
+    const existing = this.sessions.get(sessionId);
+    if (existing?.agents.has(PRIME_AGENT_ID)) return;
 
     warnMissingProxyEnv();
 
@@ -395,11 +426,7 @@ export class PiAgentManager {
     // bundle-seeded session memory and the current global store.
     this.memory.initSession(rootPath);
 
-    if (!session) {
-      session = { rootPath, agents: new Map(), config };
-      this.sessions.set(sessionId, session);
-    }
-
+    const session = this.upsertSessionRecord(sessionId, rootPath, config, user);
     const primeConfig = session.config?.prime ?? getPrimeAgentConfig();
     this.spawnAgent(
       sessionId,
@@ -407,6 +434,34 @@ export class PiAgentManager {
       { agentId: PRIME_AGENT_ID, role: "prime", name: "Prime" },
       withModelSelection(primeConfig, primeOverride),
     );
+  }
+
+  /**
+   * Returns the in-memory roster record for a session, creating it on first
+   * access. Identity is backfilled on a re-spawn (e.g. after a server restart)
+   * when the caller supplies the persisted user but the existing record predates
+   * it; the captured config is otherwise left untouched.
+   */
+  private upsertSessionRecord(
+    sessionId: string,
+    rootPath: string,
+    config: ResolvedSessionConfig | undefined,
+    user: UserIdentity | undefined,
+  ): SessionAgents {
+    const existing = this.sessions.get(sessionId);
+    if (existing) {
+      if (user && !existing.user) existing.user = user;
+      return existing;
+    }
+
+    const created: SessionAgents = {
+      rootPath,
+      agents: new Map(),
+      config,
+      user,
+    };
+    this.sessions.set(sessionId, created);
+    return created;
   }
 
   /**
@@ -694,18 +749,23 @@ export class PiAgentManager {
     logSpawn(sessionId, descriptor, session.rootPath, config, extras);
 
     const memoryPreamble = this.memory.buildPreamble(session.rootPath);
-    const child = spawn(PI_BIN, buildPiArgs(config, extras, memoryPreamble), {
-      cwd: session.rootPath,
-      env: {
-        ...process.env,
-        TANGENT_SESSION_ID: sessionId,
-        TANGENT_AGENT_ID: descriptor.agentId,
-        TANGENT_AGENT_ROLE: descriptor.role,
-        TANGENT_INTERNAL_URL: INTERNAL_URL,
-        TANGENT_INTERNAL_TOKEN: INTERNAL_TOKEN,
+    const userPreamble = buildUserPreamble(session.user);
+    const child = spawn(
+      PI_BIN,
+      buildPiArgs(config, extras, [userPreamble, memoryPreamble]),
+      {
+        cwd: session.rootPath,
+        env: {
+          ...process.env,
+          TANGENT_SESSION_ID: sessionId,
+          TANGENT_AGENT_ID: descriptor.agentId,
+          TANGENT_AGENT_ROLE: descriptor.role,
+          TANGENT_INTERNAL_URL: INTERNAL_URL,
+          TANGENT_INTERNAL_TOKEN: INTERNAL_TOKEN,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
       },
-      stdio: ["pipe", "pipe", "pipe"],
-    }) as ChildProcessWithoutNullStreams;
+    ) as ChildProcessWithoutNullStreams;
 
     const agent: AgentProcess = {
       agentId: descriptor.agentId,

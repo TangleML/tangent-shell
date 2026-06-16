@@ -6,10 +6,20 @@ import type {
   Session,
   SessionConfigMeta,
   UpdateSessionRequest,
+  UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
 /** Persisted lifecycle status of a session agent. */
 export type SessionAgentStatus = "active" | "killed";
+
+/**
+ * Input accepted by {@link SessionStore.createSession}: the public wire request
+ * plus the server-resolved {@link UserIdentity} (from the creator's Minerva JWT),
+ * which is never part of the client-supplied body.
+ */
+export interface CreateSessionParams extends CreateSessionRequest {
+  user?: UserIdentity;
+}
 
 /**
  * A persisted agent in a session's roster (the orchestrating Prime plus every
@@ -56,7 +66,7 @@ export interface RecordAgentInput {
 export interface SessionStore {
   listSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session | undefined>;
-  createSession(input: CreateSessionRequest): Promise<Session>;
+  createSession(input: CreateSessionParams): Promise<Session>;
   updateSession(
     id: string,
     input: UpdateSessionRequest,

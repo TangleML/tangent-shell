@@ -10,6 +10,19 @@
 export type SessionStatus = "created";
 
 /**
+ * The current human's identity, resolved from the Minerva JWT by `GET /api/me`.
+ * The `email` doubles as the user id used when constructing Tangle API requests;
+ * `first_name` lets agents address the user by name. Name fields default to an
+ * empty string when the JWT omits the corresponding claim.
+ */
+export interface UserIdentity {
+  /** Email; used as the user id for Tangle API requests. */
+  email: string;
+  first_name: string;
+  last_name: string;
+}
+
+/**
  * Live run status of a session, derived from its Pi process roster on the
  * server and pushed to clients over the socket:
  * - `idle` — no Pi process is running for the session.
@@ -46,6 +59,8 @@ export interface Session {
   status: SessionStatus;
   /** Configuration Bundle this session was created from, when applicable. */
   config?: SessionConfigMeta;
+  /** The human who created the session, resolved from their Minerva JWT. */
+  user?: UserIdentity;
   /** Whether the session is archived (hidden from the default list). */
   archived: boolean;
   /** ISO-8601 timestamp. */

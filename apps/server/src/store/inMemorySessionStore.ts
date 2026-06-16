@@ -4,7 +4,6 @@ import path from "node:path";
 
 import type {
   ChatMessage,
-  CreateSessionRequest,
   PinnedArtifact,
   Session,
   SessionConfigMeta,
@@ -13,6 +12,7 @@ import type {
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
 import type {
+  CreateSessionParams,
   RecordAgentInput,
   SessionAgent,
   SessionAgentStatus,
@@ -59,7 +59,7 @@ export class InMemorySessionStore implements SessionStore {
     return this.sessions.get(id);
   }
 
-  async createSession(input: CreateSessionRequest): Promise<Session> {
+  async createSession(input: CreateSessionParams): Promise<Session> {
     const id = randomUUID();
     const now = new Date().toISOString();
     const rootPath = path.join(SESSIONS_ROOT, id);
@@ -75,6 +75,7 @@ export class InMemorySessionStore implements SessionStore {
       name: input.name?.trim() || `Session ${this.sessions.size + 1}`,
       rootPath,
       status: "created",
+      user: input.user,
       archived: false,
       createdAt: now,
       updatedAt: now,

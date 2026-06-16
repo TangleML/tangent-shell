@@ -7,6 +7,7 @@ import type {
   SessionRunStatus,
   SubagentInfo,
   SubagentStatus,
+  UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
 import type { AgentConfig, ResolvedSessionConfig } from "./agentConfig.ts";
@@ -125,6 +126,12 @@ export interface SessionAgents {
    * bundle, which fall back to the server's global config.
    */
   config?: ResolvedSessionConfig;
+  /**
+   * The human who owns the session, resolved from their Minerva JWT. Captured
+   * so every agent's system prompt can be told who it's helping. Absent for
+   * unauthenticated sessions.
+   */
+  user?: UserIdentity;
 }
 
 /** A single delta payload nested inside a `message_update` event. */

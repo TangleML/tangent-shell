@@ -614,7 +614,13 @@ async function handleChatJoin(
   // created before the process manager existed, restoring any persisted Prime
   // model/thinking selection so a respawn keeps the human's prior choice.
   const primeOverride = await loadPrimeOverride(store, session.id);
-  pi.ensure(session.id, session.rootPath, undefined, primeOverride);
+  pi.ensure(
+    session.id,
+    session.rootPath,
+    undefined,
+    primeOverride,
+    session.user,
+  );
 
   // Re-arm the session's schedule triggers (idempotent) and surface the roster.
   triggerEngine.sync(session.id, session.rootPath);

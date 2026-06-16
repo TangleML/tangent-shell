@@ -1,45 +1,13 @@
 import { type Request, type Response, Router } from "express";
 
+import { resolveUserIdentity } from "../auth/identity.ts";
 import { AUTH_JWT_TOKEN_COOKIE_NAME } from "../config.ts";
 
-/** Parses a raw `Cookie` header into a name->value map. */
-function parseCookies(header: string | undefined): Record<string, string> {
-  return Object.fromEntries(
-    (header ?? "")
-      .split(";")
-      .map((pair) => pair.trim())
-      .filter(Boolean)
-      .map((pair) => {
-        const idx = pair.indexOf("=");
-        return idx === -1
-          ? [pair, ""]
-          : [pair.slice(0, idx), pair.slice(idx + 1)];
-      }),
-  );
-}
-
 /**
- * Decodes a JWT's payload segment WITHOUT verifying its signature. Returns
- * `null` for any malformed token. Signature verification is intentionally
- * skipped for now.
- */
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const segment = token.split(".")[1];
-  if (!segment) return null;
-  try {
-    const json = Buffer.from(segment, "base64url").toString("utf8");
-    const payload = JSON.parse(json) as unknown;
-    if (typeof payload !== "object" || payload === null) return null;
-    return payload as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Handles `GET /api/me`. Reads the JWT from the configured Minerva cookie
- * ({@link AUTH_JWT_TOKEN_COOKIE_NAME}), decodes its payload (no signature check),
- * and returns the user's email as `user_id`.
+ * Handles `GET /api/me`. Resolves the current user from the Minerva JWT in the
+ * configured cookie ({@link AUTH_JWT_TOKEN_COOKIE_NAME}) and returns the full
+ * identity. `user_id` is kept (set to the email) for backward compatibility
+ * alongside the structured `email` / `first_name` / `last_name` fields.
  */
 function handleGetMe(req: Request, res: Response): void {
   if (!AUTH_JWT_TOKEN_COOKIE_NAME) {
@@ -47,21 +15,13 @@ function handleGetMe(req: Request, res: Response): void {
     return;
   }
 
-  const token = parseCookies(req.headers.cookie)[AUTH_JWT_TOKEN_COOKIE_NAME];
-  if (!token) {
-    res
-      .status(401)
-      .json({ error: `Missing ${AUTH_JWT_TOKEN_COOKIE_NAME} cookie` });
+  const identity = resolveUserIdentity(req.headers.cookie);
+  if (!identity) {
+    res.status(401).json({ error: "Invalid or missing token" });
     return;
   }
 
-  const payload = decodeJwtPayload(token);
-  if (!payload || typeof payload.email !== "string") {
-    res.status(401).json({ error: "Invalid token" });
-    return;
-  }
-
-  res.json({ user_id: payload.email });
+  res.json({ user_id: identity.email, ...identity });
 }
 
 /**

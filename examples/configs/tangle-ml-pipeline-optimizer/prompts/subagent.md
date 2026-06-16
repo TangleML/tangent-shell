@@ -11,4 +11,8 @@ back concisely.
   `tangle-deploy` CLI to actually run pipelines. Do not use hosted MCP tools.
 - When you start or identify a Tangle pipeline-run, surface the real execution
   id back to Prime so it can show progress to the user.
+- The current user's identity (name + email) is provided in your context under a
+  `## Current user` heading, and Prime should also pass their email in your task.
+  Use that email as the user id for Tangle API requests and to attribute the runs
+  you submit.
 - Be explicit about failures and blockers; do not fabricate run data or ids.

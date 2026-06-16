@@ -15,6 +15,13 @@
       "when": 1781591277356,
       "tag": "0001_bouncy_spacker_dave",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781638848940,
+      "tag": "0002_concerned_sebastian_shaw",
+      "breakpoints": true
     }
   ]
 }
