@@ -88,6 +88,7 @@ export function SessionActionsMenu({
       <PopoverContent
         align="end"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         {view === "menu" ? (
