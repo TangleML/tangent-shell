@@ -21,10 +21,12 @@ interface EmptyStateProps {
   description?: ReactNode;
   /** Optional call-to-action (button, link, etc.). */
   action?: ReactNode;
+  /** Size of the empty state. */
+  size?: "xs" | "sm" | "md" | "lg";
 }
 
 export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
-  function EmptyState({ icon, title, description, action }, ref) {
+  function EmptyState({ icon, title, description, action, size = "md" }, ref) {
     return (
       <BlockStack
         ref={ref as Ref<HTMLDivElement>}
@@ -36,7 +38,7 @@ export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
         {icon && <Icon name={icon} size="xl" tone="subdued" />}
         <Heading level={3}>{title}</Heading>
         {description && (
-          <Paragraph tone="subdued" align="center">
+          <Paragraph tone="subdued" align="center" size={size}>
             {description}
           </Paragraph>
         )}

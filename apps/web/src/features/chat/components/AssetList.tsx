@@ -132,8 +132,8 @@ export function AssetList({
         {assets.length === 0 ? (
           <Box padding="base">
             <EmptyState
-              icon="LayoutGrid"
-              title="No assets yet"
+              size="sm"
+              title=""
               description="Pages, files, and triggers Prime creates show up here."
             />
           </Box>
