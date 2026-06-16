@@ -13,7 +13,12 @@
  *    host it exists solely as a type/alias target).
  */
 
-import type { HostBridge, HostRequestInit, HostResponse } from "../types";
+import type {
+  HostBridge,
+  HostRequestInit,
+  HostResponse,
+  UICommand,
+} from "../types";
 
 declare global {
   var __TANGENT_BUNDLE_UI_HOST__: HostBridge | undefined;
@@ -32,9 +37,12 @@ export const host: HostBridge = {
   getProps: () => bridge().getProps(),
   sendPrompt: (text: string) => bridge().sendPrompt(text),
   fetch: (input: string, init?: HostRequestInit) => bridge().fetch(input, init),
+  getState: (key: string) => bridge().getState(key),
+  setState: (key: string, value: unknown) => bridge().setState(key, value),
+  execUICommand: (command: UICommand) => bridge().execUICommand(command),
 };
 
-export type { HostRequestInit, HostResponse };
+export type { HostRequestInit, HostResponse, UICommand };
 
 export { Badge } from "../components/badge/badge.remote";
 export { BlockStack } from "../components/block-stack/block-stack.remote";

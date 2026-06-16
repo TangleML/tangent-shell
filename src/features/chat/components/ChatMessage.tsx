@@ -349,6 +349,9 @@ export function ChatMessage({
             onOpenArtifact={onOpenArtifact}
             pinnedPaths={pinnedPaths}
             onTogglePinArtifact={onTogglePinArtifact}
+            sessionId={sessionId}
+            messageId={message.id}
+            onCollapse={onCollapse}
           >
             {message.content}
           </Markdown>

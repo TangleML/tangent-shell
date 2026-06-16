@@ -24,6 +24,7 @@ export function BundleUiHarnessPage() {
   const [prompts, setPrompts] = useState<string[]>([]);
   const [crashToken, setCrashToken] = useState(0);
   const [showCrash, setShowCrash] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   // A sample Oasis execution id; the component polls the real allowlisted
   // endpoint and degrades to a loading state when the host is unreachable.
   const [executionId] = useState("019ea56d72cd5f4d75f6");
@@ -40,15 +41,36 @@ export function BundleUiHarnessPage() {
           </Paragraph>
         </BlockStack>
 
-        <Section title="Message component">
-          <Box maxInlineSize="sm">
-            <BundleUiHost
-              moduleUrl={SAMPLE_MODULE_URL}
-              kind="message"
-              props={{ executionId }}
-              onSendPrompt={(text) => setPrompts((prev) => [...prev, text])}
-            />
-          </Box>
+        <Section
+          title="Message component"
+          actions={
+            collapsed ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCollapsed(false)}
+              >
+                Expand
+              </Button>
+            ) : undefined
+          }
+        >
+          {collapsed ? (
+            <Text size="xs" tone="subdued">
+              Collapsed by the component via host.execUICommand.
+            </Text>
+          ) : (
+            <Box maxInlineSize="sm">
+              <BundleUiHost
+                moduleUrl={SAMPLE_MODULE_URL}
+                kind="message"
+                props={{ executionId }}
+                stateNamespace="tangent-bundle-ui-harness:sample"
+                onSendPrompt={(text) => setPrompts((prev) => [...prev, text])}
+                onCollapse={() => setCollapsed(true)}
+              />
+            </Box>
+          )}
         </Section>
 
         <Section title="Captured prompts">

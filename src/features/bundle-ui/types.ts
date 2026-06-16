@@ -34,6 +34,16 @@ export interface HostResponse {
 }
 
 /**
+ * A host UI action a component can request through {@link HostBridge.execUICommand}.
+ *
+ * Modeled as a discriminated union (rather than bespoke methods) so new actions
+ * can be added — each carrying its own payload — without growing the bridge
+ * surface. The only action today collapses the chat message the component is
+ * rendered in; it is a no-op outside a message surface.
+ */
+export type UICommand = { type: "collapse" };
+
+/**
  * The only channel a sandboxed component has to the host. Exposed to the worker
  * over `@quilted/threads`; every call is asynchronous across the boundary.
  */
@@ -44,6 +54,16 @@ export interface HostBridge {
   sendPrompt(text: string): Promise<void>;
   /** Host-mediated, allowlist-proxied network egress. */
   fetch(input: string, init?: HostRequestInit): Promise<HostResponse>;
+  /**
+   * Reads a previously persisted value for `key` from this instance's
+   * key-value store, or `null` if absent. State survives page reloads and is
+   * scoped to the message instance; `panel` components have no store.
+   */
+  getState(key: string): Promise<unknown>;
+  /** Persists a JSON-serializable `value` under `key` for this instance. */
+  setState(key: string, value: unknown): Promise<void>;
+  /** Requests a host UI action (e.g. collapsing the component's message). */
+  execUICommand(command: UICommand): Promise<void>;
 }
 
 /** Arguments the host passes to the worker's `render` export. */

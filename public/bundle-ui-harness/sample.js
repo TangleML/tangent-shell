@@ -29,6 +29,8 @@ export default function PipelineProgress() {
   const [executionId, setExecutionId] = useState(null);
   const [summary, setSummary] = useState(null);
   const [sent, setSent] = useState(false);
+  // Persisted across reloads via the host's per-instance key-value store.
+  const [count, setCount] = useState(0);
 
   useEffect(() => {
     host.getProps().then((props) => {
@@ -37,6 +39,9 @@ export default function PipelineProgress() {
           ? props.executionId
           : "019ea56d72cd5f4d75f6";
       setExecutionId(id);
+    });
+    host.getState("count").then((value) => {
+      if (typeof value === "number") setCount(value);
     });
   }, []);
 
@@ -77,6 +82,16 @@ export default function PipelineProgress() {
     setSent(true);
   };
 
+  const onBump = () => {
+    const next = count + 1;
+    setCount(next);
+    host.setState("count", next);
+  };
+
+  const onCollapse = () => {
+    host.execUICommand({ type: "collapse" });
+  };
+
   const progress =
     summary && summary.total > 0 ? summary.ended / summary.total : 0;
   const label = summary
@@ -99,6 +114,16 @@ export default function PipelineProgress() {
         Button,
         { variant: "default", onPress: onLaunch, disabled: sent },
         sent ? "Prompt sent" : "Send test prompt",
+      ),
+      h(
+        Button,
+        { variant: "outline", onPress: onBump },
+        `Persisted count: ${count}`,
+      ),
+      h(
+        Button,
+        { variant: "outline", onPress: onCollapse },
+        "Collapse message",
       ),
     ),
   );

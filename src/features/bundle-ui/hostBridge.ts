@@ -9,7 +9,12 @@
 
 import { apiUrl } from "@/shared/lib/basePath";
 
-import type { HostBridge, HostRequestInit, HostResponse } from "./types";
+import type {
+  HostBridge,
+  HostRequestInit,
+  HostResponse,
+  UICommand,
+} from "./types";
 
 /** Default server route that proxies allowlisted egress. */
 export const EGRESS_ENDPOINT = "/api/agent-bundles/ui-egress";
@@ -19,6 +24,12 @@ export interface HostBridgeOptions {
   getProps: () => Record<string, unknown>;
   /** Forwards a composed prompt to the chat; omitted in read-only contexts. */
   onSendPrompt?: (text: string) => void;
+  /** Reads the persisted value for `key`; omitted disables `getState`. */
+  loadState?: (key: string) => unknown;
+  /** Persists `value` under `key`; omitted disables `setState`. */
+  saveState?: (key: string, value: unknown) => void;
+  /** Handles a host UI command; omitted makes `execUICommand` a no-op. */
+  onUICommand?: (command: UICommand) => void;
   /** Override the egress endpoint (tests / harness). */
   egressEndpoint?: string;
 }
@@ -35,6 +46,21 @@ export function createHostBridge(options: HostBridgeOptions): HostBridge {
       const trimmed = typeof text === "string" ? text.trim() : "";
       if (!trimmed) return;
       options.onSendPrompt?.(trimmed);
+    },
+
+    async getState(key: string) {
+      if (typeof key !== "string" || !key) return null;
+      return options.loadState?.(key) ?? null;
+    },
+
+    async setState(key: string, value: unknown) {
+      if (typeof key !== "string" || !key) return;
+      options.saveState?.(key, value);
+    },
+
+    async execUICommand(command: UICommand) {
+      if (!command || typeof command !== "object") return;
+      options.onUICommand?.(command);
     },
 
     async fetch(input: string, init?: HostRequestInit): Promise<HostResponse> {

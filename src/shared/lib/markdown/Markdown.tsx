@@ -94,6 +94,22 @@ type MarkdownProps = {
    * (e.g. read-only contexts).
    */
   onTogglePinArtifact?: (path: string, title: string) => void;
+  /**
+   * The chat session id, combined with `messageId` to namespace a bundle
+   * message component's persisted state. Omitted disables `host.getState`/
+   * `setState` persistence for any `tangent-ui:<name>` blocks.
+   */
+  sessionId?: string;
+  /**
+   * The id of the message this markdown belongs to. Used (with `sessionId`) as
+   * the stable state namespace for bundle message components.
+   */
+  messageId?: string;
+  /**
+   * Collapses the message this markdown belongs to. Forwarded to bundle message
+   * components so they can request collapse via `host.execUICommand`.
+   */
+  onCollapse?: () => void;
 };
 
 const INLINE_CODE_CLASS =
@@ -266,12 +282,21 @@ function BundleUiMessage({
   bundleId,
   name,
   body,
+  index,
   onSendPrompt,
+  sessionId,
+  messageId,
+  onCollapse,
 }: {
   bundleId: string;
   name: string;
   body: string;
+  /** Occurrence index of this component name within the message (0-based). */
+  index: number;
   onSendPrompt?: (text: string) => void;
+  sessionId?: string;
+  messageId?: string;
+  onCollapse?: () => void;
 }) {
   let props: Record<string, unknown> | undefined;
   try {
@@ -291,12 +316,21 @@ function BundleUiMessage({
     );
   }
 
+  // Stable per-instance namespace for `host.getState`/`setState`. Includes the
+  // occurrence index so repeated components of the same name don't collide.
+  const stateNamespace =
+    sessionId && messageId
+      ? `tangent-bundle-ui-state:${sessionId}:${messageId}:${name}:${index}`
+      : undefined;
+
   return (
     <BundleUiHost
       kind="message"
       moduleUrl={apiUrl(`/api/agent-bundles/${bundleId}/ui/${name}.js`)}
       props={props}
       onSendPrompt={onSendPrompt}
+      stateNamespace={stateNamespace}
+      onCollapse={onCollapse}
     />
   );
 }
@@ -310,7 +344,14 @@ function buildComponents(
   onOpenArtifact?: (url: string, title: string) => void,
   pinnedPaths?: Set<string>,
   onTogglePinArtifact?: (path: string, title: string) => void,
+  sessionId?: string,
+  messageId?: string,
+  onCollapse?: () => void,
 ): Components {
+  // Counts occurrences of each bundle component name within a single render so
+  // repeated components get a stable index for their persisted-state namespace.
+  const componentIndex = new Map<string, number>();
+
   return {
     h1: ({ children }) => (
       <Heading level={1} size="sm" weight="bold" tone={tone}>
@@ -436,12 +477,19 @@ function buildComponents(
         : null;
       if (bundleMatch && bundleId) {
         const body = String(children).replace(/\n$/, "");
+        const name = bundleMatch[1];
+        const index = componentIndex.get(name) ?? 0;
+        componentIndex.set(name, index + 1);
         return (
           <BundleUiMessage
             bundleId={bundleId}
-            name={bundleMatch[1]}
+            name={name}
             body={body}
+            index={index}
             onSendPrompt={onSendPrompt}
+            sessionId={sessionId}
+            messageId={messageId}
+            onCollapse={onCollapse}
           />
         );
       }
@@ -479,6 +527,9 @@ export function Markdown({
   onOpenArtifact,
   pinnedPaths,
   onTogglePinArtifact,
+  sessionId,
+  messageId,
+  onCollapse,
 }: MarkdownProps) {
   return (
     <div className={cn("w-full min-w-0 space-y-2", className)}>
@@ -494,6 +545,9 @@ export function Markdown({
           onOpenArtifact,
           pinnedPaths,
           onTogglePinArtifact,
+          sessionId,
+          messageId,
+          onCollapse,
         )}
       >
         {children}

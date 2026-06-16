@@ -26,7 +26,36 @@ import {
   hostAdapters,
 } from "./components/host-registry";
 import { createHostBridge } from "./hostBridge";
-import type { BundleUiKind, HostBridge, WorkerApi } from "./types";
+import type {
+  BundleUiKind,
+  HostBridge,
+  UICommand,
+  WorkerApi,
+} from "./types";
+
+/** Reads a JSON value persisted under `<namespace>:<key>`, or `null`. */
+function readPersistedState(namespace: string, key: string): unknown {
+  try {
+    const raw = window.localStorage.getItem(`${namespace}:${key}`);
+    return raw == null ? null : (JSON.parse(raw) as unknown);
+  } catch {
+    // Storage may be unavailable (private mode/quota) or hold invalid JSON.
+    return null;
+  }
+}
+
+/** Persists a JSON value under `<namespace>:<key>` (best-effort). */
+function writePersistedState(
+  namespace: string,
+  key: string,
+  value: unknown,
+): void {
+  try {
+    window.localStorage.setItem(`${namespace}:${key}`, JSON.stringify(value));
+  } catch {
+    // Storage may be unavailable or over quota; persistence is best-effort.
+  }
+}
 
 const remoteComponents: RemoteComponentRendererMap = new Map([
   ...BUNDLE_UI_ELEMENT_NAMES.map(
@@ -45,6 +74,14 @@ interface BundleUiHostProps {
   props?: Record<string, unknown>;
   /** Called when a `panel` component composes a prompt. */
   onSendPrompt?: (text: string) => void;
+  /**
+   * Per-instance localStorage namespace for `host.getState`/`setState`. Each
+   * component-chosen key is stored under `<stateNamespace>:<key>`. Omitted (e.g.
+   * for `panel`) disables persistence.
+   */
+  stateNamespace?: string;
+  /** Collapses the message this component is rendered in (message surface). */
+  onCollapse?: () => void;
 }
 
 function Placeholder() {
@@ -60,16 +97,23 @@ export function BundleUiHost({
   kind,
   props,
   onSendPrompt,
+  stateNamespace,
+  onCollapse,
 }: BundleUiHostProps) {
   const receiver = useMemo(() => new RemoteReceiver(), []);
   const [failed, setFailed] = useState(false);
 
-  // Keep the latest props/callback reachable from the stable host bridge.
+  // Keep the latest props/callbacks reachable from the stable host bridge so a
+  // changed prop/namespace never re-mounts the worker.
   const propsRef = useRef<Record<string, unknown>>({});
   const sendPromptRef = useRef<((text: string) => void) | undefined>(undefined);
+  const stateNamespaceRef = useRef<string | undefined>(undefined);
+  const collapseRef = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
     propsRef.current = props ?? {};
     sendPromptRef.current = onSendPrompt;
+    stateNamespaceRef.current = stateNamespace;
+    collapseRef.current = onCollapse;
   });
 
   useEffect(() => {
@@ -89,6 +133,17 @@ export function BundleUiHost({
     const bridge = createHostBridge({
       getProps: () => propsRef.current,
       onSendPrompt: (text) => sendPromptRef.current?.(text),
+      loadState: (key) => {
+        const namespace = stateNamespaceRef.current;
+        return namespace ? readPersistedState(namespace, key) : null;
+      },
+      saveState: (key, value) => {
+        const namespace = stateNamespaceRef.current;
+        if (namespace) writePersistedState(namespace, key, value);
+      },
+      onUICommand: (command: UICommand) => {
+        if (command.type === "collapse") collapseRef.current?.();
+      },
     });
 
     const thread = new ThreadWebWorker<WorkerApi, HostBridge>(worker, {

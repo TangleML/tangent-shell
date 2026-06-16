@@ -8,10 +8,15 @@ directly — every side effect goes through one of these three calls, and networ
 egress in particular is mediated and allowlisted by the host via `fetch`.
 
 ```ts
+type UICommand = { type: "collapse" };
+
 interface HostBridge {
   getProps(): Promise<Record<string, unknown>>;
   sendPrompt(text: string): Promise<void>;
   fetch(input: string, init?: HostRequestInit): Promise<HostResponse>;
+  getState(key: string): Promise<unknown>;
+  setState(key: string, value: unknown): Promise<void>;
+  execUICommand(command: UICommand): Promise<void>;
 }
 ```
 
@@ -43,6 +48,48 @@ it. Used by `panel` components to turn a form into a prompt.
 - `text` must be a non-empty string. Empty/whitespace-only prompts are ignored
   (mirroring `send()`'s existing trim/guard).
 - Resolves once the message is emitted; it does not wait for the agent's reply.
+
+## `getState(key)` / `setState(key, value)`
+
+A small, host-mediated key-value store that lets a component persist UI state
+(e.g. an expanded section, a selected tab) so it survives page reloads.
+
+- `key` is a component-chosen, non-empty string. The component owns its own
+  keyspace; the host only owns the surrounding namespace.
+- `value` must be JSON-serializable; it is stored verbatim and returned as-is.
+- `getState` resolves the stored value, or `null` when nothing is stored (or
+  when persistence is unavailable for this surface).
+- Storage is scoped **per component instance**: the host namespaces every key
+  by the chat session and the message instance (message id + component name +
+  occurrence index), so two components — or two instances of the same component
+  — never read each other's state. The component never sees this namespace; it
+  only supplies `key`.
+- Persistence is **message-surface only**. `panel` components have no message
+  instance, so `getState` resolves to `null` and `setState` is a no-op.
+- The host backs this with `localStorage`; the component never touches storage
+  directly. Writes are best-effort (a full or unavailable store fails silently).
+
+```ts
+const expanded = (await host.getState("expanded")) === true;
+// ...later, on toggle:
+await host.setState("expanded", !expanded);
+```
+
+## `execUICommand(command)`
+
+A single, extensible entry point for host UI actions a component can request.
+Modeled as a discriminated `UICommand` union so new actions can be added later
+without growing the bridge surface.
+
+- `{ type: "collapse" }` — collapses the chat message the component is rendered
+  in (the same collapse the message's own control performs); the user can expand
+  it again from the collapsed affordance.
+- Message-surface only: on a `panel`, or for an unrecognized command, the call
+  is a no-op.
+
+```ts
+await host.execUICommand({ type: "collapse" });
+```
 
 ## `fetch(input, init?)`
 
@@ -157,6 +204,8 @@ Illustrative `res.json`:
   passes through the server-side allowlist proxy. The worker's own `fetch` is
   forbidden by contract and blocked under the hardened transport (see the Worker
   `fetch` caveat in [`security.md`](security.md)).
-- No host DOM, `window`, `document`, cookies, `localStorage`, or app state.
+- No host DOM, `window`, `document`, cookies, or app state. The only persisted
+  state is the **host-mediated** `getState`/`setState` store above; the
+  component never touches `localStorage` (or any other storage) directly.
 - No arbitrary destinations — `host.fetch` can only reach allowlisted
   destinations; the component cannot expand the allowlist.
