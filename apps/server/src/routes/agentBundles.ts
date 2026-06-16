@@ -1,11 +1,13 @@
 import type { ListAgentBundlesResponse } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
+import { z } from "zod";
 
 import {
   EgressDeniedError,
   type EgressRequestInit,
   resolveEgress,
 } from "../bundleUi/egressAllowlist.ts";
+import { getValidated, validate } from "../middleware/validate.ts";
 import {
   AgentBundleConflictError,
   type AgentBundleStore,
@@ -13,10 +15,35 @@ import {
 } from "../store/agentBundleStore.ts";
 import { bundleUpload } from "./bundleUpload.ts";
 
+/** `:id` route param shared by the single-bundle routes. */
+const idParamsSchema = z.object({
+  id: z.string(),
+});
+type IdParams = z.infer<typeof idParamsSchema>;
+
+/** `:id/:file` route params for the compiled UI component route. */
+const uiComponentParamsSchema = z.object({
+  id: z.string(),
+  file: z.string(),
+});
+type UiComponentParams = z.infer<typeof uiComponentParamsSchema>;
+
+/**
+ * Body for the `host.fetch` egress proxy. `input` must be a non-empty string
+ * (replacing the old manual `typeof` guard); `init` stays permissive — it's a
+ * structural {@link EgressRequestInit} passed straight through to
+ * {@link resolveEgress}, so we type it via `z.custom` rather than re-describing
+ * its shape, keeping the validated value assignable without an `as` cast.
+ */
+const uiEgressBodySchema = z.object({
+  input: z.string().min(1),
+  init: z.custom<EgressRequestInit>().optional(),
+});
+type UiEgressInput = z.infer<typeof uiEgressBodySchema>;
+
 /** Handles `GET /api/agent-bundles`: lists stored bundle metadata. */
 async function handleList(
   store: AgentBundleStore,
-  _req: Request,
   res: Response,
 ): Promise<void> {
   const bundles = await store.list();
@@ -27,10 +54,10 @@ async function handleList(
 /** Handles `GET /api/agent-bundles/:id`. */
 async function handleGet(
   store: AgentBundleStore,
-  req: Request<{ id: string }>,
+  id: string,
   res: Response,
 ): Promise<void> {
-  const bundle = await store.get(req.params.id);
+  const bundle = await store.get(id);
   if (!bundle) {
     res.status(404).json({ error: "Agent bundle not found" });
     return;
@@ -41,10 +68,10 @@ async function handleGet(
 /** Handles `GET /api/agent-bundles/:id/icon`: serves the preview SVG. */
 async function handleIcon(
   store: AgentBundleStore,
-  req: Request<{ id: string }>,
+  id: string,
   res: Response,
 ): Promise<void> {
-  const icon = await store.readIcon(req.params.id);
+  const icon = await store.readIcon(id);
   if (!icon) {
     res.status(404).json({ error: "Icon not found" });
     return;
@@ -55,20 +82,17 @@ async function handleIcon(
 /** Handles `GET /api/agent-bundles/:id/download`: serves the original ZIP. */
 async function handleDownload(
   store: AgentBundleStore,
-  req: Request<{ id: string }>,
+  id: string,
   res: Response,
 ): Promise<void> {
-  const buffer = await store.readBundle(req.params.id);
+  const buffer = await store.readBundle(id);
   if (!buffer) {
     res.status(404).json({ error: "Agent bundle not found" });
     return;
   }
   res
     .type("application/zip")
-    .setHeader(
-      "Content-Disposition",
-      `attachment; filename="${req.params.id}.zip"`,
-    );
+    .setHeader("Content-Disposition", `attachment; filename="${id}.zip"`);
   res.send(buffer);
 }
 
@@ -81,15 +105,16 @@ const UI_ASSET_PATTERN = /^([a-z0-9][a-z0-9-]*)\.js$/;
  */
 async function handleUiComponent(
   store: AgentBundleStore,
-  req: Request<{ id: string; file: string }>,
+  id: string,
+  file: string,
   res: Response,
 ): Promise<void> {
-  const match = UI_ASSET_PATTERN.exec(req.params.file);
+  const match = UI_ASSET_PATTERN.exec(file);
   if (!match) {
     res.status(404).json({ error: "UI component not found" });
     return;
   }
-  const js = await store.readUiComponent(req.params.id, match[1]);
+  const js = await store.readUiComponent(id, match[1]);
   if (js === undefined) {
     res.status(404).json({ error: "UI component not found" });
     return;
@@ -103,14 +128,10 @@ async function handleUiComponent(
  * destination that isn't registered (see Phase 5 of the bundle-ui spec).
  */
 async function handleUiEgress(
-  req: Request<unknown, unknown, { input?: unknown; init?: EgressRequestInit }>,
+  input: string,
+  init: EgressRequestInit | undefined,
   res: Response,
 ): Promise<void> {
-  const { input, init } = req.body ?? {};
-  if (typeof input !== "string" || input.length === 0) {
-    res.status(400).json({ error: "Missing egress destination" });
-    return;
-  }
   try {
     const result = await resolveEgress(input, init);
     res.json(result);
@@ -152,10 +173,10 @@ async function handleUpload(
 /** Handles `DELETE /api/agent-bundles/:id`. */
 async function handleDelete(
   store: AgentBundleStore,
-  req: Request<{ id: string }>,
+  id: string,
   res: Response,
 ): Promise<void> {
-  const deleted = await store.delete(req.params.id);
+  const deleted = await store.delete(id);
   if (!deleted) {
     res.status(404).json({ error: "Agent bundle not found" });
     return;
@@ -163,10 +184,12 @@ async function handleDelete(
   res.status(204).end();
 }
 
-export function createAgentBundlesRouter(store: AgentBundleStore): Router {
-  const router = Router();
-
-  router.get("/", (req: Request, res: Response) => handleList(store, req, res));
+/** Registers the bundle collection routes (`GET /`, `POST /`, `POST /ui-egress`). */
+function registerBundleCollectionRoutes(
+  router: Router,
+  store: AgentBundleStore,
+): void {
+  router.get("/", (_req: Request, res: Response) => handleList(store, res));
 
   router.post(
     "/",
@@ -174,31 +197,68 @@ export function createAgentBundlesRouter(store: AgentBundleStore): Router {
     (req: Request, res: Response) => handleUpload(store, req, res),
   );
 
-  router.post("/ui-egress", (req: Request, res: Response) =>
-    handleUiEgress(req, res),
+  router.post(
+    "/ui-egress",
+    validate({ body: uiEgressBodySchema }),
+    (req: Request, res: Response) => {
+      const { body } = getValidated<UiEgressInput>(req);
+      return handleUiEgress(body.input, body.init, res);
+    },
+  );
+}
+
+/** Registers the single-bundle item routes (read/icon/download/ui/delete). */
+function registerBundleItemRoutes(
+  router: Router,
+  store: AgentBundleStore,
+): void {
+  router.get(
+    "/:id",
+    validate({ params: idParamsSchema }),
+    (req: Request, res: Response) =>
+      handleGet(store, getValidated<unknown, IdParams>(req).params.id, res),
   );
 
-  router.get("/:id", (req: Request<{ id: string }>, res: Response) =>
-    handleGet(store, req, res),
+  router.get(
+    "/:id/icon",
+    validate({ params: idParamsSchema }),
+    (req: Request, res: Response) =>
+      handleIcon(store, getValidated<unknown, IdParams>(req).params.id, res),
   );
 
-  router.get("/:id/icon", (req: Request<{ id: string }>, res: Response) =>
-    handleIcon(store, req, res),
-  );
-
-  router.get("/:id/download", (req: Request<{ id: string }>, res: Response) =>
-    handleDownload(store, req, res),
+  router.get(
+    "/:id/download",
+    validate({ params: idParamsSchema }),
+    (req: Request, res: Response) =>
+      handleDownload(
+        store,
+        getValidated<unknown, IdParams>(req).params.id,
+        res,
+      ),
   );
 
   router.get(
     "/:id/ui/:file",
-    (req: Request<{ id: string; file: string }>, res: Response) =>
-      handleUiComponent(store, req, res),
+    validate({ params: uiComponentParamsSchema }),
+    (req: Request, res: Response) => {
+      const { params } = getValidated<unknown, UiComponentParams>(req);
+      return handleUiComponent(store, params.id, params.file, res);
+    },
   );
 
-  router.delete("/:id", (req: Request<{ id: string }>, res: Response) =>
-    handleDelete(store, req, res),
+  router.delete(
+    "/:id",
+    validate({ params: idParamsSchema }),
+    (req: Request, res: Response) =>
+      handleDelete(store, getValidated<unknown, IdParams>(req).params.id, res),
   );
+}
+
+export function createAgentBundlesRouter(store: AgentBundleStore): Router {
+  const router = Router();
+
+  registerBundleCollectionRoutes(router, store);
+  registerBundleItemRoutes(router, store);
 
   return router;
 }

@@ -1,29 +1,51 @@
-import type {
-  CreateTriggerRequest,
-  UpdateTriggerRequest,
-} from "@tangent/shared/contracts.ts";
-import {
-  type NextFunction,
-  type Request,
-  type Response,
-  Router,
-} from "express";
+import { type Request, type Response, Router } from "express";
+import { z } from "zod";
 
-import { INTERNAL_TOKEN } from "../config.ts";
+import { requireInternalToken } from "../middleware/requireInternalToken.ts";
+import { getValidated, validate } from "../middleware/validate.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../pi/triggers/triggerManager.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import { loadSession } from "./sessions/utils.ts";
 
-interface CreateBody extends Partial<CreateTriggerRequest> {
-  sessionId?: string;
-}
+const triggerScheduleSchema = z.object({
+  every: z.string().optional(),
+  cron: z.string().optional(),
+});
 
-interface MutateBody extends UpdateTriggerRequest {
-  sessionId?: string;
-  /** Identify the target by name (preferred for the Prime tool) or id. */
-  name?: string;
-  triggerId?: string;
-}
+/** Create-trigger body; mirrors the shared `CreateTriggerRequest` plus `sessionId`. */
+const createTriggerSchema = z.object({
+  sessionId: z.string(),
+  name: z.string(),
+  kind: z.enum(["schedule", "callback"]),
+  title: z.string().optional(),
+  prompt: z.string().optional(),
+  schedule: triggerScheduleSchema.optional(),
+  enabled: z.boolean().optional(),
+});
+type CreateTriggerInput = z.infer<typeof createTriggerSchema>;
+
+/**
+ * Update/delete body. Identifies the target by `name` (preferred for the Prime
+ * tool) or `id`; the "name or triggerId required" cross-field rule is enforced
+ * in {@link resolveTarget}.
+ */
+const mutateTriggerSchema = z.object({
+  sessionId: z.string(),
+  name: z.string().optional(),
+  triggerId: z.string().optional(),
+  enabled: z.boolean().optional(),
+  prompt: z.string().optional(),
+  title: z.string().optional(),
+  schedule: triggerScheduleSchema.optional(),
+});
+type MutateInput = z.infer<typeof mutateTriggerSchema>;
+
+/** List query: the session whose triggers to return. */
+const listTriggersQuerySchema = z.object({
+  sessionId: z.string(),
+});
+type ListTriggersQuery = z.infer<typeof listTriggersQuerySchema>;
 
 /** A minimal session shape the trigger handlers need. */
 interface SessionRef {
@@ -35,16 +57,11 @@ type Resolved =
   | { ok: true; session: SessionRef; triggerId: string }
   | { ok: false; status: number; message: string };
 
-/** True when a create body is missing one of its required fields. */
-function missingCreateFields(body: CreateBody): boolean {
-  return !body.sessionId || !body.name || !body.kind;
-}
-
 /** Resolves the target trigger id from a name-or-id mutate body. */
 function resolveTriggerId(
   triggers: TriggerManager,
   sessionId: string,
-  body: MutateBody,
+  body: MutateInput,
 ): string | undefined {
   if (body.triggerId) return body.triggerId;
   if (!body.name) return undefined;
@@ -55,11 +72,8 @@ function resolveTriggerId(
 async function resolveTarget(
   store: SessionStore,
   triggers: TriggerManager,
-  body: MutateBody,
+  body: MutateInput,
 ): Promise<Resolved> {
-  if (!body.sessionId) {
-    return { ok: false, status: 400, message: "sessionId is required" };
-  }
   if (!body.name && !body.triggerId) {
     return { ok: false, status: 400, message: "name or triggerId is required" };
   }
@@ -79,29 +93,14 @@ async function handleCreate(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
-  req: Request,
+  body: CreateTriggerInput,
   res: Response,
 ): Promise<void> {
-  const body = (req.body ?? {}) as CreateBody;
-  if (missingCreateFields(body)) {
-    res.status(400).json({ error: "sessionId, name, and kind are required" });
-    return;
-  }
-  const session = await store.getSession(body.sessionId as string);
-  if (!session) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
   triggers.register(session.id, session.rootPath);
   try {
-    const trigger = triggers.create(session.id, session.rootPath, {
-      name: body.name as string,
-      kind: body.kind as CreateTriggerRequest["kind"],
-      title: body.title,
-      prompt: body.prompt,
-      schedule: body.schedule,
-      enabled: body.enabled,
-    });
+    const trigger = triggers.create(session.id, session.rootPath, body);
     triggerEngine.afterChange(session.id, session.rootPath);
     res.json({ trigger });
   } catch (err) {
@@ -112,19 +111,11 @@ async function handleCreate(
 async function handleList(
   store: SessionStore,
   triggers: TriggerManager,
-  req: Request,
+  sessionId: string,
   res: Response,
 ): Promise<void> {
-  const sessionId = req.query.sessionId;
-  if (typeof sessionId !== "string") {
-    res.status(400).json({ error: "sessionId is required" });
-    return;
-  }
-  const session = await store.getSession(sessionId);
-  if (!session) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
+  const session = await loadSession(store, res, sessionId);
+  if (!session) return;
   triggers.register(session.id, session.rootPath);
   res.json({ triggers: triggers.list(session.id) });
 }
@@ -133,10 +124,9 @@ async function handleUpdate(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
-  req: Request,
+  body: MutateInput,
   res: Response,
 ): Promise<void> {
-  const body = (req.body ?? {}) as MutateBody;
   const target = await resolveTarget(store, triggers, body);
   if (!target.ok) {
     res.status(target.status).json({ error: target.message });
@@ -155,10 +145,9 @@ async function handleDelete(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
-  req: Request,
+  body: MutateInput,
   res: Response,
 ): Promise<void> {
-  const body = (req.body ?? {}) as MutateBody;
   const target = await resolveTarget(store, triggers, body);
   if (!target.ok) {
     res.status(target.status).json({ error: target.message });
@@ -186,23 +175,54 @@ export function createInternalTriggersRouter(
 ): Router {
   const router = Router();
 
-  router.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.get("authorization") !== `Bearer ${INTERNAL_TOKEN}`) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-    next();
-  });
+  router.use(requireInternalToken);
 
-  router.post("/create", (req, res) =>
-    handleCreate(store, triggers, triggerEngine, req, res),
+  router.post(
+    "/create",
+    validate({ body: createTriggerSchema }),
+    (req: Request, res: Response) =>
+      handleCreate(
+        store,
+        triggers,
+        triggerEngine,
+        getValidated<CreateTriggerInput>(req).body,
+        res,
+      ),
   );
-  router.get("/list", (req, res) => handleList(store, triggers, req, res));
-  router.post("/update", (req, res) =>
-    handleUpdate(store, triggers, triggerEngine, req, res),
+  router.get(
+    "/list",
+    validate({ query: listTriggersQuerySchema }),
+    (req: Request, res: Response) =>
+      handleList(
+        store,
+        triggers,
+        getValidated<unknown, unknown, ListTriggersQuery>(req).query.sessionId,
+        res,
+      ),
   );
-  router.post("/delete", (req, res) =>
-    handleDelete(store, triggers, triggerEngine, req, res),
+  router.post(
+    "/update",
+    validate({ body: mutateTriggerSchema }),
+    (req: Request, res: Response) =>
+      handleUpdate(
+        store,
+        triggers,
+        triggerEngine,
+        getValidated<MutateInput>(req).body,
+        res,
+      ),
+  );
+  router.post(
+    "/delete",
+    validate({ body: mutateTriggerSchema }),
+    (req: Request, res: Response) =>
+      handleDelete(
+        store,
+        triggers,
+        triggerEngine,
+        getValidated<MutateInput>(req).body,
+        res,
+      ),
   );
 
   return router;

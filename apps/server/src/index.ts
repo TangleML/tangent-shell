@@ -4,6 +4,7 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { PORT } from "./config.ts";
+import { errorHandler } from "./middleware/errorHandler.ts";
 import { MemoryManager } from "./pi/memory.ts";
 import { PiAgentManager } from "./pi/piAgentManager.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
@@ -14,7 +15,7 @@ import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
 import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
-import { createSessionsRouter } from "./routes/sessions.ts";
+import { createSessionsRouter } from "./routes/sessions/index.ts";
 import {
   createAgentEventHandler,
   createAgentMessageHandler,
@@ -102,6 +103,10 @@ app.use(
 );
 // Internal API for the session extension running inside each Pi process.
 app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
+
+// Mounted last: async failures from any handler above land here with a
+// consistent `{ error }` shape (Express 5 forwards rejected promises to it).
+app.use(errorHandler);
 
 registerChatHandlers(
   io,

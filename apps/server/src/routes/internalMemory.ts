@@ -1,67 +1,52 @@
-import type { MemoryScope } from "@tangent/shared/contracts.ts";
-import {
-  type NextFunction,
-  type Request,
-  type Response,
-  Router,
-} from "express";
+import { type Request, type Response, Router } from "express";
+import { z } from "zod";
 
-import { INTERNAL_TOKEN } from "../config.ts";
+import { requireInternalToken } from "../middleware/requireInternalToken.ts";
+import { getValidated, validate } from "../middleware/validate.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import type {
   MemoryRememberedHandler,
   MemorySuggestionHandler,
 } from "../sockets/chat.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import { loadSession } from "./sessions/utils.ts";
 
-interface RememberBody {
-  sessionId?: string;
-  scope?: MemoryScope;
-  text?: string;
-  replaces?: string;
-}
+/** `GET /read` query: the session whose memory to read. */
+const readQuerySchema = z.object({
+  sessionId: z.string(),
+});
+type ReadQuery = z.infer<typeof readQuerySchema>;
 
-interface SuggestBody {
-  sessionId?: string;
-  scope?: MemoryScope;
-  text?: string;
-}
+// `scope` defaults to "session" so a missing scope behaves as before; an
+// explicitly invalid scope is now rejected with a 400 rather than coerced.
+const scopeSchema = z.enum(["global", "session"]).default("session");
 
-/** Normalizes an arbitrary scope value to a valid {@link MemoryScope}. */
-function toScope(value: unknown): MemoryScope {
-  return value === "global" ? "global" : "session";
-}
+/** `POST /remember` body: applies a memory write for a session. */
+const rememberBodySchema = z.object({
+  sessionId: z.string(),
+  scope: scopeSchema,
+  text: z.string().trim().min(1),
+  replaces: z.string().optional(),
+});
+type RememberBody = z.infer<typeof rememberBodySchema>;
 
-/** Rejects any request not bearing the shared internal token. */
-function requireInternalToken(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  if (req.get("authorization") !== `Bearer ${INTERNAL_TOKEN}`) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
+/** `POST /suggest` body: records a pending suggestion for a session. */
+const suggestBodySchema = z.object({
+  sessionId: z.string(),
+  scope: scopeSchema,
+  text: z.string().trim().min(1),
+});
+type SuggestBody = z.infer<typeof suggestBodySchema>;
 
 /** `GET /read`: returns the current session + global memory text. */
 async function handleRead(
   store: SessionStore,
   memory: MemoryManager,
-  req: Request,
+  query: ReadQuery,
   res: Response,
 ): Promise<void> {
-  const sessionId = req.query.sessionId;
-  if (typeof sessionId !== "string") {
-    res.status(400).json({ error: "sessionId is required" });
-    return;
-  }
-  const session = await store.getSession(sessionId);
-  if (!session) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
+  const session = await loadSession(store, res, query.sessionId);
+  if (!session) return;
   res.json({
     session: memory.readSession(session.rootPath),
     global: memory.readGlobal(),
@@ -73,23 +58,15 @@ async function handleRemember(
   store: SessionStore,
   memory: MemoryManager,
   onRemembered: MemoryRememberedHandler,
-  req: Request,
+  body: RememberBody,
   res: Response,
 ): Promise<void> {
-  const body = (req.body ?? {}) as RememberBody;
-  if (!body.sessionId || !body.text?.trim()) {
-    res.status(400).json({ error: "sessionId and text are required" });
-    return;
-  }
-  const session = await store.getSession(body.sessionId);
-  if (!session) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
 
   const result = memory.write(
     session.rootPath,
-    toScope(body.scope),
+    body.scope,
     body.text,
     body.replaces,
   );
@@ -101,20 +78,18 @@ async function handleRemember(
 function handleSuggest(
   memory: MemoryManager,
   onSuggestion: MemorySuggestionHandler,
-  req: Request,
+  body: SuggestBody,
   res: Response,
 ): void {
-  const body = (req.body ?? {}) as SuggestBody;
-  if (!body.sessionId || !body.text?.trim()) {
-    res.status(400).json({ error: "sessionId and text are required" });
-    return;
-  }
-  const scope = toScope(body.scope);
-  const suggestion = memory.addSuggestion(body.sessionId, scope, body.text);
+  const suggestion = memory.addSuggestion(
+    body.sessionId,
+    body.scope,
+    body.text,
+  );
   onSuggestion({
     sessionId: body.sessionId,
     suggestionId: suggestion.id,
-    scope,
+    scope: body.scope,
     text: suggestion.text,
   });
   res.json({ ok: true, suggestionId: suggestion.id });
@@ -140,14 +115,39 @@ export function createInternalMemoryRouter(
 
   router.use(requireInternalToken);
 
-  router.get("/read", (req: Request, res: Response) =>
-    handleRead(store, memory, req, res),
+  router.get(
+    "/read",
+    validate({ query: readQuerySchema }),
+    (req: Request, res: Response) =>
+      handleRead(
+        store,
+        memory,
+        getValidated<unknown, unknown, ReadQuery>(req).query,
+        res,
+      ),
   );
-  router.post("/remember", (req: Request, res: Response) =>
-    handleRemember(store, memory, onRemembered, req, res),
+  router.post(
+    "/remember",
+    validate({ body: rememberBodySchema }),
+    (req: Request, res: Response) =>
+      handleRemember(
+        store,
+        memory,
+        onRemembered,
+        getValidated<RememberBody>(req).body,
+        res,
+      ),
   );
-  router.post("/suggest", (req: Request, res: Response) =>
-    handleSuggest(memory, onSuggestion, req, res),
+  router.post(
+    "/suggest",
+    validate({ body: suggestBodySchema }),
+    (req: Request, res: Response) =>
+      handleSuggest(
+        memory,
+        onSuggestion,
+        getValidated<SuggestBody>(req).body,
+        res,
+      ),
   );
 
   return router;

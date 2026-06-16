@@ -1,15 +1,46 @@
 import { type Request, type Response, Router } from "express";
+import { z } from "zod";
 
 import {
   EgressDeniedError,
   type EgressRequestInit,
   resolveEgress,
 } from "../bundleUi/egressAllowlist.ts";
-import { INTERNAL_TOKEN } from "../config.ts";
+import { requireInternalToken } from "../middleware/requireInternalToken.ts";
+import { getValidated, validate } from "../middleware/validate.ts";
 
-interface EgressBody {
-  input?: unknown;
-  init?: EgressRequestInit;
+/**
+ * Egress request body. `input` must be a non-empty string (replacing the old
+ * manual `typeof` guard); `init` stays permissive — it's a structural
+ * {@link EgressRequestInit} passed straight through to {@link resolveEgress},
+ * so we type it via `z.custom` rather than re-describing its shape, keeping the
+ * validated value assignable without an `as` cast.
+ */
+const egressBodySchema = z.object({
+  input: z.string().min(1),
+  init: z.custom<EgressRequestInit>().optional(),
+});
+type EgressInput = z.infer<typeof egressBodySchema>;
+
+/**
+ * Resolves the requested destination against the egress allowlist, mapping a
+ * denied destination to `403` and any other failure to `502`.
+ */
+async function handleEgress(
+  input: string,
+  init: EgressRequestInit | undefined,
+  res: Response,
+): Promise<void> {
+  try {
+    const result = await resolveEgress(input, init);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof EgressDeniedError) {
+      res.status(403).json({ error: err.message });
+      return;
+    }
+    res.status(502).json({ error: "egress request failed" });
+  }
 }
 
 /**
@@ -26,31 +57,16 @@ interface EgressBody {
 export function createInternalEgressRouter(): Router {
   const router = Router();
 
-  router.use((req: Request, res: Response, next) => {
-    if (req.get("authorization") !== `Bearer ${INTERNAL_TOKEN}`) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-    next();
-  });
+  router.use(requireInternalToken);
 
-  router.post("/", async (req: Request, res: Response) => {
-    const { input, init } = (req.body ?? {}) as EgressBody;
-    if (typeof input !== "string" || input.length === 0) {
-      res.status(400).json({ error: "Missing egress destination" });
-      return;
-    }
-    try {
-      const result = await resolveEgress(input, init);
-      res.json(result);
-    } catch (err) {
-      if (err instanceof EgressDeniedError) {
-        res.status(403).json({ error: err.message });
-        return;
-      }
-      res.status(502).json({ error: "egress request failed" });
-    }
-  });
+  router.post(
+    "/",
+    validate({ body: egressBodySchema }),
+    (req: Request, res: Response) => {
+      const { input, init } = getValidated<EgressInput>(req).body;
+      return handleEgress(input, init, res);
+    },
+  );
 
   return router;
 }

@@ -1,42 +1,33 @@
-import {
-  type NextFunction,
-  type Request,
-  type Response,
-  Router,
-} from "express";
+import { type Request, type Response, Router } from "express";
+import { z } from "zod";
 
-import { INTERNAL_TOKEN } from "../config.ts";
+import { requireInternalToken } from "../middleware/requireInternalToken.ts";
+import { getValidated, validate } from "../middleware/validate.ts";
 import type { UiCommandEmitter } from "../sockets/chat.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import { loadSession } from "./sessions/utils.ts";
 
-interface RenameBody {
-  sessionId?: string;
-  name?: string;
-}
+/** Rename body: a non-empty trimmed `name` applied to the given session. */
+export const renameSchema = z.object({
+  sessionId: z.string(),
+  name: z.string().trim().min(1),
+});
+export type RenameInput = z.infer<typeof renameSchema>;
 
-interface PinArtifactBody {
-  sessionId?: string;
-  path?: string;
-  title?: string;
-}
+/** Pin-artifact body: a workspace-relative `path` with an optional `title`. */
+export const pinArtifactSchema = z.object({
+  sessionId: z.string(),
+  path: z.string().trim().min(1),
+  title: z.string().optional(),
+});
+export type PinArtifactInput = z.infer<typeof pinArtifactSchema>;
 
-interface UnpinArtifactBody {
-  sessionId?: string;
-  path?: string;
-}
-
-/** Rejects any request not bearing the shared internal token. */
-function requireInternalToken(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  if (req.get("authorization") !== `Bearer ${INTERNAL_TOKEN}`) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
+/** Unpin-artifact body: the workspace-relative `path` to remove. */
+export const unpinArtifactSchema = z.object({
+  sessionId: z.string(),
+  path: z.string().trim().min(1),
+});
+export type UnpinArtifactInput = z.infer<typeof unpinArtifactSchema>;
 
 /**
  * `POST /rename`: applies a session rename and pushes the updated record to the
@@ -45,15 +36,9 @@ function requireInternalToken(
 async function handleRename(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
-  req: Request,
+  body: RenameInput,
   res: Response,
 ): Promise<void> {
-  const body = (req.body ?? {}) as RenameBody;
-  if (!body.sessionId || !body.name?.trim()) {
-    res.status(400).json({ error: "sessionId and name are required" });
-    return;
-  }
-
   const session = await store.updateSession(body.sessionId, {
     name: body.name,
   });
@@ -66,6 +51,11 @@ async function handleRename(
   res.json({ session });
 }
 
+/** Returns a trimmed title, falling back to the path when none was given. */
+function fallbackTitle(title: string | undefined, path: string): string {
+  return title?.trim() || path;
+}
+
 /**
  * `POST /pin-artifact`: pins an artifact (by workspace-relative path) for quick
  * access and broadcasts the updated list to the UI over the generic
@@ -74,31 +64,19 @@ async function handleRename(
 async function handlePinArtifact(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
-  req: Request,
+  body: PinArtifactInput,
   res: Response,
 ): Promise<void> {
-  const body = (req.body ?? {}) as PinArtifactBody;
-  const path = body.path?.trim();
-  if (!body.sessionId || !path) {
-    res.status(400).json({ error: "sessionId and path are required" });
-    return;
-  }
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
 
-  const session = await store.getSession(body.sessionId);
-  if (!session) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
-
-  const title = fallbackTitle(body.title, path);
-  const artifacts = await store.pinArtifact(session.id, { path, title });
+  const title = fallbackTitle(body.title, body.path);
+  const artifacts = await store.pinArtifact(session.id, {
+    path: body.path,
+    title,
+  });
   emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
   res.json({ artifacts });
-}
-
-/** Returns a trimmed title, falling back to the path when none was given. */
-function fallbackTitle(title: string | undefined, path: string): string {
-  return title?.trim() || path;
 }
 
 /**
@@ -108,23 +86,13 @@ function fallbackTitle(title: string | undefined, path: string): string {
 async function handleUnpinArtifact(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
-  req: Request,
+  body: UnpinArtifactInput,
   res: Response,
 ): Promise<void> {
-  const body = (req.body ?? {}) as UnpinArtifactBody;
-  const path = body.path?.trim();
-  if (!body.sessionId || !path) {
-    res.status(400).json({ error: "sessionId and path are required" });
-    return;
-  }
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
 
-  const session = await store.getSession(body.sessionId);
-  if (!session) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
-
-  const artifacts = await store.unpinArtifact(session.id, path);
+  const artifacts = await store.unpinArtifact(session.id, body.path);
   emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
   res.json({ artifacts });
 }
@@ -145,16 +113,40 @@ export function createInternalSessionRouter(
 
   router.use(requireInternalToken);
 
-  router.post("/rename", (req: Request, res: Response) =>
-    handleRename(store, emitUiCommand, req, res),
+  router.post(
+    "/rename",
+    validate({ body: renameSchema }),
+    (req: Request, res: Response) =>
+      handleRename(
+        store,
+        emitUiCommand,
+        getValidated<RenameInput>(req).body,
+        res,
+      ),
   );
 
-  router.post("/pin-artifact", (req: Request, res: Response) =>
-    handlePinArtifact(store, emitUiCommand, req, res),
+  router.post(
+    "/pin-artifact",
+    validate({ body: pinArtifactSchema }),
+    (req: Request, res: Response) =>
+      handlePinArtifact(
+        store,
+        emitUiCommand,
+        getValidated<PinArtifactInput>(req).body,
+        res,
+      ),
   );
 
-  router.post("/unpin-artifact", (req: Request, res: Response) =>
-    handleUnpinArtifact(store, emitUiCommand, req, res),
+  router.post(
+    "/unpin-artifact",
+    validate({ body: unpinArtifactSchema }),
+    (req: Request, res: Response) =>
+      handleUnpinArtifact(
+        store,
+        emitUiCommand,
+        getValidated<UnpinArtifactInput>(req).body,
+        res,
+      ),
   );
 
   return router;
