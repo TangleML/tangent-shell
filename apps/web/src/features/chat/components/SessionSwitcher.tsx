@@ -12,7 +12,8 @@ interface SessionSwitcherProps {
 }
 
 export function SessionSwitcher({ currentSessionId }: SessionSwitcherProps) {
-  const { sessions, onSelect } = useSessionSwitcher(currentSessionId);
+  const { sessions, onSelect, onDeleted } =
+    useSessionSwitcher(currentSessionId);
 
   if (!sessions || sessions.length === 0) {
     return null;
@@ -34,6 +35,7 @@ export function SessionSwitcher({ currentSessionId }: SessionSwitcherProps) {
             sessions={sessions}
             onSelect={onSelect}
             selectedId={currentSessionId}
+            onDeleted={onDeleted}
           />
         </Box>
       </Box>

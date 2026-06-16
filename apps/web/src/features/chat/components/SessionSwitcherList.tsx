@@ -2,9 +2,11 @@ import type { Session } from "@tangent/shared/contracts";
 import { useEffect, useRef } from "react";
 
 import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
+import { SessionActionsMenu } from "@/features/sessions/components/SessionActionsMenu";
 import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Text } from "@/shared/ui/typography";
@@ -16,6 +18,12 @@ interface SessionSwitcherListProps {
   onSelect: (id: string) => void;
   /** Highlighted row (keyboard navigation); scrolled into view when set. */
   selectedId?: string;
+  /**
+   * When provided, each row gets a hover-revealed actions menu (rename,
+   * archive, delete) and this is called after a session is deleted. Omit it
+   * (e.g. the dropdown switcher) to keep the list a plain quick-switch.
+   */
+  onDeleted?: (id: string) => void;
 }
 
 /**
@@ -26,6 +34,7 @@ export function SessionSwitcherList({
   sessions,
   onSelect,
   selectedId,
+  onDeleted,
 }: SessionSwitcherListProps) {
   const selectedRef = useRef<HTMLElement>(null);
 
@@ -71,11 +80,13 @@ export function SessionSwitcherList({
                   Idle
                 </Text>
               </InlineStack>
-              <Text size="xs" tone="subdued">
-                0 runs &middot; 0 tokens
-              </Text>
             </InlineStack>
           </BlockStack>
+          {onDeleted ? (
+            <HoverReveal>
+              <SessionActionsMenu session={session} onDeleted={onDeleted} />
+            </HoverReveal>
+          ) : null}
         </ListRow>
       ))}
     </BlockStack>

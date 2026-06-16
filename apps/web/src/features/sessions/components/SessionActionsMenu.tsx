@@ -80,7 +80,7 @@ export function SessionActionsMenu({
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <IconButton
-          icon="Ellipsis"
+          icon="EllipsisVertical"
           aria-label={`Actions for ${session.name}`}
           onClick={(event) => event.stopPropagation()}
         />
