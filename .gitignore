@@ -10,7 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+ui-dist
 *.local
+
+# Turborepo task cache
+.turbo
 
 # Session scoped root folders created by the dev server
 .sessions

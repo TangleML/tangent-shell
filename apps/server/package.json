@@ -1,0 +1,41 @@
+{
+  "name": "@tangent/server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "dev": "tsx watch --tsconfig ./tsconfig.json src/index.ts",
+    "build": "node build.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@tangent/shared": "workspace:*",
+    "better-sqlite3": "^12.10.0",
+    "croner": "^10.0.1",
+    "drizzle-orm": "^0.45.2",
+    "esbuild": "0.28.0",
+    "express": "^5.2.1",
+    "fflate": "^0.8.3",
+    "multer": "^2.1.1",
+    "socket.io": "^4.8.3",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^25.9.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}

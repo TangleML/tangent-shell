@@ -49,39 +49,41 @@ ENV PNPM_HOME=/usr/local/share/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml ./
+# Workspace manifests first so the dependency install layer caches independently
+# of source changes. The whole workspace is installed (server + UI both build
+# here).
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+COPY packages/build/package.json packages/build/
 RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false
 
-# Server source (incl. the .md prompt/agent files and the orchestrator .ts
-# extension that the build copies next to the bundle).
-COPY server ./server
-COPY shared ./shared
+# Server + UI source plus the shared workspace packages they build against
+# (incl. the .md prompt/agent files and the orchestrator .ts extension copied
+# next to the server bundle).
+COPY apps/server ./apps/server
+COPY apps/web ./apps/web
+COPY packages/shared ./packages/shared
+COPY packages/build ./packages/build
 
-# UI source and the Vite/TS config it builds against.
-COPY src ./src
-COPY public ./public
-COPY index.html ./
-COPY vite.config.ts ./
-COPY tsconfig.json tsconfig.app.json tsconfig.node.json ./
+# Bundle the server -> apps/server/dist/index.js plus its runtime assets
+# (prompts, agents, extensions, migrations). Invoked via node directly to avoid
+# pnpm's pre-run dependency status check.
+RUN node apps/server/build.mjs
 
-# Bundle the server -> dist/index.js plus its runtime assets (prompts, agents,
-# extensions). Invoked via node directly to avoid pnpm's pre-run dependency
-# status check. Runs first because server/build.mjs `rm -rf`s dist/.
-RUN node server/build.mjs
-
-# Build the static UI into ui-dist/ (kept separate from the server's dist/).
-# Skips the `tsc -b` typecheck that `pnpm build` runs — not needed to emit
-# assets, and keeps the image build resilient.
-RUN pnpm exec vite build --outDir ui-dist
+# Build the static UI -> apps/web/dist. Runs `vite build` directly (skips the
+# tsc typecheck) to keep the image build resilient.
+RUN pnpm --filter @tangent/web exec vite build
 
 # Defense in depth: fail the image build if any extension the server loads at
 # runtime is missing from the bundle (the build script also asserts this).
 RUN for f in orchestrator proxyProvider memory triggers; do \
-  test -f "dist/extensions/$f.ts" || { echo "missing dist/extensions/$f.ts" >&2; exit 1; }; \
+  test -f "apps/server/dist/extensions/$f.ts" || { echo "missing apps/server/dist/extensions/$f.ts" >&2; exit 1; }; \
   done
 
 # Fail early if the UI build produced no entry HTML.
-RUN test -f ui-dist/index.html || { echo "missing ui-dist/index.html" >&2; exit 1; }
+RUN test -f apps/web/dist/index.html || { echo "missing apps/web/dist/index.html" >&2; exit 1; }
 
 
 # ---------------------------------------------------------------------------
@@ -109,18 +111,18 @@ ENV PI_PROXY_URL=https://proxy.shopify.ai
 # PI_DEBUG=1 enables verbose Pi RPC logging.
 
 # Compiled server bundle (+ runtime assets) and the built static UI.
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/ui-dist ./ui-dist
+COPY --from=builder /app/apps/server/dist ./dist
+COPY --from=builder /app/apps/web/dist ./ui-dist
 
 # nginx config template + process supervisor entrypoint.
 COPY docker/nginx.conf.template /app/docker/nginx.conf.template
 COPY docker/docker-entrypoint.sh /app/docker/docker-entrypoint.sh
 RUN chmod +x /app/docker/docker-entrypoint.sh
 
-# esbuild is kept external by server/build.mjs (native binary, used at runtime
-# to compile uploaded agent-bundle sources). Install just it so node can
-# resolve the bare import from /app/dist/index.js.
-RUN npm install --no-save --no-package-lock esbuild@0.28.0
+# esbuild and better-sqlite3 are kept external by apps/server/build.mjs (native
+# binaries, used at runtime). Install just them so node can resolve the bare
+# imports from /app/dist/index.js.
+RUN npm install --no-save --no-package-lock esbuild@0.28.0 better-sqlite3@12.10.0
 
 EXPOSE 8000
 

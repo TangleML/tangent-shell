@@ -44,22 +44,33 @@ ENV PNPM_HOME=/usr/local/share/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false
+# Workspace manifests first so the dependency install layer caches independently
+# of source changes. All package.json files are copied so the install matches
+# the lockfile graph; the install itself is filtered to the server subtree.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+COPY packages/build/package.json packages/build/
+RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false \
+  --filter @tangent/server...
 
-# Source (incl. the .md prompt/agent files and the orchestrator .ts extension
-# that the build copies next to the bundle).
-COPY server ./server
-COPY shared ./shared
+# Server source plus the workspace packages it bundles (incl. the .md
+# prompt/agent files and the orchestrator .ts extension copied next to the
+# bundle).
+COPY apps/server ./apps/server
+COPY packages/shared ./packages/shared
+COPY packages/build ./packages/build
 
-# Produces dist/index.js plus its runtime assets (prompts, agents, extension).
-# Invoked via node directly to avoid pnpm's pre-run dependency status check.
-RUN node server/build.mjs
+# Produces apps/server/dist/index.js plus its runtime assets (prompts, agents,
+# extensions, migrations). Invoked via node directly to avoid pnpm's pre-run
+# dependency status check.
+RUN node apps/server/build.mjs
 
 # Defense in depth: fail the image build if any extension the server loads at
 # runtime is missing from the bundle (the build script also asserts this).
 RUN for f in orchestrator proxyProvider memory triggers; do \
-  test -f "dist/extensions/$f.ts" || { echo "missing dist/extensions/$f.ts" >&2; exit 1; }; \
+  test -f "apps/server/dist/extensions/$f.ts" || { echo "missing apps/server/dist/extensions/$f.ts" >&2; exit 1; }; \
   done
 
 
@@ -85,12 +96,12 @@ ENV PI_PROXY_URL=https://proxy.shopify.ai
 # Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default openai/gpt-5.5),
 # PI_DEBUG=1 enables verbose Pi RPC logging.
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/apps/server/dist ./dist
 
-# esbuild is kept external by server/build.mjs (native binary, used at runtime
-# to compile uploaded agent-bundle sources). Install just it so node can
-# resolve the bare import from /app/dist/index.js.
-RUN npm install --no-save --no-package-lock esbuild@0.28.0
+# esbuild and better-sqlite3 are kept external by apps/server/build.mjs (native
+# binaries, used at runtime). Install just them so node can resolve the bare
+# imports from /app/dist/index.js.
+RUN npm install --no-save --no-package-lock esbuild@0.28.0 better-sqlite3@12.10.0
 
 EXPOSE 8080
 

@@ -1,6 +1,9 @@
 node_modules
 dist
 dist-ssr
+ui-dist
+.turbo
+pnpm-lock.yaml
 
 # Runtime-generated, agent-owned roots (see server/src/config.ts)
 .sessions

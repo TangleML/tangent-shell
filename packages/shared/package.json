@@ -1,0 +1,24 @@
+{
+  "name": "@tangent/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts",
+    "./*": "./src/*.ts"
+  },
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "eslint": "^10.4.0",
+    "typescript": "^6.0.3"
+  }
+}

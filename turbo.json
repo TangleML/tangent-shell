@@ -1,0 +1,40 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "globalPassThroughEnv": [
+    "SESSIONS_ROOT",
+    "SESSIONS_DB",
+    "AGENT_BUNDLES_ROOT",
+    "GLOBAL_MEMORY_DIR",
+    "PORT",
+    "PI_BIN",
+    "PI_PROXY_URL",
+    "PI_PROVIDER",
+    "PI_MODEL",
+    "PI_THINKING",
+    "PI_DEBUG",
+    "TANGENT_INTERNAL_URL",
+    "TANGENT_INTERNAL_TOKEN",
+    "TANGLE_API_URL",
+    "OASIS_TOKEN"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "ui-dist/**"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "format": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

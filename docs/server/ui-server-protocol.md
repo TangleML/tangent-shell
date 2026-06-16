@@ -11,10 +11,11 @@ The web UI talks to the server over **two transports**:
   roster changes, memory cards, trigger roster, and generic UI directives there.
 
 The wire shapes for both are defined once in
-[shared/contracts.ts](../../shared/contracts.ts) and imported by both `server/`
-and `src/` via the `@shared/*` alias, so the two sides never drift. The client
-side of the socket protocol lives in
-[src/features/chat/hooks/useSessionChat.ts](../../src/features/chat/hooks/useSessionChat.ts).
+[packages/shared/src/contracts.ts](../../packages/shared/src/contracts.ts) and
+imported by both `apps/server` and `apps/web` from the `@tangent/shared`
+workspace package, so the two sides never drift. The client side of the socket
+protocol lives in
+[apps/web/src/features/chat/hooks/useSessionChat.ts](../../apps/web/src/features/chat/hooks/useSessionChat.ts).
 
 ---
 

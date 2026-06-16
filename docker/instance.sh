@@ -40,5 +40,10 @@ export PORT=8000
 export PI_DEBUG=true
 export PI_PROXY_API_KEY=redacted
 
+export SESSIONS_ROOT=/root/workspace/.sessions
+export SESSIONS_DB=/root/workspace/.sessions/tangent.db
+export AGENT_BUNDLES_ROOT=/root/workspace/.agent-bundles
+export GLOBAL_MEMORY_DIR=/root/workspace/memory
+
 cd /app
 exec /app/docker/docker-entrypoint.sh
