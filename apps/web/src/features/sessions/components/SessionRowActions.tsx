@@ -1,5 +1,5 @@
 import type { Session } from "@tangent/shared/contracts";
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, type SyntheticEvent, useState } from "react";
 
 import {
   SessionDeleteConfirm,
@@ -34,7 +34,7 @@ export function SessionRowActions({
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
 
-  const stop = (event: MouseEvent) => event.stopPropagation();
+  const stop = (event: SyntheticEvent) => event.stopPropagation();
 
   const toggleArchive = (event: MouseEvent) => {
     event.stopPropagation();
@@ -77,6 +77,7 @@ export function SessionRowActions({
         <PopoverContent
           align="end"
           onClick={stop}
+          onKeyDown={stop}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <SessionRenameForm
@@ -107,6 +108,7 @@ export function SessionRowActions({
         <PopoverContent
           align="end"
           onClick={stop}
+          onKeyDown={stop}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <SessionDeleteConfirm
