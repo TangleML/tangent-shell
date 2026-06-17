@@ -553,11 +553,23 @@ export class PiAgentManager {
     const info = toSubagentInfo(agent);
     this.handlers.onSubagentUpdate(sessionId, info);
 
-    if (request.task && request.task.trim()) {
-      this.sendToAgent(sessionId, agentId, request.task, PI_AGENT);
-    }
+    this.deliverInitialTask(sessionId, agentId, request.task);
 
     return info;
+  }
+
+  /**
+   * Delivers an optional initial task to a freshly spawned sub-agent, skipping
+   * empty or whitespace-only tasks.
+   */
+  private deliverInitialTask(
+    sessionId: string,
+    agentId: string,
+    task: string | undefined,
+  ): void {
+    if (task && task.trim()) {
+      this.sendToAgent(sessionId, agentId, task, PI_AGENT);
+    }
   }
 
   /**

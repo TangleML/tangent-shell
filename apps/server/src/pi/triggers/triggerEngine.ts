@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   Trigger,
   TriggerRosterPayload,
+  TriggerTarget,
   TriggerUpdatePayload,
 } from "@tangent/shared/contracts.ts";
 import { SocketEvents, TRIGGER_AUTHOR } from "@tangent/shared/contracts.ts";
@@ -13,6 +14,7 @@ import { Cron } from "croner";
 import type { Server } from "socket.io";
 
 import type { SessionStore } from "../../store/sessionStore.ts";
+import type { SubagentSpawnRequest } from "../agentConfig.ts";
 import { type PiAgentManager, PRIME_AGENT_ID } from "../piAgentManager.ts";
 import { resolveTriggerPrompt } from "./handlerRunner.ts";
 import type { StoredTrigger, TriggerManager } from "./triggerManager.ts";
@@ -32,6 +34,22 @@ function roomFor(sessionId: string): string {
 /** Author attributed to a trigger's delivered prompt (labelled by the trigger). */
 function triggerAuthor(stored: StoredTrigger): ChatAuthor {
   return { ...TRIGGER_AUTHOR, name: stored.title ?? stored.name };
+}
+
+/** Builds the spawn request that revives a `subagent`-target trigger's sub-agent. */
+function buildSubagentSpawnRequest(
+  target: Extract<TriggerTarget, { type: "subagent" }>,
+  stored: StoredTrigger,
+): SubagentSpawnRequest {
+  return {
+    name: target.spec.name ?? stored.title ?? stored.name,
+    template: target.spec.template,
+    systemPrompt: target.spec.systemPrompt,
+    tools: target.spec.tools,
+    model: target.spec.model,
+    thinkingDepth: target.spec.thinkingDepth,
+    autoRelayToPrime: false,
+  };
 }
 
 /** Parses a duration string (`"1h"`, `"30m"`, `"45s"`, `"2d"`) into ms. */
@@ -281,15 +299,10 @@ export class TriggerEngine {
       };
     }
 
-    const info = this.pi.spawnSubagent(sessionId, {
-      name: target.spec.name ?? stored.title ?? stored.name,
-      template: target.spec.template,
-      systemPrompt: target.spec.systemPrompt,
-      tools: target.spec.tools,
-      model: target.spec.model,
-      thinkingDepth: target.spec.thinkingDepth,
-      autoRelayToPrime: false,
-    });
+    const info = this.pi.spawnSubagent(
+      sessionId,
+      buildSubagentSpawnRequest(target, stored),
+    );
     this.triggers.setTargetAgent(sessionId, stored.id, info.id, info.name);
     void this.store.recordAgent(sessionId, {
       id: info.id,
