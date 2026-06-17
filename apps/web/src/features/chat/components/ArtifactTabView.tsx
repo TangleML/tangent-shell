@@ -1,11 +1,11 @@
-// local primitive — renders a "page" artifact (HTML, PDF, image, text) inside a
-// sandboxed iframe. There is no Tangle iframe primitive, so the raw <iframe>
-// element with scoped classes is an allowed escape hatch.
 import type { Attachment } from "@tangent/shared/contracts";
 import { useRef, useState } from "react";
 
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
-import { isMarkdownArtifact } from "@/shared/lib/markdown/artifact";
+import {
+  isMarkdownArtifact,
+  isPdfArtifact,
+} from "@/shared/lib/markdown/artifact";
 import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack } from "@/shared/ui/layout";
@@ -14,6 +14,8 @@ import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { useViewportCapture } from "../hooks/useViewportCapture";
 import { ArtifactMarkdownContent } from "./ArtifactMarkdownContent";
 import { ArtifactReviewOverlay } from "./ArtifactReviewOverlay";
+import { IframeArtifactBody } from "./IframeArtifactBody";
+import { PdfArtifactBody } from "./PdfArtifactBody";
 
 interface ArtifactTabViewProps {
   /** Session that owns the artifact; review screenshots upload into it. */
@@ -33,12 +35,12 @@ interface FrozenArtifact {
 }
 
 /**
- * Sandboxed viewer for an opened "page" artifact. Scripts are allowed so
- * interactive pages work, but `allow-same-origin` is intentionally omitted: the
- * frame runs in an opaque origin and cannot reach the app's cookies or APIs.
- * Relative page assets still resolve since they load against the document URL.
+ * Viewer for an opened "page" artifact. The body is routed by artifact type to
+ * a dedicated renderer: Markdown ({@link ArtifactMarkdownContent}), PDF
+ * ({@link PdfArtifactBody}, an un-sandboxed `<object>`), or everything else
+ * ({@link IframeArtifactBody}, a sandboxed iframe).
  *
- * A "Review" action captures the current tab, crops the shot to the iframe's
+ * A "Review" action captures the current tab, crops the shot to the viewer's
  * box, and hands it to {@link ArtifactReviewOverlay} so the user can select a
  * region and send it — with a note — to Prime as visual feedback.
  */
@@ -53,10 +55,20 @@ export function ArtifactTabView({
   const [frozen, setFrozen] = useState<FrozenArtifact | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const isMarkdown = isMarkdownArtifact(url);
 
   function toggleFullscreen() {
     void viewerRef.current?.requestFullscreen();
+  }
+
+  function renderArtifactBody() {
+    switch (true) {
+      case isMarkdownArtifact(url):
+        return <ArtifactMarkdownContent sessionId={sessionId} url={url} />;
+      case isPdfArtifact(url):
+        return <PdfArtifactBody url={url} title={title} />;
+      default:
+        return <IframeArtifactBody url={url} title={title} />;
+    }
   }
 
   function openInNewTab() {
@@ -134,16 +146,7 @@ export function ArtifactTabView({
         </Button>
       </Toolbar>
       <div ref={viewerRef} className="relative flex min-h-0 w-full flex-1">
-        {isMarkdown ? (
-          <ArtifactMarkdownContent sessionId={sessionId} url={url} />
-        ) : (
-          <iframe
-            src={url}
-            title={title}
-            sandbox="allow-scripts allow-popups allow-forms"
-            className="absolute inset-0 h-full w-full border-0 bg-white"
-          />
-        )}
+        {renderArtifactBody()}
         {frozen ? (
           <ArtifactReviewOverlay
             image={frozen.canvas}

@@ -69,3 +69,13 @@ export function isMarkdownArtifact(url: string): boolean {
   const path = url.split(/[?#]/, 1)[0];
   return path.split(".").pop()?.toLowerCase() === "md";
 }
+
+/**
+ * True when an artifact URL points at a PDF document. These are rendered via an
+ * un-sandboxed `<object>`: Chrome renders PDFs with a plugin that sandboxed
+ * iframes disable regardless of `allow-same-origin`.
+ */
+export function isPdfArtifact(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0];
+  return path.split(".").pop()?.toLowerCase() === "pdf";
+}
