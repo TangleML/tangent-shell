@@ -35,6 +35,8 @@ choreography between the human, Prime, and sub-agents, see
   - `startEmitted` — whether `start` was emitted yet (deferred until first delta).
   - `accum` / `thinkingAccum` — accumulated text / reasoning.
   - `lastFinalContent` — the most recent finalized message text.
+  - `lastActivity` — the most recent run-level activity (`tool` / `thinking`)
+    or `null`; retained in memory so a client joining mid-run can replay it.
 
 The manager is constructed with three handlers (the bridge to the socket layer)
 and the `MemoryManager`:
@@ -190,6 +192,12 @@ Notes:
   `Spawning sub-agent ...`).
 - An empty (tool-only) assistant message that never emitted `start` finalizes
   silently.
+- `emitActivity` records the value on the producing `AgentProcess`
+  (`lastActivity`) in addition to relaying it. This is in-memory only (never
+  persisted to disk), but it lets `handleChatJoin` replay the current activity to
+  a client that joins mid-run via `listActivities` (see
+  [ui-server-protocol.md](./ui-server-protocol.md)), so the indicator and
+  activity bubble survive a page reload.
 
 ---
 
@@ -273,6 +281,9 @@ The orchestrator extension gates tools by `TANGENT_AGENT_ROLE`: every agent gets
 - `killAgent(sessionId, agentId, completed)` — record `completed`/`killed`
   status, drop from roster, kill the process, emit a roster update. Prime cannot
   be killed.
+- `listActivities(sessionId)` — returns each live agent (Prime + sub-agents)
+  whose `lastActivity` is non-null, so `handleChatJoin` can replay the current
+  activity to a joining client.
 - `listSubagents` / `dispose` / `disposeAll`.
 
 ### Crash + error handling

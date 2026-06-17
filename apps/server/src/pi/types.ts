@@ -115,6 +115,13 @@ export interface AgentProcess {
    * single run can finalize multiple distinct messages.
    */
   lastFinalContent: string;
+  /**
+   * The agent's most recent run-level activity (a running tool or "thinking"),
+   * or `null` when idle / a message is actively streaming. Retained so a client
+   * joining mid-run can replay the current activity and not just see it go blank
+   * after a page reload.
+   */
+  lastActivity: AgentActivity | null;
 }
 
 export interface SessionAgents {

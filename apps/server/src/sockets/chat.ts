@@ -562,6 +562,26 @@ async function loadPrimeOverride(
   };
 }
 
+/**
+ * Replays each live agent's current run-level activity to the joining socket, so
+ * a client reconnecting mid-run sees the in-progress tool call / "thinking"
+ * indicator and bubble instead of them going blank until the next event.
+ */
+function replayAgentActivities(
+  socket: Socket,
+  pi: PiAgentManager,
+  sessionId: string,
+): void {
+  for (const { conversationId, activity } of pi.listActivities(sessionId)) {
+    const payload: AgentActivityPayload = {
+      sessionId,
+      conversationId,
+      activity,
+    };
+    socket.emit(SocketEvents.AgentActivity, payload);
+  }
+}
+
 /** Emits Prime's current resolved model/thinking to the joining socket. */
 function emitPrimeSelection(
   socket: Socket,
@@ -634,6 +654,9 @@ async function handleChatJoin(
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
 
+  // Replay each live agent's current run-level activity for the joining client.
+  replayAgentActivities(socket, pi, session.id);
+
   // Surface Prime's current model/thinking (the roster only tracks sub-agents).
   emitPrimeSelection(socket, pi, session.id);
 
@@ -643,14 +666,25 @@ async function handleChatJoin(
   };
   socket.emit(SocketEvents.TriggerRoster, triggerRoster);
 
-  // Surface the current pinned-artifact list to just this joining socket, using
-  // the same `artifacts.update` directive that broadcasts later mutations.
-  const artifacts = await store.getArtifacts(session.id);
-  const artifactsPayload: UiCommandPayload = {
-    sessionId: session.id,
+  await replayArtifacts(socket, store, session.id);
+}
+
+/**
+ * Surfaces the session's current pinned-artifact list to just the joining
+ * socket, using the same `artifacts.update` directive that broadcasts later
+ * mutations.
+ */
+async function replayArtifacts(
+  socket: Socket,
+  store: SessionStore,
+  sessionId: string,
+): Promise<void> {
+  const artifacts = await store.getArtifacts(sessionId);
+  const payload: UiCommandPayload = {
+    sessionId,
     command: { kind: "artifacts.update", artifacts },
   };
-  socket.emit(SocketEvents.UiCommand, artifactsPayload);
+  socket.emit(SocketEvents.UiCommand, payload);
 }
 
 /** A validated artifact reference extracted from a pin/unpin payload. */

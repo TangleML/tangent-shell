@@ -138,8 +138,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               />
               <AgentList
                 agents={agents}
+                sessionId={sessionId}
                 selectedId={selectedAgentId}
-                isBusy={isConversationBusy}
                 onOpen={openAgentTab}
                 onRemove={(agent) => {
                   dismissSubagent(agent.id);
@@ -174,8 +174,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                     key={tab.id}
                     value={tab.id}
                     name={info?.name ?? tab.title}
-                    status={info?.status ?? "completed"}
-                    busy={isConversationBusy(tab.agentId)}
+                    sessionId={sessionId}
+                    agentId={tab.agentId}
                     onClose={() => closeAsset(tab.id)}
                   />
                 );

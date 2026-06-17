@@ -25,6 +25,7 @@ import {
   SocketEvents,
   type SubagentInfo,
   type SubagentRosterPayload,
+  type SubagentStatus,
   type SubagentUpdatePayload,
   type ThinkingLevel,
   type Trigger,
@@ -36,6 +37,10 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
+import {
+  type AgentLiveStatus,
+  AgentStatusQueryKeys,
+} from "@/features/chat/model/agentStatusQueryKeys";
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
 import { queryClient } from "@/shared/api/queryClient";
 import { BASE_PREFIX } from "@/shared/lib/basePath";
@@ -131,6 +136,39 @@ export function useSessionChat(sessionId: string) {
     const socket = io({ autoConnect: true, path: `${BASE_PREFIX}socket.io` });
     socketRef.current = socket;
 
+    // Status inputs mirrored alongside the React state, so each socket handler
+    // can publish an agent's live status to the query cache the moment it
+    // changes — in lockstep with the state that drives the chat (rather than via
+    // a post-commit effect that a one-shot replay or cache eviction could miss).
+    const streaming = new Set<string>();
+    const activities = new Map<string, AgentActivity>();
+    const statuses = new Map<string, SubagentStatus>();
+
+    // Publishes one agent's derived live status. Prime has no lifecycle of its
+    // own, so it always reads as `active`; busy spans message streaming and any
+    // run-level activity, matching `isConversationBusy`.
+    const publish = (agentId: string) => {
+      const status: AgentLiveStatus = {
+        status:
+          agentId === PI_AGENT.id
+            ? "active"
+            : (statuses.get(agentId) ?? "active"),
+        busy: streaming.has(agentId) || activities.has(agentId),
+        activity: activities.get(agentId) ?? null,
+      };
+      queryClient.setQueryData(
+        AgentStatusQueryKeys.Detail(sessionId, agentId),
+        status,
+      );
+    };
+
+    // Republishes Prime plus every known sub-agent (e.g. after a (re)connect or
+    // disconnect, when the busy/activity inputs reset for all of them at once).
+    const publishAll = () => {
+      publish(PI_AGENT.id);
+      for (const id of statuses.keys()) publish(id);
+    };
+
     socket.on("connect", () => {
       // Reset on (re)connect rather than synchronously in the effect body so we
       // don't trigger cascading renders; history and roster repopulate via the
@@ -146,6 +184,12 @@ export function useSessionChat(sessionId: string) {
       setActivityByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
+      // Reset the published statuses; the join snapshot (roster + replayed
+      // activity) republishes them. Prime is present immediately.
+      streaming.clear();
+      activities.clear();
+      statuses.clear();
+      publish(PI_AGENT.id);
       socket.emit(SocketEvents.ChatJoin, { sessionId });
     });
     socket.on("disconnect", () => {
@@ -156,6 +200,11 @@ export function useSessionChat(sessionId: string) {
       setActivityByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
+      // Nothing is running while disconnected; clear the busy inputs and
+      // republish every known agent as idle (keeping their lifecycle status).
+      streaming.clear();
+      activities.clear();
+      publishAll();
     });
 
     socket.on(SocketEvents.ChatHistory, (history: ChatMessage[]) => {
@@ -180,6 +229,8 @@ export function useSessionChat(sessionId: string) {
         return next;
       });
       setMessages((prev) => [...prev, message]);
+      streaming.add(message.conversationId);
+      publish(message.conversationId);
     });
     // Streamed token: append it to the matching in-flight message.
     socket.on(
@@ -225,6 +276,8 @@ export function useSessionChat(sessionId: string) {
       setMessages((prev) =>
         prev.map((m) => (m.id === message.id ? message : m)),
       );
+      streaming.delete(message.conversationId);
+      publish(message.conversationId);
     });
     // The agent's run-level activity changed: a non-null activity surfaces the
     // ephemeral spinner bubble; null clears it (message streaming / run idle).
@@ -240,6 +293,12 @@ export function useSessionChat(sessionId: string) {
           }
           return next;
         });
+        if (activity) {
+          activities.set(conversationId, activity);
+        } else {
+          activities.delete(conversationId);
+        }
+        publish(conversationId);
       },
     );
     socket.on(
@@ -264,6 +323,9 @@ export function useSessionChat(sessionId: string) {
             next.delete(conversationId);
             return next;
           });
+          streaming.delete(conversationId);
+          activities.delete(conversationId);
+          publish(conversationId);
         }
         console.error("[chat] agent error:", message);
       },
@@ -282,6 +344,10 @@ export function useSessionChat(sessionId: string) {
           }
           return next;
         });
+        for (const s of roster) {
+          statuses.set(s.id, s.status);
+          publish(s.id);
+        }
       },
     );
     // A single sub-agent spawned or changed status: upsert by id.
@@ -299,6 +365,8 @@ export function useSessionChat(sessionId: string) {
             thinkingDepth: subagent.thinkingDepth,
           }),
         );
+        statuses.set(subagent.id, subagent.status);
+        publish(subagent.id);
       },
     );
     // Prime's model/thinking (sent on join and after a change): upsert by id.
@@ -354,6 +422,11 @@ export function useSessionChat(sessionId: string) {
       socket.removeAllListeners();
       socket.disconnect();
       socketRef.current = null;
+      // Forget this session's published agent statuses so the cache doesn't
+      // retain stale entries across a session change or unmount.
+      queryClient.removeQueries({
+        queryKey: AgentStatusQueryKeys.Session(sessionId),
+      });
     };
   }, [sessionId]);
 

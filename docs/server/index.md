@@ -140,7 +140,8 @@ exit.
    bundle. The server makes the session's root folder and (lazily) spawns Prime.
 2. The UI opens a Socket.IO connection and emits `chat:join`. The server joins
    the room, ensures Prime is running, re-arms triggers, and replays history +
-   the sub-agent roster + the trigger roster + the pinned-artifact list.
+   the sub-agent roster + each live agent's current activity + the trigger roster
+   + the pinned-artifact list.
 3. The UI emits `chat:message`. The server persists + broadcasts it, then writes
    a `prompt` RPC command to Prime's stdin.
 4. Prime streams stdout events; `PiAgentManager` parses them and calls back into

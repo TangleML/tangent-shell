@@ -783,6 +783,7 @@ export class PiAgentManager {
       accum: "",
       thinkingAccum: "",
       lastFinalContent: "",
+      lastActivity: null,
     };
     session.agents.set(descriptor.agentId, agent);
 
@@ -828,8 +829,8 @@ export class PiAgentManager {
    */
   private readonly eventHandlers: Record<string, (ctx: EventContext) => void> =
     {
-      agent_start: ({ sessionId, agent, descriptor }) =>
-        this.onAgentStart(sessionId, agent, descriptor),
+      agent_start: ({ sessionId, agent }) =>
+        this.onAgentStart(sessionId, agent),
       message_start: ({ agent, event }) => this.onMessageStart(agent, event),
       message_update: ({ sessionId, agent, descriptor, event }) =>
         this.onMessageDelta(
@@ -840,12 +841,11 @@ export class PiAgentManager {
         ),
       message_end: ({ sessionId, agent, descriptor, event }) =>
         this.onMessageEnd(sessionId, agent, descriptor, event),
-      tool_execution_start: ({ sessionId, descriptor, event }) =>
-        this.onToolExecutionStart(sessionId, descriptor, event),
+      tool_execution_start: ({ sessionId, agent, event }) =>
+        this.onToolExecutionStart(sessionId, agent, event),
       queue_update: ({ sessionId, descriptor, event }) =>
         this.onQueueUpdate(sessionId, descriptor, event),
-      agent_end: ({ sessionId, agent, descriptor }) =>
-        this.onAgentEnd(sessionId, agent, descriptor),
+      agent_end: ({ sessionId, agent }) => this.onAgentEnd(sessionId, agent),
     };
 
   /** Dispatches one parsed stdout line to the matching per-event handler. */
@@ -866,11 +866,7 @@ export class PiAgentManager {
   }
 
   /** Begins a run: marks the agent busy and shows the "thinking" indicator. */
-  private onAgentStart(
-    sessionId: string,
-    agent: AgentProcess,
-    descriptor: AgentDescriptor,
-  ): void {
+  private onAgentStart(sessionId: string, agent: AgentProcess): void {
     agent.busy = true;
     agent.aborted = false;
     agent.currentMessageId = null;
@@ -879,7 +875,7 @@ export class PiAgentManager {
     agent.thinkingAccum = "";
     agent.lastFinalContent = "";
     this.notifyStatus(sessionId);
-    this.emitActivity(sessionId, descriptor, {
+    this.emitActivity(sessionId, agent, {
       kind: "thinking",
       label: "Thinking...",
     });
@@ -918,7 +914,7 @@ export class PiAgentManager {
         type: "start",
         messageId: agent.currentMessageId,
       });
-      this.emitActivity(sessionId, descriptor, null);
+      this.emitActivity(sessionId, agent, null);
     }
 
     if (delta.kind === "delta") {
@@ -960,7 +956,7 @@ export class PiAgentManager {
     // Between messages the agent is processing/deciding; the next tool call or
     // delta replaces this. (Tool labels themselves persist past their end so
     // the user can read what just ran.)
-    this.emitActivity(sessionId, descriptor, {
+    this.emitActivity(sessionId, agent, {
       kind: "thinking",
       label: "Thinking...",
     });
@@ -1001,11 +997,11 @@ export class PiAgentManager {
    */
   private onToolExecutionStart(
     sessionId: string,
-    descriptor: AgentDescriptor,
+    agent: AgentProcess,
     event: PiStdoutEvent,
   ): void {
     const toolName = event.toolName ?? "tool";
-    this.emitActivity(sessionId, descriptor, {
+    this.emitActivity(sessionId, agent, {
       kind: "tool",
       label: toolActivityLabel(toolName, event.args),
       toolName,
@@ -1034,11 +1030,7 @@ export class PiAgentManager {
    * longer relayed here — each finalized message is relayed to Prime as it
    * lands in {@link finalizeMessage}, so intermediate reports aren't dropped.
    */
-  private onAgentEnd(
-    sessionId: string,
-    agent: AgentProcess,
-    descriptor: AgentDescriptor,
-  ): void {
+  private onAgentEnd(sessionId: string, agent: AgentProcess): void {
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
       JSON.stringify({
@@ -1057,19 +1049,46 @@ export class PiAgentManager {
     agent.aborted = false;
 
     this.notifyStatus(sessionId);
-    this.emitActivity(sessionId, descriptor, null);
+    this.emitActivity(sessionId, agent, null);
   }
 
-  /** Emits a run-level activity change (ephemeral; never persisted). */
+  /**
+   * Emits a run-level activity change and records it on the agent so a client
+   * joining mid-run can replay it (see {@link listActivities}). The value is
+   * never persisted to disk; it lives only on the in-memory process.
+   */
   private emitActivity(
     sessionId: string,
-    descriptor: AgentDescriptor,
+    agent: AgentProcess,
     activity: AgentActivity | null,
   ): void {
-    this.handlers.onAgentEvent(sessionId, descriptor, {
+    agent.lastActivity = activity;
+    this.handlers.onAgentEvent(sessionId, toDescriptor(agent), {
       type: "activity",
       activity,
     });
+  }
+
+  /**
+   * Returns the current run-level activity for each of a session's live agents
+   * (Prime + sub-agents) that has one, so a joining client can replay it. Agents
+   * that are idle (or have streamed past their activity) are omitted.
+   */
+  listActivities(
+    sessionId: string,
+  ): { conversationId: string; activity: AgentActivity }[] {
+    const session = this.sessions.get(sessionId);
+    if (!session) return [];
+    const entries: { conversationId: string; activity: AgentActivity }[] = [];
+    for (const agent of session.agents.values()) {
+      if (agent.lastActivity) {
+        entries.push({
+          conversationId: agent.agentId,
+          activity: agent.lastActivity,
+        });
+      }
+    }
+    return entries;
   }
 
   /**
@@ -1117,7 +1136,7 @@ export class PiAgentManager {
       message,
     });
     this.notifyStatus(sessionId);
-    this.emitActivity(sessionId, descriptor, null);
+    this.emitActivity(sessionId, agent, null);
   }
 
   /**

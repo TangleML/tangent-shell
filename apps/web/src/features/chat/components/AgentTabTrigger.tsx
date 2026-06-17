@@ -3,8 +3,6 @@
 // live status indicator; the raw <div>/<span>/<button> wrappers carry the
 // scoped classNames needed to position the close affordance and truncate the
 // name, which the Tangle primitives don't express on a Radix tab trigger.
-import type { SubagentStatus } from "@tangent/shared/contracts";
-
 import { Icon } from "@/shared/ui/icon";
 import { TabsTrigger } from "@/shared/ui/tabs";
 
@@ -13,17 +11,18 @@ import { AgentStatusIndicator } from "./AgentStatusIndicator";
 interface AgentTabTriggerProps {
   value: string;
   name: string;
-  status: SubagentStatus;
-  /** Whether this sub-agent's run is in flight. */
-  busy: boolean;
+  /** Session the sub-agent belongs to; keys its shared live status. */
+  sessionId: string;
+  /** The sub-agent's id, used to read its shared live status. */
+  agentId: string;
   onClose: () => void;
 }
 
 export function AgentTabTrigger({
   value,
   name,
-  status,
-  busy,
+  sessionId,
+  agentId,
   onClose,
 }: AgentTabTriggerProps) {
   return (
@@ -31,7 +30,7 @@ export function AgentTabTrigger({
       <TabsTrigger value={value} className="max-w-44 pr-7">
         <Icon name="Bot" size="xs" tone="subdued" />
         <span className="min-w-0 truncate">{name}</span>
-        <AgentStatusIndicator status={status} busy={busy} />
+        <AgentStatusIndicator sessionId={sessionId} agentId={agentId} />
       </TabsTrigger>
       <button
         type="button"

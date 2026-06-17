@@ -8,14 +8,14 @@ import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Text } from "@/shared/ui/typography";
 
-import { AgentStatusIndicator } from "./AgentStatusIndicator";
+import { AgentStatusIndicator, AgentStatusLabel } from "./AgentStatusIndicator";
 
 interface AgentCardProps {
   agent: Agent;
+  /** Session the agent belongs to; keys its shared live status. */
+  sessionId: string;
   /** Whether this agent's tab is the active one. */
   selected: boolean;
-  /** Whether this agent's run is in flight. */
-  busy: boolean;
   /** Opens (or focuses) the agent's in-app tab. */
   onOpen: () => void;
   /**
@@ -33,8 +33,8 @@ interface AgentCardProps {
  */
 export function AgentCard({
   agent,
+  sessionId,
   selected,
-  busy,
   onOpen,
   onRemove,
 }: AgentCardProps) {
@@ -58,19 +58,20 @@ export function AgentCard({
         </Box>
       }
     >
-      <BlockStack gap="0" align="stretch">
+      <BlockStack gap="0" align="stretch" grow>
         <InlineStack
           gap="2"
           wrap="nowrap"
           blockAlign="center"
           align="space-between"
+          grow
         >
           <Truncating>
             <Text size="sm" weight="medium" truncate title={agent.name}>
               {agent.name}
             </Text>
           </Truncating>
-          <AgentStatusIndicator status={agent.status} busy={busy} />
+          <AgentStatusIndicator sessionId={sessionId} agentId={agent.id} />
           {onRemove ? (
             <HoverReveal>
               <IconButton
@@ -86,9 +87,7 @@ export function AgentCard({
             </HoverReveal>
           ) : null}
         </InlineStack>
-        <Text size="xs" tone="subdued" truncate>
-          {agent.status}
-        </Text>
+        <AgentStatusLabel sessionId={sessionId} agentId={agent.id} />
       </BlockStack>
     </ListRow>
   );

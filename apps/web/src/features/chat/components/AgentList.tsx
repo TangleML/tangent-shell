@@ -9,10 +9,10 @@ import { AgentCard } from "./AgentCard";
 
 interface AgentListProps {
   agents: Agent[];
+  /** Session the agents belong to; keys each agent's shared live status. */
+  sessionId: string;
   /** The active tab's id, so the matching card reads as selected. */
   selectedId: string | null;
-  /** Whether the given agent's run is in flight. */
-  isBusy: (agentId: string) => boolean;
   /** Opens (or focuses) an agent's in-app tab. */
   onOpen: (agent: Agent) => void;
   /** Removes a (killed) sub-agent from the list and closes its tab. */
@@ -26,8 +26,8 @@ interface AgentListProps {
  */
 export function AgentList({
   agents,
+  sessionId,
   selectedId,
-  isBusy,
   onOpen,
   onRemove,
 }: AgentListProps) {
@@ -50,8 +50,8 @@ export function AgentList({
             <AgentCard
               key={agent.id}
               agent={agent}
+              sessionId={sessionId}
               selected={selectedId === agent.id}
-              busy={isBusy(agent.id)}
               onOpen={() => onOpen(agent)}
               onRemove={
                 agent.kind === "subagent" && agent.status === "killed"

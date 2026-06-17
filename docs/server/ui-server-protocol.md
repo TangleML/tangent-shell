@@ -91,8 +91,11 @@ Event names come from `SocketEvents` in
 - `agent:thinking` `{ sessionId, messageId, delta }` — a streamed reasoning chunk.
 - `agent:end` `{ message }` — the finalized message (persisted first).
 - `agent:error` `{ sessionId, messageId?, message }` — a run failed.
-- `agent:activity` `{ sessionId, conversationId, activity }` — ephemeral
-  spinner state (`thinking` / `tool` / `null`); never persisted.
+- `agent:activity` `{ sessionId, conversationId, activity }` — run-level spinner
+  state (`thinking` / `tool` / `null`). Not persisted to disk, but the latest
+  value per live agent is retained in memory and replayed to a joining socket
+  (see the join sequence below), so the indicator/label and activity bubble
+  survive a reload.
 - `agent:queue` `{ sessionId, conversationId, steering, followUp }` — the
   agent's pending steer/follow-up nudges changed; drives the composer's
   queued-nudge indicator. Empty arrays mean the queue drained.
@@ -154,13 +157,16 @@ sequenceDiagram
   deactivate Store
   Handlers-->>UI: chat:history
   Handlers-->>UI: subagent:roster
+  Handlers-->>UI: agent:activity (per live agent, replayed)
   Handlers-->>UI: trigger:roster
   Handlers-->>UI: ui:command { artifacts.update }
   deactivate Handlers
   deactivate Socket
 ```
 
-Note: the artifact list is sent to _only the joining socket_ using the same
+Note: the replayed current activity (from `pi.listActivities`) and the artifact
+list are both sent to _only the joining socket_. Activity reuses the same
+`agent:activity` event that later streams live; the artifact list reuses the same
 `artifacts.update` directive that later broadcasts mutations to the whole room.
 
 ---

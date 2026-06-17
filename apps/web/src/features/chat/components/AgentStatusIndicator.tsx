@@ -1,24 +1,25 @@
-import type { SubagentStatus } from "@tangent/shared/contracts";
-
+import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
 import { Icon } from "@/shared/ui/icon";
+import { Text } from "@/shared/ui/typography";
 
 import { StatusDot } from "./StatusDot";
 
-interface AgentStatusIndicatorProps {
-  status: SubagentStatus;
-  /** Whether this agent's run is in flight. */
-  busy: boolean;
+interface AgentStatusProps {
+  /** Session the agent belongs to; with `agentId` keys the shared live status. */
+  sessionId: string;
+  /** The agent's id (`"prime"` or a sub-agent id). */
+  agentId: string;
 }
 
 /**
  * Status-tinted indicator mirroring an agent's lifecycle. A busy run pulses; an
- * idle agent shows its terminal/active state. Shared by the sidebar agent card
- * and the opened agent tab trigger.
+ * idle agent shows its terminal/active state. Reads the agent's live status from
+ * the shared cache, so the sidebar agent card and the opened agent tab trigger
+ * always agree and the state survives a page reload.
  */
-export function AgentStatusIndicator({
-  status,
-  busy,
-}: AgentStatusIndicatorProps) {
+export function AgentStatusIndicator({ sessionId, agentId }: AgentStatusProps) {
+  const { status, busy } = useAgentStatus(sessionId, agentId);
+
   if (busy) {
     return <StatusDot variant="busy" />;
   }
@@ -33,4 +34,17 @@ export function AgentStatusIndicator({
     case "error":
       return <Icon name="TriangleAlert" size="xs" tone="critical" />;
   }
+}
+
+/**
+ * The agent's current activity (or lifecycle) as a short, truncating line of
+ * subdued text — the human-readable companion to {@link AgentStatusIndicator}.
+ */
+export function AgentStatusLabel({ sessionId, agentId }: AgentStatusProps) {
+  const { label } = useAgentStatus(sessionId, agentId);
+  return (
+    <Text size="xs" tone="subdued" truncate>
+      {label}
+    </Text>
+  );
 }
