@@ -50,7 +50,7 @@ export function AgentCard({
         <Box background="success-subtle" blockSize="full" paddingInline="sm">
           <InlineStack fill blockAlign="center" align="center">
             <Icon
-              name={agent.kind === "prime" ? "Sparkles" : "Bot"}
+              name={agent.kind === "prime" ? "Crown" : "Bot"}
               size="lg"
               tone="subdued"
             />

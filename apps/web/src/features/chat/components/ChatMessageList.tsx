@@ -165,7 +165,7 @@ export function ChatMessageList({
     <BlockStack grow>
       <ScrollRegion ref={containerRef} axis="y">
         <Box padding="base">
-          <BlockStack fill ref={contentRef} gap="2">
+          <BlockStack fill ref={contentRef} gap="4">
             {messages.length === 0 ? (
               <Paragraph size="sm" tone="subdued">
                 No messages yet. Say hello to start the session.

@@ -232,6 +232,11 @@ interface BoxOwnProps extends AriaAttributes {
   onClick?: React.MouseEventHandler<HTMLElement>;
   /** Pointer-events policy. */
   pointerEvents?: "auto" | "none";
+  /**
+   * Marks this Box as a Tailwind `group` parent so descendant `HoverReveal`s
+   * (and other `group-hover:*` utilities) react to hover/focus of the Box.
+   */
+  group?: boolean;
 }
 
 export interface BoxProps extends BoxOwnProps, BoxVariantProps {}
@@ -267,6 +272,7 @@ export const Box = forwardRef<HTMLElement, PropsWithChildren<BoxProps>>(
       position,
       zIndex,
       pointerEvents,
+      group,
       role,
       ...rest
     },
@@ -277,6 +283,7 @@ export const Box = forwardRef<HTMLElement, PropsWithChildren<BoxProps>>(
         ref={ref as Ref<any>}
         role={role}
         className={cn(
+          group && "group",
           boxVariants({
             background,
             padding,

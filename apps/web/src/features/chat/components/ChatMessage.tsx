@@ -16,8 +16,9 @@ import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { Pill } from "@/shared/ui/patterns/pill";
 import { Paragraph, Text } from "@/shared/ui/typography";
 
-import { AgentThinking, ThinkingDisclosure } from "./AgentThinking";
-import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
+import { AgentThinking } from "./AgentThinking";
+import type { MessageBubbleVariant } from "./MessageBubble";
+import { MessageAvatar, MessageLayout } from "./MessageLayout";
 
 interface AttachmentsProps {
   sessionId: string;
@@ -90,7 +91,7 @@ function MessageActions({ content, onCollapse }: MessageActionsProps) {
         <CopyButton content={content} />
         {onCollapse ? (
           <IconButton
-            icon="ChevronUp"
+            icon="ChevronsDownUp"
             size="xs"
             variant="ghost"
             aria-label="Collapse message"
@@ -102,9 +103,18 @@ function MessageActions({ content, onCollapse }: MessageActionsProps) {
   );
 }
 
+/** Formats an ISO-8601 timestamp as a short local time, e.g. `07:35 PM`. */
+function formatMessageTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 interface MessageHeaderProps {
   authorName: string;
   roleLabel: string;
+  createdAt: string;
   content: string;
   onCollapse?: () => void;
 }
@@ -112,14 +122,17 @@ interface MessageHeaderProps {
 function MessageHeader({
   authorName,
   roleLabel,
+  createdAt,
   content,
   onCollapse,
 }: MessageHeaderProps) {
   return (
-    <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
+    <InlineStack align="start" blockAlign="center" gap="2" wrap="nowrap">
       <Text size="xs" weight="medium" tone="subdued">
         {authorName}
         {roleLabel}
+        {" · "}
+        {formatMessageTime(createdAt)}
       </Text>
       <MessageActions content={content} onCollapse={onCollapse} />
     </InlineStack>
@@ -142,7 +155,7 @@ function HeaderCollapseButton({ onCollapse }: HeaderCollapseButtonProps) {
   return (
     <HoverReveal>
       <IconButton
-        icon="ChevronUp"
+        icon="ChevronsDownUp"
         size="xs"
         variant="ghost"
         aria-label="Collapse message"
@@ -246,20 +259,31 @@ interface MemoryMessageProps {
 function MemoryMessage({ message, onCollapse }: MemoryMessageProps) {
   const scope = message.memory?.scope === "global" ? "global" : "session";
   return (
-    <MessageBubble variant="memory" className="group">
-      <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
-        <InlineStack gap="1" blockAlign="center">
-          <Icon name="Brain" size="xs" tone="accent" />
-          <Text size="xs" weight="medium" tone="accent">
-            Remembered ({scope})
-          </Text>
+    <MessageLayout
+      variant="memory"
+      avatar={
+        <MessageAvatar
+          kind={message.author.kind}
+          name={message.author.name}
+          agentRole={message.author.agentRole}
+        />
+      }
+      header={
+        <InlineStack align="start" blockAlign="center" gap="2" wrap="nowrap">
+          <InlineStack gap="1" blockAlign="center">
+            <Icon name="Brain" size="xs" tone="accent" />
+            <Text size="xs" weight="medium" tone="accent">
+              Remembered ({scope})
+            </Text>
+          </InlineStack>
+          <HeaderCollapseButton onCollapse={onCollapse} />
         </InlineStack>
-        <HeaderCollapseButton onCollapse={onCollapse} />
-      </InlineStack>
+      }
+    >
       <Paragraph size="sm" wrap="pre-wrap">
         {message.content}
       </Paragraph>
-    </MessageBubble>
+    </MessageLayout>
   );
 }
 
@@ -279,23 +303,33 @@ function ThinkingOnlyMessage({
   onCollapse,
 }: ThinkingOnlyMessageProps) {
   const thinkingDone = isThinkingDone(message, isStreaming);
-  const { open, onOpenChange } = useThinkingCollapse(thinkingDone);
+  const { open } = useThinkingCollapse(thinkingDone);
 
   return (
-    <MessageBubble variant={variant} selectable={open} className="group">
-      <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
-        <Text size="xs" weight="medium" tone="subdued">
-          {message.author.name}
-          {roleLabel}
-        </Text>
-        <HeaderCollapseButton onCollapse={onCollapse} />
-      </InlineStack>
-      <ThinkingDisclosure
-        thinking={message.thinking ?? ""}
-        open={open}
-        onOpenChange={onOpenChange}
-      />
-    </MessageBubble>
+    <MessageLayout
+      variant={variant}
+      selectable={open}
+      avatar={
+        <MessageAvatar
+          kind={message.author.kind}
+          name={message.author.name}
+          agentRole={message.author.agentRole}
+        />
+      }
+      header={
+        <InlineStack align="start" blockAlign="center" gap="2" wrap="nowrap">
+          <Text size="xs" weight="medium" tone="subdued">
+            {message.author.name}
+            {roleLabel}
+          </Text>
+          <HeaderCollapseButton onCollapse={onCollapse} />
+        </InlineStack>
+      }
+    >
+      <Markdown size="xs" tone="subdued">
+        {message.thinking ?? ""}
+      </Markdown>
+    </MessageLayout>
   );
 }
 
@@ -337,13 +371,25 @@ export function ChatMessage({
   }
 
   return (
-    <MessageBubble variant={variant} className="group">
-      <MessageHeader
-        authorName={message.author.name}
-        roleLabel={roleLabel}
-        content={message.content}
-        onCollapse={onCollapse}
-      />
+    <MessageLayout
+      variant={variant}
+      avatar={
+        <MessageAvatar
+          kind={message.author.kind}
+          name={message.author.name}
+          agentRole={message.author.agentRole}
+        />
+      }
+      header={
+        <MessageHeader
+          authorName={message.author.name}
+          roleLabel={roleLabel}
+          createdAt={message.createdAt}
+          content={message.content}
+          onCollapse={onCollapse}
+        />
+      }
+    >
       {isAgent ? (
         <BlockStack gap="1">
           {message.thinking ? (
@@ -374,6 +420,6 @@ export function ChatMessage({
       {attachments.length > 0 ? (
         <Attachments sessionId={sessionId} attachments={attachments} />
       ) : null}
-    </MessageBubble>
+    </MessageLayout>
   );
 }
