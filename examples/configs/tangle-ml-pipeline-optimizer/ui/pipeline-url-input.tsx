@@ -30,6 +30,18 @@ import { useEffect, useState } from "react";
 const TANGLE_BASE = "https://oasis.shopify.io";
 const RECENT_RUN_LIMIT = 5;
 
+/**
+ * Key for the host-mediated KV store. Holds `{ url }` once a pipeline has been
+ * submitted; its presence is what marks this instance as "sent" across reloads.
+ */
+const STATE_KEY = "submission";
+
+/** Reads the persisted submitted URL from host state, or null if none. */
+function readPersistedUrl(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  return asString(value.url);
+}
+
 interface RecentRun {
   id: string;
   name: string;
@@ -179,8 +191,27 @@ function RecentRunItem({
 export default function PipelineUrlInput() {
   const [url, setUrl] = useState("");
   const [sent, setSent] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const persistedUrl = readPersistedUrl(await host.getState(STATE_KEY));
+        if (active && persistedUrl) {
+          setUrl(persistedUrl);
+          setSent(true);
+        }
+      } finally {
+        if (active) setHydrated(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -212,9 +243,25 @@ export default function PipelineUrlInput() {
     await host.sendPrompt(
       `Analyze this Tangle pipeline for optimization: ${trimmed}`,
     );
+    await host.setState(STATE_KEY, { url: trimmed });
     setUrl(trimmed);
     setSent(true);
   };
+
+  if (!hydrated) {
+    return (
+      <Card>
+        <CardContent>
+          <InlineStack gap="2" blockAlign="center">
+            <Spinner size="sm" />
+            <Text size="xs" tone="subdued">
+              Loading…
+            </Text>
+          </InlineStack>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (sent) {
     return (

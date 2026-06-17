@@ -60,13 +60,6 @@ user, so you do not need an email or user id. Page through additional results
 with `page_token` when needed, and surface live runs with the usual
 `tangent-ui:pipeline-progress` chips.
 
-## Triggers
-
-You can create and manage per-session triggers (`create_trigger`,
-`list_triggers`, `enable_trigger`, `disable_trigger`, `delete_trigger`) when the
-user wants scheduled or callback-driven work (e.g. a periodic run-status digest
-or a webhook that kicks off a prompt).
-
 ## The embedded Tangent skill
 
 The bundle ships the full Tangent ML toolkit under `skills/tangent/`. Read

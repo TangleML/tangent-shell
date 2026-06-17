@@ -67,7 +67,7 @@ flowchart TB
     direction TB
     B1["pi.ensure(id, root) with no config"]
     B2["getPrimeAgentConfig()"]
-    B3["prompt: primePrompt.md"]
+    B3["prompt: primeSystemPrompt.md"]
     B4["tools: DEFAULT + SHARED + PRIME_* groups"]
     B5["SpawnExtras: empty (no skills/workflows/extra extensions)"]
     B1 --> B2 --> B3
@@ -83,8 +83,8 @@ flowchart TB
     U4["copy AGENTS.md + memory files to root"]
     U5["compile trigger handlers"]
     U6["ResolvedSessionConfig"]
-    U7["prime.systemPrompt from manifest"]
-    U8["prime.tools = manifest.prime.tools + required groups"]
+    U7["prime prompt = base manual + manifest prompt (composePrimePrompt)"]
+    U8["prime.tools = manifest.prime.tools + required groups (incl. triggers)"]
     U9["subagentDefaults + templates from agents/"]
     U10["skill / workflow / extension paths"]
     U11["welcomeMessage (optional)"]
@@ -108,9 +108,10 @@ When `POST /api/sessions` carries no bundle, the route calls
 Prime with `session.config?.prime ?? getPrimeAgentConfig()`. Since there's no
 session config:
 
-- **Prime prompt** = [primePrompt.md](../../server/src/pi/primePrompt.md) (the
-  orchestration prompt: operating rules, sub-agent orchestration, artifacts,
-  session naming, memory).
+- **Prime prompt** = [primeSystemPrompt.md](../../server/src/pi/primeSystemPrompt.md) (the
+  always-on Tangent Shell manual: operating rules, sub-agent orchestration,
+  artifacts + `pin_artifact`, uploads, triggers, session naming, memory). Built
+  via `composePrimePrompt()` with no bundle layer.
 - **Prime tools** = `DEFAULT_TOOLS` + `SHARED_AGENT_TOOLS` +
   `PRIME_ORCHESTRATION_TOOLS` + `PRIME_MEMORY_TOOLS` + `PRIME_TRIGGER_TOOLS` +
   `PRIME_SESSION_TOOLS`.
@@ -118,7 +119,7 @@ session config:
   `--skill` / `--prompt-template` / extra `--extension` flags.
 - **Sub-agents** spawned later resolve against the **global** templates
   ([server/src/pi/agents/](../../server/src/pi/agents)) and the base
-  [systemPrompt.md](../../server/src/pi/systemPrompt.md).
+  [subagentSystemPrompt.md](../../server/src/pi/subagentSystemPrompt.md).
 
 ### Bundle session path
 
@@ -128,10 +129,15 @@ When the request carries a multipart `config` ZIP or a marketplace `bundleId`,
 `ResolvedSessionConfig` ([agentConfig.ts](../../server/src/pi/agentConfig.ts))
 drives every spawn:
 
-- **Prime prompt** = the bundle's `prime.systemPrompt` file.
+- **Prime prompt** = the always-on `primeSystemPrompt.md` manual followed by the
+  bundle's `prime.systemPrompt` file, composed by `composePrimePrompt(...)`. So
+  every bundle Prime inherits the Shell operating manual and the bundle only adds
+  task-specific instructions on top.
 - **Prime tools** = `manifest.prime.tools` (or `DEFAULT_TOOLS`) unioned with
-  `SHARED_AGENT_TOOLS` + the Prime-only groups (`resolvePrimeTools`). So a bundle
-  never needs to list orchestration/memory/session tools; they're always added.
+  `SHARED_AGENT_TOOLS` + the Prime-only groups, now including
+  `PRIME_TRIGGER_TOOLS` (`resolvePrimeTools`). So a bundle never needs to list
+  orchestration/memory/trigger/session tools; they're always added (matching a
+  blank session).
 - **subagentDefaults** = `{ tools, appendSystemPrompt }` from the manifest's
   `subagents` block.
 - **templates** = parsed from the installed `.tangent/agents/*.md`.
@@ -194,9 +200,11 @@ defaults })` resolves the effective config:
 - **Tools** (`pickTools`): inline `request.tools` > template `tools` >
   session/bundle `defaults.tools` > `DEFAULT_TOOLS`. Then `SHARED_AGENT_TOOLS`
   are always merged in (deduped).
-- **System prompt** (`pickPrompt`): inline `request.systemPrompt` > template
-  `systemPrompt` > `defaults.appendSystemPrompt` > the global base
-  `systemPrompt.md`.
+- **System prompt** (`pickPrompt`): the always-on base `subagentSystemPrompt.md`
+  manual is always prepended by `composeSubagentPrompt(...)`; the specific layer on top
+  is resolved by precedence inline `request.systemPrompt` > template
+  `systemPrompt` > `defaults.appendSystemPrompt` (or nothing, leaving the base
+  alone).
 - **Templates** come from the session's bundle (`session.config.templates`) when
   present, otherwise the global cached templates.
 

@@ -34,6 +34,6 @@ execution id:
 
 ## Output
 
-- Lead with the answer or the action you took, then surface the progress chip.
+- After the action you took, surface the progress chip.
 - Be explicit about failures: if a launch errors, report it plainly rather than
   emitting a progress block for a run that does not exist.

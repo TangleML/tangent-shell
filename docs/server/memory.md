@@ -59,7 +59,7 @@ From the [memory extension](../../server/src/pi/extensions/memory.ts), gated by
 - **All agents:** `read_memory` — returns the current session + global text
   (`GET /internal/memory/read`). Sub-agents that spot something worth remembering
   must mention it in their reply and let Prime decide (per
-  [systemPrompt.md](../../server/src/pi/systemPrompt.md)).
+  [subagentSystemPrompt.md](../../server/src/pi/subagentSystemPrompt.md)).
 - **Prime only:** `remember` (write directly) and `suggest_memory` (propose a
   change the user must confirm). Prime owns the human conversation, so it is the
   sole writer.

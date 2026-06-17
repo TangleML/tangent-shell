@@ -172,14 +172,38 @@ function readPrompt(file: string): string {
   return readFileSync(path.join(import.meta.dirname, file), "utf8");
 }
 
-/** Reads the base session system prompt (also the sub-agent default). */
-export function loadDefaultSystemPrompt(): string {
-  return readPrompt("systemPrompt.md");
+/** Reads the base sub-agent system prompt. */
+export function loadSubagentSystemPrompt(): string {
+  return readPrompt("subagentSystemPrompt.md");
 }
 
 /** Reads the Prime orchestration system prompt. */
 export function loadPrimeSystemPrompt(): string {
-  return readPrompt("primePrompt.md");
+  return readPrompt("primeSystemPrompt.md");
+}
+
+/** Joins the always-on base manual with an optional, more-specific prompt. */
+function layerPrompt(base: string, specific: string | undefined): string {
+  const extra = specific?.trim();
+  return extra ? `${base}\n\n${extra}` : base;
+}
+
+/**
+ * Builds Prime's appended prompt: the always-on Tangent Shell manual
+ * (`primeSystemPrompt.md`) followed by an optional bundle-supplied prompt. Blank
+ * sessions pass nothing and get the base manual alone.
+ */
+export function composePrimePrompt(specific?: string): string {
+  return layerPrompt(loadPrimeSystemPrompt(), specific);
+}
+
+/**
+ * Builds a sub-agent's appended prompt: the always-on base manual
+ * (`subagentSystemPrompt.md`) followed by an optional template/inline/bundle
+ * prompt, so every sub-agent keeps the shared operating instructions.
+ */
+export function composeSubagentPrompt(specific?: string): string {
+  return layerPrompt(loadSubagentSystemPrompt(), specific);
 }
 
 /**
@@ -299,7 +323,7 @@ export function getPrimeAgentConfig(): AgentConfig {
         ...PRIME_TRIGGER_TOOLS,
         ...PRIME_SESSION_TOOLS,
       ],
-      appendSystemPrompt: loadPrimeSystemPrompt(),
+      appendSystemPrompt: composePrimePrompt(),
     };
   }
   return cachedPrimeConfig;
@@ -334,19 +358,20 @@ function pickTools(
 }
 
 /**
- * Resolves the system prompt: inline request, then template, then the
- * session/bundle default, then the global base prompt.
+ * Resolves the sub-agent's specific prompt by precedence: inline request, then
+ * template, then the session/bundle default. The always-on base manual is
+ * layered on by {@link composeSubagentPrompt}, so this returns just the
+ * specific layer (or `undefined` to get the base alone).
  */
 function pickPrompt(
   request: SubagentSpawnRequest,
   template: AgentTemplate | undefined,
   defaults: SubagentDefaults | undefined,
 ): string {
-  return (
+  return composeSubagentPrompt(
     request.systemPrompt ??
-    template?.systemPrompt ??
-    defaults?.appendSystemPrompt ??
-    loadDefaultSystemPrompt()
+      template?.systemPrompt ??
+      defaults?.appendSystemPrompt,
   );
 }
 

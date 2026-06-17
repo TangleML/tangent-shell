@@ -13,6 +13,7 @@
  * component degrades to a quiet loading state rather than throwing.
  */
 import {
+  Badge,
   BlockStack,
   Button,
   Checkbox,
@@ -86,6 +87,8 @@ function parseScenario(value: unknown): Scenario | null {
 export default function TangentScenario() {
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [sent, setSent] = useState(false);
+  const [sentTitles, setSentTitles] = useState<string[]>([]);
 
   useEffect(() => {
     host.getProps().then((props) => {
@@ -93,6 +96,16 @@ export default function TangentScenario() {
       if (parsed) {
         setScenario(parsed);
         setSelected(new Set(parsed.ideas.map((_idea, index) => index)));
+      }
+    });
+    host.getState("sent").then((value) => {
+      if (value === true) setSent(true);
+    });
+    host.getState("sentTitles").then((value) => {
+      if (Array.isArray(value)) {
+        setSentTitles(
+          value.filter((title): title is string => typeof title === "string"),
+        );
       }
     });
   }, []);
@@ -130,7 +143,45 @@ export default function TangentScenario() {
     await host.sendPrompt(
       `Run optimization scenario with the following ideas:\n${list}`,
     );
+    setSent(true);
+    setSentTitles(selectedTitles);
+    await host.setState("sent", true);
+    await host.setState("sentTitles", selectedTitles);
   };
+
+  if (sent) {
+    return (
+      <BlockStack gap="3">
+        <InlineStack gap="2" blockAlign="center" align="space-between">
+          <Text size="sm" weight="semibold">
+            Optimization potential
+          </Text>
+          <ScoreRing score={scenario.score} size={32} />
+        </InlineStack>
+
+        <Text size="sm" tone="subdued">
+          {scenario.rationale}
+        </Text>
+
+        {sentTitles.length > 0 && (
+          <BlockStack gap="2">
+            <Text size="sm" weight="semibold">
+              Ideas
+            </Text>
+            {sentTitles.map((title, index) => (
+              <Text key={`${title}-${index}`} size="sm">
+                • {title}
+              </Text>
+            ))}
+          </BlockStack>
+        )}
+
+        <InlineStack gap="2" blockAlign="center">
+          <Badge variant="secondary">Scenario sent</Badge>
+        </InlineStack>
+      </BlockStack>
+    );
+  }
 
   return (
     <BlockStack gap="3">

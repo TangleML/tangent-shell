@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: presentation-deck-agent
 name: Presentation Deck Agent
-version: 1.1.0
+version: 1.2.0
 description: Turns uploaded Markdown into polished Reveal.js slide decks with Mermaid diagrams, Auto-Animate transitions, animatable SVG morphs, and video — saved as a single artifact you can open inline.
 author: Tangent
 icon: icon.svg

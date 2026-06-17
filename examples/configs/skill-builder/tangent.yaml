@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: skill-builder
 name: Skill Builder
-version: 1.0.0
+version: 1.1.0
 description: Author quality skills and package them into an installable Tangent Configuration Bundle zip.
 author: Tangent
 icon: icon.svg

@@ -25,25 +25,16 @@ When building a page:
    - at least one animated inline SVG illustration or SVG accent,
    - no network-only assets unless the user explicitly requests them.
 
-## Artifact link requirement
+## Page output
 
-The result of every build is an artifact. When creating any user-facing artifact — HTML page, markdown file, PDF, image, etc. — you MUST:
+Follow the Shell's artifact rule (save under `artifacts/`, link it, pin it). For
+HTML pages specifically:
 
-1. Save or copy the final artifact into the `artifacts/` directory.
-2. Verify the artifact exists before responding.
-3. Send a direct Markdown link to that artifact in the final response. Do NOT send `file://` links as the primary link.
-4. Pin the artifact automatically by calling the `pin_artifact` tool with the artifact's workspace-relative path (e.g. `artifacts/<descriptive-slug>.html`) and a short, human-readable title. This surfaces it in the session's quick-access sidebar so the user can reopen it without scrolling the chat. Re-pin the same path after a meaningful update to refresh its title.
-
-For HTML pages:
-
-- If the working file is `index.html`, also copy it to `artifacts/<descriptive-slug>.html`.
-- The final response must include a link like:
-
-[Open artifact](artifacts/<descriptive-slug>.html)
-
-- Pin that same path, for example: `pin_artifact(path: "artifacts/<descriptive-slug>.html", title: "<page title>")`.
-
-Never say the artifact is ready without both the direct Markdown link and the `pin_artifact` call.
+- If the working file is `index.html`, also copy it to
+  `artifacts/<descriptive-slug>.html` for a stable named link, e.g.
+  `[Open artifact](artifacts/<descriptive-slug>.html)`.
+- Verify the file exists and pin that named copy before reporting done; never say
+  the page is ready without the link and pin.
 
 Use the `simple-html-pages` skill for page-building requests.
 

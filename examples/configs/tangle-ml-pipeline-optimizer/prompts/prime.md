@@ -137,7 +137,7 @@ On that message:
 - Pass it a task that includes the baseline run id (from the URL submitted at
   the start of the session), the selected ideas, and the current user's email
   (from `## Current user`), so it can build its `scenario.yaml`, run `tangent
-  auto` for one round, and attribute the runs it submits to that user.
+auto` for one round, and attribute the runs it submits to that user.
 - Stay available to chat while it runs.
 - The optimizer reports each submitted run by calling `message_prime`, which is
   delivered to you as a `Sub-agent "<name>" reported: …` message the moment it
@@ -176,23 +176,18 @@ re-asking:
 
 ## Final experiment report artifact (required)
 
-When the optimizer reports round completion, proactively create a self-contained
-HTML report artifact in this session under `artifacts/` and send the user a
-relative direct link to it. Do this without waiting for the user to ask.
+When the optimizer reports round completion, proactively (without being asked)
+create a self-contained HTML report under `artifacts/` and link it per the
+Shell's artifact rule. The report MUST:
 
-The report artifact MUST:
-
-- Be a static, self-contained `.html` file; do not deploy a Quick site unless the
-  user explicitly asks for Quick hosting.
+- Be a static, self-contained `.html` file at a stable path like
+  `artifacts/tangent-optimization-report-<baselineRunId>.html`; do not deploy a
+  Quick site unless the user explicitly asks for Quick hosting.
 - Summarize baseline run id, submitted run ids, root execution ids, final metric
   values, best run, percent gains/losses versus baseline, caveats, and the
   recommended next round.
 - Link to the corresponding production Oasis run URLs.
 - Include the optimizer's GCS state/learning paths when available.
-- Be written to a stable path like
-  `artifacts/tangent-optimization-report-<baselineRunId>.html`.
-- In the final response, include a Markdown link such as
-  `[Open the optimization report](artifacts/tangent-optimization-report-<baselineRunId>.html)`.
 
 ## Output
 

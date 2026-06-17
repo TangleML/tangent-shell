@@ -8,7 +8,7 @@ It builds on the mechanics in [orchestrator.md](./orchestrator.md).
 
 ## The roles and the rules
 
-From [server/src/pi/primePrompt.md](../../server/src/pi/primePrompt.md) and the
+From [server/src/pi/primeSystemPrompt.md](../../server/src/pi/primeSystemPrompt.md) and the
 orchestrator extension's role gating:
 
 - **The human talks to Prime, and can nudge any sub-agent.** Human messages

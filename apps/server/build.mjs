@@ -41,12 +41,12 @@ await build({
 
 // Assets are resolved against the bundle's directory (dist/) at runtime.
 await cp(
-  path.join(piSrc, "systemPrompt.md"),
-  path.join(outDir, "systemPrompt.md"),
+  path.join(piSrc, "subagentSystemPrompt.md"),
+  path.join(outDir, "subagentSystemPrompt.md"),
 );
 await cp(
-  path.join(piSrc, "primePrompt.md"),
-  path.join(outDir, "primePrompt.md"),
+  path.join(piSrc, "primeSystemPrompt.md"),
+  path.join(outDir, "primeSystemPrompt.md"),
 );
 await cp(path.join(piSrc, "agents"), path.join(outDir, "agents"), {
   recursive: true,
@@ -67,8 +67,8 @@ await cp(migrationsSrc, path.join(outDir, "migrations"), { recursive: true });
 // exist" crash inside a Pi subprocess.
 const requiredAssets = [
   "index.js",
-  "systemPrompt.md",
-  "primePrompt.md",
+  "subagentSystemPrompt.md",
+  "primeSystemPrompt.md",
   "agents",
   path.join("extensions", "orchestrator.ts"),
   path.join("extensions", "proxyProvider.ts"),

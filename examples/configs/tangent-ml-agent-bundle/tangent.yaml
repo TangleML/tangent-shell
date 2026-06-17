@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangent-ml-agent-bundle
 name: Tangent ML Agent
-version: 1.0.0
+version: 1.1.0
 description: Launch and monitor Tangle ML experiments, with sandboxed UI surfaces.
 author: Tangent
 icon: icon.svg

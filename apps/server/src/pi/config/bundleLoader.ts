@@ -12,10 +12,12 @@ import { unzipSync } from "fflate";
 
 import {
   buildTemplatesFromDir,
+  composePrimePrompt,
   DEFAULT_TOOLS,
   PRIME_MEMORY_TOOLS,
   PRIME_ORCHESTRATION_TOOLS,
   PRIME_SESSION_TOOLS,
+  PRIME_TRIGGER_TOOLS,
   type ResolvedSessionConfig,
   SHARED_AGENT_TOOLS,
   type SubagentDefaults,
@@ -123,6 +125,7 @@ function resolvePrimeTools(manifest: BundleManifest): string[] {
       ...SHARED_AGENT_TOOLS,
       ...PRIME_ORCHESTRATION_TOOLS,
       ...PRIME_MEMORY_TOOLS,
+      ...PRIME_TRIGGER_TOOLS,
       ...PRIME_SESSION_TOOLS,
     ]),
   ];
@@ -327,7 +330,9 @@ export async function installBundle(
   const config: ResolvedSessionConfig = {
     prime: {
       tools: resolvePrimeTools(manifest),
-      appendSystemPrompt: readTextEntry(entries, manifest.prime.systemPrompt),
+      appendSystemPrompt: composePrimePrompt(
+        readTextEntry(entries, manifest.prime.systemPrompt),
+      ),
       model: manifest.prime.model,
       thinkingDepth: manifest.prime.thinking,
     },

@@ -115,10 +115,12 @@ Steps in detail:
    `.tangent/triggers/<name>.js`. A missing/uncompilable handler fails the
    install rather than failing at fire time.
 5. **`ResolvedSessionConfig`** is assembled: `prime` (tools via
-   `resolvePrimeTools`, prompt from the manifest), `subagentDefaults`,
-   `templates` (parsed from `.tangent/agents`), the absolute
-   skill/workflow/extension paths (`resolveSectionPaths`), and the optional
-   `welcomeMessage`.
+   `resolvePrimeTools` — the manifest tools unioned with the shared and Prime-only
+   groups, including the trigger tools, so a bundle never re-declares them; prompt
+   via `composePrimePrompt`, which prepends the always-on `primeSystemPrompt.md` manual
+   to the manifest's prompt), `subagentDefaults`, `templates` (parsed from
+   `.tangent/agents`), the absolute skill/workflow/extension paths
+   (`resolveSectionPaths`), and the optional `welcomeMessage`.
 
 `listOrDiscover` means an omitted manifest list (e.g. no `skills:`) triggers
 auto-discovery of the conventional directory; when present, the manifest list is

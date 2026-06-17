@@ -29,8 +29,8 @@ When building or updating a deck:
 
 1. Read the uploaded Markdown (and any other assets the user provided).
 2. Map the content to slides; pick sensible section breaks and a coherent theme.
-3. Write the deck to `artifacts/` (see the artifact requirement below). Keep local
-   assets such as videos and images under `artifacts/` next to the deck.
+3. Write the deck to `artifacts/` (see "Deck output" below). Keep local assets
+   such as videos and images under `artifacts/` next to the deck.
 4. Ensure the deck includes:
    - a valid Reveal.js document (`.reveal > .slides > section` structure),
    - the Markdown plugin wired up so the user's content renders as slides,
@@ -42,33 +42,15 @@ When building or updating a deck:
    Auto-Animate across two near-identical SVG slides so shared elements morph. See
    the skill for the technique.
 
-## Artifact link requirement
+## Deck output
 
-The result of every build is an artifact. When creating any user-facing artifact —
-the deck HTML, an exported PDF, an image, etc. — you MUST:
+Follow the Shell's artifact rule (save under `artifacts/`, link it, pin it). For
+the deck specifically:
 
-1. Save the final artifact into the `artifacts/` directory.
-2. Verify the artifact exists before responding.
-3. End your reply with a direct Markdown link to it. Do NOT use a `file://` link as
-   the primary link.
-4. Pin the artifact automatically by calling the `pin_artifact` tool with the
-   artifact's workspace-relative path and a short, human-readable title. This puts
-   it in the session's quick-access sidebar so the user can reopen it without
-   scrolling the chat. Re-pin the same path after a meaningful update to refresh
-   its title.
-
-For the deck specifically:
-
-- Write the working file as `artifacts/index.html`, and also save a descriptive copy
-  at `artifacts/<descriptive-slug>.html` so the deck has a stable, named link.
-- The final response must include a link like:
-
-[Open deck](artifacts/<descriptive-slug>.html)
-
-- Pin that same named copy, for example:
-  `pin_artifact(path: "artifacts/<descriptive-slug>.html", title: "<deck title>")`.
-
-Never say the deck is ready without both the direct Markdown link and the
-`pin_artifact` call. Briefly summarize what you built — slide count, theme,
-transitions, and any diagrams or video — but do not paste the full HTML into chat
-unless asked.
+- Write the working file as `artifacts/index.html`, and also save a descriptive
+  copy at `artifacts/<descriptive-slug>.html` so the deck has a stable, named
+  link, e.g. `[Open deck](artifacts/<descriptive-slug>.html)`.
+- Verify the file exists and pin that named copy before reporting done; never say
+  the deck is ready without the link and pin.
+- Briefly summarize what you built (slide count, theme, transitions, diagrams or
+  video); don't paste the full HTML into chat unless asked.
