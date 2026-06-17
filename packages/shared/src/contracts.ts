@@ -197,6 +197,49 @@ export type TriggerKind = "schedule" | "callback";
 export type TriggerSource = "bundle" | "runtime";
 
 /**
+ * Where a trigger delivers its prompt: `prime` (the session's Prime agent, the
+ * legacy behavior, now discouraged) or `subagent` (a dedicated sub-agent the
+ * trigger owns and reacts to in isolation).
+ */
+export type TriggerTargetKind = "prime" | "subagent";
+
+/**
+ * Revival data for a trigger-owned sub-agent. Persisted alongside the trigger so
+ * the dedicated sub-agent can be re-spawned from scratch after it dies or the
+ * server restarts. Mirrors the fields of a sub-agent spawn request.
+ */
+export interface TriggerSubagentSpec {
+  /** Display name for the sub-agent; defaults to the trigger's title/name. */
+  name?: string;
+  /** Template to seed tools and system prompt from. */
+  template?: string;
+  /** Inline system prompt; overrides the template's prompt. */
+  systemPrompt?: string;
+  /** Inline tool allowlist; overrides the template's tools. */
+  tools?: string[];
+  /** Inline `provider/model` id; overrides the template/default model. */
+  model?: string;
+  /** Inline thinking depth; overrides the template/default thinking depth. */
+  thinkingDepth?: ThinkingLevel;
+}
+
+/**
+ * Where a trigger's firings are delivered. A `subagent` target carries the spec
+ * needed to revive its dedicated sub-agent plus the id/name of the currently
+ * live one (when spawned), so the UI can surface which sub-agent handles it.
+ */
+export type TriggerTarget =
+  | { type: "prime" }
+  | {
+      type: "subagent";
+      spec: TriggerSubagentSpec;
+      /** Currently live sub-agent id, if one has been spawned. */
+      agentId?: string;
+      /** Currently live sub-agent display name, if one has been spawned. */
+      agentName?: string;
+    };
+
+/**
  * Schedule for a `schedule`-kind trigger. Exactly one of `every` / `cron` is
  * meaningful: `every` is a short duration (`"1h"`, `"30m"`, `"45s"`); `cron` is
  * a standard cron expression evaluated server-side.
@@ -229,6 +272,8 @@ export interface Trigger {
   enabled: boolean;
   /** Whether the trigger came from the bundle or was created at runtime. */
   source: TriggerSource;
+  /** Where the trigger delivers its prompt (Prime or a dedicated sub-agent). */
+  target: TriggerTarget;
   /**
    * Relative callback path including the secret (callback triggers only), e.g.
    * `/api/sessions/<id>/triggers/<tid>/callback/<secret>`. External systems POST
@@ -271,6 +316,10 @@ export interface CreateTriggerRequest {
   prompt?: string;
   schedule?: TriggerSchedule;
   enabled?: boolean;
+  /** Where firings are delivered; defaults to a dedicated sub-agent. */
+  target?: TriggerTargetKind;
+  /** Sub-agent spec used when `target` is `subagent`. */
+  subagent?: TriggerSubagentSpec;
 }
 
 /** Payload to update a mutable trigger field. */

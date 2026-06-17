@@ -11,41 +11,38 @@ import { cn } from "@/shared/lib/utils";
  * used for TaskNode handle labels (~10 hits).
  */
 
-const pillVariants = cva(
-  "inline-flex items-center gap-1 truncate font-medium",
-  {
-    variants: {
-      size: {
-        xs: "text-xs px-1.5 py-0.5 rounded-sm",
-        sm: "text-xs px-2 py-1 rounded-md",
-        md: "text-sm px-2.5 py-1 rounded-md",
-      },
-      tone: {
-        default: "bg-black/5 text-foreground",
-        subdued: "bg-muted text-muted-foreground",
-        critical: "bg-destructive/10 text-destructive",
-        warning: "bg-warning/15 text-warning-foreground",
-        info: "bg-info/10 text-info",
-        success: "bg-success/10 text-success",
-        magic: "bg-accent text-accent-foreground",
-      },
-      hoverable: {
-        true: "cursor-pointer hover:opacity-90",
-        false: "",
-      },
-      muted: {
-        true: "opacity-50 italic",
-        false: "",
-      },
+const pillVariants = cva("inline-flex items-center gap-1 font-medium", {
+  variants: {
+    size: {
+      xs: "text-xs px-1.5 py-0.5 rounded-sm",
+      sm: "text-xs px-2 py-1 rounded-md",
+      md: "text-sm px-2.5 py-1 rounded-md",
     },
-    defaultVariants: {
-      size: "sm",
-      tone: "default",
-      hoverable: false,
-      muted: false,
+    tone: {
+      default: "bg-black/5 text-foreground",
+      subdued: "bg-muted text-muted-foreground",
+      critical: "bg-destructive/10 text-destructive",
+      warning: "bg-warning/15 text-warning-foreground",
+      info: "bg-info/10 text-info",
+      success: "bg-success/10 text-success",
+      magic: "bg-accent text-accent-foreground",
+    },
+    hoverable: {
+      true: "cursor-pointer hover:opacity-90",
+      false: "",
+    },
+    muted: {
+      true: "opacity-50 italic",
+      false: "",
     },
   },
-);
+  defaultVariants: {
+    size: "sm",
+    tone: "default",
+    hoverable: false,
+    muted: false,
+  },
+});
 
 type PillVariantProps = VariantProps<typeof pillVariants>;
 

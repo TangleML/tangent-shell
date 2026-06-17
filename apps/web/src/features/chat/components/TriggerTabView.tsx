@@ -4,10 +4,12 @@ import type { ReactNode } from "react";
 import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
 import { apiUrl } from "@/shared/lib/basePath";
+import { truncateMiddle } from "@/shared/lib/utils";
 import { Box } from "@/shared/ui/box";
 import { Button } from "@/shared/ui/button";
 import { Icon, type IconName } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { CopyText } from "@/shared/ui/patterns/copy-text";
 import { Pill } from "@/shared/ui/patterns/pill";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Section } from "@/shared/ui/patterns/section";
@@ -37,7 +39,7 @@ function DetailRow({
   children: ReactNode;
 }) {
   return (
-    <InlineStack gap="3" wrap="nowrap" blockAlign="start">
+    <InlineStack gap="3" wrap="nowrap" blockAlign="start" grow>
       <Box>
         <Text as="dt" size="sm" tone="subdued">
           {label}
@@ -57,6 +59,14 @@ function scheduleDetail(trigger: Trigger): string {
   if (trigger.schedule?.every) return `Every ${trigger.schedule.every}`;
   if (trigger.schedule?.cron) return `Cron: ${trigger.schedule.cron}`;
   return "Schedule";
+}
+
+/** Human-readable summary of where a trigger delivers its firings. */
+function targetDetail(target: Trigger["target"]): string {
+  if (target.type === "subagent") {
+    return `Sub-agent: ${target.agentName ?? target.spec.name ?? "dedicated"}`;
+  }
+  return "Prime";
 }
 
 /**
@@ -86,10 +96,6 @@ export function TriggerTabView({
     });
   }
 
-  function copyUrl() {
-    if (callbackUrl) void navigator.clipboard?.writeText(callbackUrl);
-  }
-
   function handleDelete() {
     remove.mutate(trigger.id, { onSuccess: onClose });
   }
@@ -107,12 +113,6 @@ export function TriggerTabView({
           <Icon name="Power" size="xs" />
           {trigger.enabled ? "Disable" : "Enable"}
         </Button>
-        {callbackUrl ? (
-          <Button variant="toolbar" size="xs" onClick={copyUrl}>
-            <Icon name="Copy" size="xs" />
-            Copy URL
-          </Button>
-        ) : null}
         <Button
           variant="toolbar"
           size="xs"
@@ -126,7 +126,7 @@ export function TriggerTabView({
       </Toolbar>
       <ScrollRegion axis="y">
         <Box padding="base">
-          <BlockStack gap="4">
+          <BlockStack gap="4" grow>
             <InlineStack gap="2" blockAlign="center" wrap="nowrap">
               <Icon
                 name={KIND_ICON[trigger.kind]}
@@ -148,6 +148,9 @@ export function TriggerTabView({
               <BlockStack as="dl" gap="2">
                 <DetailRow label="Kind">{trigger.kind}</DetailRow>
                 <DetailRow label="Source">{trigger.source}</DetailRow>
+                <DetailRow label="Target">
+                  {targetDetail(trigger.target)}
+                </DetailRow>
                 {trigger.kind === "schedule" ? (
                   <DetailRow label="Schedule">
                     {scheduleDetail(trigger)}
@@ -155,9 +158,13 @@ export function TriggerTabView({
                 ) : null}
                 {callbackUrl ? (
                   <DetailRow label="Callback URL">
-                    <Text size="sm" font="mono" truncate title={callbackUrl}>
-                      {callbackUrl}
-                    </Text>
+                    <CopyText
+                      value={callbackUrl}
+                      displayValue={truncateMiddle(callbackUrl, 48)}
+                      size="sm"
+                      font="mono"
+                      truncate
+                    />
                   </DetailRow>
                 ) : null}
                 <DetailRow label="Handler">

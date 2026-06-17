@@ -1,5 +1,6 @@
 import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
 import { SESSION_STATUS_DISPLAY } from "@/features/sessions/model/sessionStatusDisplay";
+import { truncateMiddle } from "@/shared/lib/utils";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
@@ -14,14 +15,6 @@ interface SessionCardProps {
   name: string;
   rootPath?: string;
   connected: boolean;
-}
-
-function truncateMiddle(text: string, maxLength: number) {
-  if (text.length <= maxLength) {
-    return text;
-  }
-  const midLength = Math.floor(maxLength / 2);
-  return text.slice(0, midLength) + "..." + text.slice(-midLength);
 }
 
 /**

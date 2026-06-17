@@ -116,6 +116,13 @@ export interface AgentProcess {
    */
   lastFinalContent: string;
   /**
+   * Whether this agent's finalized replies are auto-relayed back to Prime as
+   * they land. True for ordinary sub-agents (Prime directs them); false for a
+   * trigger-owned sub-agent, which reacts in isolation but may still reach Prime
+   * on its own via `message_prime`.
+   */
+  autoRelayToPrime: boolean;
+  /**
    * The agent's most recent run-level activity (a running tool or "thinking"),
    * or `null` when idle / a message is actively streaming. Retained so a client
    * joining mid-run can replay the current activity and not just see it go blank

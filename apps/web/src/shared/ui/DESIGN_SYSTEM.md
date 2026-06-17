@@ -27,6 +27,7 @@ flowchart TB
     Truncating
     HoverReveal
     IconButton
+    CopyText
     EmptyState
     Pill
     StickyHeader
@@ -75,6 +76,7 @@ Code is expected to live in the upper layers. Reaching for a lower one is a smel
 | `<EmptyState icon title description action>` | centered `flex items-center justify-center text-center p-*` placeholders        |
 | `<StickyHeader>`                             | `sticky top-0 z-* bg-*` inside a `ScrollRegion`                                 |
 | `<IconButton icon size variant tone>`        | `<Button h-5 w-5 p-0><Icon /></Button>`                                         |
+| `<CopyText value displayValue truncate>`     | click-to-copy text + hover-revealed copy button with success state              |
 | `<Pill tone size>`                           | `text-xs rounded-md px-2 py-1 bg-black/5` chips                                 |
 | `<Divider>`                                  | `<Separator className="...">`                                                   |
 | `<Page height padded>`                       | `mx-auto w-full max-w-2xl flex flex-col {min-,}h-svh p-*` page columns          |

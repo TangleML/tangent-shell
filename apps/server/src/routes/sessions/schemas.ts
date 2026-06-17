@@ -1,3 +1,4 @@
+import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { z } from "zod";
 
 /**
@@ -29,6 +30,16 @@ const triggerScheduleSchema = z.object({
   cron: z.string().optional(),
 });
 
+/** Revival spec for a `subagent`-target trigger's dedicated sub-agent. */
+const triggerSubagentSchema = z.object({
+  name: z.string().optional(),
+  template: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  tools: z.array(z.string()).optional(),
+  model: z.string().optional(),
+  thinkingDepth: z.enum(THINKING_LEVELS).optional(),
+});
+
 /** Create-trigger body; kept compatible with the shared `CreateTriggerRequest`. */
 export const createTriggerSchema = z.object({
   name: z.string(),
@@ -37,6 +48,8 @@ export const createTriggerSchema = z.object({
   prompt: z.string().optional(),
   schedule: triggerScheduleSchema.optional(),
   enabled: z.boolean().optional(),
+  target: z.enum(["prime", "subagent"]).optional(),
+  subagent: triggerSubagentSchema.optional(),
 });
 export type CreateTriggerInput = z.infer<typeof createTriggerSchema>;
 

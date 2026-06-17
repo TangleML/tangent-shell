@@ -155,6 +155,11 @@ export interface SubagentSpawnRequest {
   thinkingDepth?: ThinkingLevel;
   /** Optional initial task to deliver to the sub-agent right after spawn. */
   task?: string;
+  /**
+   * Whether the sub-agent's finalized replies are auto-relayed back to Prime.
+   * Defaults to true; trigger-owned sub-agents pass false to react in isolation.
+   */
+  autoRelayToPrime?: boolean;
 }
 
 /** Narrows an arbitrary string to a valid {@link ThinkingLevel}, else undefined. */

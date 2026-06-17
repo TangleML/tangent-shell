@@ -545,6 +545,7 @@ export class PiAgentManager {
         role: "subagent",
         name: request.name,
         template: request.template,
+        autoRelayToPrime: request.autoRelayToPrime ?? true,
       },
       config,
     );
@@ -712,6 +713,11 @@ export class PiAgentManager {
     };
   }
 
+  /** True when the given agent is live in the session's process roster. */
+  hasAgent(sessionId: string, agentId: string): boolean {
+    return Boolean(this.sessions.get(sessionId)?.agents.has(agentId));
+  }
+
   /** Returns the session's sub-agent roster (Prime excluded). */
   listSubagents(sessionId: string): SubagentInfo[] {
     const session = this.sessions.get(sessionId);
@@ -742,7 +748,10 @@ export class PiAgentManager {
   private spawnAgent(
     sessionId: string,
     session: SessionAgents,
-    descriptor: AgentDescriptor & { template?: string },
+    descriptor: AgentDescriptor & {
+      template?: string;
+      autoRelayToPrime?: boolean;
+    },
     config: AgentConfig,
   ): AgentProcess {
     const extras = spawnExtras(session.config);
@@ -783,6 +792,7 @@ export class PiAgentManager {
       accum: "",
       thinkingAccum: "",
       lastFinalContent: "",
+      autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
       lastActivity: null,
     };
     session.agents.set(descriptor.agentId, agent);
@@ -1103,6 +1113,9 @@ export class PiAgentManager {
     content: string,
   ): void {
     if (agent.role !== "subagent" || !content.trim()) return;
+    // Trigger-owned sub-agents react in isolation; they reach Prime only when
+    // they explicitly call `message_prime`, never via this automatic relay.
+    if (!agent.autoRelayToPrime) return;
     this.sendToAgent(
       sessionId,
       PRIME_AGENT_ID,

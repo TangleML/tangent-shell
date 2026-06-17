@@ -64,12 +64,17 @@ export default function (pi: ExtensionAPI) {
     label: "Create Trigger",
     description:
       "Create a trigger for this session. A trigger turns an external signal " +
-      "into a prompt sent to you (Prime). Two kinds: `schedule` fires on a " +
+      "into a prompt delivered to its target. Two kinds: `schedule` fires on a " +
       'timer (provide `schedule.every` like "1h"/"30m"/"45s", or a ' +
       "`schedule.cron` expression); `callback` returns a secret URL an " +
-      "external system can POST to. Provide a `prompt` — the message you'll " +
-      "receive when it fires (callback payload fields can be interpolated with " +
-      "{{body.field}}). Returns the trigger, including the callback URL for " +
+      "external system can POST to. Provide a `prompt` — the message the target " +
+      "receives when it fires (callback payload fields can be interpolated with " +
+      "{{body.field}}). By DEFAULT the trigger spins up a dedicated sub-agent " +
+      "that reacts to each firing in isolation; describe it via `subagent` " +
+      "(its name/template/system_prompt/tools). Set `target` to `prime` to " +
+      "route firings to yourself instead — this is DISCOURAGED; prefer a " +
+      "dedicated sub-agent so trigger work doesn't interrupt the human " +
+      "conversation. Returns the trigger, including the callback URL for " +
       "callback triggers.",
     promptSnippet: "Create a schedule or callback trigger for this session",
     parameters: Type.Object({
@@ -80,10 +85,53 @@ export default function (pi: ExtensionAPI) {
         description: "`schedule` (timer) or `callback` (inbound URL).",
       }),
       prompt: Type.String({
-        description: "The prompt delivered to you when the trigger fires.",
+        description:
+          "The prompt delivered to the target when the trigger fires.",
       }),
       title: Type.Optional(
         Type.String({ description: "Human-readable label for the trigger." }),
+      ),
+      target: Type.Optional(
+        Type.Union([Type.Literal("subagent"), Type.Literal("prime")], {
+          description:
+            "Where firings go: `subagent` (default; a dedicated sub-agent " +
+            "reacts in isolation) or `prime` (you receive it — discouraged).",
+        }),
+      ),
+      subagent: Type.Optional(
+        Type.Object(
+          {
+            name: Type.Optional(
+              Type.String({
+                description: "Display name (defaults to the trigger's title).",
+              }),
+            ),
+            template: Type.Optional(
+              Type.String({ description: "Predefined agent template name." }),
+            ),
+            system_prompt: Type.Optional(
+              Type.String({ description: "Inline system prompt." }),
+            ),
+            tools: Type.Optional(
+              Type.Array(Type.String(), {
+                description: "Inline tool allowlist.",
+              }),
+            ),
+            model: Type.Optional(
+              Type.String({ description: "Model id (`provider/model`)." }),
+            ),
+            thinking: Type.Optional(
+              Type.String({
+                description:
+                  "Thinking depth: off, minimal, low, medium, high, or xhigh.",
+              }),
+            ),
+          },
+          {
+            description:
+              "Spec for the dedicated sub-agent (used when target is subagent).",
+          },
+        ),
       ),
       schedule: Type.Optional(
         Type.Object(
@@ -105,27 +153,52 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params) {
+      const subagent = params.subagent
+        ? {
+            name: params.subagent.name,
+            template: params.subagent.template,
+            systemPrompt: params.subagent.system_prompt,
+            tools: params.subagent.tools,
+            model: params.subagent.model,
+            thinkingDepth: params.subagent.thinking,
+          }
+        : undefined;
+
       const data = (await callApi("POST", "create", {
         sessionId: SESSION_ID,
         name: params.name,
         kind: params.kind,
         prompt: params.prompt,
         title: params.title,
+        target: params.target,
+        subagent,
         schedule: params.schedule,
         enabled: params.enabled,
-      })) as { trigger: { name: string; kind: string; callbackPath?: string } };
+      })) as {
+        trigger: {
+          name: string;
+          kind: string;
+          callbackPath?: string;
+          target?: { type: string; agentName?: string };
+        };
+      };
 
       const trigger = data.trigger;
+      const handledBy =
+        trigger.target?.type === "subagent"
+          ? `Sub-agent "${trigger.target.agentName ?? trigger.name}" will react to it`
+          : "It will be delivered to you (Prime)";
+
       if (trigger.kind === "callback" && trigger.callbackPath) {
         return textResult(
           `Created callback trigger "${trigger.name}". External systems can ` +
             `POST to ${trigger.callbackPath} to fire it (the JSON body is ` +
-            `available to the prompt as {{body.*}}).`,
+            `available to the prompt as {{body.*}}). ${handledBy}.`,
         );
       }
       return textResult(
-        `Created schedule trigger "${trigger.name}". It will prompt you on ` +
-          `its schedule until disabled.`,
+        `Created schedule trigger "${trigger.name}". ${handledBy} on its ` +
+          `schedule until disabled.`,
       );
     },
   });
@@ -148,6 +221,7 @@ export default function (pi: ExtensionAPI) {
           enabled: boolean;
           schedule?: { every?: string; cron?: string };
           callbackPath?: string;
+          target?: { type: string; agentName?: string };
         }>;
       };
 
@@ -160,7 +234,11 @@ export default function (pi: ExtensionAPI) {
           t.kind === "schedule"
             ? `every ${t.schedule?.every ?? t.schedule?.cron ?? "?"}`
             : (t.callbackPath ?? "callback");
-        return `- ${t.name} (${t.kind}, ${state}) — ${detail}`;
+        const target =
+          t.target?.type === "subagent"
+            ? `→ sub-agent "${t.target.agentName ?? t.name}"`
+            : "→ Prime";
+        return `- ${t.name} (${t.kind}, ${state}) — ${detail} ${target}`;
       });
       return textResult(lines.join("\n"));
     },

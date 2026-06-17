@@ -10,6 +10,7 @@ import type {
   TriggerKind,
   TriggerSchedule,
   TriggerSource,
+  TriggerTarget,
   UpdateTriggerRequest,
 } from "@tangent/shared/contracts.ts";
 
@@ -38,6 +39,11 @@ export interface StoredTrigger {
   schedule?: TriggerSchedule;
   enabled: boolean;
   source: TriggerSource;
+  /**
+   * Where firings are delivered. Persisted so a `subagent` target's revival
+   * spec and currently-live sub-agent id survive a restart.
+   */
+  target: TriggerTarget;
   /** Secret embedded in the callback URL (callback kind only). */
   secret?: string;
   createdAt: string;
@@ -80,6 +86,35 @@ function newSecret(kind: TriggerKind): string | undefined {
   return kind === "callback" ? randomBytes(24).toString("hex") : undefined;
 }
 
+/**
+ * Builds a trigger's target from a create request. Defaults to a dedicated
+ * sub-agent (the new default); targeting Prime is opt-in. The sub-agent name
+ * falls back to the trigger's title/name so a revived sub-agent stays labelled.
+ */
+function buildTarget(
+  req: CreateTriggerRequest,
+  triggerName: string,
+): TriggerTarget {
+  if (req.target === "prime") return { type: "prime" };
+  const spec = req.subagent ?? {};
+  return {
+    type: "subagent",
+    spec: {
+      ...spec,
+      name: text(spec.name) || text(req.title) || triggerName,
+    },
+  };
+}
+
+/**
+ * Backfills a target on a trigger read from disk. Triggers persisted before
+ * targets existed default to Prime so existing sessions keep their behavior.
+ */
+function normalizeTarget(stored: StoredTrigger): StoredTrigger {
+  if (stored.target) return stored;
+  return { ...stored, target: { type: "prime" } };
+}
+
 /** Normalizes a schedule, dropping it when neither field is set. */
 function normalizeSchedule(
   schedule: TriggerSchedule | undefined,
@@ -111,6 +146,7 @@ function toContract(sessionId: string, t: StoredTrigger): Trigger {
     schedule: t.schedule,
     enabled: t.enabled,
     source: t.source,
+    target: t.target,
     callbackPath,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -135,6 +171,8 @@ function bundleToStored(
     schedule: normalizeSchedule(bundleTrigger.schedule),
     enabled: bundleTrigger.enabled ?? true,
     source: "bundle",
+    // Bundle-declared triggers keep targeting Prime unless they opt in later.
+    target: { type: "prime" },
     secret: newSecret(bundleTrigger.kind),
     createdAt: now,
     updatedAt: now,
@@ -194,7 +232,9 @@ export class TriggerManager {
     if (!existsSync(file)) return [];
     try {
       const parsed = JSON.parse(readFileSync(file, "utf8")) as TriggerFile;
-      return Array.isArray(parsed.triggers) ? parsed.triggers : [];
+      return Array.isArray(parsed.triggers)
+        ? parsed.triggers.map(normalizeTarget)
+        : [];
     } catch (err) {
       console.error(`[triggers] failed to read ${file}:`, err);
       return [];
@@ -287,6 +327,7 @@ export class TriggerManager {
       schedule,
       enabled: req.enabled ?? true,
       source: "runtime",
+      target: buildTarget(req, name),
       secret: newSecret(req.kind),
       createdAt: now,
       updatedAt: now,
@@ -310,6 +351,25 @@ export class TriggerManager {
     applyPatch(stored, patch);
     this.persist(state);
     return toContract(sessionId, stored);
+  }
+
+  /**
+   * Records the currently-live sub-agent for a `subagent`-target trigger so the
+   * engine can reuse it across firings and the UI can surface it. No-op for a
+   * Prime-target trigger or an unknown trigger.
+   */
+  setTargetAgent(
+    sessionId: string,
+    triggerId: string,
+    agentId: string,
+    agentName: string,
+  ): void {
+    const state = this.sessions.get(sessionId);
+    const stored = state?.triggers.get(triggerId);
+    if (!state || !stored || stored.target.type !== "subagent") return;
+    stored.target = { ...stored.target, agentId, agentName };
+    stored.updatedAt = new Date().toISOString();
+    this.persist(state);
   }
 
   /** Records the time a trigger last fired. */

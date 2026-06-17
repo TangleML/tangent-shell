@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { BundleTrigger } from "@tangent/shared/configBundle.ts";
 import type {
+  ChatAuthor,
   ChatMessage,
   Trigger,
   TriggerRosterPayload,
@@ -26,6 +27,11 @@ interface ScheduleHandle {
 
 function roomFor(sessionId: string): string {
   return `session:${sessionId}`;
+}
+
+/** Author attributed to a trigger's delivered prompt (labelled by the trigger). */
+function triggerAuthor(stored: StoredTrigger): ChatAuthor {
+  return { ...TRIGGER_AUTHOR, name: stored.title ?? stored.name };
 }
 
 /** Parses a duration string (`"1h"`, `"30m"`, `"45s"`, `"2d"`) into ms. */
@@ -171,9 +177,9 @@ export class TriggerEngine {
   }
 
   /**
-   * Fires a trigger: resolves the signal into a prompt, surfaces it in the
-   * transcript (attributed to the trigger), and relays it to Prime — spawning
-   * Prime if needed, exactly as a user message would.
+   * Fires a trigger: resolves the signal into a prompt and delivers it to the
+   * trigger's target — its dedicated sub-agent (default) or Prime — surfacing it
+   * in that conversation's transcript exactly as a directed message would.
    */
   async fire(
     sessionId: string,
@@ -187,18 +193,11 @@ export class TriggerEngine {
 
     const prompt = await resolveTriggerPrompt(rootPath, stored, signal);
 
-    const message: ChatMessage = {
-      id: randomUUID(),
-      sessionId,
-      conversationId: PRIME_AGENT_ID,
-      author: { ...TRIGGER_AUTHOR, name: stored.title ?? stored.name },
-      content: prompt,
-      createdAt: new Date().toISOString(),
-    };
-    await this.store.appendMessage(message);
-    this.io.to(roomFor(sessionId)).emit(SocketEvents.ChatMessage, message);
-
-    this.pi.prompt(sessionId, rootPath, prompt);
+    if (stored.target.type === "subagent") {
+      this.deliverToSubagent(sessionId, rootPath, stored, prompt);
+    } else {
+      await this.deliverToPrime(sessionId, rootPath, stored, prompt);
+    }
 
     this.triggers.markFired(sessionId, triggerId);
     const updated = this.triggers.get(sessionId, triggerId);
@@ -206,6 +205,102 @@ export class TriggerEngine {
       const payload: TriggerUpdatePayload = { sessionId, trigger: updated };
       this.io.to(roomFor(sessionId)).emit(SocketEvents.TriggerUpdate, payload);
     }
+  }
+
+  /**
+   * Delivers a firing to Prime (the legacy, discouraged path): surfaces it in
+   * Prime's thread and relays it to Prime — spawning Prime if needed, exactly as
+   * a user message would.
+   */
+  private async deliverToPrime(
+    sessionId: string,
+    rootPath: string,
+    stored: StoredTrigger,
+    prompt: string,
+  ): Promise<void> {
+    const message: ChatMessage = {
+      id: randomUUID(),
+      sessionId,
+      conversationId: PRIME_AGENT_ID,
+      author: triggerAuthor(stored),
+      content: prompt,
+      createdAt: new Date().toISOString(),
+    };
+    await this.store.appendMessage(message);
+    this.io.to(roomFor(sessionId)).emit(SocketEvents.ChatMessage, message);
+    this.pi.prompt(sessionId, rootPath, prompt);
+  }
+
+  /**
+   * Delivers a firing to the trigger's dedicated sub-agent: revives it from the
+   * stored spec if it died (or after a restart), then surfaces the prompt in its
+   * thread and prompts it. The sub-agent reacts in isolation — its replies are
+   * not auto-relayed to Prime, though it may reach Prime via `message_prime`.
+   */
+  private deliverToSubagent(
+    sessionId: string,
+    rootPath: string,
+    stored: StoredTrigger,
+    prompt: string,
+  ): void {
+    const { agentId } = this.ensureSubagent(sessionId, rootPath, stored);
+    this.pi.sendToAgent(sessionId, agentId, prompt, triggerAuthor(stored));
+  }
+
+  /**
+   * Eagerly spawns a freshly created `subagent`-target trigger's sub-agent so it
+   * exists before the first firing. No-op for a Prime-target or unknown trigger.
+   */
+  provision(sessionId: string, rootPath: string, triggerId: string): void {
+    const stored = this.triggers.getStored(sessionId, triggerId);
+    if (!stored || stored.target.type !== "subagent") return;
+    this.ensureSubagent(sessionId, rootPath, stored);
+  }
+
+  /**
+   * Ensures the trigger's dedicated sub-agent is live, reusing the recorded one
+   * when present or spawning a fresh one from the stored spec. Persists the live
+   * sub-agent id back onto the trigger and the session's agent roster.
+   */
+  private ensureSubagent(
+    sessionId: string,
+    rootPath: string,
+    stored: StoredTrigger,
+  ): { agentId: string; agentName: string } {
+    // The session/Prime record must exist before a sub-agent can be spawned.
+    this.pi.ensure(sessionId, rootPath);
+
+    const target = stored.target;
+    if (target.type !== "subagent") {
+      throw new Error("trigger target is not a sub-agent");
+    }
+    if (target.agentId && this.pi.hasAgent(sessionId, target.agentId)) {
+      return {
+        agentId: target.agentId,
+        agentName: target.agentName ?? stored.name,
+      };
+    }
+
+    const info = this.pi.spawnSubagent(sessionId, {
+      name: target.spec.name ?? stored.title ?? stored.name,
+      template: target.spec.template,
+      systemPrompt: target.spec.systemPrompt,
+      tools: target.spec.tools,
+      model: target.spec.model,
+      thinkingDepth: target.spec.thinkingDepth,
+      autoRelayToPrime: false,
+    });
+    this.triggers.setTargetAgent(sessionId, stored.id, info.id, info.name);
+    void this.store.recordAgent(sessionId, {
+      id: info.id,
+      role: "subagent",
+      name: info.name,
+      status: "active",
+      model: info.model,
+      thinkingDepth: info.thinkingDepth,
+      template: info.template,
+    });
+    return { agentId: info.id, agentName: info.name };
   }
 
   /**

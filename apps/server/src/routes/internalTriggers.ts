@@ -1,3 +1,4 @@
+import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
@@ -13,6 +14,16 @@ const triggerScheduleSchema = z.object({
   cron: z.string().optional(),
 });
 
+/** Revival spec for a `subagent`-target trigger's dedicated sub-agent. */
+const triggerSubagentSchema = z.object({
+  name: z.string().optional(),
+  template: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  tools: z.array(z.string()).optional(),
+  model: z.string().optional(),
+  thinkingDepth: z.enum(THINKING_LEVELS).optional(),
+});
+
 /** Create-trigger body; mirrors the shared `CreateTriggerRequest` plus `sessionId`. */
 const createTriggerSchema = z.object({
   sessionId: z.string(),
@@ -22,6 +33,8 @@ const createTriggerSchema = z.object({
   prompt: z.string().optional(),
   schedule: triggerScheduleSchema.optional(),
   enabled: z.boolean().optional(),
+  target: z.enum(["prime", "subagent"]).optional(),
+  subagent: triggerSubagentSchema.optional(),
 });
 type CreateTriggerInput = z.infer<typeof createTriggerSchema>;
 
@@ -101,8 +114,10 @@ async function handleCreate(
   triggers.register(session.id, session.rootPath);
   try {
     const trigger = triggers.create(session.id, session.rootPath, body);
+    // Eagerly spawn the dedicated sub-agent so it exists before the first firing.
+    triggerEngine.provision(session.id, session.rootPath, trigger.id);
     triggerEngine.afterChange(session.id, session.rootPath);
-    res.json({ trigger });
+    res.json({ trigger: triggers.get(session.id, trigger.id) ?? trigger });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
