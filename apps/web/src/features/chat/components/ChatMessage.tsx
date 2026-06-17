@@ -8,6 +8,7 @@ import type {
 } from "@/features/chat/model/types";
 import { apiUrl } from "@/shared/lib/basePath";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
+import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
@@ -333,7 +334,7 @@ function ThinkingOnlyMessage({
   );
 }
 
-export function ChatMessage({
+function ChatMessageContent({
   sessionId,
   message,
   isOwn,
@@ -421,5 +422,34 @@ export function ChatMessage({
         <Attachments sessionId={sessionId} attachments={attachments} />
       ) : null}
     </MessageLayout>
+  );
+}
+
+/**
+ * Wraps a message in a "genie" collapse animation: pressing collapse warps the
+ * bubble toward its top-left corner (where the collapsed pill appears) before
+ * firing the real `onCollapse` on animation end. Raw `<div>` + `className` is
+ * the sanctioned escape hatch used elsewhere in this file, exempt from
+ * tangle-ui/no-classname-on-primitives.
+ */
+export function ChatMessage(props: ChatMessageProps) {
+  const { onCollapse } = props;
+  const [collapsing, setCollapsing] = useState(false);
+  const requestCollapse = onCollapse ? () => setCollapsing(true) : undefined;
+
+  const content = (
+    <ChatMessageContent {...props} onCollapse={requestCollapse} />
+  );
+
+  if (!onCollapse) return content;
+  return (
+    <div className={cn("w-full", collapsing && "genie-collapsing")}>
+      <div
+        className={collapsing ? "genie-warp" : undefined}
+        onAnimationEnd={collapsing ? onCollapse : undefined}
+      >
+        {content}
+      </div>
+    </div>
   );
 }
