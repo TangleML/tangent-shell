@@ -42,6 +42,8 @@ import {
   AgentStatusQueryKeys,
 } from "@/features/chat/model/agentStatusQueryKeys";
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
+import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
+import { userShortName } from "@/features/user/model/userDisplay";
 import { queryClient } from "@/shared/api/queryClient";
 import { BASE_PREFIX } from "@/shared/lib/basePath";
 
@@ -119,13 +121,15 @@ export function useSessionChat(sessionId: string) {
   // only carries a messageId) can clear the right thread's streaming state.
   const conversationByMessageId = useRef<Map<string, string>>(new Map());
 
-  // One author identity per mounted chat (a stand-in for real auth in Phase 1).
-  // Held in lazy state so the id stays stable for the chat's lifetime.
-  const [author] = useState<ChatAuthor>(() => ({
-    id: crypto.randomUUID(),
+  // The current human's chat identity, derived from `GET /api/me`. Using the
+  // email as the author id keeps "is this my message?" detection stable across
+  // reloads, and the short name (`John S.`) is what other participants see.
+  const user = useCurrentUser();
+  const author: ChatAuthor = {
+    id: user.email || "local-user",
     kind: "human",
-    name: "You",
-  }));
+    name: userShortName(user),
+  };
 
   useEffect(() => {
     if (!sessionId) return;

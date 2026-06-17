@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
+import { UserAvatar } from "@/features/user/components/UserAvatar";
+import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
 import { Text } from "@/shared/ui/typography";
 
@@ -12,6 +14,7 @@ import { ThemeMenu } from "./ThemeMenu";
  * app layout route so it stays fixed across every page.
  */
 export function AppTopNav() {
+  const user = useCurrentUser();
   return (
     <TopNav
       brand={
@@ -28,7 +31,12 @@ export function AppTopNav() {
           <TopNavLink to="/global-memory">Global memory</TopNavLink>
         </>
       }
-      actions={<ThemeMenu />}
+      actions={
+        <>
+          <ThemeMenu />
+          <UserAvatar user={user} />
+        </>
+      }
     />
   );
 }
