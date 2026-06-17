@@ -15,7 +15,6 @@ gs://shopify-discovery-relevance/tangent/learnings/
 `<run_id>` is the Tangle pipeline-run ID returned by `tangle-deploy pipeline-run submit`.
 
 **Keying rules:**
-
 - `research-<run_id>.md` — keyed by the **active run_id**:
   - Round 1: `active_run_id = baseline_run_id` (research happens before first submit)
   - Round 2+ re-research: `active_run_id = prior round's best_run_id` (the parent run

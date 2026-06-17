@@ -13,7 +13,6 @@ Skip only if user says "skip research" or `scenario.research.enabled` is explici
 
 Read `agents/researcher.md` and pass its full content as the agent prompt, with
 this task context appended:
-
 ```
 ---
 Task context:
@@ -27,7 +26,7 @@ Write brief to: <SCENARIO_DIR>/research-brief.md
 Write priors to: <SCENARIO_DIR>/research-priors.txt
 ```
 
-The `parent_run_id` is the round's _active run_id_ for upload keying — see the
+The `parent_run_id` is the round's *active run_id* for upload keying — see the
 researcher brief template. Round 1: no parent → key by `baseline_run_id`.
 
 **If the researcher agent fails or times out**, do NOT block the experiment loop. Log
@@ -53,13 +52,13 @@ The Direction Proposal tells you what to try next based on the data.
 
 Choose the TYPE, not just the parameter:
 
-| Experiment Type        | Typical ROI | When to Use                                   |
-| ---------------------- | ----------- | --------------------------------------------- |
-| Analysis (free)        | Information | Always first                                  |
-| Feature selection      | High        | Dead features or feature dominance            |
-| Data actions           | High        | Noisy labels or train/eval misalignment       |
-| Parameter tuning       | Medium-High | LR, capacity, regularization — first 2 rounds |
-| Pipeline modifications | Medium      | Pipeline topology is the bottleneck           |
+| Experiment Type | Typical ROI | When to Use |
+|----------------|-------------|-------------|
+| Analysis (free) | Information | Always first |
+| Feature selection | High | Dead features or feature dominance |
+| Data actions | High | Noisy labels or train/eval misalignment |
+| Parameter tuning | Medium-High | LR, capacity, regularization — first 2 rounds |
+| Pipeline modifications | Medium | Pipeline topology is the bottleneck |
 
 ## Upload research brief to GCS
 
@@ -80,7 +79,6 @@ If the upload fails, log a `learning_upload_failed` event and keep going — loc
 the source of truth. See `references/knowledge-corpus.md` for the bucket layout.
 
 ## Gate — do NOT proceed to Step 2 until all pass:
-
 - [ ] Round 1: **`research-brief.md` exists at `$SCENARIO_DIR/research-brief.md`** (verify with Read — if missing, researcher did not run)
 - [ ] Research brief uploaded to `gs://shopify-discovery-relevance/tangent/learnings/<scenario>/research-<active_run_id>.md` (Round 1: keyed by `baseline_run_id`; Round 2+: keyed by prior round's `best_run_id`) — or `learning_upload_failed` event logged
 - [ ] Round 2+: Step 5 Direction Proposal from previous round has been read

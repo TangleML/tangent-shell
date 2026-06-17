@@ -26,21 +26,21 @@ Materialize Evaluation Config ------------------/
 
 ## ML Techniques
 
-| Aspect             | Production (daria.sorokina)                                                                  | Multinode Test (shane.moran)                                                     |
-| ------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **Base model**     | **Qwen3-VL-4B-Instruct**                                                                     | **Qwen3-VL-32B-Instruct**                                                        |
-| **KD Loss**        | **KLDivergenceLossPlugin** (alpha=0.05, temperature=1.0, targets: [0,1,2,3])                 | Same                                                                             |
-| **Teacher signal** | Probability distribution over 4 relevance classes via `probs` key                            | Same                                                                             |
-| **Optimizer**      | AdamW (beta1=0.9, beta2=0.95, eps=1e-7), LR=2e-5, cosine schedule, warmup_ratio=0.2          | Same                                                                             |
-| **Batch size**     | per_device=2, grad_accum=2                                                                   | per_device=1                                                                     |
-| **Training**       | 1 epoch, 24 processes (3 nodes x 8 GPUs)                                                     | max_steps=15 (smoke test), 16 processes (2 nodes x 8 GPUs)                       |
-| **FSDP**           | `MULTI_GPU`                                                                                  | `FSDP` v2 with auto-wrap TRANSFORMER_BASED_WRAP, CPU offload, sharded state dict |
-| **Parallelism**    | Not specified                                                                                | dp_shard=8, dp_replicate=2, tp=1, cp=1                                           |
-| **Vision**         | Freeze `model.visual`, unfreeze only `model.visual.merger`                                   | Same                                                                             |
-| **Attention**      | flash_attention_2, bf16                                                                      | Same                                                                             |
-| **Eval**           | 1000 samples, `gtx_fte_alignment`                                                            | 50 samples (smoke test)                                                          |
-| **Inference**      | vLLM, tensor_parallel=4, max_model_len=32768, constrained JSON (relevance 0-3 + explanation) | Same                                                                             |
-| **Upload**         | `relevance-judge-sft-kd`                                                                     | `relevance-judge-sft-kd-multinode-dev`                                           |
+| Aspect | Production (daria.sorokina) | Multinode Test (shane.moran) |
+|--------|---------------------------|------------------------------|
+| **Base model** | **Qwen3-VL-4B-Instruct** | **Qwen3-VL-32B-Instruct** |
+| **KD Loss** | **KLDivergenceLossPlugin** (alpha=0.05, temperature=1.0, targets: [0,1,2,3]) | Same |
+| **Teacher signal** | Probability distribution over 4 relevance classes via `probs` key | Same |
+| **Optimizer** | AdamW (beta1=0.9, beta2=0.95, eps=1e-7), LR=2e-5, cosine schedule, warmup_ratio=0.2 | Same |
+| **Batch size** | per_device=2, grad_accum=2 | per_device=1 |
+| **Training** | 1 epoch, 24 processes (3 nodes x 8 GPUs) | max_steps=15 (smoke test), 16 processes (2 nodes x 8 GPUs) |
+| **FSDP** | `MULTI_GPU` | `FSDP` v2 with auto-wrap TRANSFORMER_BASED_WRAP, CPU offload, sharded state dict |
+| **Parallelism** | Not specified | dp_shard=8, dp_replicate=2, tp=1, cp=1 |
+| **Vision** | Freeze `model.visual`, unfreeze only `model.visual.merger` | Same |
+| **Attention** | flash_attention_2, bf16 | Same |
+| **Eval** | 1000 samples, `gtx_fte_alignment` | 50 samples (smoke test) |
+| **Inference** | vLLM, tensor_parallel=4, max_model_len=32768, constrained JSON (relevance 0-3 + explanation) | Same |
+| **Upload** | `relevance-judge-sft-kd` | `relevance-judge-sft-kd-multinode-dev` |
 
 **Training data**: `Shopify/relevance-judge-trl-v3.1` (HF)
 **Eval data**: `Shopify/relevance-judge-gtx-v3.1-dev` (HF)
@@ -48,20 +48,20 @@ Materialize Evaluation Config ------------------/
 
 ## Key Components
 
-| Component                                  | Digest                                    | Purpose                                  |
-| ------------------------------------------ | ----------------------------------------- | ---------------------------------------- |
-| `Unified Distillation: Train`              | `8a0773d5`                                | SFT with KL divergence KD loss via TRL   |
-| `Unified Distillation: Download HF`        | `a4f578c8`                                | Download model/dataset from HuggingFace  |
-| `Unified Distillation: Upload HF`          | `d3f6c1b6`                                | Push trained model to HuggingFace        |
-| `Unified Distillation: Materialize Config` | `f43555f6`                                | Materialize YAML config strings to files |
-| `Generic Eval`                             | `1f1f8648` (prod), `aec40689` (multinode) | Evaluate via gtx_fte_alignment           |
+| Component | Digest | Purpose |
+|-----------|--------|---------|
+| `Unified Distillation: Train` | `8a0773d5` | SFT with KL divergence KD loss via TRL |
+| `Unified Distillation: Download HF` | `a4f578c8` | Download model/dataset from HuggingFace |
+| `Unified Distillation: Upload HF` | `d3f6c1b6` | Push trained model to HuggingFace |
+| `Unified Distillation: Materialize Config` | `f43555f6` | Materialize YAML config strings to files |
+| `Generic Eval` | `1f1f8648` (prod), `aec40689` (multinode) | Evaluate via gtx_fte_alignment |
 
 ## Active Users
 
-| User           | Focus                                     | Activity                                  |
-| -------------- | ----------------------------------------- | ----------------------------------------- |
-| daria.sorokina | 4B model training and recipe iteration    | 15+ runs across Mar 30 - Apr 2            |
-| shane.moran    | 32B multi-node FSDP2 distributed training | 15+ runs Mar 31 - Apr 1 (rapid debugging) |
+| User | Focus | Activity |
+|------|-------|----------|
+| daria.sorokina | 4B model training and recipe iteration | 15+ runs across Mar 30 - Apr 2 |
+| shane.moran | 32B multi-node FSDP2 distributed training | 15+ runs Mar 31 - Apr 1 (rapid debugging) |
 
 ## Key Links
 

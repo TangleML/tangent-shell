@@ -36,16 +36,16 @@ Generate Run Paths (timestamped GCS paths) --+                                  
 
 ## ML Techniques
 
-| Aspect              | Details                                                               |
-| ------------------- | --------------------------------------------------------------------- |
-| **Technique**       | Gist token distillation (prompt compression via learned embeddings)   |
-| **Teacher**         | Pre-cached teacher logits from full system prompt                     |
-| **Student**         | Same model architecture with K gist tokens replacing system prompt    |
-| **Loss**            | KL divergence between gist-prompted logits and full-prompt logits     |
-| **Evaluation**      | ACE (end-to-end conversation quality) + GraphQL judge (per-criterion) |
-| **Judge ID**        | `c3e3c858-aa8f-40e1-a2f6-ba3497fbaffe`                                |
-| **Deployment**      | CentML (temporary, deleted after eval)                                |
-| **Variants tested** | "Simple", "Sequential Preprocess" pipeline architectures              |
+| Aspect | Details |
+|--------|---------|
+| **Technique** | Gist token distillation (prompt compression via learned embeddings) |
+| **Teacher** | Pre-cached teacher logits from full system prompt |
+| **Student** | Same model architecture with K gist tokens replacing system prompt |
+| **Loss** | KL divergence between gist-prompted logits and full-prompt logits |
+| **Evaluation** | ACE (end-to-end conversation quality) + GraphQL judge (per-criterion) |
+| **Judge ID** | `c3e3c858-aa8f-40e1-a2f6-ba3497fbaffe` |
+| **Deployment** | CentML (temporary, deleted after eval) |
+| **Variants tested** | "Simple", "Sequential Preprocess" pipeline architectures |
 
 ## Key Links
 

@@ -64,40 +64,33 @@ This replaces Step 1-3 when resuming.
 **Option A: User has pipeline source code (preferred)**
 If the repo already has a dehydrated pipeline YAML (with `name:` or `digest:` component
 refs, no inline `spec:` blocks), ask the user for its path and copy it:
-
 ```bash
 cp <path-to-dehydrated-pipeline.yaml> $SCENARIO_DIR/pipeline.yaml
 ```
-
 This is preferred because `--hydrate` on submit will always resolve the latest published
 component versions.
 
 **Option B: Export from baseline run**
 If no source pipeline exists, export and dehydrate from the baseline:
-
 ```bash
 tangle-deploy pipeline-run export BASELINE_RUN_ID $SCENARIO_DIR/pipeline.yaml --dehydrate
 ```
-
 `--dehydrate` strips inline specs and keeps only `name:` + `digest:` refs. Without it,
 the exported YAML has full inline specs and `--hydrate` on submit becomes a no-op.
 
 ### If `pipeline.yaml` already exists but has inline `spec:` blocks (hydrated):
 
 Dehydrate it in place so `--hydrate` on submit resolves the latest component versions:
-
 ```bash
 tangle-deploy pipeline dehydrate $SCENARIO_DIR/pipeline.yaml $SCENARIO_DIR/pipeline.yaml
 ```
 
 ### Then:
-
 1. Parse pipeline.yaml to build task → source file mapping (see researcher agent for code discovery)
 2. Download baseline config and metrics to `$SCENARIO_DIR`
 3. Initialize `$SCENARIO_DIR/logs/events.jsonl` (create if it doesn't exist)
 
 ## Gate — do NOT proceed to Step 1 until all pass:
-
 - [ ] `tangle-deploy` upgraded (`uv sync --upgrade-package tangle-deploy`)
 - [ ] `tangle-deploy quickstart` ran successfully
 - [ ] `SCENARIO_DIR` set to absolute path

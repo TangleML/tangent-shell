@@ -12,14 +12,12 @@ shadowenv exec -- uv sync --upgrade-package tangle-deploy
 ```
 
 If your repo doesn't use `uv sync`, install directly:
-
 ```bash
 shadowenv exec -- uv pip install --upgrade tangle-deploy \
   --extra-index-url https://pkgs.shopify.io/basic/data/python/simple
 ```
 
 Then discover available commands:
-
 ```bash
 shadowenv exec -- tangle-deploy quickstart
 ```
@@ -32,7 +30,6 @@ shadowenv exec -- tangle-deploy component inspect \
 ```
 
 Expected output starts with:
-
 ```
 TangleApiClient initialized with base URL: https://oasis.shopify.io
 ```
@@ -40,7 +37,6 @@ TangleApiClient initialized with base URL: https://oasis.shopify.io
 ## Auth
 
 **Auth works two ways** — you don't need both:
-
 - **Local (Minerva SSO)**: Automatic for @shopify.com accounts. No env vars needed.
 - **River containers**: Uses `RIVER_SESSION_JWT` via the credentials proxy.
 
@@ -59,7 +55,7 @@ export TANGLE_DEPLOY_SOURCE=$([ -n "$RIVER_SESSION_JWT" ] && echo "river-tangent
 - `river-tangent` — when `RIVER_SESSION_JWT` is set (River-driven session).
 - `tangent` — otherwise (human / Pi / direct CLI).
 
-This is required when running the skill from a repo _other_ than
+This is required when running the skill from a repo *other* than
 `//areas/ml/tangent` (e.g. `Shopify/discovery`, ml-taxonomy, anywhere the skill
 files were pulled from
 `gs://shopify-discovery-relevance/tangent/skills/`). Inside the Tangent zone
@@ -102,9 +98,9 @@ shadowenv exec -- tangle-deploy artifacts download RUN_ID -q '{"tasks": {"TaskNa
 
 ## Troubleshooting
 
-| Problem                                                                       | Fix                                                                                                                      |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `credential.helper has multiple values`                                       | Use `git config --global --replace-all credential.helper ...`                                                            |
-| GCS downloads hang forever                                                    | Local: run `gcloud auth application-default login`. River: check `RIVER_SESSION_JWT` is set                              |
+| Problem | Fix |
+|---|---|
+| `credential.helper has multiple values` | Use `git config --global --replace-all credential.helper ...` |
+| GCS downloads hang forever | Local: run `gcloud auth application-default login`. River: check `RIVER_SESSION_JWT` is set |
 | `dev up --bare` fails at "Install Python dependencies" but `uv sync` succeeds | Fix: `shadowenv exec -- uv pip install tangle-deploy --extra-index-url https://pkgs.shopify.io/basic/data/python/simple` |
-| Tangle commands fail with auth error                                          | Local: re-run `minerva login`. River: check `RIVER_SESSION_JWT` is set                                                   |
+| Tangle commands fail with auth error | Local: re-run `minerva login`. River: check `RIVER_SESSION_JWT` is set |

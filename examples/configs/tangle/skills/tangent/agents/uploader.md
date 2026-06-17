@@ -15,38 +15,13 @@ do not invent ad-hoc ingest components.
 See [`references/uploading-artifacts.md`](../references/uploading-artifacts.md)
 for the full ingest pattern, YAML wiring, and gotchas.
 
-## When to use this wizard vs. `Promote to data source`
-
-This wizard handles **upload + ephemeral wiring** — a one-shot upload
-that a single experiment will consume via `Download from GCS`. Files
-land at `gs://shopify-discovery-relevance/tangent/uploads/<user>/<YYYY-MM-DD>/`
-with no provenance metadata; the daily prefix is not designed for
-long-term reuse.
-
-If the user wants a local artifact **preserved indefinitely and reusable
-across scenarios** — a curated eval set, a baseline checkpoint, an
-annotation snapshot — they still need **this wizard for step 1**.
-`Promote to data source` consumes a pipeline task output (`Data`), not a
-local filesystem path, so the full flow is:
-
-1. **Use this wizard** to upload the local file/directory to GCS.
-2. **Hand off to the `tangent builder` agent** to wire a one-off
-   `Download from GCS` → `Promote to data source` pipeline against the
-   URI from step 1. The promote task emits the opaque `data_source_id`
-   other experiments will pass to `Load data source`.
-
-See Recipe B in [`../references/data-sources.md`](../references/data-sources.md)
-for the full walkthrough, plus the sensitive-data checklist (every
-Tangle user can read promoted data) and the don't-schedule-promote-pipelines
-rule.
-
 ## Tools
 
 - `gcloud storage` for uploads in **River sessions** (gsutil's `boto`-based
   auth flow does **not** work with `RIVER_SESSION_JWT` — it hangs forever).
   Prefix with `shadowenv exec --` so the zone's auth env wins.
 - `gsutil cp` for **local sessions** that have `gcloud auth application-default
-login` configured.
+  login` configured.
 - `tangle-deploy component inspect --digest <digest>` to verify the ingest
   component before wiring it.
 
@@ -61,13 +36,12 @@ the answer. Confirm before uploading.**
 ### Step 1 — What to upload
 
 Ask via AskUserQuestion:
-
 1. Absolute path to the file or directory to upload.
 
 The wizard handles two shapes — single file or directory. It does **not**
 archive directories (zip / tar) on the user's behalf; if the user wants a
 tarball uploaded as a single blob, they should `tar czf foo.tgz <dir>`
-themselves _before_ invoking the wizard, then run the wizard against the
+themselves *before* invoking the wizard, then run the wizard against the
 `.tgz` as a single-file upload. ("Download from GCS" hands the consumer
 task whatever shape the URI describes — directory or blob — so this is
 strictly the user's choice about what shape they want downstream.)
@@ -89,9 +63,9 @@ if [ -n "$RIVER_SESSION_JWT" ]; then ENV=river; else ENV=local; fi
 **River session (`RIVER_SESSION_JWT` set)** — propose the default and let
 the user override:
 
-| Field  | Default value                          |
-| ------ | -------------------------------------- |
-| Bucket | `shopify-discovery-relevance`          |
+| Field | Default value |
+|---|---|
+| Bucket | `shopify-discovery-relevance` |
 | Folder | `tangent/uploads/<user>/<YYYY-MM-DD>/` |
 
 `<user>` should come from `$RIVER_SHOPIFY_ACCT_EMAIL` (split on `@`) or
@@ -108,7 +82,7 @@ Ask via AskUserQuestion:
 1. Which GCS bucket? (e.g. `my-team-ml-artifacts`, `shopify-search-ml`,
    …) — no default option.
 2. Which folder prefix inside that bucket? — suggest `tangent/uploads/$USER/$(date +%Y-%m-%d)/`
-   as a _recommended pattern_ but let the user override.
+   as a *recommended pattern* but let the user override.
 
 Never pre-fill `shopify-discovery-relevance` for a local session, even as
 a suggested option. That bucket is the River-default for a reason —
@@ -160,7 +134,7 @@ Never silently overwrite.
 
 First, compute the unique destination name from Step 2b so the upload command
 actually creates the prefix that downstream pipelines will reference. The
-_destination URI must include the unique name_ — don't just `cp` the source
+*destination URI must include the unique name* — don't just `cp` the source
 directory's basename into the day-level folder, which would either leak the
 basename or collide on re-upload.
 
@@ -173,7 +147,6 @@ contents directly into `FOLDER/`. Use `rsync -r` for directories to get the
 clean "mirror contents into the named prefix" behavior.
 
 **River session (gcloud storage):**
-
 ```bash
 # Single file
 DEST_NAME="$(date +%H%M%S)-$(basename "<LOCAL_PATH>")"
@@ -187,7 +160,6 @@ shadowenv exec -- gcloud storage rsync -r "<LOCAL_DIR>" \
 ```
 
 **Local session (gsutil — only when local creds are configured):**
-
 ```bash
 # Single file
 DEST_NAME="$(date +%H%M%S)-$(basename "<LOCAL_PATH>")"
@@ -215,10 +187,10 @@ fi
 
 The URI you hand to "Download from GCS" in Step 4 has the matching shape:
 
-| Shape       | URI to use                             | Why                                                              |
-| ----------- | -------------------------------------- | ---------------------------------------------------------------- |
-| Single file | `gs://<BUCKET>/<FOLDER>/${DEST_NAME}`  | No trailing slash — component does `gsutil cp` on a single blob. |
-| Directory   | `gs://<BUCKET>/<FOLDER>/${DEST_NAME}/` | Trailing slash — component does `gsutil rsync -r` on a prefix.   |
+| Shape | URI to use | Why |
+|---|---|---|
+| Single file | `gs://<BUCKET>/<FOLDER>/${DEST_NAME}` | No trailing slash — component does `gsutil cp` on a single blob. |
+| Directory | `gs://<BUCKET>/<FOLDER>/${DEST_NAME}/` | Trailing slash — component does `gsutil rsync -r` on a prefix. |
 
 Getting the trailing slash wrong is the most common ingest bug —
 `Download from GCS` will either fail to find anything (file URI for a

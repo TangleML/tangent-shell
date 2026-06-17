@@ -33,17 +33,17 @@ Build SQL Context -> Load Product Sample -> Call Catalog API (per product)
 
 ## ML Techniques
 
-| Aspect              | Details                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| **Evaluation type** | API quality monitoring (no model training)                  |
-| **LLM Judge**       | Precision Judge for duplicate pair detection                |
-| **Metrics**         | Category Match Rate@K, Duplicate Rate@K, API overview stats |
-| **Output**          | BigQuery metrics table (append-only)                        |
+| Aspect | Details |
+|--------|---------|
+| **Evaluation type** | API quality monitoring (no model training) |
+| **LLM Judge** | Precision Judge for duplicate pair detection |
+| **Metrics** | Category Match Rate@K, Duplicate Rate@K, API overview stats |
+| **Output** | BigQuery metrics table (append-only) |
 
 ## Active Users
 
-| User             | Focus                                             | Activity         |
-| ---------------- | ------------------------------------------------- | ---------------- |
+| User | Focus | Activity |
+|------|-------|----------|
 | mariya.mansurova | Similar product recommendation quality evaluation | 8+ runs on Apr 2 |
 
 ## Key Links

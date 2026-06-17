@@ -16,11 +16,11 @@ Prefix all `tangle-deploy` commands with `shadowenv exec --`.
 Run `tangle-deploy quickstart` to discover available commands. Use `--help-extended`
 or `--help-full` on any command for detailed usage.
 
-| What you need      | Command                                                                        |
-| ------------------ | ------------------------------------------------------------------------------ |
-| Artifact URIs      | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'`                     |
+| What you need | Command |
+|---|---|
+| Artifact URIs | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'` |
 | Download artifacts | `tangle-deploy artifacts download RUN_ID -q '{"tasks": {...}}' -o ./artifacts` |
-| Run details        | `tangle-deploy pipeline-run details RUN_ID --state`                            |
+| Run details | `tangle-deploy pipeline-run details RUN_ID --state` |
 
 ## Inputs
 
@@ -49,58 +49,47 @@ top movers. If predictions are truly unavailable, state why — do not silently 
 **Status**: IN_PROGRESS | SUCCESS | MARGINAL | NO_IMPROVEMENT | REGRESSION
 
 ## Abstract
-
 <3-5 sentences: problem, approach, result as baseline delta, insight>
 
 ## Background & Related Work
-
 **Baseline**: [<baseline_run_id>](https://oasis.shopify.io/runs/<baseline_run_id>) — <metric> = <value>
 **Round's best run**: [<run_id>](https://oasis.shopify.io/runs/<run_id>)
 **Goal**: <direction> by at least <min_improvement>
 
 ## Methodology
-
 <Strategy, intervention types, search space>
 
 ## Results
-
 | Metric | Baseline | Best | Delta % |
-| ------ | -------- | ---- | ------- |
-
+|--------|----------|------|---------|
 Per-round progression, segment breakdown, guard status.
 
 ## Analysis
 
 ### Top Winning Cases
-
 Download predictions from best run and baseline. Join on key columns.
 Show top 5-10 examples where the model improved most.
 
 | Example | Baseline Score | Best Score | Delta | Why |
-| ------- | -------------- | ---------- | ----- | --- |
+|---------|---------------|------------|-------|-----|
 
 ### Top Losing Cases
-
 Show top 5-10 examples where the model regressed most.
 
 | Example | Baseline Score | Best Score | Delta | Why |
-| ------- | -------------- | ---------- | ----- | --- |
+|---------|---------------|------------|-------|-----|
 
 ### Key Findings
-
 <What worked, what didn't, surprises, SHAP insights>
 
 ## Discussion & Proposals
-
 What worked/didn't, convergence assessment, open directions, recommendations.
 
 ## Appendix
-
 Best config diff, key run links, GCS artifacts, agent reference YAML.
 ```
 
 ## Output Checklist — verify before returning:
-
 - [ ] `<report_path>` filename contains the round's `<run_id>` (no overwrite of prior rounds)
 - [ ] All 7 sections present
 - [ ] Results table has actual numbers (not placeholders)

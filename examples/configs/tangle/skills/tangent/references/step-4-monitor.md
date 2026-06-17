@@ -36,7 +36,6 @@ print(state.failed_execution_ids)     # [] if none failed
 ```
 
 For multiple runs:
-
 ```bash
 shadowenv exec -- python3 -c "
 from tangle_deploy import TangleApiClient
@@ -54,13 +53,11 @@ Mark runs exceeding 2x `scenario.timing.total_seconds` as STUCK and replace.
 ## Post-Completion Inspection
 
 When a run completes (SUCCEEDED or FAILED), immediately run:
-
 ```bash
 tangle-deploy pipeline-run details RUN_ID --state
 ```
 
 This returns the execution tree with per-component status. Check for:
-
 1. Any component in FAILED or SYSTEM_ERROR state (the overall run may show SUCCEEDED
    if the failed component was optional or non-blocking)
 2. Components with unexpectedly short execution times (may indicate silent failures)
@@ -77,7 +74,6 @@ alongside the run_id. Step 5 will need these for detailed analysis.
 
 **Launch the debugger as a subagent using the Agent tool.** Read `agents/debugger.md`
 and pass its full content as the agent prompt, with this task context appended:
-
 ```
 ---
 Task context:
@@ -90,19 +86,18 @@ Return one-line: "<FAILURE_TYPE>: <description> → <action>"
 
 Act on the diagnosis:
 
-| Failure Type   | Action                                | Budget Impact   |
-| -------------- | ------------------------------------- | --------------- |
-| **PERMISSION** | Fix per diagnosis, resubmit           | No cost         |
-| **INFRA**      | Retry if transient, fix if persistent | No cost         |
-| **CONFIG**     | Fix per diagnosis, resubmit           | No cost         |
-| **TRAINING**   | Record as result (failure IS data)    | Already counted |
-| **EVAL**       | Fix per diagnosis, resubmit           | No cost         |
-| **UNKNOWN**    | Escalate to user                      | No cost         |
+| Failure Type | Action | Budget Impact |
+|-------------|--------|---------------|
+| **PERMISSION** | Fix per diagnosis, resubmit | No cost |
+| **INFRA** | Retry if transient, fix if persistent | No cost |
+| **CONFIG** | Fix per diagnosis, resubmit | No cost |
+| **TRAINING** | Record as result (failure IS data) | Already counted |
+| **EVAL** | Fix per diagnosis, resubmit | No cost |
+| **UNKNOWN** | Escalate to user | No cost |
 
 ## Cancelling a Run
 
 Only cancel when the user asks or a run is blocking resources.
-
 ```bash
 shadowenv exec -- tangle-deploy pipeline-run cancel RUN_ID
 ```
@@ -110,16 +105,13 @@ shadowenv exec -- tangle-deploy pipeline-run cancel RUN_ID
 ## Waiting
 
 Use `dispatch` for non-blocking wait (if available), or sleep between light polls:
-
 ```
 dispatch({ command: "shadowenv exec -- tangle-deploy pipeline-run await <run_id> --max-wait <interval> --exit-on-first-failure" })
 ```
-
 Interval: 180s (short pipelines), 600s (medium), 900s (long).
 On wake, light-poll ALL active runs (graph state API), not just the awaited one.
 
 ## Gate — do NOT proceed to Step 5 until all pass:
-
 - [ ] All runs resolved (SUCCEEDED, permanently FAILED, or STUCK-replaced)
 - [ ] No RUNNING runs remain
 - [ ] Each completed run inspected with `tangle-deploy pipeline-run details --state`

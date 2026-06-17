@@ -18,15 +18,15 @@ Prefix all `tangle-deploy` commands with `shadowenv exec --`.
 Run `tangle-deploy quickstart` to discover available commands. Use `--help-extended`
 or `--help-full` on any command for detailed usage.
 
-| What you need        | Command                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| Run details          | `tangle-deploy pipeline-run details RUN_ID --state`                                          |
-| Drill into a task    | `tangle-deploy pipeline-run details RUN_ID --execution-id EXEC_ID --include-implementations` |
-| Container logs       | `tangle-deploy pipeline-run logs EXECUTION_ID`                                               |
-| Artifact URIs        | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'`                                   |
-| Download artifacts   | `tangle-deploy artifacts download RUN_ID -q '{"tasks": {...}}' -o ./artifacts`               |
-| Export pipeline spec | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate`                           |
-| Inspect component    | `tangle-deploy component inspect --name "Name" --full-spec`                                  |
+| What you need | Command |
+|---|---|
+| Run details | `tangle-deploy pipeline-run details RUN_ID --state` |
+| Drill into a task | `tangle-deploy pipeline-run details RUN_ID --execution-id EXEC_ID --include-implementations` |
+| Container logs | `tangle-deploy pipeline-run logs EXECUTION_ID` |
+| Artifact URIs | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'` |
+| Download artifacts | `tangle-deploy artifacts download RUN_ID -q '{"tasks": {...}}' -o ./artifacts` |
+| Export pipeline spec | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate` |
+| Inspect component | `tangle-deploy component inspect --name "Name" --full-spec` |
 
 ## Inputs
 
@@ -41,7 +41,6 @@ or `--help-full` on any command for detailed usage.
 ## Review Checklist
 
 ### Implementation Correctness
-
 - Are the config changes what was intended? (diff baseline config vs best config)
 - Did the pipeline run the right code version? (check image SHAs — use `--include-implementations` to see the component as actually used)
 - Were eval sets identical across runs? (if not, comparisons are invalid)
@@ -49,7 +48,6 @@ or `--help-full` on any command for detailed usage.
 - Are artifact paths correct? (metrics downloaded from the right run)
 
 ### ML Methodology
-
 - Is the improvement real or noise? (effect size vs eval set size)
 - Are guard metrics actually passing, or barely? (check margins)
 - Did the experiment test what it claimed? (hypothesis vs actual changes)
@@ -58,7 +56,6 @@ or `--help-full` on any command for detailed usage.
 - Is the best config robust or was it cherry-picked from noise?
 
 ### Report Quality
-
 - Does the report accurately reflect the data? (spot-check key numbers)
 - Are the conclusions supported by evidence?
 - Are failure modes and negative results documented?
@@ -75,31 +72,26 @@ write to a generic `review.md` or you will overwrite prior rounds):
 ## Verdict: APPROVE | CONCERNS | BLOCK
 
 ## Implementation
-
 - [ ] Config changes match intent
 - [ ] Same eval set across runs
 - [ ] No silent failures
 - [ ] Artifacts verified
 
 ## ML Methodology
-
 - [ ] Improvement exceeds noise threshold
 - [ ] Guard metrics pass with margin
 - [ ] No confounded experiments
 - [ ] No segment regressions hidden by aggregate
 
 ## Report
-
 - [ ] Numbers accurate
 - [ ] Conclusions supported
 - [ ] Negative results documented
 
 ## Issues Found
-
 <list any problems, with severity>
 
 ## Recommendations
-
 <what to fix before finalizing, or why it's good to go>
 ```
 

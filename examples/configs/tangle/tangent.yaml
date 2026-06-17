@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangle
 name: Tangle
-version: 1.10.0
+version: 1.13.0
 description: A Tangle-aware assistant with the Tangent skill toolkit and Tangle API tools for everyday work with Tangle ML pipelines and runs.
 author: Tangent
 icon: icon.svg
@@ -38,6 +38,28 @@ prime:
 
 subagents:
   defaultSystemPrompt: prompts/subagent.md
+  # Equip every spawned worker with the file/bash tools plus the full Tangle API
+  # surface, so Prime can delegate real work (lookups and actions) to them. The
+  # tangle-api extension is loaded into every agent, but Pi's --tools allowlist
+  # would strip its tools from sub-agents unless they appear here.
+  defaultTools:
+    - read
+    - write
+    - edit
+    - bash
+    - grep
+    - find
+    - ls
+    - tangle_run_list
+    - tangle_run_status
+    - tangle_run_submit
+    - tangle_run_cancel
+    - tangle_run_annotation_set
+    - tangle_execution_state
+    - tangle_execution_details
+    - tangle_execution_logs
+    - tangle_execution_artifacts
+    - tangle_artifact_signed_url
 
 ui:
   components:

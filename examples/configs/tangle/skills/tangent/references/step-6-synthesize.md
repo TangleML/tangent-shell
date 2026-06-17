@@ -6,19 +6,6 @@
 - **MEMORY.md**: update Best Known Config, add one-line lesson, verify Active Runs empty
 - **Audit trail** (`logs/audit.yaml`): append round entry with rationale and outcome
 
-## Preserve artifacts worth reusing
-
-If this round produced an artifact future rounds or other scenarios would
-benefit from — best-so-far model checkpoint, a curated eval/annotation
-dataset, a frozen feature snapshot — wire `Promote to data source` into
-the next submit so the artifact gets an opaque `data_source_id` you can
-record in `MEMORY.md`. **Every Tangle user will have access to the data
-you promote.** Do not promote anything containing PII, sensitive merchant
-data, contractually restricted datasets, embargoed model weights, or
-secrets. See [`data-sources.md`](data-sources.md) for the safety
-checklist and the promote/load recipes. Promoting is optional — skip it
-for routine rounds.
-
 ## Report (MANDATORY — do NOT skip, do NOT defer)
 
 **Launch the reporter as a subagent using the Agent tool.** Do not just read the
@@ -41,7 +28,6 @@ only run. Multi-run rounds: the run with the best target metric. The same
 `learning-<run_id>.json` upload.
 
 ## Gate — do NOT proceed to Step 7 until all pass:
-
 - [ ] Session log updated with full metrics and analysis
 - [ ] MEMORY.md updated (best config, lessons, Active Runs empty)
 - [ ] `audit.yaml` round entry appended

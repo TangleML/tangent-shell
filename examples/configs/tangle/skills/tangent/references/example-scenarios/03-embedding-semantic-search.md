@@ -69,39 +69,39 @@ Mines hard negative examples by finding products that are similar in embedding s
 
 ## ML Techniques
 
-| Aspect                      | Details                                                                                                   |
-| --------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Inner Loop Model**        | Unified HSTU co-trained model (`hstu_v8`) -- behavioral/sequential, not text-only                         |
-| **Hard Neg Model**          | UPE GTE multilingual fine-tuned (`upe-gte-multilingual-search-finetune`)                                  |
-| **Training method**         | Contrastive learning with ANN-mined hard negatives                                                        |
-| **Hard negative strategy**  | IVF8192+PQ192 index at 200 shards; filter by similarity range [0.3, positive_threshold] and rank [1, 650] |
-| **Query representation**    | HSTU: behavioral features (`hstu_features`); UPE: text with `search_query: ` prefix                       |
-| **Document representation** | Markdown product docs with `search_document: ` prefix, 768-dim embeddings                                 |
-| **Infrastructure**          | Nebius cluster with NVIDIA H200 GPUs, bfloat16                                                            |
-| **Index types**             | Flat/L2 (inner loop eval), IVF8192+PQ192/IP (hard neg mining at scale)                                    |
+| Aspect | Details |
+|--------|---------|
+| **Inner Loop Model** | Unified HSTU co-trained model (`hstu_v8`) -- behavioral/sequential, not text-only |
+| **Hard Neg Model** | UPE GTE multilingual fine-tuned (`upe-gte-multilingual-search-finetune`) |
+| **Training method** | Contrastive learning with ANN-mined hard negatives |
+| **Hard negative strategy** | IVF8192+PQ192 index at 200 shards; filter by similarity range [0.3, positive_threshold] and rank [1, 650] |
+| **Query representation** | HSTU: behavioral features (`hstu_features`); UPE: text with `search_query: ` prefix |
+| **Document representation** | Markdown product docs with `search_document: ` prefix, 768-dim embeddings |
+| **Infrastructure** | Nebius cluster with NVIDIA H200 GPUs, bfloat16 |
+| **Index types** | Flat/L2 (inner loop eval), IVF8192+PQ192/IP (hard neg mining at scale) |
 
 ## Key Components
 
-| Component                             | Digest                                         | Purpose                                          |
-| ------------------------------------- | ---------------------------------------------- | ------------------------------------------------ |
-| `Config Manager`                      | `a859c220`                                     | Pipeline configuration                           |
-| `Export table to parquet`             | `097fb3ea`                                     | BQ → GCS parquet export                          |
-| `Generate product documents`          | `53befaa1`                                     | BQ product data → markdown documents             |
-| `Generate embeddings (Nebius Native)` | `c51ae0ac` (inner loop), `49f9b720` (hard neg) | Model inference on Nebius H200                   |
-| `Train Index`                         | `0bed381d` (inner loop), `5e56a112` (hard neg) | FAISS index training                             |
-| `Build Index`                         | `a5001fd8` (inner loop), `ef0a2c89` (hard neg) | FAISS index building                             |
-| `Query Index`                         | `bd36872e` (inner loop), `c5001948` (hard neg) | FAISS ANN search                                 |
-| `Merge topk results`                  | `e0b5c203` (inner loop), `e25a1db2` (hard neg) | Merge sharded results                            |
-| `Compute positive thresholds`         | `471ec104`                                     | Derive similarity thresholds from positive pairs |
-| `Filter search results`               | `ffcf236b`                                     | Select hard negatives by similarity/rank range   |
+| Component | Digest | Purpose |
+|-----------|--------|---------|
+| `Config Manager` | `a859c220` | Pipeline configuration |
+| `Export table to parquet` | `097fb3ea` | BQ → GCS parquet export |
+| `Generate product documents` | `53befaa1` | BQ product data → markdown documents |
+| `Generate embeddings (Nebius Native)` | `c51ae0ac` (inner loop), `49f9b720` (hard neg) | Model inference on Nebius H200 |
+| `Train Index` | `0bed381d` (inner loop), `5e56a112` (hard neg) | FAISS index training |
+| `Build Index` | `a5001fd8` (inner loop), `ef0a2c89` (hard neg) | FAISS index building |
+| `Query Index` | `bd36872e` (inner loop), `c5001948` (hard neg) | FAISS ANN search |
+| `Merge topk results` | `e0b5c203` (inner loop), `e25a1db2` (hard neg) | Merge sharded results |
+| `Compute positive thresholds` | `471ec104` | Derive similarity thresholds from positive pairs |
+| `Filter search results` | `ffcf236b` | Select hard negatives by similarity/rank range |
 
 ## Active Users
 
-| User                 | Focus                                        | Activity                           |
-| -------------------- | -------------------------------------------- | ---------------------------------- |
-| yang.liu             | Embedding model development, inner loop eval | 30+ runs/week, primary model owner |
-| sourav.bhattacharjee | Hard negative mining, inner loop eval        | 15+ runs/week, data pipeline focus |
-| shuying.sun          | Inner loop eval (final candidate runs)       | Periodic validation runs           |
+| User | Focus | Activity |
+|------|-------|----------|
+| yang.liu | Embedding model development, inner loop eval | 30+ runs/week, primary model owner |
+| sourav.bhattacharjee | Hard negative mining, inner loop eval | 15+ runs/week, data pipeline focus |
+| shuying.sun | Inner loop eval (final candidate runs) | Periodic validation runs |
 
 ## Key Links
 

@@ -24,28 +24,28 @@ Dhm Prepare and Train -> Dhm Compile (LLVM) -> Dhm Package (upload to GCS)
 
 ## ML Techniques
 
-| Aspect           | Details                                                         |
-| ---------------- | --------------------------------------------------------------- |
-| **Model**        | Two-pass LightGBM (DHM = Delivery Hours Model)                  |
-| **Compilation**  | lleaves: LightGBM → LLVM IR → native `.so` shared library       |
+| Aspect | Details |
+|--------|---------|
+| **Model** | Two-pass LightGBM (DHM = Delivery Hours Model) |
+| **Compilation** | lleaves: LightGBM → LLVM IR → native `.so` shared library |
 | **Optimization** | PGO (Profile-Guided Optimization) + BOLT post-link optimization |
-| **Target arch**  | `linux-x86-64-emeraldrapids` (Intel Sapphire Rapids+)           |
-| **Hardware**     | 120 CPU, 510Gi memory (train); 60 CPU, 510Gi (predict)          |
-| **Data size**    | Configurable: `dataset_size=small` (testing) or full            |
+| **Target arch** | `linux-x86-64-emeraldrapids` (Intel Sapphire Rapids+) |
+| **Hardware** | 120 CPU, 510Gi memory (train); 60 CPU, 510Gi (predict) |
+| **Data size** | Configurable: `dataset_size=small` (testing) or full |
 
 ## Key Components
 
-| Component               | Digest     | Purpose                          |
-| ----------------------- | ---------- | -------------------------------- |
-| `Dhm prepare and train` | `e1b5d38a` | Data prep + LightGBM training    |
-| `Dhm compile`           | `41fce585` | LLVM compilation with PGO + BOLT |
-| `Dhm predict`           | `804d7117` | Generate prediction metrics      |
-| `Dhm package`           | `655b7f3a` | Bundle artifacts for deployment  |
+| Component | Digest | Purpose |
+|-----------|--------|---------|
+| `Dhm prepare and train` | `e1b5d38a` | Data prep + LightGBM training |
+| `Dhm compile` | `41fce585` | LLVM compilation with PGO + BOLT |
+| `Dhm predict` | `804d7117` | Generate prediction metrics |
+| `Dhm package` | `655b7f3a` | Bundle artifacts for deployment |
 
 ## Active Users
 
-| User       | Focus                                       | Activity          |
-| ---------- | ------------------------------------------- | ----------------- |
+| User | Focus | Activity |
+|------|-------|----------|
 | peter.moon | Delivery date model training and evaluation | 10+ runs on Apr 2 |
 
 ## Key Links

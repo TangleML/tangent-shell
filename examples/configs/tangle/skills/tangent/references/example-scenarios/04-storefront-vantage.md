@@ -44,54 +44,52 @@ Query set: `daily_pulse_storefront_v4`. Search model: `StorefrontVantage`.
 
 Xiaofeng.xu runs controlled experiments varying one dimension at a time:
 
-| Experiment                             | What It Tests                                                |
-| -------------------------------------- | ------------------------------------------------------------ |
-| `Vantage Combined No QR`               | Combined model without query rewriting -- isolates QR impact |
-| `Vantage Body Html`                    | Using HTML body text as ranking feature                      |
-| `Vantage Embed Threshold 0.1/0.15/0.2` | Semantic embedding similarity cutoff sweep                   |
-| `Vantage DNN`                          | Deep neural network ranker (vs tree-based LGBM)              |
-| `Vantage Rel Only`                     | Relevance-only ranking (no engagement signals)               |
-| `Vantage Baseline`                     | Standard production configuration                            |
-| `Vantage Symspell QR`                  | SymSpell-based query rewriting (spelling correction)         |
+| Experiment | What It Tests |
+|-----------|---------------|
+| `Vantage Combined No QR` | Combined model without query rewriting -- isolates QR impact |
+| `Vantage Body Html` | Using HTML body text as ranking feature |
+| `Vantage Embed Threshold 0.1/0.15/0.2` | Semantic embedding similarity cutoff sweep |
+| `Vantage DNN` | Deep neural network ranker (vs tree-based LGBM) |
+| `Vantage Rel Only` | Relevance-only ranking (no engagement signals) |
+| `Vantage Baseline` | Standard production configuration |
+| `Vantage Symspell QR` | SymSpell-based query rewriting (spelling correction) |
 
 ### Storefront L1 Scrape with QU (regan.zhao)
-
 L1 stage evaluation with query understanding features enabled. Tests how QU pipeline improvements affect initial candidate retrieval.
 
 ### Storefront Scrape Only (regan.zhao)
-
 Lightweight scrape-only pipeline (no judging/evaluation). Uses `storefront_reranker_scrape_20260331` query set with `{"first": 30}` template params, 15 QPS rate, 20 concurrent queries, 500ms delay.
 
 ## ML Techniques
 
-| Aspect                    | Details                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------- |
-| **Evaluation pattern**    | Scrape → Hydrate → Judge Evaluate (`storefront_v1.2` composite)                        |
-| **DNN variant**           | Neural ranker as alternative to LGBM-based production ranker                           |
-| **Embedding threshold**   | Configurable cosine similarity cutoff for semantic retrieval                           |
-| **Query rewriting**       | SymSpell and other QR strategies tested for spelling correction impact                 |
-| **Body HTML features**    | Product description HTML as additional ranking signal                                  |
-| **Composite scoring**     | `storefront_v1.2` evaluator combining multiple quality signals                         |
+| Aspect | Details |
+|--------|---------|
+| **Evaluation pattern** | Scrape → Hydrate → Judge Evaluate (`storefront_v1.2` composite) |
+| **DNN variant** | Neural ranker as alternative to LGBM-based production ranker |
+| **Embedding threshold** | Configurable cosine similarity cutoff for semantic retrieval |
+| **Query rewriting** | SymSpell and other QR strategies tested for spelling correction impact |
+| **Body HTML features** | Product description HTML as additional ranking signal |
+| **Composite scoring** | `storefront_v1.2` evaluator combining multiple quality signals |
 | **Scrape infrastructure** | Vantage broker (`vantage_broker_shop_real_upi` env for standard; gRPC for alternative) |
 
 ## Key Components
 
-| Component                        | Digest                                                                  | Purpose                                             |
-| -------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
-| `Scrape Config Manager`          | `ac194d61`                                                              | Load StorefrontVantage search configuration         |
-| `Merge jsons`                    | `fced86cc`                                                              | Update template parameters for experiment variants  |
-| `Scrape V2`                      | `f50efb26` (manual), `db6067c0` (daily pulse), `bd949381` (scrape-only) | Hit live search APIs                                |
-| `Hydrate`                        | `fbdf3230`                                                              | Enrich scrape results with product data + judgments |
-| `Judge Evaluate storefront_v1.2` | `92ec6ff4` (manual), `0c6f84ab` (daily pulse)                           | Composite quality scoring                           |
-| `Truncate if time`               | `9ff70bbe`                                                              | Schedule manager for daily cache busting            |
+| Component | Digest | Purpose |
+|-----------|--------|---------|
+| `Scrape Config Manager` | `ac194d61` | Load StorefrontVantage search configuration |
+| `Merge jsons` | `fced86cc` | Update template parameters for experiment variants |
+| `Scrape V2` | `f50efb26` (manual), `db6067c0` (daily pulse), `bd949381` (scrape-only) | Hit live search APIs |
+| `Hydrate` | `fbdf3230` | Enrich scrape results with product data + judgments |
+| `Judge Evaluate storefront_v1.2` | `92ec6ff4` (manual), `0c6f84ab` (daily pulse) | Composite quality scoring |
+| `Truncate if time` | `9ff70bbe` | Schedule manager for daily cache busting |
 
 ## Active Users
 
-| User                      | Focus                                                      | Activity                |
-| ------------------------- | ---------------------------------------------------------- | ----------------------- |
-| xiaofeng.xu               | Systematic variant experiments (threshold sweeps, DNN, QR) | 5-10 runs/day           |
-| regan.zhao                | L1 scraping and QU integration testing                     | 3-5 runs/day            |
-| relevance-cloud-runner SA | Daily Pulse + production pipeline monitoring               | 12 runs/day (automated) |
+| User | Focus | Activity |
+|------|-------|----------|
+| xiaofeng.xu | Systematic variant experiments (threshold sweeps, DNN, QR) | 5-10 runs/day |
+| regan.zhao | L1 scraping and QU integration testing | 3-5 runs/day |
+| relevance-cloud-runner SA | Daily Pulse + production pipeline monitoring | 12 runs/day (automated) |
 
 ## Key Links
 
