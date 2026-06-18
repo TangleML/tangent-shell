@@ -1,4 +1,4 @@
-import { StatusDot } from "@/features/chat/components/StatusDot";
+import { StatusDot } from "@/features/chat/components/sidebar/StatusDot";
 import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
 import { SESSION_STATUS_DISPLAY } from "@/features/sessions/model/sessionStatusDisplay";
 import { InlineStack } from "@/shared/ui/layout";

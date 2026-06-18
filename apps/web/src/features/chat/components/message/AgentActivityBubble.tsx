@@ -4,7 +4,8 @@ import { InlineStack } from "@/shared/ui/layout";
 import { Spinner } from "@/shared/ui/spinner";
 import { Text } from "@/shared/ui/typography";
 
-import { MessageAvatar, MessageLayout } from "./MessageLayout";
+import { MessageAvatar } from "./MessageAvatar";
+import { MessageLayout } from "./MessageLayout";
 
 interface AgentActivityBubbleProps {
   activity: AgentActivity;

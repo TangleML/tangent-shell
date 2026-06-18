@@ -6,7 +6,7 @@
 import { Icon } from "@/shared/ui/icon";
 import { TabsTrigger } from "@/shared/ui/tabs";
 
-import { AgentStatusIndicator } from "./AgentStatusIndicator";
+import { AgentStatusIndicator } from "../sidebar/agents/AgentStatusIndicator";
 
 interface AgentTabTriggerProps {
   value: string;

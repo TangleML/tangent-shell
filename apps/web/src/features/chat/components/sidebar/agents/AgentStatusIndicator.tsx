@@ -2,7 +2,7 @@ import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
 import { Icon } from "@/shared/ui/icon";
 import { Text } from "@/shared/ui/typography";
 
-import { StatusDot } from "./StatusDot";
+import { StatusDot } from "../StatusDot";
 
 interface AgentStatusProps {
   /** Session the agent belongs to; with `agentId` keys the shared live status. */

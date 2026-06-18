@@ -6,7 +6,7 @@ import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Spinner } from "@/shared/ui/spinner";
 
-import { useArtifactText } from "../hooks/useArtifactText";
+import { useArtifactText } from "../../hooks/useArtifactText";
 
 interface ArtifactMarkdownContentProps {
   /** Session that owns the artifact; used to resolve relative references. */

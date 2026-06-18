@@ -19,16 +19,15 @@ import {
 } from "@/features/chat/model/chatDraft";
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
 import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Pill } from "@/shared/ui/patterns/pill";
 import { Textarea } from "@/shared/ui/textarea";
-import { Text } from "@/shared/ui/typography";
 
 import { FileDropZone } from "./FileDropZone";
+import { KilledAgentNotice } from "./KilledAgentNotice";
 import { QueuedFollowUps } from "./QueuedFollowUps";
+import { RunControls } from "./RunControls";
+import { StagedFiles } from "./StagedFiles";
 
 /** A follow-up message held client-side while the agent is mid-run. */
 interface QueuedMessage {
@@ -238,64 +237,19 @@ export function ChatInput({
   }
 
   // A killed agent can't take input, so swap the composer for a terminal notice.
-  // The Revive button is a placeholder for a future action (no handler yet).
   if (agentStatus === "killed") {
-    return (
-      <Box borderBlockStart="sm" padding="sm" inlineSize="full">
-        <BlockStack gap="2">
-          <InlineStack gap="2" blockAlign="center" wrap="wrap">
-            <Button variant="outline" size="sm">
-              <Icon name="RotateCcw" size="xs" />
-              Revive
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onRemove}
-              disabled={!onRemove}
-            >
-              <Icon name="Trash" size="xs" />
-              Remove from list
-            </Button>
-          </InlineStack>
-          <InlineStack
-            gap="2"
-            blockAlign="center"
-            align="space-between"
-            wrap="wrap"
-          >
-            <InlineStack gap="2" blockAlign="center">
-              <Icon name="Ban" size="xs" tone="subdued" />
-              <Text tone="subdued">Agent killed</Text>
-            </InlineStack>
-          </InlineStack>
-        </BlockStack>
-      </Box>
-    );
+    return <KilledAgentNotice onRemove={onRemove} />;
   }
 
   return (
     <FileDropZone onFilesDropped={addFiles} disabled={busy}>
       <Box borderBlockStart="sm" padding="sm" inlineSize="full">
         <BlockStack gap="2">
-          {files.length > 0 ? (
-            <InlineStack gap="1" wrap="wrap">
-              {files.map((file, index) => (
-                <Pill key={`${file.name}-${index}`} tone="subdued">
-                  <Icon name="File" size="xs" />
-                  {file.name}
-                  <IconButton
-                    icon="X"
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => removeFile(index)}
-                    disabled={uploading}
-                    aria-label={`Remove ${file.name}`}
-                  />
-                </Pill>
-              ))}
-            </InlineStack>
-          ) : null}
+          <StagedFiles
+            files={files}
+            uploading={uploading}
+            onRemove={removeFile}
+          />
           {/* Queued follow-ups wait above the input until the run ends (then
               they auto-send) or the user sends one immediately. */}
           <QueuedFollowUps
@@ -307,35 +261,12 @@ export function ChatInput({
           {/* Run controls sit on their own row, left-aligned, immediately above
               the input so they're easy to spot while the agent is working. */}
           {agentBusy ? (
-            <InlineStack gap="2" blockAlign="center" wrap="wrap">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onAbort}
-                disabled={!onAbort}
-              >
-                <Icon name="Square" size="xs" />
-                Stop
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void handleSubmit("steer")}
-                disabled={!canSubmit}
-              >
-                <Icon name="Send" size="xs" />
-                Steer
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void enqueueFollowUp()}
-                disabled={!canSubmit}
-              >
-                <Icon name="Clock" size="xs" />
-                Follow up
-              </Button>
-            </InlineStack>
+            <RunControls
+              canSubmit={canSubmit}
+              onAbort={onAbort}
+              onSteer={() => void handleSubmit("steer")}
+              onFollowUp={() => void enqueueFollowUp()}
+            />
           ) : null}
           <InlineStack gap="2" blockAlign="start" wrap="nowrap" fill>
             <input

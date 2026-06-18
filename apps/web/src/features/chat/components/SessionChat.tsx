@@ -1,4 +1,4 @@
-import { PI_AGENT, type Trigger } from "@tangent/shared/contracts";
+import { PI_AGENT } from "@tangent/shared/contracts";
 
 import {
   CHAT_TAB_VALUE,
@@ -12,24 +12,23 @@ import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
-import { AgentList } from "./AgentList";
-import { AgentModelPicker } from "./AgentModelPicker";
-import { AgentTabTrigger } from "./AgentTabTrigger";
-import { ArtifactTabView } from "./ArtifactTabView";
-import { AssetList } from "./AssetList";
-import { AssetTabTrigger } from "./AssetTabTrigger";
-import { BundlePanelLauncher } from "./BundlePanelLauncher";
-import { ChatInput } from "./ChatInput";
-import { ChatMessageList } from "./ChatMessageList";
-import { MemorySuggestionCard } from "./MemorySuggestionCard";
-import { SessionCard } from "./SessionCard";
-import { SessionSwitcher } from "./SessionSwitcher";
-import { SidebarColumn } from "./SidebarColumn";
-import { SubagentTabView } from "./SubagentTabView";
-import { TriggerTabView } from "./TriggerTabView";
+import { AgentModelPicker } from "./composer/AgentModelPicker";
+import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
+import { ChatInput } from "./composer/ChatInput";
+import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
+import { ChatMessageList } from "./message/ChatMessageList";
+import { AgentList } from "./sidebar/agents/AgentList";
+import { AssetList } from "./sidebar/assets/AssetList";
+import { SessionCard } from "./sidebar/sessions/SessionCard";
+import { SessionSwitcher } from "./sidebar/sessions/SessionSwitcher";
+import { SidebarColumn } from "./sidebar/SidebarColumn";
+import { AgentTabTrigger } from "./tabs/AgentTabTrigger";
+import { ArtifactTabView } from "./tabs/ArtifactTabView";
+import { AssetTabTrigger } from "./tabs/AssetTabTrigger";
+import { SubagentTabView } from "./tabs/SubagentTabView";
+import { TriggerTabPanel } from "./tabs/TriggerTabPanel";
 
 interface SessionChatProps {
   sessionId: string;
@@ -317,40 +316,5 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         </Tabs>
       </InlineStack>
     </BlockStack>
-  );
-}
-
-interface TriggerTabPanelProps {
-  sessionId: string;
-  triggerId: string;
-  triggers: Trigger[];
-  onClose: () => void;
-}
-
-/**
- * Resolves a trigger tab's id against the live roster. A trigger removed
- * elsewhere (e.g. the sidebar) leaves a stale tab; surface a clear placeholder
- * rather than a blank panel until the user closes it.
- */
-function TriggerTabPanel({
-  sessionId,
-  triggerId,
-  triggers,
-  onClose,
-}: TriggerTabPanelProps) {
-  const trigger = triggers.find((t) => t.id === triggerId);
-  if (!trigger) {
-    return (
-      <Box padding="base">
-        <EmptyState
-          icon="Zap"
-          title="Trigger no longer exists"
-          description="This trigger was deleted. Close this tab to dismiss it."
-        />
-      </Box>
-    );
-  }
-  return (
-    <TriggerTabView sessionId={sessionId} trigger={trigger} onClose={onClose} />
   );
 }

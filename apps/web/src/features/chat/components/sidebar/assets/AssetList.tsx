@@ -1,6 +1,6 @@
 import type { Trigger } from "@tangent/shared/contracts";
 
-import { SidebarColumn } from "@/features/chat/components/SidebarColumn";
+import { SidebarColumn } from "@/features/chat/components/sidebar/SidebarColumn";
 import type { Asset } from "@/features/chat/model/assets";
 import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
@@ -9,12 +9,12 @@ import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
-import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { Text } from "@/shared/ui/typography";
 
 import { AssetCard } from "./AssetCard";
+import { AssetRowActions } from "./AssetRowActions";
 
 interface AssetListProps {
   sessionId: string;
@@ -25,14 +25,6 @@ interface AssetListProps {
   onOpen: (asset: Asset) => void;
   /** Unpins an artifact by its workspace-relative path. */
   onUnpin: (path: string) => void;
-}
-
-/** Stops a row action from also triggering the card's open-on-click. */
-function withStop(handler: () => void) {
-  return (event: { stopPropagation: () => void }) => {
-    event.stopPropagation();
-    handler();
-  };
 }
 
 /**
@@ -63,55 +55,6 @@ export function AssetList({
     const url = `${base}${apiUrl(trigger.callbackPath)}`;
     void navigator.clipboard?.writeText(url);
   };
-
-  function renderActions(asset: Asset) {
-    if (asset.kind !== "trigger") {
-      return (
-        <IconButton
-          icon="PinOff"
-          size="xs"
-          tone="critical"
-          aria-label="Unpin artifact"
-          onClick={withStop(() => onUnpin(asset.path))}
-        />
-      );
-    }
-
-    const { trigger } = asset;
-    return (
-      <InlineStack gap="1" wrap="nowrap" blockAlign="center">
-        <IconButton
-          icon="Power"
-          size="xs"
-          tone={trigger.enabled ? "success" : "default"}
-          disabled={triggerBusy}
-          aria-label={trigger.enabled ? "Disable trigger" : "Enable trigger"}
-          onClick={withStop(() =>
-            update.mutate({
-              triggerId: trigger.id,
-              input: { enabled: !trigger.enabled },
-            }),
-          )}
-        />
-        {trigger.kind === "callback" && trigger.callbackPath ? (
-          <IconButton
-            icon="Copy"
-            size="xs"
-            aria-label="Copy callback URL"
-            onClick={withStop(() => copyCallback(trigger))}
-          />
-        ) : null}
-        <IconButton
-          icon="Trash2"
-          size="xs"
-          tone="critical"
-          disabled={triggerBusy}
-          aria-label="Delete trigger"
-          onClick={withStop(() => remove.mutate(trigger.id))}
-        />
-      </InlineStack>
-    );
-  }
 
   return (
     <SidebarColumn>
@@ -146,7 +89,21 @@ export function AssetList({
                   asset={asset}
                   selected={selectedId === asset.id}
                   onOpen={() => onOpen(asset)}
-                  actions={renderActions(asset)}
+                  actions={
+                    <AssetRowActions
+                      asset={asset}
+                      triggerBusy={triggerBusy}
+                      onUnpin={onUnpin}
+                      onToggleTrigger={(trigger) =>
+                        update.mutate({
+                          triggerId: trigger.id,
+                          input: { enabled: !trigger.enabled },
+                        })
+                      }
+                      onCopyCallback={copyCallback}
+                      onDeleteTrigger={(trigger) => remove.mutate(trigger.id)}
+                    />
+                  }
                 />
               ))}
             </BlockStack>

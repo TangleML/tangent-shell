@@ -11,7 +11,7 @@ import { Icon } from "@/shared/ui/icon";
 import { BlockStack } from "@/shared/ui/layout";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 
-import { useViewportCapture } from "../hooks/useViewportCapture";
+import { useViewportCapture } from "../../hooks/useViewportCapture";
 import { ArtifactMarkdownContent } from "./ArtifactMarkdownContent";
 import { ArtifactReviewOverlay } from "./ArtifactReviewOverlay";
 import { IframeArtifactBody } from "./IframeArtifactBody";

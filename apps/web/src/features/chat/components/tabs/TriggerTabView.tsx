@@ -1,5 +1,4 @@
 import type { Trigger } from "@tangent/shared/contracts";
-import type { ReactNode } from "react";
 
 import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
@@ -14,8 +13,9 @@ import { Pill } from "@/shared/ui/patterns/pill";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Section } from "@/shared/ui/patterns/section";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
-import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Heading, Paragraph, Text } from "@/shared/ui/typography";
+
+import { DetailRow } from "./DetailRow";
 
 interface TriggerTabViewProps {
   sessionId: string;
@@ -29,30 +29,6 @@ const KIND_ICON: Record<Trigger["kind"], IconName> = {
   schedule: "Clock",
   callback: "Webhook",
 };
-
-/** A labelled detail row in the trigger's definition list. */
-function DetailRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <InlineStack gap="3" wrap="nowrap" blockAlign="start" grow>
-      <Box>
-        <Text as="dt" size="sm" tone="subdued">
-          {label}
-        </Text>
-      </Box>
-      <Truncating>
-        <Text as="dd" size="sm">
-          {children}
-        </Text>
-      </Truncating>
-    </InlineStack>
-  );
-}
 
 /** Human-readable summary of a trigger's signal source. */
 function scheduleDetail(trigger: Trigger): string {

@@ -10,18 +10,10 @@ import {
 } from "react";
 
 import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Textarea } from "@/shared/ui/textarea";
 import { Text } from "@/shared/ui/typography";
 
-/** A selection rectangle in CSS pixels, relative to the overlay box. */
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+import { ReviewAnnotationPanel } from "./ReviewAnnotationPanel";
+import { clamp, cropRegion, normalizeRect, type Rect } from "./reviewGeometry";
 
 interface ArtifactReviewOverlayProps {
   /** Frozen screenshot of the artifact, at capture resolution. */
@@ -38,22 +30,6 @@ interface ArtifactReviewOverlayProps {
 
 /** Ignore stray clicks: a real selection must exceed this size (CSS px). */
 const MIN_SELECTION = 6;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function normalizeRect(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-): Rect {
-  return {
-    x: Math.min(a.x, b.x),
-    y: Math.min(a.y, b.y),
-    w: Math.abs(a.x - b.x),
-    h: Math.abs(a.y - b.y),
-  };
-}
 
 export function ArtifactReviewOverlay({
   image,
@@ -119,31 +95,10 @@ export function ArtifactReviewOverlay({
     setPhase("selecting");
   }
 
-  function cropSelection(rect: Rect): Promise<Blob | null> {
-    const box = surfaceRef.current;
-    if (!box) return Promise.resolve(null);
-    // Map the CSS-pixel selection onto the capture-resolution canvas.
-    const scaleX = image.width / box.clientWidth;
-    const scaleY = image.height / box.clientHeight;
-    const sx = Math.round(rect.x * scaleX);
-    const sy = Math.round(rect.y * scaleY);
-    const sw = Math.max(1, Math.round(rect.w * scaleX));
-    const sh = Math.max(1, Math.round(rect.h * scaleY));
-
-    const out = document.createElement("canvas");
-    out.width = sw;
-    out.height = sh;
-    const ctx = out.getContext("2d");
-    if (!ctx) return Promise.resolve(null);
-    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
-    return new Promise((resolve) =>
-      out.toBlob((blob) => resolve(blob), "image/png"),
-    );
-  }
-
   async function handleSend() {
-    if (!selection || submitting) return;
-    const blob = await cropSelection(selection);
+    const box = surfaceRef.current;
+    if (!selection || submitting || !box) return;
+    const blob = await cropRegion(image, box, selection);
     if (blob) onSubmit(blob, note);
   }
 
@@ -198,62 +153,14 @@ export function ArtifactReviewOverlay({
       ) : null}
 
       {phase === "annotating" && selection ? (
-        <div
-          className="absolute inset-x-0 bottom-0 p-3"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <Box
-            background="base"
-            border="sm"
-            borderColor="base"
-            borderRadius="base"
-            padding="base"
-            shadow="lg"
-            maxInlineSize="2xl"
-          >
-            <BlockStack gap="2">
-              <Text size="sm" weight="medium">
-                Add a note for this region
-              </Text>
-              <Textarea
-                autoFocus
-                rows={3}
-                placeholder="Describe what you'd like Prime to look at..."
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                disabled={submitting}
-                aria-label="Review note"
-              />
-              <InlineStack gap="2" align="space-between" wrap="nowrap">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={reselect}
-                  disabled={submitting}
-                >
-                  Reselect
-                </Button>
-                <InlineStack gap="2" wrap="nowrap">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onCancel}
-                    disabled={submitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => void handleSend()}
-                    disabled={submitting}
-                  >
-                    {submitting ? "Sending..." : "Send to Prime"}
-                  </Button>
-                </InlineStack>
-              </InlineStack>
-            </BlockStack>
-          </Box>
-        </div>
+        <ReviewAnnotationPanel
+          note={note}
+          submitting={submitting}
+          onNoteChange={setNote}
+          onReselect={reselect}
+          onCancel={onCancel}
+          onSend={() => void handleSend()}
+        />
       ) : null}
     </div>
   );

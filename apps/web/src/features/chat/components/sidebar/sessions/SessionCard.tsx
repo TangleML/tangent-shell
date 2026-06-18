@@ -7,8 +7,8 @@ import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 import { Heading, Paragraph } from "@/shared/ui/typography";
 
+import { StatusDot } from "../StatusDot";
 import { SessionDropDownSwitcher } from "./SessionDropDownSwitcher";
-import { StatusDot } from "./StatusDot";
 
 interface SessionCardProps {
   currentSessionId: string;

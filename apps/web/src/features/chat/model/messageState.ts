@@ -13,3 +13,14 @@ export function isThinkingOnly(message: ChatMessage): boolean {
     !message.attachments?.length
   );
 }
+
+/**
+ * Whether an agent's reasoning phase is finished: either some answer content has
+ * arrived, or the message is no longer streaming.
+ */
+export function isThinkingDone(
+  message: ChatMessage,
+  isStreaming: boolean,
+): boolean {
+  return message.content.length > 0 || !isStreaming;
+}

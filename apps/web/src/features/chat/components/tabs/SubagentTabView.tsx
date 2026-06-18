@@ -13,9 +13,9 @@ import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import {
   AgentModelPicker,
   type AgentModelPickerValue,
-} from "./AgentModelPicker";
-import { ChatInput } from "./ChatInput";
-import { ChatMessageList } from "./ChatMessageList";
+} from "../composer/AgentModelPicker";
+import { ChatInput } from "../composer/ChatInput";
+import { ChatMessageList } from "../message/ChatMessageList";
 
 interface SubagentTabViewProps {
   sessionId: string;

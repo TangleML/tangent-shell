@@ -99,7 +99,7 @@ This feature reuses existing seams rather than introducing a parallel pipeline.
   `tangent-ui:<name>` token (it contains a hyphen and a colon). Phase 6 widens
   this detection and, when a `tangent-ui:` token is found, renders a
   `BundleUiHost` instead of a `CodeBlock`.
-- [`src/features/chat/components/ChatMessage.tsx`](../../src/features/chat/components/ChatMessage.tsx)
+- [`src/features/chat/components/message/ChatMessage.tsx`](../../src/features/chat/components/message/ChatMessage.tsx)
   renders agent content through `Markdown`. Phase 6 threads the session's
   `bundleId` down so the message component knows which bundle to load its JS from.
 
