@@ -113,13 +113,13 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai" },
   { id: "openai/gpt-5-mini", label: "GPT-5 Mini", provider: "openai" },
   {
-    id: "anthropic/claude-sonnet-4-5",
-    label: "Claude Sonnet 4.5",
+    id: "anthropic/claude-sonnet-4-6",
+    label: "Claude Sonnet 4.6",
     provider: "anthropic",
   },
   {
-    id: "anthropic/claude-opus-4-1",
-    label: "Claude Opus 4.1",
+    id: "anthropic/claude-opus-4-8",
+    label: "Claude Opus 4.8",
     provider: "anthropic",
   },
   {
