@@ -11,6 +11,10 @@ server {
     root /app/ui-dist;
     index index.html;
 
+    # Allow uploads up to 50MB (plus multipart overhead). The upstream Node
+    # server enforces the authoritative per-file limit via multer.
+    client_max_body_size 55m;
+
     # REST + internal-egress API. No path rewrite: the full /api/... path is
     # passed through, matching Vite's prefix proxy key "/api".
     location /api {

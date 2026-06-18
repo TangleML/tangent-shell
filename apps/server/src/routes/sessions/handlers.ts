@@ -59,7 +59,7 @@ export const uploadFiles = multer({
       cb(null, `${prefix}-${sanitizeFilename(file.originalname)}`);
     },
   }),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 /**
