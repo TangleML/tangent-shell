@@ -18,8 +18,8 @@ Fill this in during PHASE 1 (Design subagent). Write the completed doc to
 ## Datasets
 
 | Dataset | Source / URI | Expected files | Checksums | Notes |
-|---|---|---|---|---|
-| | | | | |
+| ------- | ------------ | -------------- | --------- | ----- |
+|         |              |                |           |       |
 
 ## Methods
 
@@ -32,15 +32,15 @@ Fill this in during PHASE 1 (Design subagent). Write the completed doc to
 Instantiate the seven-stage pattern for this paper. Every task must be a separate
 node with explicit artifact wiring.
 
-| # | Task | Inputs | Outputs | Purpose |
-|---|---|---|---|---|
-| 1 | `prepare_dataset` | | dataset dir, `dataset_manifest.json` | |
-| 2 | `build_shared_artifacts` | | shared artifact, manifest | |
-| 3 | `build_method_under_test` | | method artifact, manifest | |
-| 4 | `build_baseline` | | baseline artifact, manifest | |
-| 5 | `evaluate_sweep` | | `eval_results.json`, per-item metrics | |
-| 6 | `plot_results` | | figure(s) (`.png`/`.svg`), `metrics.csv` | |
-| 7 | `write_report` | | `summary.md`/`.html`, `repro_manifest.json` | |
+| #   | Task                      | Inputs | Outputs                                     | Purpose |
+| --- | ------------------------- | ------ | ------------------------------------------- | ------- |
+| 1   | `prepare_dataset`         |        | dataset dir, `dataset_manifest.json`        |         |
+| 2   | `build_shared_artifacts`  |        | shared artifact, manifest                   |         |
+| 3   | `build_method_under_test` |        | method artifact, manifest                   |         |
+| 4   | `build_baseline`          |        | baseline artifact, manifest                 |         |
+| 5   | `evaluate_sweep`          |        | `eval_results.json`, per-item metrics       |         |
+| 6   | `plot_results`            |        | figure(s) (`.png`/`.svg`), `metrics.csv`    |         |
+| 7   | `write_report`            |        | `summary.md`/`.html`, `repro_manifest.json` |         |
 
 Wiring summary (which output feeds which input):
 
@@ -57,7 +57,7 @@ manifests + metrics + plots -> report
 
 ## Configuration
 
-- **Hyperparameters** (method): 
+- **Hyperparameters** (method):
 - **Hyperparameters** (baseline):
 - **Sweep grid**:
 - **Seeds**:
@@ -74,3 +74,15 @@ manifests + metrics + plots -> report
 - Known approximations (e.g. no exact author implementation available):
 - Compute/runtime concerns:
 - Anything that could prevent matching the paper's number:
+
+### Known Tangle reproduction pitfalls (plan for these)
+
+- **Extensionless output paths**: Tangle artifact output paths are often
+  extensionless; components must write exactly to the provided path.
+- **Matplotlib `format=`**: format-by-extension writers need an explicit
+  `format=...` when the output path has no extension.
+- **Numeric YAML quoting**: root-task arg scalars Tangle expects as strings must
+  be quoted, or submit fails with a 422 (`got int` / `got float`).
+- **Validate/hydrate != runtime artifacts**: a valid DAG does not prove every
+  component writes its outputs — require local smoke runs for plotting/reporting
+  stages.

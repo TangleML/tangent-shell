@@ -31,9 +31,25 @@ If any Tangle terminology is unclear, use the `tangle-help` skill to clarify
 
 **Prime is the coordinator and runs this flow itself.** Do NOT delegate the whole
 flow to a single worker that "does everything" — that worker will skip the safety
-monitor. Prime spawns *separate, scoped* subagents (safety-monitor, design,
+monitor. Prime spawns _separate, scoped_ subagents (safety-monitor, design,
 builder) and tracks them. Prime does not build or submit directly unless
 recovering from a failed or non-responsive subagent.
+
+### Use session memory (do this throughout)
+
+Prime and the safety monitor MUST use session memory as the shared source of
+truth — not just transcript scrollback. Record and keep three things current:
+
+- **GOAL** — the paper/claim being reproduced and the success criterion.
+- **PLAN** — the approved multi-step DAG and the current phase.
+- **CURRENT** — the latest valid `RUN_ID` / `ROOT_EXECUTION_ID`, live run status
+  (running / succeeded / failed / cancelled / skipped), the active subagents, and
+  the next action.
+
+Write GOAL and PLAN once they are known, then update CURRENT **frequently** — on
+every milestone, every submit/resubmit, and every safety-monitor tick that learns
+new live state. A new actor (or Prime after a restart) must be able to read
+session memory and immediately know what is running and what to do next.
 
 ### Startup sequence (do this in order)
 
@@ -44,6 +60,7 @@ or any long-running work, create the 1-minute safety trigger and its dedicated
 **Do not proceed to Phase 1 until this gate passes:**
 
 ```
+[ ] GOAL + PLAN written to session memory
 [ ] safety trigger created (every 1 min)
 [ ] safety-monitor subagent live
 --> only then spawn the Design subagent
@@ -70,22 +87,67 @@ This is **Step 0** — Prime creates it first, before Phase 1 and before any oth
 subagent. If the monitor is missing at any point, Prime stops and creates it
 before continuing. Prime creates a safety trigger:
 
-- **Schedule trigger** named for the experiment (e.g. `rabitq-safety-check`),
-  firing **every 1 minute**, targeting a dedicated `safety-monitor` subagent —
-  **not** Prime. Never replace this with a manual `sleep -> read transcript` loop.
+- **Schedule trigger** named for the **specific experiment** so it never collides
+  across multiple reproductions in one session. Use a paper/dataset slug, e.g.
+  `rabitq-sift1m-safety-monitor` or `<paper-slug>-safety-monitor` — **not** a
+  generic `safety-monitor`. It fires **every 1 minute**, targeting a dedicated
+  `safety-monitor` subagent — **not** Prime. Never replace this with a manual
+  `sleep -> read transcript` loop.
+
+**The safety monitor must have and use live Tangle status tools — not just
+transcript tools.** When Prime spawns it, the monitor must be able to call (these
+are already in the bundle's subagent tool set):
+
+```yaml
+tools:
+  - read_room
+  - list_subagents
+  - tangle_run_status
+  - tangle_execution_state
+  - tangle_execution_details
+  - tangle_execution_logs
+  - tangle_execution_artifacts
+```
+
+> The safety monitor must not rely only on `read_room`. Once a
+> `ROOT_EXECUTION_ID` is known, **every tick** must call `tangle_execution_state`
+> (or equivalent live status tooling) — transcript scanning alone will miss a run
+> that failed silently.
 
 **On every firing the safety monitor:**
 
-1. Reads the recent room transcript and lists active/completed/killed subagents.
+1. Reads the recent room transcript and lists active/completed/killed subagents
+   (`read_room`, `list_subagents`).
 2. Detects whether a pipeline was submitted by scanning recent messages for
    `RUN_ID`, `ROOT_EXECUTION_ID`, `PIPELINE_SUBMITTED`,
    `CORRECTED_PIPELINE_SUBMITTED`, or `FIXED_PIPELINE_SUBMITTED`.
-3. Tracks the latest **valid** submitted pipeline's `ROOT_EXECUTION_ID` —
-   ignoring known-invalid first-pass runs, preferring the newest corrected/fixed
-   run.
-4. If a valid `ROOT_EXECUTION_ID` is known, checks Tangle execution status (via
-   the execution-state/status tool) to classify it as running / succeeded /
-   failed / cancelled / ended-with-skipped-tasks.
+3. Tracks the newest valid run statefully and ignores superseded failed runs once
+   a retry exists:
+
+   ```text
+   latest_valid_run =
+     newest CORRECTED_PIPELINE_SUBMITTED / FIXED_PIPELINE_SUBMITTED if present
+     else newest PIPELINE_SUBMITTED
+
+   On each tick:
+     - inspect latest_valid_run.root_execution_id live (tangle_execution_state)
+     - if ended failed:    alert Prime with failed task name + log excerpt
+     - if ended succeeded: alert Prime to collect artifacts
+     - if running:         terse status only
+   ```
+
+4. **Mandatory per-tick live check.** If a valid `ROOT_EXECUTION_ID` is known,
+   call `tangle_execution_state(ROOT_EXECUTION_ID)` (and `tangle_execution_details`
+   / `tangle_execution_logs` as needed) to classify the run as running /
+   succeeded / failed / cancelled / ended-with-skipped-tasks, and record that
+   classification in session memory CURRENT. This is not optional — it is what
+   catches a failed task without waiting for a human.
+5. **Post-submit verification.** Within one monitor tick (or immediately) after
+   any `PIPELINE_SUBMITTED` / `CORRECTED_PIPELINE_SUBMITTED`, verify the root
+   execution state live with `tangle_execution_state(ROOT_EXECUTION_ID)` and
+   record whether it is running / succeeded / failed / cancelled / has skipped
+   tasks. Never treat emitting a progress widget as confirmation that the run is
+   healthy.
 
 **Alerting:**
 
@@ -106,14 +168,70 @@ before continuing. Prime creates a safety trigger:
 
 **Prime behavior after an alert:**
 
-- **Success** — list artifacts for the final execution and fetch/pin/present
-  them: `metrics_csv`, `recall_qps_curve_png`, `recall_qps_curve_svg`,
-  `summary_md`/`summary_html`, `repro_manifest`.
-- **Failure** — inspect failed task logs, identify the root cause, ask
-  builder/debugger for a targeted fix, keep the approved multi-step DAG intact,
-  and submit a corrected retry only after validate/hydrate succeeds.
+- **Success** — automatically (do not wait for the user to ask) list artifacts
+  for the final execution and fetch/pin/present them — see
+  [Final artifact collection](#final-artifact-collection-on-success).
+- **Failure** — run the [Failure triage](#failure-triage-subroutine) subroutine,
+  then ask builder/debugger for a targeted fix, keep the approved multi-step DAG
+  intact, and submit a corrected retry only after validate/hydrate succeeds. If
+  [autonomous retry](#autonomous-retry-policy) is enabled and the fix is in
+  scope, apply it without waiting for per-fix approval.
 - **Running** — do not spam the user; rely on the live progress widget and terse
   monitor alerts only when useful.
+
+## Failure triage subroutine
+
+When a run ends failed or with skipped tasks, Prime (or a spawned debugger) runs
+this reusable flow before changing anything:
+
+1. Get the root execution state — `tangle_execution_state(ROOT_EXECUTION_ID)`.
+2. Identify the failed and skipped child tasks (`tangle_execution_details`).
+3. Fetch the failed task's logs — `tangle_execution_logs(<failed_execution_id>)`.
+4. Detect missing output artifacts — `tangle_execution_artifacts` — confirming
+   whether the expected files were actually written.
+5. Produce a structured triage report:
+   - failed task name
+   - execution id
+   - skipped task count
+   - log excerpt (the key error lines)
+   - likely root cause
+   - exact files to change
+   - whether a retry is safe to do autonomously (see below)
+
+Record the triage outcome in session memory CURRENT, then route the focused fix
+to the builder/debugger.
+
+## Autonomous retry policy
+
+Decide the retry posture **once, up front** — before Phase 2 — rather than
+pausing for approval on every fix. Ask the user whether they want autonomous
+targeted retries; if enabled, Prime may apply narrow fixes and resubmit up to `N`
+times when **all** of these hold:
+
+- the DAG is unchanged,
+- the fix is limited to the failed component,
+- validation/hydration passes,
+- compute scope/config is unchanged.
+
+Default policy:
+
+```yaml
+autonomous_retry:
+  enabled: ask-user # confirm before Phase 2
+  max_retries: 2
+  allowed_changes:
+    - failed component source
+    - regenerated component YAML
+    - config typing/serialization fixes
+  disallowed:
+    - changing dataset scale
+    - changing benchmark method
+    - collapsing DAG
+    - increasing compute
+```
+
+If a fix falls outside `allowed_changes`, or the retry budget is exhausted, stop
+and surface it to the user instead of retrying.
 
 ## PHASE 1 — Design subagent
 
@@ -146,15 +264,15 @@ Decompose the experiment into a real DAG with wired artifacts. A single
 "benchmark" task is **incorrect** even if it validates and submits. Use this
 reusable seven-stage pattern and instantiate it for the specific paper:
 
-| Stage | Generic task | Purpose |
-|---|---|---|
-| 1 | `prepare_dataset` | Download/verify the dataset; emit a dataset manifest. |
-| 2 | `build_shared_artifacts` | Train/build anything reused by every method (e.g. a shared quantizer, tokenizer, splits). |
-| 3 | `build_method_under_test` | Build the paper's method on the shared artifacts. |
-| 4 | `build_baseline` | Build the comparison baseline on the same shared artifacts. |
-| 5 | `evaluate_sweep` | Sweep the relevant parameter grid; emit per-item metrics. |
-| 6 | `plot_results` | Produce the paper's headline curve/figure(s). |
-| 7 | `write_report` | Synthesize manifests + metrics + plots into a summary + repro manifest. |
+| Stage | Generic task              | Purpose                                                                                   |
+| ----- | ------------------------- | ----------------------------------------------------------------------------------------- |
+| 1     | `prepare_dataset`         | Download/verify the dataset; emit a dataset manifest.                                     |
+| 2     | `build_shared_artifacts`  | Train/build anything reused by every method (e.g. a shared quantizer, tokenizer, splits). |
+| 3     | `build_method_under_test` | Build the paper's method on the shared artifacts.                                         |
+| 4     | `build_baseline`          | Build the comparison baseline on the same shared artifacts.                               |
+| 5     | `evaluate_sweep`          | Sweep the relevant parameter grid; emit per-item metrics.                                 |
+| 6     | `plot_results`            | Produce the paper's headline curve/figure(s).                                             |
+| 7     | `write_report`            | Synthesize manifests + metrics + plots into a summary + repro manifest.                   |
 
 Stages 2-4 may collapse or expand to match the paper (some papers have no shared
 artifact; some compare three methods). Keep at least: dataset → method →
@@ -197,7 +315,11 @@ to operate as `tangent builder`.
 1. Read and follow [`../tangent/agents/builder.md`](../tangent/agents/builder.md)
    and its required references (canonical from-scratch experiment pipeline and
    Tangle CLI submission rules).
-2. Use `shadowenv exec -- tangle-deploy`; do NOT use API/MCP submit tools.
+2. Prefer `shadowenv exec -- tangle-deploy` when `shadowenv` is available; do NOT
+   use API/MCP submit tools. If `shadowenv` is **not** installed in this
+   environment, report that fact and run the equivalent `tangle-deploy` command
+   directly with the required environment variables (e.g. `TANGLE_DEPLOY_SOURCE`,
+   `TANGLE_AUTH`) set.
 3. Set the source annotation before any submit:
    ```bash
    export TANGLE_DEPLOY_SOURCE=$([ -n "$RIVER_SESSION_JWT" ] && echo "river-tangent" || echo "tangent")
@@ -229,6 +351,56 @@ Report milestone progress. Long-running work is fine; silence is not.
    (if available), production Oasis URL, source annotation.
 7. `SUBMISSION_FAILED` (on failure) — exact command, exact error, files
    involved, next fix.
+
+### Pre-submit checks (run before every submit)
+
+Validation/hydration proves the DAG is well-formed; it does **not** prove the
+config types are right or that components actually write their artifacts at
+runtime. Run these guardrails before submitting:
+
+**1. Config arg-type lint.** Root-task argument values that Tangle expects as
+scalar **strings** must be quoted in YAML; numeric-looking config values must be
+serialized intentionally. Unquoted numeric scalars get parsed as `int`/`float`
+and cause submit-time 422 errors such as:
+
+```text
+root_task.arguments.nlist must be string/argument object, got int
+root_task.arguments.epsilon0 must be string/argument object, got float
+```
+
+Audit the config (e.g. `config/production.yaml`) and quote any scalar Tangle
+expects as a string/argument object before submitting.
+
+**2. Exact artifact-output paths (highest-value guardrail).** Tangle output paths
+are often **extensionless**. A component must write **exactly** to the provided
+output path — not a sibling like `data.png` / `data.svg`. This bit hardest with
+Matplotlib, which infers the format from the extension and silently writes to the
+wrong file when the path has none. Always pass an explicit `format=`:
+
+```python
+fig.savefig(output_png_path, format="png")
+fig.savefig(output_svg_path, format="svg")
+assert Path(output_png_path).exists()
+assert Path(output_svg_path).exists()
+```
+
+> Rule: if a component uses `matplotlib.savefig()` (or any writer that infers
+> format from the extension) with a Tangle output path, it MUST pass an explicit
+> `format=...` because the output path may be extensionless.
+
+**3. Component smoke runs.** For pure-Python plotting/reporting stages, run the
+component locally against a tiny fixture using the exact extensionless output
+paths, then assert the files exist — before submitting the full pipeline:
+
+```bash
+python3 components/plot_recall_qps.py \
+  --metrics_csv fixtures/minimal_metrics.csv \
+  --recall_qps_curve_png /tmp/out_png_no_ext \
+  --recall_qps_curve_svg /tmp/out_svg_no_ext
+```
+
+Then assert the exact output paths were created. This catches runtime artifact
+failures that DAG validation cannot.
 
 ## Reproducibility checklist
 
@@ -278,6 +450,37 @@ actual runtime path, or make ingestion robust with fallbacks.
 - **If prepare fails, fix ingestion first** — do not debug downstream tasks.
   Diagnose the prepare task logs, fix the downloader, regenerate affected
   component YAMLs, validate/hydrate, and resubmit the same multi-step DAG.
+
+## Final artifact collection (on success)
+
+On `PIPELINE_ENDED_SUCCESS`, Prime MUST **automatically** — without waiting for
+the user to ask — list the final execution's artifacts (`tangle_execution_artifacts`),
+fetch/pin them, and present each as a clickable link (and inline image for
+figures). At minimum surface:
+
+- `metrics_csv`
+- `recall_qps_curve_png`
+- `recall_qps_curve_svg`
+- `summary_md` / `summary_html`
+- `repro_manifest`
+
+If any expected artifact is missing, treat it as a failure and run the
+[Failure triage](#failure-triage-subroutine) subroutine — a successful run status
+does not prove every artifact was written.
+
+## Known Tangle reproduction pitfalls
+
+For this class of reproduction, watch for these recurring failure modes:
+
+- Safety monitor must query **live execution state**, not transcript only.
+- Numeric YAML config values may need quoting (Tangle expects some scalars as
+  strings/argument objects).
+- Tangle output paths may be **extensionless**; writers must write exactly to the
+  provided path.
+- Matplotlib (and similar format-by-extension writers) require an explicit
+  `format=` for extensionless output paths.
+- Validate/hydrate success does **not** prove runtime artifact creation.
+- Always smoke-test pure plotting/reporting components locally before submitting.
 
 ## Prime final reporting
 
