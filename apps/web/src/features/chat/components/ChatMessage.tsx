@@ -281,9 +281,7 @@ function MemoryMessage({ message, onCollapse }: MemoryMessageProps) {
         </InlineStack>
       }
     >
-      <Paragraph size="sm" wrap="pre-wrap">
-        {message.content}
-      </Paragraph>
+      <Markdown size="sm">{message.content}</Markdown>
     </MessageLayout>
   );
 }
