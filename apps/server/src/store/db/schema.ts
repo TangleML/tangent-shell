@@ -86,6 +86,25 @@ export const sessionAgents = sqliteTable(
     thinkingDepth: text("thinking_depth"),
     /** Template the agent was spawned from, if any. */
     template: text("template"),
+    /**
+     * JSON-encoded tool allowlist the sub-agent was spawned with, persisted so a
+     * revive can rebuild the exact `--tools` set (Prime's tools are derived from
+     * its config, so this stays null for Prime).
+     */
+    tools: text("tools"),
+    /**
+     * The sub-agent's resolved appended system prompt, persisted so an inline
+     * (template-less) sub-agent can be re-spawned faithfully after a restart.
+     */
+    systemPrompt: text("system_prompt"),
+    /**
+     * Whether the sub-agent's finalized replies auto-relay back to Prime.
+     * Defaults to true; trigger-owned sub-agents persist false so a revive keeps
+     * them reacting in isolation.
+     */
+    autoRelayToPrime: integer("auto_relay_to_prime", { mode: "boolean" })
+      .notNull()
+      .default(true),
     createdAt: text("created_at").notNull(),
   },
   (table) => [

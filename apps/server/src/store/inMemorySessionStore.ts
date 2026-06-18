@@ -22,23 +22,37 @@ import type {
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
 const PRIME_AGENT_ID = "prime";
 
-/** Builds the next stored agent, preserving `createdAt`/`status` on re-record. */
+/** Returns only the explicitly-set fields of a record-agent input. */
+function definedAgentFields(
+  agent: RecordAgentInput,
+): Partial<RecordAgentInput> {
+  const out: Partial<RecordAgentInput> = {};
+  for (const [key, value] of Object.entries(agent)) {
+    if (value !== undefined) {
+      (out as Record<string, unknown>)[key] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Builds the next stored agent. Mirrors the SQLite store's upsert semantics:
+ * an omitted (undefined) field leaves the prior value untouched, so a partial
+ * re-record (e.g. a model-only change) never wipes the persisted spawn config.
+ */
 function mergeAgent(
   sessionId: string,
   agent: RecordAgentInput,
   prior: SessionAgent | undefined,
 ): SessionAgent {
-  const status = agent.status ?? prior?.status ?? "active";
   return {
+    ...prior,
+    ...definedAgentFields(agent),
     id: agent.id,
     sessionId,
     role: agent.role,
     name: agent.name,
-    purpose: agent.purpose,
-    status,
-    model: agent.model,
-    thinkingDepth: agent.thinkingDepth,
-    template: agent.template,
+    status: agent.status ?? prior?.status ?? "active",
     createdAt: prior?.createdAt ?? new Date().toISOString(),
   };
 }

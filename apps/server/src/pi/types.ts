@@ -129,6 +129,20 @@ export interface AgentProcess {
    * after a page reload.
    */
   lastActivity: AgentActivity | null;
+  /**
+   * Set just before a deliberate `child.kill()` (model change, explicit
+   * kill, dispose) so the supervisor's exit handler treats the exit as expected
+   * and does NOT auto-respawn the process.
+   */
+  intentionalKill: boolean;
+  /**
+   * How many times the supervisor has auto-respawned this slot within the
+   * current rolling window. Carried forward across respawns so a crash loop is
+   * bounded; reset once the process survives past the window.
+   */
+  restartCount: number;
+  /** Epoch ms of the last supervised respawn, or `null` if never respawned. */
+  lastRestartAt: number | null;
 }
 
 export interface SessionAgents {

@@ -8,6 +8,7 @@
     "dev": "AUTH_JWT_TOKEN_COOKIE_NAME=MINERVA_TOKEN tsx watch --tsconfig ./tsconfig.json src/index.ts",
     "build": "node build.mjs",
     "lint": "eslint .",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",

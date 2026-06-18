@@ -1,3 +1,4 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -327,7 +328,25 @@ export async function installBundle(
 
   const installRoot = path.join(rootPath, TANGENT_DIRNAME);
   await compileTriggerHandlers(entries, manifest, installRoot);
-  const config: ResolvedSessionConfig = {
+  const config = resolveSessionConfig(entries, manifest, rootPath);
+
+  return { manifest, config };
+}
+
+/**
+ * Resolves a bundle's {@link ResolvedSessionConfig} from its (bundle-relative)
+ * entries and parsed manifest. Shared by {@link installBundle} (entries from the
+ * uploaded ZIP) and {@link loadInstalledConfig} (entries read back from the
+ * installed `.tangent/` tree), so a freshly installed session and a revived one
+ * resolve to exactly the same config.
+ */
+export function resolveSessionConfig(
+  entries: ZipEntries,
+  manifest: BundleManifest,
+  rootPath: string,
+): ResolvedSessionConfig {
+  const installRoot = path.join(rootPath, TANGENT_DIRNAME);
+  return {
     prime: {
       tools: resolvePrimeTools(manifest),
       appendSystemPrompt: composePrimePrompt(
@@ -345,6 +364,52 @@ export async function installBundle(
       : {}),
     ...resolveSectionPaths(entries, manifest, installRoot),
   };
+}
 
-  return { manifest, config };
+/**
+ * Re-resolves the config for a session whose bundle was previously installed
+ * under `<rootPath>/.tangent/`, without re-uploading the ZIP. Returns
+ * `undefined` for a plain session (no installed manifest), so the caller falls
+ * back to the global default config.
+ *
+ * The installed tree mirrors the original bundle layout (written by
+ * {@link writeBundleTree}), so reading every file back into a
+ * {@link ZipEntries} map keyed by the bundle-relative path lets us reuse the
+ * exact same {@link resolveSessionConfig} path used at install time. Triggers
+ * are already compiled on disk, so they are not recompiled here.
+ */
+export function loadInstalledConfig(
+  rootPath: string,
+): ResolvedSessionConfig | undefined {
+  const installRoot = path.join(rootPath, TANGENT_DIRNAME);
+  if (!existsSync(path.join(installRoot, MANIFEST_FILENAME))) return undefined;
+
+  const entries = readInstalledEntries(installRoot);
+  const parsed = parseManifest(readTextEntry(entries, MANIFEST_FILENAME));
+  if ("errors" in parsed) {
+    throw new Error(`bundle: invalid manifest\n${parsed.errors.join("\n")}`);
+  }
+  return resolveSessionConfig(entries, parsed.manifest, rootPath);
+}
+
+/**
+ * Reads every file under the installed `.tangent/` tree into a
+ * {@link ZipEntries} map keyed by its POSIX path relative to `installRoot`
+ * (matching the original bundle-relative keys produced from the ZIP).
+ */
+function readInstalledEntries(installRoot: string): ZipEntries {
+  const entries: ZipEntries = {};
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs);
+        continue;
+      }
+      const rel = path.relative(installRoot, abs).split(path.sep).join("/");
+      entries[rel] = new Uint8Array(readFileSync(abs));
+    }
+  };
+  walk(installRoot);
+  return entries;
 }

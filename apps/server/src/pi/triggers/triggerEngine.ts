@@ -299,19 +299,22 @@ export class TriggerEngine {
       };
     }
 
-    const info = this.pi.spawnSubagent(
-      sessionId,
-      buildSubagentSpawnRequest(target, stored),
-    );
+    const request = buildSubagentSpawnRequest(target, stored);
+    const { info, tools, systemPrompt, autoRelayToPrime } =
+      this.pi.spawnSubagent(sessionId, request);
     this.triggers.setTargetAgent(sessionId, stored.id, info.id, info.name);
     void this.store.recordAgent(sessionId, {
       id: info.id,
       role: "subagent",
       name: info.name,
+      purpose: request.task,
       status: "active",
       model: info.model,
       thinkingDepth: info.thinkingDepth,
       template: info.template,
+      tools,
+      systemPrompt,
+      autoRelayToPrime,
     });
     return { agentId: info.id, agentName: info.name };
   }

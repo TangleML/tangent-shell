@@ -67,7 +67,7 @@ const emitUiCommand = createUiCommandEmitter(io);
 const pi = new PiAgentManager(
   {
     onAgentEvent: createAgentEventHandler(io, store),
-    onSubagentUpdate: createSubagentUpdateHandler(io),
+    onSubagentUpdate: createSubagentUpdateHandler(io, store),
     onAgentMessage: createAgentMessageHandler(io, store),
     onSessionStatus: createSessionStatusHandler(io),
   },

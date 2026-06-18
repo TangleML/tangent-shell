@@ -24,13 +24,16 @@ import {
   PI_PROXY_URL,
   PI_THINKING,
 } from "../config.ts";
+import type { SessionAgent } from "../store/sessionStore.ts";
 import {
   type AgentConfig,
   getPrimeAgentConfig,
+  parseThinkingLevel,
   type ResolvedSessionConfig,
   resolveSubagentConfig,
   type SubagentSpawnRequest,
 } from "./agentConfig.ts";
+import { loadInstalledConfig } from "./config/bundleLoader.ts";
 import type { MemoryManager } from "./memory.ts";
 import {
   type AgentDescriptor,
@@ -68,6 +71,17 @@ export type {
   PiAgentHandlers,
   SubagentUpdateHandler,
 } from "./types.ts";
+
+/**
+ * Supervisor retry budget for auto-respawning a crashed Pi process. At most
+ * {@link MAX_RESTARTS} respawns are attempted within a rolling
+ * {@link RESTART_WINDOW_MS} window (a healthy process that survives past the
+ * window resets the count); each attempt waits the matching
+ * {@link RESTART_BACKOFF_MS} entry (the last value repeats for further attempts).
+ */
+const MAX_RESTARTS = 3;
+const RESTART_WINDOW_MS = 60_000;
+const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
 
 /** Shared arguments passed to each per-event-type handler in the dispatch table. */
 interface EventContext {
@@ -123,6 +137,22 @@ function buildUserPreamble(user: UserIdentity | undefined): string {
     "Do not ask the user to identify themselves.",
   );
   return lines.join("\n");
+}
+
+/**
+ * Result of {@link PiAgentManager.spawnSubagent}: the wire {@link SubagentInfo}
+ * plus the resolved spawn details a caller needs to persist for a faithful
+ * revive (the full tool allowlist, the appended system prompt, and whether the
+ * sub-agent's replies auto-relay back to Prime).
+ */
+export interface SpawnedSubagent {
+  info: SubagentInfo;
+  /** Resolved tool allowlist the process was spawned with. */
+  tools: string[];
+  /** Resolved appended system prompt the process was spawned with. */
+  systemPrompt: string;
+  /** Whether the sub-agent's finalized replies auto-relay back to Prime. */
+  autoRelayToPrime: boolean;
 }
 
 /** A requested model/thinking change; either field may be omitted to keep it. */
@@ -256,6 +286,35 @@ function warnMissingProxyEnv(): void {
   }
 }
 
+/**
+ * Resolves the config a (re)spawn should use: a caller-supplied config wins
+ * (fresh install), then the session's already-captured config, and finally —
+ * on a revive where neither is present — the bundle re-resolved from the
+ * installed `.tangent/` tree on disk. `undefined` (a plain session) lets the
+ * caller fall back to the global default.
+ */
+function resolveEffectiveConfig(
+  config: ResolvedSessionConfig | undefined,
+  existing: SessionAgents | undefined,
+  rootPath: string,
+): ResolvedSessionConfig | undefined {
+  return config ?? existing?.config ?? loadInstalledConfig(rootPath);
+}
+
+/**
+ * A persisted roster row is eligible for revive when it is an `active`
+ * sub-agent (Prime is handled by {@link PiAgentManager.ensure}) that isn't
+ * already live in the in-memory roster (so a reconnect won't double-spawn it).
+ */
+function canReviveSubagent(
+  session: SessionAgents,
+  agent: SessionAgent,
+): boolean {
+  if (agent.role !== "subagent") return false;
+  if (agent.status !== "active") return false;
+  return !session.agents.has(agent.id);
+}
+
 /** Extracts the per-agent {@link SpawnExtras} from a session's bundle config. */
 function spawnExtras(config: ResolvedSessionConfig | undefined): SpawnExtras {
   if (!config) {
@@ -353,12 +412,22 @@ export class PiAgentManager {
   private readonly handlers: PiAgentHandlers;
   private readonly memory: MemoryManager;
   /**
+   * Process launcher, injectable so tests can supply a fake child without
+   * spawning a real `pi` binary. Defaults to Node's {@link spawn}.
+   */
+  private readonly spawnProcess: typeof spawn;
+  /**
    * Last run status emitted per session, so {@link notifyStatus} only fires the
    * handler when the status actually changes (busy flags toggle frequently).
    */
   private readonly lastStatus = new Map<string, SessionRunStatus>();
 
-  constructor(handlers: PiAgentHandlers, memory: MemoryManager) {
+  constructor(
+    handlers: PiAgentHandlers,
+    memory: MemoryManager,
+    spawnProcess: typeof spawn = spawn,
+  ) {
+    this.spawnProcess = spawnProcess;
     this.handlers = handlers;
     this.memory = memory;
   }
@@ -409,6 +478,13 @@ export class PiAgentManager {
    * `config` (resolved from a Configuration Bundle) is supplied on first
    * creation, it is captured on the session and drives every agent's spawn;
    * later calls without a config keep the captured one.
+   *
+   * On a revive (e.g. after a server restart, where the in-memory roster is
+   * empty and callers no longer carry the config), the bundle config is
+   * re-resolved from the installed `.tangent/` tree so the respawned process
+   * receives exactly the same configuration the session was created with —
+   * Prime's prompt/tools, sub-agent templates/defaults, and skill/workflow/
+   * extension paths — rather than silently falling back to the global default.
    */
   ensure(
     sessionId: string,
@@ -426,7 +502,13 @@ export class PiAgentManager {
     // bundle-seeded session memory and the current global store.
     this.memory.initSession(rootPath);
 
-    const session = this.upsertSessionRecord(sessionId, rootPath, config, user);
+    const effectiveConfig = resolveEffectiveConfig(config, existing, rootPath);
+    const session = this.upsertSessionRecord(
+      sessionId,
+      rootPath,
+      effectiveConfig,
+      user,
+    );
     const primeConfig = session.config?.prime ?? getPrimeAgentConfig();
     this.spawnAgent(
       sessionId,
@@ -437,10 +519,79 @@ export class PiAgentManager {
   }
 
   /**
+   * Re-spawns the session's previously-active sub-agents from their persisted
+   * roster after a full restart (when the in-memory roster holds only Prime).
+   * Each process comes back with the exact config it was spawned with (tools,
+   * appended system prompt, model/thinking, template, auto-relay), but its
+   * original task is deliberately NOT re-delivered: Pi is ephemeral
+   * (`--no-session`), so the revived process starts idle and Prime decides — from
+   * the transcript and session memory — whether to re-task it.
+   *
+   * No-op for a session whose Prime isn't ensured yet, and skips any agent that
+   * is already live (so a reconnect doesn't double-spawn) or not `active`.
+   */
+  reviveSubagents(sessionId: string, persisted: SessionAgent[]): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    for (const agent of persisted) {
+      if (!canReviveSubagent(session, agent)) continue;
+      const revived = this.spawnAgent(
+        sessionId,
+        session,
+        {
+          agentId: agent.id,
+          role: "subagent",
+          name: agent.name,
+          template: agent.template,
+          autoRelayToPrime: agent.autoRelayToPrime ?? true,
+        },
+        this.reconstructSubagentConfig(session, agent),
+      );
+      this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(revived));
+    }
+  }
+
+  /**
+   * Rebuilds a persisted sub-agent's spawn config. Prefers the persisted tools +
+   * system prompt (a faithful, inline-safe restore); falls back to re-resolving
+   * from the session's templates/defaults for rows persisted before those fields
+   * were stored.
+   */
+  private reconstructSubagentConfig(
+    session: SessionAgents,
+    agent: SessionAgent,
+  ): AgentConfig {
+    const thinkingDepth = parseThinkingLevel(agent.thinkingDepth);
+    if (agent.tools && agent.systemPrompt !== undefined) {
+      return {
+        tools: agent.tools,
+        appendSystemPrompt: agent.systemPrompt,
+        model: agent.model,
+        thinkingDepth,
+      };
+    }
+
+    return resolveSubagentConfig(
+      {
+        name: agent.name,
+        template: agent.template,
+        model: agent.model,
+        thinkingDepth,
+      },
+      {
+        templates: session.config?.templates,
+        defaults: session.config?.subagentDefaults,
+      },
+    );
+  }
+
+  /**
    * Returns the in-memory roster record for a session, creating it on first
-   * access. Identity is backfilled on a re-spawn (e.g. after a server restart)
-   * when the caller supplies the persisted user but the existing record predates
-   * it; the captured config is otherwise left untouched.
+   * access. Identity and config are backfilled on a re-spawn (e.g. after a
+   * server restart) when the caller supplies the persisted user or a recovered
+   * config but the existing record predates them; an already-captured config is
+   * otherwise left untouched.
    */
   private upsertSessionRecord(
     sessionId: string,
@@ -451,6 +602,7 @@ export class PiAgentManager {
     const existing = this.sessions.get(sessionId);
     if (existing) {
       if (user && !existing.user) existing.user = user;
+      if (config && !existing.config) existing.config = config;
       return existing;
     }
 
@@ -489,10 +641,13 @@ export class PiAgentManager {
     const nextConfig = withModelSelection(existing.config, selection);
 
     // Quiet the outgoing process so its kill-triggered exit handler doesn't
-    // emit a spurious in-flight error for the run we're intentionally cutting.
+    // emit a spurious in-flight error for the run we're intentionally cutting,
+    // and mark the kill intentional so the supervisor doesn't auto-respawn it
+    // (we immediately respawn it below with the new settings).
     existing.busy = false;
     existing.currentMessageId = null;
     existing.aborted = true;
+    existing.intentionalKill = true;
     existing.child.kill();
 
     const agent = this.spawnAgent(sessionId, session, descriptor, nextConfig);
@@ -525,7 +680,7 @@ export class PiAgentManager {
   spawnSubagent(
     sessionId: string,
     request: SubagentSpawnRequest,
-  ): SubagentInfo {
+  ): SpawnedSubagent {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`No active session for ${sessionId}`);
@@ -536,6 +691,7 @@ export class PiAgentManager {
       templates: session.config?.templates,
       defaults: session.config?.subagentDefaults,
     });
+    const autoRelayToPrime = request.autoRelayToPrime ?? true;
 
     const agent = this.spawnAgent(
       sessionId,
@@ -545,7 +701,7 @@ export class PiAgentManager {
         role: "subagent",
         name: request.name,
         template: request.template,
-        autoRelayToPrime: request.autoRelayToPrime ?? true,
+        autoRelayToPrime,
       },
       config,
     );
@@ -555,7 +711,12 @@ export class PiAgentManager {
 
     this.deliverInitialTask(sessionId, agentId, request.task);
 
-    return info;
+    return {
+      info,
+      tools: [...config.tools],
+      systemPrompt: config.appendSystemPrompt,
+      autoRelayToPrime,
+    };
   }
 
   /**
@@ -702,6 +863,7 @@ export class PiAgentManager {
     if (!agent || agent.role === "prime") return;
 
     agent.status = completed ? "completed" : "killed";
+    agent.intentionalKill = true;
     session.agents.delete(agentId);
     agent.child.kill();
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
@@ -745,6 +907,7 @@ export class PiAgentManager {
     if (!session) return;
     this.sessions.delete(sessionId);
     for (const agent of session.agents.values()) {
+      agent.intentionalKill = true;
       agent.child.kill();
     }
     this.notifyStatus(sessionId);
@@ -765,13 +928,14 @@ export class PiAgentManager {
       autoRelayToPrime?: boolean;
     },
     config: AgentConfig,
+    supervision?: { restartCount: number; lastRestartAt: number | null },
   ): AgentProcess {
     const extras = spawnExtras(session.config);
     logSpawn(sessionId, descriptor, session.rootPath, config, extras);
 
     const memoryPreamble = this.memory.buildPreamble(session.rootPath);
     const userPreamble = buildUserPreamble(session.user);
-    const child = spawn(
+    const child = this.spawnProcess(
       PI_BIN,
       buildPiArgs(config, extras, [userPreamble, memoryPreamble]),
       {
@@ -806,6 +970,9 @@ export class PiAgentManager {
       lastFinalContent: "",
       autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
       lastActivity: null,
+      intentionalKill: false,
+      restartCount: supervision?.restartCount ?? 0,
+      lastRestartAt: supervision?.lastRestartAt ?? null,
     };
     session.agents.set(descriptor.agentId, agent);
 
@@ -831,7 +998,7 @@ export class PiAgentManager {
     child.on("error", (err) => {
       console.error(`[pi:${sessionId}:${agent.agentId}] failed to spawn:`, err);
       this.failInFlight(sessionId, agent, err.message);
-      this.removeAgent(sessionId, agent, "error");
+      this.handleChildExit(sessionId, agent);
     });
 
     child.on("exit", (code, signal) => {
@@ -839,8 +1006,100 @@ export class PiAgentManager {
         `[pi:${sessionId}:${agent.agentId}] process exited (code=${code}, signal=${signal})`,
       );
       this.failInFlight(sessionId, agent, "Pi process exited unexpectedly.");
-      this.removeAgent(sessionId, agent, "error");
+      this.handleChildExit(sessionId, agent);
     });
+  }
+
+  /**
+   * Decides what to do when a Pi child exits or fails to spawn. An expected exit
+   * (deliberate kill, model change, dispose — or a slot already replaced by a
+   * newer process) is dropped. A crash is auto-respawned with backoff until the
+   * bounded retry budget is exhausted, after which the slot is marked terminal.
+   */
+  private handleChildExit(sessionId: string, agent: AgentProcess): void {
+    const session = this.sessions.get(sessionId);
+    // Ignore the exit if the session is gone or this process was already
+    // replaced in the roster (e.g. a model-change respawn).
+    if (!session || session.agents.get(agent.agentId) !== agent) return;
+
+    if (agent.intentionalKill) {
+      this.removeAgent(sessionId, agent, "killed");
+      return;
+    }
+
+    const attempt = this.nextRestartAttempt(agent);
+    if (attempt === null) {
+      console.error(
+        `[pi:${sessionId}:${agent.agentId}] supervisor gave up after ${MAX_RESTARTS} restarts`,
+      );
+      this.removeAgent(sessionId, agent, "error");
+      return;
+    }
+
+    this.scheduleRespawn(sessionId, session, agent, attempt);
+  }
+
+  /**
+   * Returns the next restart attempt number for a crashed process, or `null`
+   * when the bounded retry budget is exhausted. Prior attempts older than
+   * {@link RESTART_WINDOW_MS} are forgiven (the process ran healthily for a
+   * while), so only a tight crash loop trips the limit.
+   */
+  private nextRestartAttempt(agent: AgentProcess): number | null {
+    const now = Date.now();
+    const withinWindow =
+      agent.lastRestartAt !== null &&
+      now - agent.lastRestartAt <= RESTART_WINDOW_MS;
+    const priorAttempts = withinWindow ? agent.restartCount : 0;
+    if (priorAttempts >= MAX_RESTARTS) return null;
+    return priorAttempts + 1;
+  }
+
+  /**
+   * Removes the dead process from the roster and schedules a fresh spawn of the
+   * same agent (same id, name, template, config, auto-relay) after a backoff,
+   * carrying the attempt count forward so the budget keeps shrinking. The
+   * original in-flight task is not re-delivered.
+   */
+  private scheduleRespawn(
+    sessionId: string,
+    session: SessionAgents,
+    agent: AgentProcess,
+    attempt: number,
+  ): void {
+    const delay =
+      RESTART_BACKOFF_MS[Math.min(attempt - 1, RESTART_BACKOFF_MS.length - 1)];
+    console.warn(
+      `[pi:${sessionId}:${agent.agentId}] supervisor respawn ${attempt}/${MAX_RESTARTS} in ${delay}ms`,
+    );
+
+    // Drop the dead process from the slot (no terminal status — we're reviving)
+    // so status reflects the gap and a reconnect won't see a stale process.
+    session.agents.delete(agent.agentId);
+    this.notifyStatus(sessionId);
+
+    const descriptor = {
+      agentId: agent.agentId,
+      role: agent.role,
+      name: agent.name,
+      template: agent.template,
+      autoRelayToPrime: agent.autoRelayToPrime,
+    };
+    const { config } = agent;
+
+    setTimeout(() => {
+      const live = this.sessions.get(sessionId);
+      // Session disposed or the slot was already revived (e.g. a chat join) in
+      // the meantime: nothing to do.
+      if (!live || live.agents.has(agent.agentId)) return;
+      const respawned = this.spawnAgent(sessionId, live, descriptor, config, {
+        restartCount: attempt,
+        lastRestartAt: Date.now(),
+      });
+      if (respawned.role === "subagent") {
+        this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(respawned));
+      }
+    }, delay).unref?.();
   }
 
   /**

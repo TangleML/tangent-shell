@@ -68,8 +68,22 @@ function toAgent(row: SessionAgentRow): SessionAgent {
     model: row.model ?? undefined,
     thinkingDepth: row.thinkingDepth ?? undefined,
     template: row.template ?? undefined,
+    tools: parseTools(row.tools),
+    systemPrompt: row.systemPrompt ?? undefined,
+    autoRelayToPrime: row.autoRelayToPrime,
     createdAt: row.createdAt,
   };
+}
+
+/** Parses the JSON-encoded `tools` column into a string array, else undefined. */
+function parseTools(raw: string | null): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -278,6 +292,7 @@ export class SqliteSessionStore implements SessionStore {
     // Drizzle omits `undefined` fields, so re-recording without a field leaves
     // the stored value untouched (and `status` falls back to the column default
     // / existing value).
+    const tools = agent.tools ? JSON.stringify(agent.tools) : undefined;
     this.db
       .insert(sessionAgents)
       .values({
@@ -290,6 +305,9 @@ export class SqliteSessionStore implements SessionStore {
         model: agent.model,
         thinkingDepth: agent.thinkingDepth,
         template: agent.template,
+        tools,
+        systemPrompt: agent.systemPrompt,
+        autoRelayToPrime: agent.autoRelayToPrime,
         createdAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
@@ -302,6 +320,9 @@ export class SqliteSessionStore implements SessionStore {
           model: agent.model,
           thinkingDepth: agent.thinkingDepth,
           template: agent.template,
+          tools,
+          systemPrompt: agent.systemPrompt,
+          autoRelayToPrime: agent.autoRelayToPrime,
         },
       })
       .run();

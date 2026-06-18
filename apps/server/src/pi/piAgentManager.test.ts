@@ -1,0 +1,201 @@
+import assert from "node:assert/strict";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { afterEach, mock, test } from "node:test";
+
+import type { SessionAgent } from "../store/sessionStore.ts";
+import type { MemoryManager } from "./memory.ts";
+import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
+import type { PiAgentHandlers } from "./types.ts";
+
+/**
+ * Minimal stand-in for a Pi child process. It records stdin writes and lets a
+ * test drive lifecycle events (`crash`) deterministically without a real binary.
+ */
+class FakeChild extends EventEmitter {
+  readonly stdout = new EventEmitter();
+  readonly stderr = new EventEmitter();
+  readonly writes: string[] = [];
+  killed = false;
+  readonly stdin = {
+    write: (chunk: string): boolean => {
+      this.writes.push(chunk);
+      return true;
+    },
+  };
+
+  kill(): boolean {
+    this.killed = true;
+    return true;
+  }
+
+  /** Simulates an unexpected process exit (a crash). */
+  crash(): void {
+    this.emit("exit", 1, null);
+  }
+}
+
+interface SpawnRecord {
+  args: string[];
+  agentId: string | undefined;
+  child: FakeChild;
+}
+
+/** Builds a manager wired to a fake launcher; returns it plus the spawn log. */
+function makeManager(): {
+  pi: PiAgentManager;
+  spawns: SpawnRecord[];
+  rosterUpdates: { id: string; status: string }[];
+} {
+  const spawns: SpawnRecord[] = [];
+  const rosterUpdates: { id: string; status: string }[] = [];
+
+  const fakeSpawn = ((
+    _command: string,
+    args: string[],
+    options: { env?: NodeJS.ProcessEnv },
+  ) => {
+    const child = new FakeChild();
+    spawns.push({
+      args,
+      agentId: options?.env?.TANGENT_AGENT_ID,
+      child,
+    });
+    return child as unknown as ChildProcessWithoutNullStreams;
+  }) as unknown as typeof spawn;
+
+  const handlers: PiAgentHandlers = {
+    onAgentEvent: () => {},
+    onSubagentUpdate: (_sessionId, subagent) =>
+      rosterUpdates.push({ id: subagent.id, status: subagent.status }),
+    onAgentMessage: () => {},
+    onSessionStatus: () => {},
+  };
+
+  const memory = {
+    initSession: () => {},
+    buildPreamble: () => "## Memory\n\n(empty)",
+  } as unknown as MemoryManager;
+
+  const pi = new PiAgentManager(handlers, memory, fakeSpawn);
+  return { pi, spawns, rosterUpdates };
+}
+
+/** A persisted roster row with sane defaults, overridable per field. */
+function agentRow(overrides: Partial<SessionAgent>): SessionAgent {
+  return {
+    id: "agent-1",
+    sessionId: "s1",
+    role: "subagent",
+    name: "Worker",
+    status: "active",
+    autoRelayToPrime: true,
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+afterEach(() => {
+  mock.timers.reset();
+  mock.restoreAll();
+});
+
+test("reviveSubagents re-spawns active sub-agents from persisted config", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+  assert.equal(spawns.length, 1, "ensure spawns Prime");
+
+  const persisted: SessionAgent[] = [
+    agentRow({ id: PRIME_AGENT_ID, role: "prime", name: "Prime" }),
+    agentRow({
+      id: "sub-active",
+      name: "Scout",
+      status: "active",
+      tools: ["read", "grep"],
+      systemPrompt: "You are Scout.",
+    }),
+    agentRow({ id: "sub-killed", name: "Old", status: "killed" }),
+  ];
+  pi.reviveSubagents("s1", persisted);
+
+  // Only the active sub-agent is revived (Prime is already live, killed skipped).
+  assert.equal(spawns.length, 2, "one active sub-agent revived");
+  const revived = spawns[1];
+  assert.equal(revived.agentId, "sub-active");
+  assert.ok(
+    revived.args.includes("read,grep"),
+    "revived process uses the persisted tool allowlist",
+  );
+  assert.deepEqual(
+    pi.listSubagents("s1").map((s) => s.id),
+    ["sub-active"],
+  );
+
+  // The original task is NOT re-delivered: the revived process gets no stdin.
+  assert.equal(
+    revived.child.writes.length,
+    0,
+    "no task re-delivered on revive",
+  );
+});
+
+test("reviveSubagents is idempotent and skips already-live agents", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+
+  const persisted: SessionAgent[] = [
+    agentRow({
+      id: "sub-active",
+      status: "active",
+      tools: ["read"],
+      systemPrompt: "prompt",
+    }),
+  ];
+  pi.reviveSubagents("s1", persisted);
+  pi.reviveSubagents("s1", persisted);
+
+  assert.equal(spawns.length, 2, "second revive does not double-spawn");
+});
+
+test("supervisor auto-respawns a crashed agent with backoff, then gives up", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+  assert.equal(spawns.length, 1);
+
+  // Crash #1 -> respawn after 1s.
+  spawns[0].child.crash();
+  assert.equal(spawns.length, 1, "respawn is deferred by backoff");
+  mock.timers.tick(1_000);
+  assert.equal(spawns.length, 2, "respawned after backoff");
+
+  // Crash #2 -> 2s, Crash #3 -> 4s.
+  spawns[1].child.crash();
+  mock.timers.tick(2_000);
+  assert.equal(spawns.length, 3);
+  spawns[2].child.crash();
+  mock.timers.tick(4_000);
+  assert.equal(spawns.length, 4);
+
+  // Crash #4 -> budget exhausted, no further respawn, slot dropped.
+  spawns[3].child.crash();
+  mock.timers.tick(10_000);
+  assert.equal(spawns.length, 4, "supervisor gives up after the retry budget");
+  assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
+});
+
+test("an intentional kill is not auto-respawned", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+
+  const { info } = pi.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(spawns.length, 2);
+
+  pi.killAgent("s1", info.id);
+  // The killed process exits afterwards; the supervisor must not revive it.
+  const killedChild = spawns[1].child;
+  killedChild.crash();
+
+  assert.equal(spawns.length, 2, "no respawn after an intentional kill");
+  assert.equal(pi.hasAgent("s1", info.id), false);
+});

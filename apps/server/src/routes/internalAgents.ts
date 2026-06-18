@@ -70,25 +70,32 @@ function handleSpawn(
   res: Response,
 ): void {
   try {
-    const subagent = pi.spawnSubagent(body.sessionId, {
-      name: body.name,
-      template: body.template,
-      systemPrompt: body.systemPrompt,
-      tools: body.tools,
-      model: body.model,
-      thinkingDepth: parseThinkingLevel(body.thinkingDepth),
-      task: body.task,
-    });
+    const { info, tools, systemPrompt, autoRelayToPrime } = pi.spawnSubagent(
+      body.sessionId,
+      {
+        name: body.name,
+        template: body.template,
+        systemPrompt: body.systemPrompt,
+        tools: body.tools,
+        model: body.model,
+        thinkingDepth: parseThinkingLevel(body.thinkingDepth),
+        task: body.task,
+      },
+    );
     void store.recordAgent(body.sessionId, {
-      id: subagent.id,
+      id: info.id,
       role: "subagent",
-      name: subagent.name,
+      name: info.name,
+      purpose: body.task,
       status: "active",
-      model: subagent.model,
-      thinkingDepth: subagent.thinkingDepth,
-      template: subagent.template,
+      model: info.model,
+      thinkingDepth: info.thinkingDepth,
+      template: info.template,
+      tools,
+      systemPrompt,
+      autoRelayToPrime,
     });
-    res.json({ subagent });
+    res.json({ subagent: info });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

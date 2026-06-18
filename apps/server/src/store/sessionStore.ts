@@ -39,6 +39,12 @@ export interface SessionAgent {
   thinkingDepth?: string;
   /** Template the agent was spawned from, if any. */
   template?: string;
+  /** Tool allowlist the sub-agent was spawned with (for a faithful revive). */
+  tools?: string[];
+  /** The sub-agent's resolved appended system prompt (for a faithful revive). */
+  systemPrompt?: string;
+  /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
+  autoRelayToPrime?: boolean;
   createdAt: string;
 }
 
@@ -53,6 +59,12 @@ export interface RecordAgentInput {
   model?: string;
   thinkingDepth?: string;
   template?: string;
+  /** Tool allowlist the sub-agent was spawned with (for a faithful revive). */
+  tools?: string[];
+  /** The sub-agent's resolved appended system prompt (for a faithful revive). */
+  systemPrompt?: string;
+  /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
+  autoRelayToPrime?: boolean;
 }
 
 /**

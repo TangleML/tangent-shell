@@ -50,7 +50,10 @@ import {
 } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStatusHandler } from "../pi/types.ts";
-import type { SessionStore } from "../store/sessionStore.ts";
+import type {
+  SessionAgentStatus,
+  SessionStore,
+} from "../store/sessionStore.ts";
 
 function roomFor(sessionId: string): string {
   return `session:${sessionId}`;
@@ -290,10 +293,22 @@ function relayTerminalEvent(
 }
 
 /** Builds the handler that broadcasts sub-agent roster changes to the room. */
-export function createSubagentUpdateHandler(io: Server): SubagentUpdateHandler {
+export function createSubagentUpdateHandler(
+  io: Server,
+  store: SessionStore,
+): SubagentUpdateHandler {
   return (sessionId, subagent) => {
     const payload: SubagentUpdatePayload = { sessionId, subagent };
     io.to(roomFor(sessionId)).emit(SocketEvents.SubagentUpdate, payload);
+
+    // Persist the lifecycle transition so a restart's revive sees the current
+    // status: only `active` agents are re-spawned, so a kill/completion/error
+    // (or a supervised respawn back to active) must reach the DB. The roster
+    // table only distinguishes active vs. terminal, so any non-active status
+    // collapses to `killed`.
+    const status: SessionAgentStatus =
+      subagent.status === "active" ? "active" : "killed";
+    void store.setAgentStatus(sessionId, subagent.id, status);
   };
 }
 
@@ -641,6 +656,12 @@ async function handleChatJoin(
     primeOverride,
     session.user,
   );
+
+  // Re-spawn any previously-active sub-agents from the persisted roster so a
+  // restart restores the full agent set (Prime + sub-agents), not just Prime.
+  // Idempotent: agents already live are skipped.
+  const persistedAgents = await store.listAgents(session.id);
+  pi.reviveSubagents(session.id, persistedAgents);
 
   // Re-arm the session's schedule triggers (idempotent) and surface the roster.
   triggerEngine.sync(session.id, session.rootPath);
