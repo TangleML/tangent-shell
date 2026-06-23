@@ -3,14 +3,7 @@ import type {
   MessageDelivery,
   SubagentStatus,
 } from "@tangent/shared/contracts";
-import {
-  type ChangeEvent,
-  type ClipboardEvent,
-  type KeyboardEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   clearDraft,
@@ -18,12 +11,8 @@ import {
   writeDraft,
 } from "@/features/chat/model/chatDraft";
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
-import { Box } from "@/shared/ui/box";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Textarea } from "@/shared/ui/textarea";
 
-import { FileDropZone } from "./FileDropZone";
+import { ComposerShell } from "./ComposerShell";
 import { KilledAgentNotice } from "./KilledAgentNotice";
 import { QueuedFollowUps } from "./QueuedFollowUps";
 import { RunControls } from "./RunControls";
@@ -45,6 +34,8 @@ interface ChatInputProps {
   agentId: string;
   /** Disables the whole composer (e.g. while the socket is disconnected). */
   disabled?: boolean;
+  /** Files staged on mount (e.g. handed off from the new-session draft screen). */
+  initialFiles?: File[];
   /**
    * Whether the target agent is mid-run. When busy, the composer stays usable
    * and surfaces Stop / Steer / Follow up controls above the input so the user
@@ -73,6 +64,7 @@ export function ChatInput({
   sessionId,
   agentId,
   disabled,
+  initialFiles,
   agentBusy,
   agentStatus,
   onRemove,
@@ -83,13 +75,12 @@ export function ChatInput({
   // reloads. Seed from storage on mount; callers key this component by
   // session+agent, so it remounts (and re-seeds) when either changes.
   const [value, setValue] = useState(() => readDraft(sessionId, agentId));
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(() => initialFiles ?? []);
   const [uploading, setUploading] = useState(false);
   // Follow-ups composed while the agent is busy wait here until the run ends
   // (auto-drained) or the user sends one immediately. They never become chat
   // bubbles until actually sent, so the transcript stays clean.
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // Tracks the previous busy state so we can detect the run-end transition and
   // flush the queue exactly once when the agent stops.
   const wasBusyRef = useRef(agentBusy);
@@ -97,41 +88,13 @@ export function ChatInput({
   const busy = disabled || uploading;
   const canSubmit = !busy && (value.trim().length > 0 || files.length > 0);
 
-  function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
-    const next = e.target.value;
+  function handleValueChange(next: string) {
     setValue(next);
     writeDraft(sessionId, agentId, next);
   }
 
   function addFiles(picked: File[]) {
     if (picked.length) setFiles((prev) => [...prev, ...picked]);
-  }
-
-  function handleFilesPicked(e: ChangeEvent<HTMLInputElement>) {
-    addFiles(e.target.files ? Array.from(e.target.files) : []);
-    // Reset so picking the same file again still fires `onChange`.
-    e.target.value = "";
-  }
-
-  function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
-    if (busy) return;
-    const images: File[] = [];
-    for (const item of Array.from(e.clipboardData.items)) {
-      if (!item.type.startsWith("image/")) continue;
-      const blob = item.getAsFile();
-      if (!blob) continue;
-      // Pasted blobs are often named generically (e.g. "image.png"), so derive
-      // a unique, readable name from the MIME subtype to disambiguate pills.
-      const ext = blob.type.split("/")[1] || "png";
-      const named = new File([blob], `pasted-${Date.now()}.${ext}`, {
-        type: blob.type,
-      });
-      images.push(named);
-    }
-    if (images.length === 0) return;
-    // Prevent a screenshot-only paste from also inserting placeholder content.
-    e.preventDefault();
-    addFiles(images);
   }
 
   function removeFile(index: number) {
@@ -223,17 +186,14 @@ export function ChatInput({
     }
   }, [agentBusy, queue, onSubmit]);
 
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      // While the agent is running, Enter queues a follow-up; otherwise it
-      // sends the message immediately.
-      if (agentBusy) {
-        void enqueueFollowUp();
-        return;
-      }
-      void handleSubmit("auto");
+  // While the agent is running, the primary action queues a follow-up; otherwise
+  // it sends immediately. The Send button is hidden mid-run (see hideSend).
+  function handlePrimarySubmit() {
+    if (agentBusy) {
+      void enqueueFollowUp();
+      return;
     }
+    void handleSubmit("auto");
   }
 
   // A killed agent can't take input, so swap the composer for a terminal notice.
@@ -242,73 +202,31 @@ export function ChatInput({
   }
 
   return (
-    <FileDropZone onFilesDropped={addFiles} disabled={busy}>
-      <Box borderBlockStart="sm" padding="sm" inlineSize="full">
-        <BlockStack gap="2">
-          <StagedFiles
-            files={files}
-            uploading={uploading}
-            onRemove={removeFile}
-          />
-          {/* Queued follow-ups wait above the input until the run ends (then
-              they auto-send) or the user sends one immediately. */}
-          <QueuedFollowUps
-            items={queue}
-            onSendNow={sendQueuedNow}
-            onDiscard={discardQueued}
-            disabled={busy}
-          />
-          {/* Run controls sit on their own row, left-aligned, immediately above
-              the input so they're easy to spot while the agent is working. */}
-          {agentBusy ? (
-            <RunControls
-              canSubmit={canSubmit}
-              onAbort={onAbort}
-              onSteer={() => void handleSubmit("steer")}
-              onFollowUp={() => void enqueueFollowUp()}
-            />
-          ) : null}
-          <InlineStack gap="2" blockAlign="start" wrap="nowrap" fill>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              hidden
-              onChange={handleFilesPicked}
-            />
-            <IconButton
-              icon="Paperclip"
-              variant="outline"
-              size="lg"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-              aria-label="Attach files"
-            />
-            <Textarea
-              autoGrow
-              rows={2}
-              placeholder={
-                agentBusy ? "Nudge the agent..." : "Message the session..."
-              }
-              value={value}
-              onChange={handleChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              disabled={busy}
-            />
-            {agentBusy ? null : (
-              <IconButton
-                icon="Send"
-                variant="outline"
-                size="lg"
-                onClick={() => void handleSubmit("auto")}
-                disabled={!canSubmit}
-                aria-label="Send message"
-              />
-            )}
-          </InlineStack>
-        </BlockStack>
-      </Box>
-    </FileDropZone>
+    <ComposerShell
+      value={value}
+      onValueChange={handleValueChange}
+      onSubmit={handlePrimarySubmit}
+      onAttach={addFiles}
+      canSend={canSubmit}
+      busy={busy}
+      placeholder={agentBusy ? "Nudge the agent..." : "Message the session..."}
+      hideSend={agentBusy}
+    >
+      <StagedFiles files={files} uploading={uploading} onRemove={removeFile} />
+      <QueuedFollowUps
+        items={queue}
+        onSendNow={sendQueuedNow}
+        onDiscard={discardQueued}
+        disabled={busy}
+      />
+      {agentBusy ? (
+        <RunControls
+          canSubmit={canSubmit}
+          onAbort={onAbort}
+          onSteer={() => void handleSubmit("steer")}
+          onFollowUp={() => void enqueueFollowUp()}
+        />
+      ) : null}
+    </ComposerShell>
   );
 }

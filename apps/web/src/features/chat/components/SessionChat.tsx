@@ -1,4 +1,5 @@
 import { PI_AGENT } from "@tangent/shared/contracts";
+import { useEffect, useState } from "react";
 
 import {
   CHAT_TAB_VALUE,
@@ -8,6 +9,10 @@ import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { type Agent, buildAgents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { useSession } from "@/features/sessions/hooks/useSession";
+import {
+  clearPendingNewSession,
+  peekPendingNewSession,
+} from "@/features/sessions/model/pendingNewSession";
 import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
@@ -18,6 +23,7 @@ import { AgentModelPicker } from "./composer/AgentModelPicker";
 import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
 import { ChatInput } from "./composer/ChatInput";
 import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
+import { NewSessionComposer } from "./composer/NewSessionComposer";
 import { ChatMessageList } from "./message/ChatMessageList";
 import { AgentList } from "./sidebar/agents/AgentList";
 import { AssetList } from "./sidebar/assets/AssetList";
@@ -32,9 +38,24 @@ import { TriggerTabPanel } from "./tabs/TriggerTabPanel";
 
 interface SessionChatProps {
   sessionId: string;
+  draft?: boolean;
+  draftActions?: {
+    onSend: (content: string) => void;
+    onAttach: (files: File[], content: string) => void;
+    busy?: boolean;
+  };
 }
 
-export function SessionChat({ sessionId }: SessionChatProps) {
+export function SessionChat({
+  sessionId,
+  draft = false,
+  draftActions,
+}: SessionChatProps) {
+  const [handoff] = useState(() => (draft ? null : peekPendingNewSession()));
+  useEffect(() => {
+    if (!draft) clearPendingNewSession();
+  }, [draft]);
+
   const {
     messages,
     subagents,
@@ -57,7 +78,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     getAgentModel,
     setAgentModel,
     dismissSubagent,
-  } = useSessionChat(sessionId);
+  } = useSessionChat(sessionId, { initialMessage: handoff?.initialMessage });
 
   // Prime's current model/thinking selection (null = server default).
   const primeModel = getAgentModel(PI_AGENT.id);
@@ -131,7 +152,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
             <BlockStack gap="2">
               <SessionCard
                 currentSessionId={sessionId}
-                name={session?.name ?? "Session"}
+                name={draft ? "New session" : (session?.name ?? "Session")}
                 rootPath={session?.rootPath}
                 connected={connected}
               />
@@ -205,7 +226,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 onTogglePinArtifact={togglePinArtifact}
                 isMessageStreaming={isMessageStreaming}
               />
-              {memorySuggestions.length > 0 ? (
+              {!draft && memorySuggestions.length > 0 ? (
                 <Box paddingInline="base" paddingBlock="sm">
                   <BlockStack gap="2">
                     {memorySuggestions.map((suggestion) => (
@@ -219,36 +240,47 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                   </BlockStack>
                 </Box>
               ) : null}
-              {bundleId ? (
+              {!draft && bundleId ? (
                 <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
               ) : null}
-              <Box paddingInline="base" paddingBlock="sm">
-                <InlineStack align="end">
-                  <AgentModelPicker
-                    model={primeModel?.model}
-                    thinkingDepth={primeModel?.thinkingDepth}
-                    onChange={(selection) =>
-                      setAgentModel(PI_AGENT.id, selection)
-                    }
-                    disabled={!connected}
-                  />
-                </InlineStack>
-              </Box>
-              <ChatInput
-                key={`${sessionId}:${PI_AGENT.id}`}
-                sessionId={sessionId}
-                agentId={PI_AGENT.id}
-                disabled={!connected}
-                agentBusy={agentBusy}
-                onAbort={() => abort(PI_AGENT.id)}
-                onSubmit={(content, { delivery, attachments }) =>
-                  send(content, {
-                    conversationId: PI_AGENT.id,
-                    delivery,
-                    attachments,
-                  })
-                }
-              />
+              {!draft ? (
+                <Box paddingInline="base" paddingBlock="sm">
+                  <InlineStack align="end">
+                    <AgentModelPicker
+                      model={primeModel?.model}
+                      thinkingDepth={primeModel?.thinkingDepth}
+                      onChange={(selection) =>
+                        setAgentModel(PI_AGENT.id, selection)
+                      }
+                      disabled={!connected}
+                    />
+                  </InlineStack>
+                </Box>
+              ) : null}
+              {draft && draftActions ? (
+                <NewSessionComposer
+                  onSend={draftActions.onSend}
+                  onAttach={draftActions.onAttach}
+                  busy={draftActions.busy}
+                />
+              ) : (
+                <ChatInput
+                  key={`${sessionId}:${PI_AGENT.id}`}
+                  sessionId={sessionId}
+                  agentId={PI_AGENT.id}
+                  initialFiles={handoff?.files}
+                  disabled={!connected}
+                  agentBusy={agentBusy}
+                  onAbort={() => abort(PI_AGENT.id)}
+                  onSubmit={(content, { delivery, attachments }) =>
+                    send(content, {
+                      conversationId: PI_AGENT.id,
+                      delivery,
+                      attachments,
+                    })
+                  }
+                />
+              )}
             </BlockStack>
           </TabsContent>
 
