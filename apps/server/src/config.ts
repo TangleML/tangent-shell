@@ -10,6 +10,14 @@ import {
 export const PORT = Number(process.env.PORT ?? 8787);
 
 /**
+ * Directory holding the built static UI (index.html + hashed assets). When set,
+ * the server serves it with an SPA history fallback so the combined image needs
+ * no reverse proxy. Unset in dev, where Vite serves the UI and proxies /api +
+ * /socket.io here.
+ */
+export const WEB_DIST_DIR = process.env.WEB_DIST_DIR;
+
+/**
  * Root directory that holds every session's scoped folder. Each session gets
  * its own subdirectory (`SESSIONS_ROOT/<id>`) which a Pi worker will run in.
  * Gitignored by default.
