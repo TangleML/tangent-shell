@@ -24,6 +24,7 @@ import {
   host,
   Icon,
   Progress,
+  StatusBar,
   Text,
 } from "@tangent/bundle-ui";
 import { useEffect, useState } from "react";
@@ -35,15 +36,20 @@ const POLL_INTERVAL_MS = 4000;
 /** Candidate keys for the pipeline's human title across API shapes. */
 const TITLE_KEYS = ["pipeline_name", "display_name", "name", "title"];
 
+/** Per-status counts, e.g. `{ SUCCEEDED: 3, RUNNING: 1 }`. */
+type StatusStats = Record<string, number>;
+
 interface ExecutionState {
   total: number;
   ended: number;
   done: boolean;
+  /** Flattened per-status counts for the segmented bar. */
+  stats: StatusStats;
 }
 
 interface PipelineMeta {
   title: string | null;
-  url: string;
+  url: string | null;
 }
 
 interface OasisStateResponse {
@@ -52,16 +58,38 @@ interface OasisStateResponse {
     ended_executions?: number;
     has_ended?: boolean;
   };
+  child_execution_status_stats?: Record<
+    string,
+    Record<string, number> | null | undefined
+  > | null;
+}
+
+/** Flatten the nested per-child status stats into a single status->count map. */
+function flattenStatusStats(
+  childStats: OasisStateResponse["child_execution_status_stats"],
+): StatusStats {
+  if (!childStats) return {};
+  const result: StatusStats = {};
+  for (const stats of Object.values(childStats)) {
+    if (!stats) continue;
+    for (const [status, count] of Object.entries(stats)) {
+      if (typeof count === "number" && count > 0) {
+        result[status] = (result[status] ?? 0) + count;
+      }
+    }
+  }
+  return result;
 }
 
 function toExecutionState(json: unknown): ExecutionState | null {
-  const summary = (json as OasisStateResponse | null)
-    ?.child_execution_status_summary;
+  const response = json as OasisStateResponse | null;
+  const summary = response?.child_execution_status_summary;
   if (!summary) return null;
   return {
     total: summary.total_executions ?? 0,
     ended: summary.ended_executions ?? 0,
     done: summary.has_ended ?? false,
+    stats: flattenStatusStats(response?.child_execution_status_stats),
   };
 }
 
@@ -153,7 +181,7 @@ async function loadRunTitle(runId: string): Promise<string | null> {
 /**
  * Resolves the pipeline's title and run URL from an execution id. Reads the
  * execution details, falls back to the pipeline-runs endpoint for the title,
- * and degrades to the execution URL when no run id is present.
+ * and leaves the URL null when no run id is present.
  */
 async function loadPipelineMeta(
   executionId: string,
@@ -164,9 +192,7 @@ async function loadPipelineMeta(
     );
     if (!res.ok) return null;
     const runId = extractRunId(res.json);
-    const url = runId
-      ? `${TANGLE_BASE}/runs/${runId}`
-      : `${TANGLE_BASE}/executions/${executionId}`;
+    const url = runId ? `${TANGLE_BASE}/runs/${runId}` : null;
     const title =
       extractTitle(res.json) ?? (runId ? await loadRunTitle(runId) : null);
     return { title, url };
@@ -248,6 +274,7 @@ export default function PipelineProgress() {
 
   const progress =
     state && state.total > 0 ? state.ended / state.total : state?.done ? 1 : 0;
+  const hasStats = state ? Object.keys(state.stats).length > 0 : false;
   const label = !state
     ? "Loading execution status…"
     : state.done
@@ -278,7 +305,14 @@ export default function PipelineProgress() {
       </CardHeader>
       <CardContent>
         <BlockStack gap="1">
-          <Progress value={progress} tone={state?.done ? "success" : "info"} />
+          {hasStats && state ? (
+            <StatusBar segments={JSON.stringify(state.stats)} />
+          ) : (
+            <Progress
+              value={progress}
+              tone={state?.done ? "success" : "info"}
+            />
+          )}
           <Text size="xs" tone="subdued">
             {label}
           </Text>
