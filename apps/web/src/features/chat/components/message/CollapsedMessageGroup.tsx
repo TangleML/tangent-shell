@@ -17,7 +17,7 @@ export function CollapsedMessageGroup({
   // Raw <div> for the `select-none` escape hatch, exempt from
   // tangle-ui/no-classname-on-primitives.
   return (
-    <div className="select-none">
+    <div className="flex justify-center select-none">
       <Button variant="ghost" size="xs" tone="default" onClick={onExpandAll}>
         <Icon name="ChevronDown" size="xs" />
         {count} messages hidden
