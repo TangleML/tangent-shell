@@ -14,10 +14,10 @@ Skills are not auto-loaded — you must invoke them. Do it *before* writing code
 - Pipelines, runs, components, tasks, inputs/outputs (any domain term) → **`tangle-domain`**
 - Data fetching / mutations / cache → **`tanstack-query`**
 - Routes / navigation / search params → **`tanstack-router`**
-- Tests → **`vitest-testing`** (unit/component) or **`e2e-testing`** (Playwright)
+- Tests → **`server-testing`** (server-side only, Node's `tsx --test`; no frontend test runner)
 - User-facing copy / errors / banners → **`open-source`**
 - Interactive UI, forms, dialogs → **`accessibility`**
-- Analytics events / `action_type` naming → **`analytics-tracking`**
+- Analytics events / `action_type` naming → **`analytics-tracking`** (aspirational — not yet built)
 
 When a task spans several, load each relevant one first.
 
@@ -88,8 +88,8 @@ Tests exist in **`apps/server` only**, run via Node's built-in test runner (not 
 - All: `pnpm --filter @tangent/server test` (runs `src/**/*.test.ts`)
 - One file: `pnpm --filter @tangent/server exec tsx --test src/path/to/x.test.ts`
 
-`apps/web` has no test setup. **Vitest and Playwright are not configured in this repo** — despite the
-`vitest-testing` / `e2e-testing` skills, don't assume those runners exist. `pnpm validate` skips tests,
+`apps/web` has no test setup. **Vitest and Playwright are not configured in this repo** — don't
+assume those runners exist. See the `server-testing` skill for patterns. `pnpm validate` skips tests,
 so run the server tests explicitly when you touch server code.
 
 ### Database (apps/server)

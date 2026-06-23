@@ -7,171 +7,134 @@ description: TanStack Router patterns for routing, navigation, search params, an
 
 This project uses **code-based routing** (not file-based) with TanStack Router v1.
 
-## Route Definitions
+## Route definitions
 
-All routes are defined in `src/routes/router.ts` using `createRoute` and assembled into a tree with `addChildren`:
+Routes are defined in `apps/web/src/routes/routeTree.tsx` with `createRootRoute` / `createRoute`,
+then assembled with `addChildren`. A **pathless layout route** (`id: "app"`) renders the persistent
+`AppShell` around every page:
 
 ```typescript
-const mainLayout = createRoute({
-  id: "main-layout",
-  getParentRoute: () => rootRoute,
+const rootRoute = createRootRoute({
   component: RootLayout,
+  notFoundComponent: NotFoundPage,
 });
 
-const indexRoute = createRoute({
-  getParentRoute: () => mainLayout,
-  path: APP_ROUTES.HOME,
-  component: Editor,
+const appLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "app",
+  component: AppLayout, // <AppShell topBar={<AppTopNav />}><Outlet /></AppShell>
 });
 
-// Assemble tree
-const appRouteTree = mainLayout.addChildren([
-  indexRoute,
-  quickStartRoute,
-  settingsRouteTree,
-  editorRoute,
+const sessionsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/sessions",
+  component: SessionsPage,
+});
+
+export const routeTree = rootRoute.addChildren([
+  appLayoutRoute.addChildren([
+    indexRoute, // path "/" → redirect to "/sessions"
+    sessionsRoute,
+    sessionChatRoute, // "/sessions/$sessionId"
+    agentBundlesRoute, // "/agent-bundles"
+    globalMemoryRoute, // "/global-memory"
+    ...(env.isDev ? [bundleUiHarnessRoute] : []), // dev-only "/bundle-ui-harness"
+  ]),
 ]);
 ```
 
-## Route Path Constants
+Paths are plain string literals on each route — there is **no `APP_ROUTES` constant**. Routes
+conditionally mounted for dev use `env.isDev` from `@/shared/config/env`.
 
-Use the `APP_ROUTES` constant object for all route paths — never hardcode path strings:
+## Router config
+
+`apps/web/src/routes/router.tsx` creates the router. It mounts under the proxy sub-path via
+`BASE_PREFIX` (from `@/shared/lib/basePath`) so client routing resolves behind the oasis pod-proxy:
 
 ```typescript
-export const APP_ROUTES = {
-  HOME: "/",
-  QUICK_START: "/quick-start",
-  PIPELINE_EDITOR: `${EDITOR_PATH}/$name`,
-  RUN_DETAIL: `${RUNS_BASE_PATH}/$id`,
-  RUNS: RUNS_BASE_PATH,
-  SETTINGS: "/settings",
-} as const;
+export const router = createRouter({
+  routeTree,
+  history: createBrowserHistory(),
+  basepath: BASE_PREFIX,
+  defaultPreload: "intent", // preload on hover/focus
+});
 ```
 
-## Navigation
+## Redirects
 
-**useNavigate hook:**
-
-```typescript
-const navigate = useNavigate();
-navigate({ to: `${APP_ROUTES.RUNS}/${runId}` });
-```
-
-**Handle Ctrl/Cmd+Click for new tabs:**
+Use `beforeLoad` for redirects and simple param extraction (this project does **not** use route
+`loader`s — fetch with query hooks in components instead):
 
 ```typescript
-const handleRowClick = (e: MouseEvent<HTMLElement>) => {
-  if (e.ctrlKey || e.metaKey) {
-    window.open(clickThroughUrl, "_blank");
-    return;
-  }
-  navigate({ to: clickThroughUrl });
-};
-```
-
-**Link component with active state:**
-
-```typescript
-import { Link } from "@tanstack/react-router";
-
-<Link
-  to={item.to}
-  replace
-  activeProps={{ className: "is-active" }}
->
-  {({ isActive }) => (
-    <Button variant="ghost" className={cn("w-full", isActive && "bg-accent")}>
-      <Icon name={item.icon} size="sm" />
-      <Text size="sm">{item.label}</Text>
-    </Button>
-  )}
-</Link>
-```
-
-## Data Fetching
-
-This project uses **TanStack Query for data fetching**, not route loaders. Routes do not define `loader` functions — use query hooks in components instead.
-
-`beforeLoad` is only used for redirects and simple param extraction:
-
-```typescript
-const settingsIndexRoute = createRoute({
-  getParentRoute: () => settingsLayoutRoute,
+const indexRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: APP_ROUTES.SETTINGS_BACKEND });
+    throw redirect({ to: "/sessions" });
   },
 });
 ```
 
-## Search Params
-
-Use `useSearch` with type casting and manual validation (not Zod):
+## Navigation
 
 ```typescript
-type RunSectionSearch = { page_token?: string; filter?: string };
-const search = useSearch({ strict: false }) as RunSectionSearch;
-const filters = parseFilterParam(search.filter);
+const navigate = useNavigate();
+navigate({ to: "/sessions/$sessionId", params: { sessionId } });
 ```
 
-For complex search param management, see the `useRunSearchParams` hook in `src/hooks/useRunSearchParams.ts` which provides `setFilter`, `clearFilters`, `hasActiveFilters`, etc.
+For nav links, use the design-system `TopNav` / `TopNavLink` patterns (which wrap the router `Link`)
+rather than styling a raw `Link` — remember the no-`className`-on-primitives rule:
 
-Validate search params with **type guards**, not Zod:
+```tsx
+import { Link } from "@tanstack/react-router";
+import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
+
+<TopNav
+  brand={<Link to="/sessions"><Text size="lg" weight="bold">Tangent Shell</Text></Link>}
+  links={
+    <>
+      <TopNavLink to="/sessions">Sessions</TopNavLink>
+      <TopNavLink to="/agent-bundles">Agent bundles</TopNavLink>
+    </>
+  }
+/>;
+```
+
+## Route params
+
+Read typed params with the `from` option pointing at the route's full path id:
 
 ```typescript
-function isValidAnnotationFilter(value: unknown): value is AnnotationFilter {
-  return (
-    isRecord(value) &&
-    typeof value.key === "string" &&
-    (value.value === undefined || typeof value.value === "string")
-  );
-}
+const { sessionId } = useParams({ from: "/app/sessions/$sessionId" });
 ```
 
-## Route Params
+## Search params
 
-```typescript
-const { id, subgraphExecutionId } = useParams();
+For query/search state, use `useSearch`. Validate with **type guards**, not Zod, and read
+loosely-typed search with `useSearch({ strict: false })` when a route doesn't declare a
+`validateSearch`. Keep dynamic values (ids, counts) in params/search, not in path constants.
+
+## Router hooks
+
+| Hook                           | Use case                                   |
+| ------------------------------ | ------------------------------------------ |
+| `useNavigate()`                | Programmatic navigation                    |
+| `useParams({ from })`          | Route params (`$sessionId`)                |
+| `useSearch({ strict: false })` | Search/query params                        |
+| `useLocation()`                | Current pathname                           |
+| `useRouter()` / `useRouterState()` | Router instance / advanced state       |
+
+## Layout nesting
+
+Layouts render `<Outlet />` for children. The current tree:
+
 ```
-
-## Router Hooks
-
-| Hook                           | Use Case                                          |
-| ------------------------------ | ------------------------------------------------- |
-| `useNavigate()`                | Programmatic navigation                           |
-| `useParams()`                  | Route parameters (`$id`, `$name`)                 |
-| `useSearch({ strict: false })` | Search/query params                               |
-| `useLocation()`                | Current pathname                                  |
-| `useRouter()`                  | Router instance (history, back navigation)        |
-| `useRouterState()`             | Advanced state (resolved location, pending state) |
-
-## Layout Nesting
-
-Layouts use `<Outlet />` for child routes. The root layout (`RootLayout`) wraps providers:
-
+rootRoute (RootLayout, notFoundComponent: NotFoundPage)
+└── appLayoutRoute  (AppLayout: AppShell + AppTopNav + Outlet)
+    ├── indexRoute            "/"            → redirect "/sessions"
+    ├── sessionsRoute         "/sessions"
+    ├── sessionChatRoute      "/sessions/$sessionId"
+    ├── agentBundlesRoute     "/agent-bundles"
+    ├── globalMemoryRoute     "/global-memory"
+    └── bundleUiHarnessRoute  "/bundle-ui-harness"   (dev only)
 ```
-rootRoute
-├── mainLayout (RootLayout: BackendProvider > ComponentSpecProvider > AppMenu + Outlet)
-│   ├── indexRoute
-│   ├── settingsLayoutRoute (SettingsLayout: sidebar + Outlet)
-│   │   ├── settingsBackendRoute
-│   │   └── secretsRouteTree
-│   ├── editorRoute
-│   └── runDetailRoute
-└── Auth callback routes (no layout)
-```
-
-## Router Config
-
-```typescript
-export const router = createRouter({
-  routeTree: rootRouteTree,
-  defaultPreload: "intent",
-  scrollRestoration: true,
-  history,
-  basepath: IS_GITHUB_PAGES ? "" : basepath,
-});
-```
-
-- `defaultPreload: "intent"` — preloads routes on hover/focus
-- `scrollRestoration: true` — restores scroll position on back navigation
