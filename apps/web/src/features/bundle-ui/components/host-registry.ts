@@ -25,6 +25,7 @@ import { PillHost } from "./pill/pill.host";
 import { ProgressHost } from "./progress/progress.host";
 import { ScoreRingHost } from "./score-ring/score-ring.host";
 import { SpinnerHost } from "./spinner/spinner.host";
+import { StatusBarHost } from "./status-bar/status-bar.host";
 import { TextHost } from "./text/text.host";
 import { TextareaHost } from "./textarea/textarea.host";
 
@@ -48,6 +49,7 @@ export const hostAdapters = {
   "tangent-progress": ProgressHost,
   "tangent-score-ring": ScoreRingHost,
   "tangent-checkbox": CheckboxHost,
+  "tangent-status-bar": StatusBarHost,
 } as const satisfies Record<string, ComponentType<RemoteProps>>;
 
 /** Union of valid remote element names. */

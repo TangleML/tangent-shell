@@ -61,5 +61,6 @@ export { Pill } from "../components/pill/pill.remote";
 export { Progress } from "../components/progress/progress.remote";
 export { ScoreRing } from "../components/score-ring/score-ring.remote";
 export { Spinner } from "../components/spinner/spinner.remote";
+export { StatusBar } from "../components/status-bar/status-bar.remote";
 export { Text } from "../components/text/text.remote";
 export { Textarea } from "../components/textarea/textarea.remote";
