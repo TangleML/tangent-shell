@@ -11,6 +11,7 @@ import { Paragraph } from "@/shared/ui/typography";
 import { AgentActivityBubble } from "./AgentActivityBubble";
 import { ChatMessage } from "./ChatMessage";
 import { CollapsedMessageGroup } from "./CollapsedMessageGroup";
+import { JumpToBottomButton } from "./JumpToBottomButton";
 import { buildSegments } from "./messageSegments";
 
 interface ChatMessageListProps {
@@ -52,6 +53,11 @@ export function ChatMessageList({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const prevLenRef = useRef(0);
+
+  const [showJump, setShowJump] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Collapse state is ephemeral per view (not URL or server). Thinking-only
   // messages collapse by default once they finish streaming; `expandedIds`
@@ -88,13 +94,14 @@ export function ChatMessageList({
       return next;
     });
   };
-  // Whether the view is stuck to the bottom. Tracked in a ref (not state) so
-  // updating it from scroll/resize handlers never triggers a re-render.
-  const pinnedRef = useRef(true);
+  const scrollToBottom = () => {
+    pinnedRef.current = true;
+    setShowJump(false);
+    setUnreadCount(0);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  };
 
-  // Follow streaming growth (content + thinking) and thinking expand/collapse:
-  // a ResizeObserver on the content wrapper reacts to any height change and
-  // keeps us at the bottom while pinned. A scroll listener tracks pinned state.
+  // Keep pinned views at the bottom as content grows, and track pinned state.
   useEffect(() => {
     const container = containerRef.current;
     const content = contentRef.current;
@@ -103,7 +110,10 @@ export function ChatMessageList({
     const onScroll = () => {
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight;
-      pinnedRef.current = distanceFromBottom <= PIN_THRESHOLD_PX;
+      const atBottom = distanceFromBottom <= PIN_THRESHOLD_PX;
+      pinnedRef.current = atBottom;
+      setShowJump(!atBottom);
+      if (atBottom) setUnreadCount(0);
     };
     container.addEventListener("scroll", onScroll, { passive: true });
 
@@ -120,63 +130,82 @@ export function ChatMessageList({
     };
   }, []);
 
-  // A brand-new message always jumps to the bottom and re-pins, so a user's own
-  // send (or a fresh agent reply) is immediately in view.
+  // New message (count grew, not a streaming delta): own sends always snap to
+  // the bottom; agent messages only when pinned, else tally for the pill.
   useEffect(() => {
-    pinnedRef.current = true;
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length]);
+    const prevLen = prevLenRef.current;
+    prevLenRef.current = messages.length;
+    if (messages.length <= prevLen) return;
+
+    const lastMessage = messages[messages.length - 1];
+    const isOwnSend = lastMessage?.author.id === currentAuthorId;
+
+    if (isOwnSend || pinnedRef.current) {
+      scrollToBottom();
+    } else {
+      setUnreadCount((count) => count + (messages.length - prevLen));
+      setShowJump(true);
+    }
+  }, [messages, currentAuthorId]);
 
   // The scroll container is always rendered (even when empty) so the refs exist
   // on mount and the setup effect above can attach its observers; otherwise the
   // ResizeObserver would never wire up and streaming growth wouldn't autoscroll.
   return (
     <BlockStack grow>
-      <ScrollRegion ref={containerRef} axis="y">
-        <Box padding="base">
-          <BlockStack fill ref={contentRef} gap="4">
-            {messages.length === 0 ? (
-              <Paragraph size="sm" tone="subdued">
-                No messages yet. Say hello to start the session.
-              </Paragraph>
-            ) : (
-              buildSegments(messages, isCollapsed).map((segment) => {
-                if (segment.kind === "visible") {
-                  const msg = segment.message;
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <ScrollRegion ref={containerRef} axis="y">
+          <Box padding="base">
+            <BlockStack fill ref={contentRef} gap="4">
+              {messages.length === 0 ? (
+                <Paragraph size="sm" tone="subdued">
+                  No messages yet. Say hello to start the session.
+                </Paragraph>
+              ) : (
+                buildSegments(messages, isCollapsed).map((segment) => {
+                  if (segment.kind === "visible") {
+                    const msg = segment.message;
+                    return (
+                      <ChatMessage
+                        key={msg.id}
+                        sessionId={sessionId}
+                        message={msg}
+                        isOwn={msg.author.id === currentAuthorId}
+                        bundleId={bundleId}
+                        onSendPrompt={onSendPrompt}
+                        onOpenArtifact={onOpenArtifact}
+                        pinnedPaths={pinnedPaths}
+                        onTogglePinArtifact={onTogglePinArtifact}
+                        isStreaming={isMessageStreaming(msg.id)}
+                        onCollapse={() => collapse(msg.id)}
+                      />
+                    );
+                  }
+                  const [first] = segment.messages;
+
                   return (
-                    <ChatMessage
-                      key={msg.id}
-                      sessionId={sessionId}
-                      message={msg}
-                      isOwn={msg.author.id === currentAuthorId}
-                      bundleId={bundleId}
-                      onSendPrompt={onSendPrompt}
-                      onOpenArtifact={onOpenArtifact}
-                      pinnedPaths={pinnedPaths}
-                      onTogglePinArtifact={onTogglePinArtifact}
-                      isStreaming={isMessageStreaming(msg.id)}
-                      onCollapse={() => collapse(msg.id)}
+                    <CollapsedMessageGroup
+                      key={first.id}
+                      count={segment.messages.length}
+                      onExpandAll={() =>
+                        expand(segment.messages.map((m) => m.id))
+                      }
                     />
                   );
-                }
-                const [first] = segment.messages;
-
-                return (
-                  <CollapsedMessageGroup
-                    key={first.id}
-                    count={segment.messages.length}
-                    onExpandAll={() =>
-                      expand(segment.messages.map((m) => m.id))
-                    }
-                  />
-                );
-              })
-            )}
-            {activity ? <AgentActivityBubble activity={activity} /> : null}
-            <div ref={bottomRef} />
-          </BlockStack>
-        </Box>
-      </ScrollRegion>
+                })
+              )}
+              {activity ? <AgentActivityBubble activity={activity} /> : null}
+              <div ref={bottomRef} />
+            </BlockStack>
+          </Box>
+        </ScrollRegion>
+        {showJump ? (
+          <JumpToBottomButton
+            unreadCount={unreadCount}
+            onClick={scrollToBottom}
+          />
+        ) : null}
+      </div>
     </BlockStack>
   );
 }
