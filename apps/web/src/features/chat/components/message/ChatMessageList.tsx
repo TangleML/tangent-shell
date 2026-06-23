@@ -1,11 +1,11 @@
 import type { AgentActivity } from "@tangent/shared/contracts";
 import { useEffect, useRef, useState } from "react";
+import { Virtualizer, type VirtualizerHandle } from "virtua";
 
 import { isThinkingOnly } from "@/features/chat/model/messageState";
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Box } from "@/shared/ui/box";
 import { BlockStack } from "@/shared/ui/layout";
-import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Paragraph } from "@/shared/ui/typography";
 
 import { AgentActivityBubble } from "./AgentActivityBubble";
@@ -34,9 +34,92 @@ interface ChatMessageListProps {
   isMessageStreaming: (messageId: string) => boolean;
 }
 
+// A single virtualized row: a visible message, a run of collapsed messages, or
+// the trailing agent-activity bubble. Keys must be stable across renders so
+// virtua's measurement cache survives streaming/collapse churn.
+type Row =
+  | { key: string; kind: "message"; message: ChatMessageType }
+  | { key: string; kind: "collapsed"; messages: ChatMessageType[] }
+  | { key: string; kind: "activity"; activity: AgentActivity };
+
+const ACTIVITY_ROW_KEY = "__activity__";
+
 // Distance (px) from the bottom within which we still consider the user
 // "pinned": once they scroll further up, streaming autoscroll pauses.
 const PIN_THRESHOLD_PX = 32;
+
+// Instant stick-to-bottom: clamp scrollTop to the (virtua-sized) content
+// height. Robust during streaming because it doesn't depend on the last item
+// being fully measured yet — the ResizeObserver re-pins once it is.
+function stickToBottom(container: HTMLDivElement | null) {
+  if (container) container.scrollTop = container.scrollHeight;
+}
+
+// Smooth scroll to the last virtualized row, used for explicit jumps and new
+// message snaps so the motion matches the previous non-virtualized list.
+function smoothScrollToBottom(
+  handle: VirtualizerHandle | null,
+  rowCount: number,
+) {
+  if (handle && rowCount > 0) {
+    handle.scrollToIndex(rowCount - 1, { align: "end", smooth: true });
+  }
+}
+
+interface RowContentProps {
+  row: Row;
+  sessionId: string;
+  currentAuthorId: string;
+  bundleId?: string;
+  onSendPrompt?: (text: string) => void;
+  onOpenArtifact?: (url: string, title: string) => void;
+  pinnedPaths?: Set<string>;
+  onTogglePinArtifact?: (path: string, title: string) => void;
+  isMessageStreaming: (messageId: string) => boolean;
+  onCollapse: (id: string) => void;
+  onExpand: (ids: string[]) => void;
+}
+
+function RowContent({
+  row,
+  sessionId,
+  currentAuthorId,
+  bundleId,
+  onSendPrompt,
+  onOpenArtifact,
+  pinnedPaths,
+  onTogglePinArtifact,
+  isMessageStreaming,
+  onCollapse,
+  onExpand,
+}: RowContentProps) {
+  switch (row.kind) {
+    case "message":
+      return (
+        <ChatMessage
+          sessionId={sessionId}
+          message={row.message}
+          isOwn={row.message.author.id === currentAuthorId}
+          bundleId={bundleId}
+          onSendPrompt={onSendPrompt}
+          onOpenArtifact={onOpenArtifact}
+          pinnedPaths={pinnedPaths}
+          onTogglePinArtifact={onTogglePinArtifact}
+          isStreaming={isMessageStreaming(row.message.id)}
+          onCollapse={() => onCollapse(row.message.id)}
+        />
+      );
+    case "collapsed":
+      return (
+        <CollapsedMessageGroup
+          count={row.messages.length}
+          onExpandAll={() => onExpand(row.messages.map((m) => m.id))}
+        />
+      );
+    case "activity":
+      return <AgentActivityBubble activity={row.activity} />;
+  }
+}
 
 export function ChatMessageList({
   sessionId,
@@ -50,11 +133,12 @@ export function ChatMessageList({
   onTogglePinArtifact,
   isMessageStreaming,
 }: ChatMessageListProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const virtualizerRef = useRef<VirtualizerHandle>(null);
   const pinnedRef = useRef(true);
   const prevLenRef = useRef(0);
+  const rowCountRef = useRef(0);
+  const didInitRef = useRef(false);
 
   const [showJump, setShowJump] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -94,18 +178,48 @@ export function ChatMessageList({
       return next;
     });
   };
-  const scrollToBottom = () => {
+
+  // Flatten segments (plus the trailing activity bubble) into one stably-keyed
+  // index space for virtua.
+  const rows: Row[] = [];
+  for (const segment of buildSegments(messages, isCollapsed)) {
+    if (segment.kind === "visible") {
+      rows.push({
+        key: segment.message.id,
+        kind: "message",
+        message: segment.message,
+      });
+    } else {
+      rows.push({
+        key: segment.messages[0].id,
+        kind: "collapsed",
+        messages: segment.messages,
+      });
+    }
+  }
+  if (activity) {
+    rows.push({ key: ACTIVITY_ROW_KEY, kind: "activity", activity });
+  }
+  const hasRows = rows.length > 0;
+
+  // Latest row count for effects/handlers that snap to the bottom, kept in a
+  // ref so the message effect below doesn't need `rows` as a dependency.
+  useEffect(() => {
+    rowCountRef.current = rows.length;
+  });
+
+  // Explicit jump (pill click): mark pinned and smooth-scroll to the last row.
+  const jumpToBottom = () => {
     pinnedRef.current = true;
     setShowJump(false);
     setUnreadCount(0);
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    smoothScrollToBottom(virtualizerRef.current, rows.length);
   };
 
-  // Keep pinned views at the bottom as content grows, and track pinned state.
+  // Track pinned state from the scroll position.
   useEffect(() => {
     const container = containerRef.current;
-    const content = contentRef.current;
-    if (!container || !content) return;
+    if (!container) return;
 
     const onScroll = () => {
       const distanceFromBottom =
@@ -116,93 +230,105 @@ export function ChatMessageList({
       if (atBottom) setUnreadCount(0);
     };
     container.addEventListener("scroll", onScroll, { passive: true });
-
-    const observer = new ResizeObserver(() => {
-      if (pinnedRef.current) {
-        bottomRef.current?.scrollIntoView({ block: "end" });
-      }
-    });
-    observer.observe(content);
-
-    return () => {
-      container.removeEventListener("scroll", onScroll);
-      observer.disconnect();
-    };
+    return () => container.removeEventListener("scroll", onScroll);
   }, []);
 
-  // New message (count grew, not a streaming delta): own sends always snap to
-  // the bottom; agent messages only when pinned, else tally for the pill.
+  // Keep pinned views at the bottom as content grows. virtua re-measures items
+  // internally (without re-rendering this component), so we observe its own
+  // sized container element — the scroll container's only child — and re-pin on
+  // every size change. Re-runs when the list flips between empty and populated
+  // so it tracks whichever element virtua mounts.
+  useEffect(() => {
+    const container = containerRef.current;
+    const inner = container?.firstElementChild;
+    if (!container || !inner) return;
+
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) stickToBottom(container);
+    });
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [hasRows]);
+
+  // First load snaps to the bottom instantly; afterwards a count increase
+  // (new message, not a streaming delta) snaps own sends and pinned agent
+  // messages, else tallies the unread pill.
   useEffect(() => {
     const prevLen = prevLenRef.current;
     prevLenRef.current = messages.length;
+
+    if (!didInitRef.current) {
+      didInitRef.current = true;
+      if (messages.length > 0) stickToBottom(containerRef.current);
+      return;
+    }
+
     if (messages.length <= prevLen) return;
 
     const lastMessage = messages[messages.length - 1];
     const isOwnSend = lastMessage?.author.id === currentAuthorId;
 
     if (isOwnSend || pinnedRef.current) {
-      scrollToBottom();
+      pinnedRef.current = true;
+      setShowJump(false);
+      setUnreadCount(0);
+      smoothScrollToBottom(virtualizerRef.current, rowCountRef.current);
     } else {
       setUnreadCount((count) => count + (messages.length - prevLen));
       setShowJump(true);
     }
   }, [messages, currentAuthorId]);
 
-  // The scroll container is always rendered (even when empty) so the refs exist
-  // on mount and the setup effect above can attach its observers; otherwise the
-  // ResizeObserver would never wire up and streaming growth wouldn't autoscroll.
+  // The scroll container (and the persistent content wrapper) is always
+  // rendered so its refs exist on mount and the setup effect above can attach
+  // its scroll listener and ResizeObserver; otherwise streaming growth on an
+  // initially empty thread wouldn't autoscroll once the first message arrives.
   return (
     <BlockStack grow>
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <ScrollRegion ref={containerRef} axis="y">
-          <Box padding="base">
-            <BlockStack fill ref={contentRef} gap="4">
-              {messages.length === 0 ? (
-                <Paragraph size="sm" tone="subdued">
-                  No messages yet. Say hello to start the session.
-                </Paragraph>
-              ) : (
-                buildSegments(messages, isCollapsed).map((segment) => {
-                  if (segment.kind === "visible") {
-                    const msg = segment.message;
-                    return (
-                      <ChatMessage
-                        key={msg.id}
-                        sessionId={sessionId}
-                        message={msg}
-                        isOwn={msg.author.id === currentAuthorId}
-                        bundleId={bundleId}
-                        onSendPrompt={onSendPrompt}
-                        onOpenArtifact={onOpenArtifact}
-                        pinnedPaths={pinnedPaths}
-                        onTogglePinArtifact={onTogglePinArtifact}
-                        isStreaming={isMessageStreaming(msg.id)}
-                        onCollapse={() => collapse(msg.id)}
-                      />
-                    );
-                  }
-                  const [first] = segment.messages;
-
-                  return (
-                    <CollapsedMessageGroup
-                      key={first.id}
-                      count={segment.messages.length}
-                      onExpandAll={() =>
-                        expand(segment.messages.map((m) => m.id))
-                      }
+      <div className="relative flex min-h-0 flex-1 flex-co w-full">
+        <div
+          ref={containerRef}
+          className="min-h-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-3 [overflow-anchor:none]"
+        >
+          {rows.length === 0 ? (
+            <Box paddingBlock="base">
+              <Paragraph size="sm" tone="subdued">
+                No messages yet. Say hello to start the session.
+              </Paragraph>
+            </Box>
+          ) : (
+            <Virtualizer ref={virtualizerRef}>
+              {rows.map((row, index) => {
+                const isLast = index === rows.length - 1;
+                return (
+                  <Box
+                    key={row.key}
+                    paddingBlockStart={index === 0 ? "base" : undefined}
+                    paddingBlockEnd={isLast ? "base" : "lg"}
+                  >
+                    <RowContent
+                      row={row}
+                      sessionId={sessionId}
+                      currentAuthorId={currentAuthorId}
+                      bundleId={bundleId}
+                      onSendPrompt={onSendPrompt}
+                      onOpenArtifact={onOpenArtifact}
+                      pinnedPaths={pinnedPaths}
+                      onTogglePinArtifact={onTogglePinArtifact}
+                      isMessageStreaming={isMessageStreaming}
+                      onCollapse={collapse}
+                      onExpand={expand}
                     />
-                  );
-                })
-              )}
-              {activity ? <AgentActivityBubble activity={activity} /> : null}
-              <div ref={bottomRef} />
-            </BlockStack>
-          </Box>
-        </ScrollRegion>
+                  </Box>
+                );
+              })}
+            </Virtualizer>
+          )}
+        </div>
         {showJump ? (
           <JumpToBottomButton
             unreadCount={unreadCount}
-            onClick={scrollToBottom}
+            onClick={jumpToBottom}
           />
         ) : null}
       </div>
