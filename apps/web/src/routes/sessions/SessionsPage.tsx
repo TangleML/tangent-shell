@@ -50,6 +50,7 @@ export function SessionsPage() {
     <NewSessionButton
       bundles={bundles}
       creating={isCreating}
+      onCreateBlank={createBlank}
       onStartFromBundle={startFromBundle}
     />
   );

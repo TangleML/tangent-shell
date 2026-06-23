@@ -1,7 +1,6 @@
 import type { AgentBundleMeta } from "@tangent/shared/contracts";
 
 import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
-import { DEFAULT_BUNDLE_ID } from "@/features/sessions/constants";
 import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
 import { Button } from "@/shared/ui/button";
 import { ButtonGroup } from "@/shared/ui/button-group";
@@ -20,25 +19,23 @@ interface NewSessionButtonProps {
   bundles?: AgentBundleMeta[];
   /** Whether a session is currently being created. */
   creating: boolean;
+  onCreateBlank: () => void;
   onStartFromBundle: (bundleId: string, name: string) => void;
 }
 
 /**
- * Split button that creates a session from the default bundle, with a dropdown
- * to instead start from any available bundle.
+ * Split button that creates a blank session, with a dropdown to instead start
+ * from any available bundle.
  */
 export function NewSessionButton({
   bundles,
   creating,
+  onCreateBlank,
   onStartFromBundle,
 }: NewSessionButtonProps) {
   return (
     <ButtonGroup aria-label="New session">
-      <Button
-        variant="outline"
-        onClick={() => onStartFromBundle(DEFAULT_BUNDLE_ID, "Session")}
-        disabled={creating}
-      >
+      <Button variant="outline" onClick={onCreateBlank} disabled={creating}>
         {creating ? "Creating..." : "New session"}
       </Button>
       <DropdownMenu>
