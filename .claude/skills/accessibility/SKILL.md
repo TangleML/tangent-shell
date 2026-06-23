@@ -5,141 +5,92 @@ description: Accessibility patterns and requirements for this project. Use when 
 
 # Accessibility Patterns
 
-This project builds on **shadcn/ui** primitives which provide strong built-in a11y. Follow these patterns to maintain that standard.
+Several base primitives in `@/shared/ui` are built on **Radix UI** (`radix-ui` /
+`@radix-ui/react-*` — e.g. tooltip, collapsible, dropdown-menu, popover, separator), which provides
+strong built-in focus management and keyboard handling. Follow these patterns to maintain that
+standard. Prefer the design-system primitives (see `ui-primitives`) over hand-rolled markup — they
+bake in the a11y affordances.
 
-## ARIA Labels
+## Labels for icon-only controls
 
-All interactive elements without visible text must have an `aria-label`:
+Any interactive element without visible text needs an accessible name.
 
-```typescript
-// Icon buttons
-<Button variant="ghost" aria-label="Home">
-  <Icon name="Home" />
-</Button>
+- Use the **`IconButton`** pattern for square icon-only buttons — it **requires** an `aria-label`.
+- For a plain `Button` with only an `Icon` child, pass `aria-label` explicitly.
 
-// Folder toggles
-<div role="button" aria-expanded={isOpen} aria-label={`Folder: ${folder.name}`}>
+```tsx
+import { IconButton } from "@/shared/ui/patterns/icon-button";
+
+<IconButton icon="Trash2" aria-label="Delete bundle" onClick={onDelete} />;
 ```
 
-## Form Accessibility
+## Keyboard navigation
 
-Link inputs to labels and error messages:
+Required keyboard support for custom interactive elements:
 
-```typescript
-<Input
-  id={id}
-  aria-invalid={!!error}
-  aria-describedby={`${id}-hint`}
+- **Enter / Space**: activate buttons and toggles
+- **Escape**: close popovers/menus, cancel editing, deselect
+- **Tab**: move focus between interactive elements
+
+Radix-backed primitives (dropdown-menu, popover, tooltip, tabs, collapsible) handle focus trapping
+and arrow-key navigation for you — don't reimplement it. For your own non-button clickable elements,
+add `role="button"`, `tabIndex={0}`, and a keydown handler:
+
+```tsx
+<div
+  role="button"
+  tabIndex={0}
+  aria-label={`Folder: ${name}`}
+  onClick={toggle}
+  onKeyDown={(e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  }}
 />
-{!!error && <Text tone="critical">{error.join("\n")}</Text>}
-<div id={`${id}-hint`}>{hint}</div>
 ```
 
-Use the shadcn/ui `Label` component for proper form associations.
+For a multi-line editor built on `Textarea`, handle Enter/Escape in `onKeyDown` (e.g. Enter to
+submit, Shift+Enter for newline, Escape to cancel).
 
-## Keyboard Navigation
+## Screen reader support
 
-### Required keyboard support for custom interactive elements:
+Use the `sr-only` utility for visually hidden but screen-reader-accessible text on **raw HTML
+elements** (this is allowed — the no-`className` rule only applies to Tangle primitives):
 
-- **Enter/Space**: Activate buttons and toggles
-- **Escape**: Close dialogs, cancel editing, deselect
-- **Tab**: Move focus between interactive elements
-
-```typescript
-// The Input component has built-in onEnter and onEscape props
-<Input onEnter={save} onEscape={cancel} />
-
-// For non-Input elements, handle manually
-onKeyDown={(e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    save();
-  } else if (e.key === "Escape") {
-    e.preventDefault();
-    cancel();
-  }
-}
-```
-
-### Non-button clickable elements need `role="button"` and `tabIndex={0}`:
-
-```typescript
-<div role="button" tabIndex={0} title="Click to edit">
-  {content}
-</div>
-```
-
-### Dialogs must prevent keyboard shortcuts from leaking to the canvas:
-
-The dialog component already handles this — use `preventKeyboardPropagation` prop when needed. This stops Ctrl+A, Ctrl+C, Ctrl+V, Tab, Enter, and Escape from reaching React Flow.
-
-## Screen Reader Support
-
-Use `sr-only` class for visually hidden but screen-reader-accessible text:
-
-```typescript
-// Close buttons with only an icon
-<DialogClose>
-  <Cross2Icon />
+```tsx
+<button aria-label="Close">
+  <Icon name="X" />
   <span className="sr-only">Close</span>
-</DialogClose>
-
-// Command palette title
-<DialogHeader className="sr-only">
-  <DialogTitle>{title}</DialogTitle>
-  <DialogDescription>{description}</DialogDescription>
-</DialogHeader>
+</button>
 ```
 
-## Semantic HTML
+## Semantic HTML and ARIA
 
-Use proper semantic elements and ARIA roles:
+Use proper semantic elements and roles:
 
-```typescript
-// Navigation
+```tsx
 <nav aria-label="breadcrumb">
-
-// Current page in breadcrumb
-<span role="link" aria-disabled="true" aria-current="page">{children}</span>
-
-// Decorative separators
-<li role="presentation" aria-hidden="true">
-
-// Alerts
-<div role="alert">
+<span aria-current="page">{label}</span>
+<div role="alert">{errorMessage}</div>
 ```
 
-## Focus Styling
+Layout primitives forward ARIA props — `BlockStack`/`InlineStack` accept ARIA attributes, and
+`Text`/`Heading`/`Paragraph` accept `role` and ARIA props — so you can keep semantics without
+dropping to raw HTML.
 
-All focusable elements must use the project's focus-visible ring pattern:
+## Focus styling
 
-```
-focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:border-ring
-```
+Don't remove focus indicators. Base interactive primitives (`Button`, `IconButton`, Radix
+components) already render a visible `focus-visible` ring. If you build a local primitive on a raw
+element, keep a visible focus indicator — never `outline-none` without a replacement ring.
 
-Do not remove `outline-none` without replacing it with a visible focus indicator.
+## Forms
 
-## UI Primitives A11y
+This repo has **no dedicated `Input`/`Label`/`Select`/`Dialog` primitives** today — text entry uses
+`Textarea`, and choices use `checkbox` / `tabs` / `dropdown-menu`. When you build form controls:
 
-The project's primitives already accept `AriaAttributes`:
-
-- `BlockStack` and `InlineStack` accept all ARIA props
-- `Text` accepts `role` and ARIA props
-- `Button` has built-in focus-visible and disabled states
-- `Input` supports `aria-invalid`, `onEnter`, `onEscape`
-- All shadcn/ui components (Dialog, Select, Checkbox, Switch, Tabs) handle focus trapping and keyboard navigation automatically
-
-## React Flow Considerations
-
-The pipeline editor has specific a11y needs:
-
-- **Handles**: Support click selection and Escape to deselect
-- **Task nodes**: Labels are interactive with visual feedback
-- **Folders in sidebar**: Use `role="button"` with `aria-expanded`
-- **Canvas keyboard shortcuts**: Must not interfere with dialog/modal focus
-
-When adding new interactive elements to the flow canvas, ensure they:
-
-1. Are keyboard accessible
-2. Have appropriate ARIA labels
-3. Don't capture keyboard events that should reach parent containers
+- Associate a label with its control (`htmlFor` / `id`, or wrap the control in a `<label>`).
+- Mark invalid fields with `aria-invalid` and link help/error text via `aria-describedby`.
+- Keep error text in the DOM near the field (there is no toast system to announce it).

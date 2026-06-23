@@ -1,11 +1,13 @@
 ---
 name: open-source
-description: Open source guidelines for Tangle-UI. Use when writing user-facing text, UI copy, error messages, banners, documentation, or any content visible to users.
+description: Open source guidelines for tangent-shell. Use when writing user-facing text, UI copy, error messages, banners, documentation, or any content visible to users.
 ---
 
 # Open Source Guidelines
 
-Tangle-UI is an **open source project**. All code, UI copy, and documentation must be vendor-neutral and usable by anyone — not just Shopify employees.
+tangent-shell is **slated to be open-sourced soon**, so treat it as an open source project today:
+all code, UI copy, and documentation must be vendor-neutral and usable by anyone — not just Shopify
+employees. Writing it vendor-neutral now avoids a painful scrub later.
 
 ## Do Not Include
 

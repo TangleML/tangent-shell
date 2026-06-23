@@ -5,6 +5,15 @@ description: How to track analytics events in tangle-ui and naming conventions f
 
 # Analytics Tracking
 
+> [!IMPORTANT]
+> **Aspirational — not yet implemented in tangent-shell.** As of this writing there is no analytics
+> layer in `apps/web`: no `tracking()` helper, no `useAnalytics`/`AnalyticsProvider`, no
+> `componentTracking`, and none of the `@/utils/*` paths below exist (they reference the legacy
+> tangle-ui layout). This skill documents the **intended convention** for when analytics is added.
+> Treat the code paths and event taxonomy as a target to build toward, not as APIs you can import
+> today. When you do wire this up, update this skill with the real module locations (it will live
+> under the feature-sliced structure, e.g. `@/shared/...` or a feature's `model/`).
+
 ## Tracking click events (preferred approach)
 
 For click events on interactive elements (`<button>`, `<a>`, `<summary>`, or elements with `role="button"` / `role="link"`), use the `tracking()` helper to attach data attributes. A document-level click listener (`useClickTracking`) automatically fires the analytics event — no manual `track()` call needed.

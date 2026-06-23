@@ -1,85 +1,80 @@
 ---
 name: project-conventions
-description: Project conventions for Tangle-UI including file structure, imports, code quality, and general rules. Use when writing new code, creating files, or organizing imports.
+description: Project conventions for tangent-shell including file structure, imports, code quality, and general rules. Use when writing new code, creating files, or organizing imports.
 ---
 
 # Project Conventions
 
 ## Project Overview
 
-React + TypeScript application for building and running ML pipelines using drag and drop. Uses Vite, TailwindCSS v4, shadcn/ui, React Flow, and Monaco Editor.
+**tangent-shell** is an AI orchestration app: it drives agents and produces pipelines that the
+broader Tangle platform (tangle, tangle-ui) consumes. It is a **pnpm + turbo monorepo**:
+
+- `apps/web` (`@tangent/web`) — React + TypeScript frontend (Vite, Tailwind v4, React Compiler).
+- `apps/server` (`@tangent/server`) — Express backend (Drizzle + SQLite, socket.io).
+- `packages/shared` (`@tangent/shared`) — shared contracts/types (e.g. `@tangent/shared/contracts`).
+- `packages/build` (`@tangent/build`) — shared build/lint config (incl. the custom ESLint rule).
 
 ## File Structure & Imports
 
-- Use absolute imports with `@/` prefix for src directory
-- Follow existing folder structure:
-  - `src/components/` for all React components
-  - `src/hooks/` for custom hooks
-  - `src/types/` for TypeScript definitions
-  - `src/utils/` for utility functions
-  - `src/services/` for API and business logic
-- **Import order**: external packages -> internal modules -> relative imports
-- Use simple-import-sort rules (already configured in ESLint)
-- Do not use barrel exports
+- Use absolute imports with the `@/` prefix. In `apps/web` it resolves to `apps/web/src`.
+- The frontend is **feature-sliced**, not organized by technical type:
+  - `apps/web/src/features/<feature>/` — feature code, typically split into `api/`, `hooks/`,
+    `model/` (query keys, display helpers), and `components/`.
+  - `apps/web/src/routes/` — route components, layouts, and providers (code-based routing).
+  - `apps/web/src/shared/` — cross-feature code: `ui/` (design system), `lib/`, `api/`, `config/`,
+    `theme/`.
+- **Import order**: external packages → internal `@/` modules → relative imports. `simple-import-sort`
+  is configured in ESLint — let it sort.
+- **No barrel exports** — import directly from the file that defines the symbol.
 
 ## Code Quality
 
-- Follow ESLint rules (configured in eslint.config.js)
-- Use Prettier for formatting
-- Write tests using Vitest for unit tests, Playwright for E2E
-- Use descriptive variable and function names
-- Add JSDoc comments for complex functions
-- Prefer early returns to reduce nesting
+- Follow the ESLint config (from `@tangent/build`) and format with Prettier.
+- Prefer early returns to reduce nesting.
+- Use descriptive variable and function names.
+- See the `server-testing` skill for how tests work (server-side only, Node's `tsx --test`). There
+  is no frontend test runner.
 
 ## Comments & Documentation
 
-- Use JSDoc for public APIs
-- Add comments for complex business logic
-- **Explain "why" not "what" in comments**
-- Keep comments up to date with code changes
-- Avoid writing redundant comments for functions and variables that are self-explanatory
+- **Keep comments minimal.** Comment only what isn't obvious from the code; explain *why*, never
+  restate *what*. Often the right number of comments is zero.
+- Keep comments up to date with code changes; delete stale ones.
 
 ## Error Handling
 
-- Use proper error boundaries
-- Handle async errors with try/catch
-- Use toast notifications for user-facing errors
-- Log errors appropriately
+- The app is wrapped in an `ErrorBoundary` (`react-error-boundary`) with `RootErrorFallback`.
+- Handle async errors with try/catch; surface failures through query/mutation error states.
+- There is **no global toast/notify utility** — don't reference one. Render error state in the UI
+  (e.g. an error message component) or let an error boundary catch it.
 
-## React Flow Specific
+## UI
 
-- Use `@xyflow/react` for flow diagrams
-- Follow existing node types and edge patterns
-- Keep flow state management consistent with existing patterns
-- Use proper node and edge typing
-
-## Specific Project Patterns
-
-- Use Monaco Editor for code editing features
-- Use localforage for client-side storage
-- Follow existing authentication patterns
-- Use proper task node and pipeline handling patterns
-- Follow the existing component library structure
-- **Do not modify componentSpec structure** without express permission
+When writing JSX, layout, styling, or typography, **invoke the `ui-primitives` skill first** and
+follow the layered design system. The hard rule: never pass `className` to a Tangle UI primitive —
+it is enforced by `tangle-ui/no-classname-on-primitives` (error on `src/features/**` and
+`src/routes/**`).
 
 ## Don't Do
 
-- Don't use CSS-in-JS or styled-components
-- Don't use inline styling (`style={styles}`) except where strictly necessary
-- Don't use relative imports for `@/components/ui`
-- Don't create new global state without good reason
-- Don't bypass existing abstractions without discussion
+- Don't use CSS-in-JS or styled-components.
+- Don't use inline `style={}` except where strictly necessary.
+- Don't pass `className` to a Tangle UI primitive (use a semantic prop or a Layer-3 pattern).
+- Don't add new global state without good reason.
+- Don't bypass existing abstractions without discussion.
 
 ## Planning & Documentation
 
 When asked to create planning documents, architecture decisions, or investigation notes:
 
-- **Always save to `.local/`** - This directory is gitignored for local-only files
-- Use descriptive filenames: `.local/feature-name-planning.md`, `.local/bug-investigation.md`
+- **Always save to `.local/`** — gitignored for local-only files.
+- Use descriptive filenames: `.local/feature-name-planning.md`, `.local/bug-investigation.md`.
 
 ## Optional "While We're Here" Cleanup
 
-After completing a code generation task, scan the surrounding area for small, low-risk improvements. **Only offer** if ALL conditions are met:
+After completing a code generation task, scan the surrounding area for small, low-risk improvements.
+**Only offer** if ALL conditions are met:
 
 1. **Small scope**: Affects < 30 lines of code
 2. **Low risk**: Purely cosmetic or minor refactoring (not logic changes)

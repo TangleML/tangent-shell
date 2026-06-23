@@ -5,158 +5,122 @@ description: TanStack Query v5 patterns for data fetching, mutations, and cache 
 
 # TanStack Query Patterns
 
-This project uses TanStack Query v5 for all server state management.
+This project uses **TanStack Query v5** (`@tanstack/react-query`) for all server state. The shared
+`QueryClient` lives at `@/shared/api/queryClient` and is provided in
+`apps/web/src/routes/providers/AppProviders.tsx`.
 
-**Prefer `useQuery` hooks over Context providers for server state.** When you need data from the server, first consider whether a custom `useQuery` hook solves the problem. Only reach for a Context provider when you need to share non-query app-wide state (theme, feature flags, backend config). Wrapping query results in Context bypasses TanStack Query's built-in caching and causes unnecessary re-renders.
+**Prefer `useQuery` hooks over Context providers for server state.** Only reach for a Context
+provider when you need to share non-query app-wide state (theme, live session status). Wrapping query
+results in Context bypasses the query cache and causes unnecessary re-renders.
+
+## File organization (feature-sliced)
+
+Each feature owns its data layer:
+
+- **API functions** (`fetch` + parse): `features/<feature>/api/<feature>Api.ts`
+- **Query hooks**: `features/<feature>/hooks/use*.ts`
+- **Query key factories**: `features/<feature>/model/<feature>QueryKeys.ts`
+
+API functions build URLs with `apiUrl` from `@/shared/lib/basePath` (so requests resolve behind the
+proxy mount-prefix) and parse into shared types from `@tangent/shared/contracts`:
+
+```typescript
+import type { AgentBundleMeta, ListAgentBundlesResponse } from "@tangent/shared/contracts";
+import { apiUrl } from "@/shared/lib/basePath";
+
+export async function listAgentBundles(): Promise<AgentBundleMeta[]> {
+  const res = await fetch(apiUrl("/api/agent-bundles"));
+  if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
+  const data = (await res.json()) as ListAgentBundlesResponse;
+  return data.bundles;
+}
+```
 
 ## Query Key Conventions
 
-Use **hierarchical array-based keys**. For domains with multiple related queries, use a query key factory:
+Use **hierarchical, array-based keys** via a per-feature factory object:
 
 ```typescript
-// Query key factory pattern (preferred for grouped queries)
-export const SecretsQueryKeys = {
-  All: () => ["secrets"] as const,
-  Id: (id: string) => ["secrets", id] as const,
+// features/agent-bundles/model/agentBundleQueryKeys.ts
+export const AgentBundleQueryKeys = {
+  All: () => ["agent-bundles"] as const,
+  Id: (id: string) => ["agent-bundles", id] as const,
 } as const;
-
-// Simple keys for standalone queries
-queryKey: ["pipeline-run", rootExecutionId];
-queryKey: ["execution-details", rootExecutionId];
-queryKey: ["component", "hydrate", componentQueryKey];
 ```
 
-## Query Definition
+## Query Hooks
 
 Define queries **inline in custom hooks** — this project does not use the `queryOptions` helper:
 
 ```typescript
-export function usePipelineRuns(pipelineName?: string) {
-  return useSuspenseQuery({
-    queryKey: ["pipelineRuns", pipelineName],
-    queryFn: async () => {
-      if (!pipelineName) return [];
-      const res = await fetchPipelineRuns(pipelineName);
-      if (!res) return [];
-      return res.runs;
-    },
-    staleTime: 5 * MINUTES,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
+import { useQuery } from "@tanstack/react-query";
+import { listAgentBundles } from "@/features/agent-bundles/api/agentBundlesApi";
+import { AgentBundleQueryKeys } from "@/features/agent-bundles/model/agentBundleQueryKeys";
+
+export function useAgentBundles() {
+  return useQuery({
+    queryKey: AgentBundleQueryKeys.All(),
+    queryFn: listAgentBundles,
   });
 }
 ```
 
-## Suspense Queries
-
-Use `useSuspenseQuery` for components wrapped in `<SuspenseWrapper>` or error boundaries:
+Set `staleTime` to match data volatility, and use `enabled` for dependent queries:
 
 ```typescript
-export function useHydrateComponentReference(component: ComponentReference) {
-  const { data } = useSuspenseQuery({
-    queryKey: ["component", "hydrate", getComponentQueryKey(component)],
-    staleTime: 1000 * 60 * 60,
-    queryFn: () => hydrateComponentReference(component),
-  });
-  return data;
-}
-```
-
-## Dependent Queries
-
-Chain queries using the `enabled` option:
-
-```typescript
-const { data: rootExecutionId } = useQuery({
-  queryKey: ["pipeline-run-execution-id", id],
-  queryFn: () =>
-    fetchPipelineRun(id, backendUrl).then((res) => res.root_execution_id),
-  enabled: !!id && id.length > 0,
-});
-
-const { data: executionData } = useQuery({
-  enabled: !!rootExecutionId && !!executionDetails,
-  queryKey: ["pipeline-run", rootExecutionId],
-  queryFn: () => fetchData(rootExecutionId),
+return useQuery({
+  queryKey: AgentBundleQueryKeys.Id(id),
+  queryFn: () => getAgentBundle(id),
+  enabled: !!id,
+  staleTime: 5 * 60 * 1000,
 });
 ```
 
 ## Mutation Pattern
 
-All mutations follow this structure — invalidate cache on success, toast on error:
+Invalidate the relevant keys on success and let the queries refetch. This project uses
+**post-mutation invalidation**, not optimistic updates — don't use `setQueryData` to fake results.
 
 ```typescript
-const { mutate, isPending } = useMutation({
-  mutationFn: () => addSecret(secret),
-  onSuccess: () => {
-    void queryClient.invalidateQueries({ queryKey: SecretsQueryKeys.All() });
-    onSuccess();
-  },
-  onError: () => {
-    notify("Failed to add secret", "error");
-  },
-});
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { deleteAgentBundle } from "@/features/agent-bundles/api/agentBundlesApi";
+import { AgentBundleQueryKeys } from "@/features/agent-bundles/model/agentBundleQueryKeys";
+
+export function useDeleteAgentBundle() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteAgentBundle,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: AgentBundleQueryKeys.All() });
+    },
+  });
+}
 ```
 
-Multiple invalidations in a single mutation are fine:
+Multiple invalidations in one `onSuccess` are fine. There is **no global toast/notify utility** —
+surface mutation failures through the component's `isError`/`error` state (or an error boundary),
+not a `notify()` call.
+
+## QueryClient methods
+
+- `queryClient.invalidateQueries()` — primary cache invalidation
+- `queryClient.getQueryData()` — read cache without refetching
+- `queryClient.ensureQueryData()` — fetch-if-not-cached for dependent/recursive data
+
+## Polling with dynamic intervals
+
+Use a function for `refetchInterval` to stop polling once work is complete:
 
 ```typescript
-onSuccess: () => {
-  queryClient.invalidateQueries({ queryKey: ["has-component", digest] });
-  queryClient.invalidateQueries({ queryKey: ["componentLibrary", "publishedComponents"] });
+refetchInterval: (query) => {
+  const status = query.state.data?.status;
+  return status === "RUNNING" ? 5000 : false;
 },
 ```
 
-## Cache Invalidation Strategy
+## Live data over sockets
 
-This project uses **post-mutation invalidation**, not optimistic updates. Do not use `setQueryData` in mutations — invalidate and let the query refetch.
-
-**QueryClient methods used:**
-
-- `queryClient.invalidateQueries()` — primary invalidation
-- `queryClient.fetchQuery()` — direct fetch in non-hook contexts (e.g., class-based libraries)
-- `queryClient.getQueryData()` — cache reading without triggering refetch
-- `queryClient.ensureQueryData()` — fetch-if-not-cached for recursive/dependent data
-
-## Stale Time Guidelines
-
-Match stale time to data volatility:
-
-| Data Type              | Stale Time | Example                                              |
-| ---------------------- | ---------- | ---------------------------------------------------- |
-| Immutable/rare changes | 24 hours   | Pipeline run metadata, component digests             |
-| User profile data      | 30 minutes | User details                                         |
-| Semi-stable data       | 1 hour     | Execution details, component hydration               |
-| Active lists           | 5 minutes  | Pipeline runs, published components, outdated checks |
-| Live/polling data      | 5 seconds  | Logs                                                 |
-| Always fresh           | 0          | User components                                      |
-
-Use time constants from `src/utils/constants.ts`: `ONE_MINUTE_IN_MS`, `MINUTES`, `HOURS`, `TWENTY_FOUR_HOURS_IN_MS`.
-
-## Polling with Dynamic Intervals
-
-Use `refetchInterval` with a function for conditional polling:
-
-```typescript
-refetchInterval: (data) => {
-  if (data instanceof Query) {
-    const { state } = data.state.data || {};
-    if (!state) return false;
-    return isExecutionComplete(stats) ? false : 5000;
-  }
-  return false;
-},
-```
-
-## Error Handling
-
-- Use `.catch(() => undefined)` for controlled fallbacks in queryFn
-- Use `onError` with toast notifications in mutations
-- Create custom error classes for domain-specific errors (e.g., `ComponentHydrationError`)
-
-## File Organization
-
-- **Service functions** (API calls): `src/services/`
-- **Query hooks**: `src/hooks/` or co-located in component directories
-- **Query key factories**: co-located with the feature (e.g., `types.ts` in the feature folder)
-- **Providers using queries**: `src/providers/`
+Some state is pushed, not polled. Session chat/status uses `socket.io-client` (see
+`features/chat/hooks/useSessionChat.ts` and `features/sessions/components/SessionStatusProvider.tsx`)
+rather than a polling query. Use a query for request/response data; use the socket for streaming
+updates.

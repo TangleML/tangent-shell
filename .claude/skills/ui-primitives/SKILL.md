@@ -16,7 +16,7 @@ primitives as a deprecated migration escape hatch — do not use it in new code.
 `cn()` (from `@/shared/lib/utils`) and raw Tailwind classes are allowed **only** inside local
 primitives (raw HTML elements), never on a Tangle primitive.
 
-See [DESIGN_SYSTEM.md](../../../src/shared/ui/DESIGN_SYSTEM.md) for the full reference.
+See [DESIGN_SYSTEM.md](../../../apps/web/src/shared/ui/DESIGN_SYSTEM.md) for the full reference.
 
 ## The four layers
 
@@ -82,6 +82,18 @@ Use `Heading` for headings, `Paragraph` for paragraph text, and `Text` for inlin
 - `Textarea` (`@/shared/ui/textarea`): `autoGrow` to grow with content up to a max height.
 - `Spinner` (`@/shared/ui/spinner`): `size` (number).
 - `Link` (`@/shared/ui/link`): `variant`, `size`, `external` (adds target/rel + external icon).
+- `Badge` (`@/shared/ui/badge`): small status/label chip.
+- `ButtonGroup` (`@/shared/ui/button-group`): segmented row of related buttons.
+- `Progress` (`@/shared/ui/progress`) / `ScoreRing` (`@/shared/ui/score-ring`): linear and circular
+  progress indicators.
+
+### Radix-backed primitives
+
+These wrap Radix UI and bring built-in focus/keyboard handling — prefer them over hand-rolled
+equivalents: `Checkbox` (`@/shared/ui/checkbox`), `Tabs` (`@/shared/ui/tabs`), `Tooltip`
+(`@/shared/ui/tooltip`), `Collapsible` (`@/shared/ui/collapsible`), `DropdownMenu`
+(`@/shared/ui/dropdown-menu`), `Popover` (`@/shared/ui/popover`), `Separator`
+(`@/shared/ui/separator`). Check the file for the exact prop/sub-component API before use.
 
 ## Layer 3 — semantic patterns
 
@@ -110,6 +122,15 @@ Reach for these instead of stacking utility classes. Each names an intent:
 - `Divider` — wrapper over `Separator`. `inset`, `orientation`, `decorative`.
 - `Page` — centered, max-width page column. `height` (`auto`/`screen`), `padded`.
 - `CenteredScreen` — full-viewport centered column (hero, not-found, error). `gap`.
+- `AppShell` (`@/shared/ui/patterns/app-shell`) + `WorkArea` — the persistent app frame (top bar +
+  content area) used by the app layout route.
+- `TopNav` / `TopNavLink` (`@/shared/ui/patterns/top-nav`) and `SideNav`
+  (`@/shared/ui/patterns/side-nav`) — navigation bars. Wrap the router `Link`; use these instead of
+  styling a raw `Link`.
+- `Breadcrumbs` (`@/shared/ui/patterns/breadcrumbs`) — breadcrumb trail.
+- `CopyText` (`@/shared/ui/patterns/copy-text`) — click-to-copy text with a hover-revealed copy
+  button and success state. `value`, `displayValue`, `truncate`.
+- `Table` (`@/shared/ui/patterns/table`) — tabular layout primitive.
 
 For text styling use props on `Text`/`Paragraph`/`Heading`; for `Icon` use `tone`/`rotate`/`spin`/
 `pulse`/`size`; for `Button` use `tone`/`fullWidth`/`align`/`truncate`/`variant`.
