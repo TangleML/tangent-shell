@@ -13,7 +13,6 @@ import { ChatMessage } from "./ChatMessage";
 import { CollapsedMessageGroup } from "./CollapsedMessageGroup";
 import { JumpToBottomButton } from "./JumpToBottomButton";
 import { buildSegments } from "./messageSegments";
-import { WaitingForSubagentsBubble } from "./WaitingForSubagentsBubble";
 
 interface ChatMessageListProps {
   sessionId: string;
@@ -21,8 +20,6 @@ interface ChatMessageListProps {
   currentAuthorId: string;
   /** Ephemeral agent activity for this thread, or null when idle/streaming. */
   activity?: AgentActivity | null;
-  /** Names of sub-agents currently working on this thread's behalf. */
-  waitingForSubagents?: string[];
   /** Bundle this session was created from; enables `tangent-ui:` components. */
   bundleId?: string;
   /** Forwards a prompt composed by an interactive `tangent-ui:` component. */
@@ -43,11 +40,9 @@ interface ChatMessageListProps {
 type Row =
   | { key: string; kind: "message"; message: ChatMessageType }
   | { key: string; kind: "collapsed"; messages: ChatMessageType[] }
-  | { key: string; kind: "activity"; activity: AgentActivity }
-  | { key: string; kind: "waiting"; names: string[] };
+  | { key: string; kind: "activity"; activity: AgentActivity };
 
 const ACTIVITY_ROW_KEY = "__activity__";
-const WAITING_ROW_KEY = "__waiting__";
 
 // Distance (px) from the bottom within which we still consider the user
 // "pinned": once they scroll further up, streaming autoscroll pauses.
@@ -123,8 +118,6 @@ function RowContent({
       );
     case "activity":
       return <AgentActivityBubble activity={row.activity} />;
-    case "waiting":
-      return <WaitingForSubagentsBubble names={row.names} />;
   }
 }
 
@@ -133,7 +126,6 @@ export function ChatMessageList({
   messages,
   currentAuthorId,
   activity,
-  waitingForSubagents,
   bundleId,
   onSendPrompt,
   onOpenArtifact,
@@ -207,12 +199,6 @@ export function ChatMessageList({
   }
   if (activity) {
     rows.push({ key: ACTIVITY_ROW_KEY, kind: "activity", activity });
-  } else if (waitingForSubagents && waitingForSubagents.length > 0) {
-    rows.push({
-      key: WAITING_ROW_KEY,
-      kind: "waiting",
-      names: waitingForSubagents,
-    });
   }
   const hasRows = rows.length > 0;
 
