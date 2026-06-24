@@ -38,7 +38,8 @@ export function SessionsPage() {
       params: { sessionId: session.id },
     });
 
-  const createBlank = () => createSession({}, { onSuccess: openSession });
+  // Defer creation until the first message; the draft screen is ephemeral.
+  const createBlank = () => void navigate({ to: "/sessions/new" });
 
   const startFromBundle = (bundleId: string, name: string) =>
     createSession({ bundleId, name }, { onSuccess: openSession });
