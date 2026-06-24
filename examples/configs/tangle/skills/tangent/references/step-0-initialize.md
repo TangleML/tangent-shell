@@ -32,7 +32,7 @@ absolute `SCENARIO_DIR` paths. These are different locations — don't confuse t
 If the user doesn't have a scenario directory, or `scenario.yaml` doesn't exist
 at `SCENARIO_DIR`, **run the scenario builder interview yourself**.
 
-Read `.agents/skills/tangent/agents/scenario-builder.md` and follow its instructions directly — do NOT
+Read `.tangent/agents/scenario-builder.md` and follow its instructions directly — do NOT
 spawn it as a subagent. The scenario builder is a multi-turn interview that
 requires user interaction at every phase. Subagents cannot interact with the
 user, so spawning it would skip the interview entirely.

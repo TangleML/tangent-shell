@@ -42,7 +42,7 @@ or `--help-full` on any command for detailed usage.
 - `code_paths`, `image_roots` (image name → local package root)
 - `brief_path`, `priors_path` — where to write output. Step 1 uploads
   `brief_path` to GCS keyed by `parent_run_id` (round 2+) or `baseline_run_id`
-  (round 1) — see `references/knowledge-corpus.md`.
+  (round 1) — see `.tangent/skills/tangent/references/knowledge-corpus.md`.
 
 ## Research Order: Direction First, Details Second
 

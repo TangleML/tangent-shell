@@ -75,8 +75,8 @@ alongside the run_id. Step 5 will need these for detailed analysis.
 
 ## Failed Runs
 
-**Launch the debugger as a subagent using the Agent tool.** Read `agents/debugger.md`
-and pass its full content as the agent prompt, with this task context appended:
+**Launch the debugger as a subagent.** Spawn `spawn_subagent template: debugger`,
+passing this task context as its task:
 
 ```
 ---
@@ -127,4 +127,4 @@ On wake, light-poll ALL active runs (graph state API), not just the awaited one.
 - [ ] Each failed run has a debugger snapshot in `logs/failures/`
 - [ ] Each failed run has a `run_failed` event logged
 - [ ] Backfill exhausted (no open slots with pending experiments and budget)
-- [ ] **Reload + review**: re-read this step file and `agents/debugger.md`; agent confirms it remembers them
+- [ ] **Reload + review**: re-read this step file and `.tangent/agents/debugger.md`; agent confirms it remembers them

@@ -26,19 +26,21 @@ annotation — `river-tangent` under River, `tangent` otherwise. See
 ## Commands
 
 - **`tangent`** — print the help block below.
-- **`tangent <subagent>`** — read `agents/<subagent>.md` and follow it.
+- **`tangent <subagent>`** — delegate the role by spawning its bundle agent
+  template: `spawn_subagent template: <name>`. Each template carries its own
+  scoped tool set and system prompt — you do not need to read an agent file.
 - **`tangent auto`** — run the autonomous loop. See [Auto Mode](#auto-mode).
 
 ```
-Subagents:                         Agent file:
-  tangent debugger                   agents/debugger.md
-  tangent researcher                 agents/researcher.md
-  tangent reporter                   agents/reporter.md
-  tangent reviewer                   agents/reviewer.md
-  tangent builder                    agents/builder.md
-  tangent uploader                   agents/uploader.md
-  tangent auth                       agents/auth-wizard.md
-  tangent new-scenario               agents/scenario-builder.md
+Subagents:                         spawn_subagent template:
+  tangent debugger                   debugger
+  tangent researcher                 researcher
+  tangent reporter                   reporter
+  tangent reviewer                   reviewer
+  tangent builder                    builder
+  tangent uploader                   uploader
+  tangent auth                       auth-wizard
+  tangent new-scenario               scenario-builder
 
 Automation:
   tangent auto       — Run full autonomous 8-step experiment loop
@@ -65,7 +67,9 @@ Run `shadowenv exec -- tangle-deploy quickstart` to discover commands. See
 
 Cancel a run: `shadowenv exec -- tangle-deploy pipeline-run cancel RUN_ID`
 
-Background execution: `dispatch`. Subagents: `agents/*.md`.
+Background execution: `dispatch`. Subagents: bundle agent templates spawned via
+`spawn_subagent template: <name>` (`builder`, `debugger`, `reviewer`,
+`researcher`, `reporter`, `uploader`, `auth-wizard`, `scenario-builder`).
 
 ## Scenarios
 
@@ -100,7 +104,7 @@ the step file and active agent files at that point, don't rely on stale memory.*
 | Step                  | Reference                                                              |
 | --------------------- | ---------------------------------------------------------------------- |
 | 0 Initialize          | [`references/step-0-initialize.md`](references/step-0-initialize.md)   |
-| — Load builder skills | [`agents/builder.md`](agents/builder.md) (after init, before the loop) |
+| — Load builder skills | spawn `template: builder` (after init, before the loop)                |
 | 1 Analyze             | [`references/step-1-analyze.md`](references/step-1-analyze.md)         |
 | 2 Hypothesize         | [`references/step-2-hypothesize.md`](references/step-2-hypothesize.md) |
 | 3 Submit              | [`references/step-3-submit.md`](references/step-3-submit.md)           |

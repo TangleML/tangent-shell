@@ -3,7 +3,7 @@
 The canonical way to bring a locally-staged artifact (data file, model checkpoint,
 config bundle, reference dataset, …) into a Tangle pipeline is:
 
-1. **Upload** the artifact to GCS (see `agents/uploader.md`).
+1. **Upload** the artifact to GCS (use the `uploader` agent template).
 2. **Add or update** a task in the pipeline that uses the **"Download from GCS"**
    component to pull the artifact at run time and emit it as a `Data` output.
 3. **Wire** the `Data` output into the downstream task that needs the artifact.

@@ -49,7 +49,7 @@ shadowenv exec -- tangle-deploy pipeline-run submit $SCENARIO_DIR/pipeline.yaml 
 2. Update ref in pipeline YAML: swap `digest: ...` with `url: file://<path-to-component.yaml>`
 3. Submit with the command above
 
-See `agents/builder.md` for the full workflow.
+See the `builder` agent template for the full workflow.
 
 ## Post-Submission
 

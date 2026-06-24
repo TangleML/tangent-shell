@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangle
 name: Tangle
-version: 1.14.0
+version: 2.0.0
 description: A Tangle-aware assistant with the Tangent skill toolkit and Tangle API tools for everyday work with Tangle ML pipelines and runs.
 author: Tangent
 icon: icon.svg
@@ -38,18 +38,19 @@ prime:
 
 subagents:
   defaultSystemPrompt: prompts/subagent.md
-  # Equip every spawned worker with the file/bash tools plus the full Tangle API
-  # surface, so Prime can delegate real work (lookups and actions) to them. The
+  # Fallback tools for an ad-hoc generic worker (spawned without a named
+  # template). The role agents under `agents/` carry their own scoped tool sets
+  # (see `agents:` below) and override these defaults; the heavy ML roles drive
+  # the `tangle-deploy` CLI via bash, so they don't list the `tangle_*` API
+  # tools. This default keeps a generic worker able to do Tangle lookups and
+  # run-affecting actions, which Prime delegates per `prompts/prime.md`. The
   # tangle-api extension is loaded into every agent, but Pi's --tools allowlist
   # would strip its tools from sub-agents unless they appear here.
   defaultTools:
     - read
     - write
-    - edit
     - bash
     - grep
-    - find
-    - ls
     - tangle_run_list
     - tangle_run_status
     - tangle_run_submit
@@ -60,6 +61,25 @@ subagents:
     - tangle_execution_logs
     - tangle_execution_artifacts
     - tangle_artifact_signed_url
+
+# Sub-agent templates Prime can spawn via `spawn_subagent template: <name>`.
+# Loaded from the top-level `agents/` directory; each file's frontmatter defines
+# its `name`, `description`, and scoped `tools`. Listed here for clarity.
+agents:
+  - agents/builder.md
+  - agents/debugger.md
+  - agents/reviewer.md
+  - agents/researcher.md
+  - agents/reporter.md
+  - agents/uploader.md
+  - agents/auth-wizard.md
+  - agents/scenario-builder.md
+  - agents/safety-monitor.md
+  - agents/designer.md
+
+# Multi-step orchestration recipes (Pi --prompt-template).
+workflows:
+  - workflows/reproduce-research.md
 
 ui:
   components:
