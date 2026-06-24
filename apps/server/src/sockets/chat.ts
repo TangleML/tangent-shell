@@ -301,13 +301,12 @@ export function createSubagentUpdateHandler(
     const payload: SubagentUpdatePayload = { sessionId, subagent };
     io.to(roomFor(sessionId)).emit(SocketEvents.SubagentUpdate, payload);
 
-    // Persist the lifecycle transition so a restart's revive sees the current
-    // status: only `active` agents are re-spawned, so a kill/completion/error
-    // (or a supervised respawn back to active) must reach the DB. The roster
-    // table only distinguishes active vs. terminal, so any non-active status
-    // collapses to `killed`.
+    // Persist so a restart's revive sees the current status (only `active` is
+    // re-spawned); `error` stays distinct, completions and kills collapse.
     const status: SessionAgentStatus =
-      subagent.status === "active" ? "active" : "killed";
+      subagent.status === "active" || subagent.status === "error"
+        ? subagent.status
+        : "killed";
     void store.setAgentStatus(sessionId, subagent.id, status);
   };
 }

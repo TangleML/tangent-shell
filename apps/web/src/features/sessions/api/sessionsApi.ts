@@ -120,6 +120,15 @@ export async function getArtifactText(url: string): Promise<string> {
   return res.text();
 }
 
+export async function markSessionViewed(id: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/sessions/${id}/viewed`), {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to mark session viewed (status ${res.status})`);
+  }
+}
+
 export async function deleteSession(id: string): Promise<void> {
   const res = await fetch(apiUrl(`/api/sessions/${id}`), { method: "DELETE" });
   if (!res.ok) {

@@ -113,6 +113,22 @@ export const sessionAgents = sqliteTable(
   ],
 );
 
+/** When each user last opened a session. `user_key` is the email, or `local`. */
+export const sessionViews = sqliteTable(
+  "session_views",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    userKey: text("user_key").notNull(),
+    lastViewedAt: text("last_viewed_at").notNull(),
+  },
+  (table) => [
+    unique("session_views_session_user").on(table.sessionId, table.userKey),
+    index("session_views_session_idx").on(table.sessionId),
+  ],
+);
+
 export type SessionRow = typeof sessions.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type SessionAgentRow = typeof sessionAgents.$inferSelect;

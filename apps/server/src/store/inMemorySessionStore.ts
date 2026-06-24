@@ -62,6 +62,7 @@ export class InMemorySessionStore implements SessionStore {
   private readonly messages = new Map<string, ChatMessage[]>();
   private readonly artifacts = new Map<string, PinnedArtifact[]>();
   private readonly agents = new Map<string, SessionAgent[]>();
+  private readonly views = new Map<string, Map<string, string>>();
 
   async listSessions(): Promise<Session[]> {
     return [...this.sessions.values()].sort((a, b) =>
@@ -221,5 +222,19 @@ export class InMemorySessionStore implements SessionStore {
 
   async listAgents(sessionId: string): Promise<SessionAgent[]> {
     return this.agents.get(sessionId) ?? [];
+  }
+
+  async markViewed(
+    sessionId: string,
+    userKey: string,
+    at: string,
+  ): Promise<void> {
+    const forUser = this.views.get(userKey) ?? new Map<string, string>();
+    forUser.set(sessionId, at);
+    this.views.set(userKey, forUser);
+  }
+
+  async getLastViewedMap(userKey: string): Promise<Map<string, string>> {
+    return new Map(this.views.get(userKey) ?? new Map());
   }
 }

@@ -47,6 +47,18 @@ export interface SessionConfigMeta {
   icon?: string;
 }
 
+/** Per-viewer activity summary, derived on the list endpoint, never persisted. */
+export interface SessionActivity {
+  /** Agent messages written since this user's last view (0 if all seen). */
+  unreadCount: number;
+  /** ISO-8601 timestamp of the most recent message, if any. */
+  lastActivityAt?: string;
+  /** Whether any of the session's sub-agents ended in error or was killed. */
+  hasError: boolean;
+  /** Live sub-agents in the roster, Prime excluded. */
+  activeAgentCount: number;
+}
+
 /**
  * A Pi coding agent session. Each session owns a scoped "root" folder on disk
  * that a Pi worker will eventually run inside (Pi spawn is Phase 2).
@@ -63,6 +75,8 @@ export interface Session {
   user?: UserIdentity;
   /** Whether the session is archived (hidden from the default list). */
   archived: boolean;
+  /** Attached by the list endpoint; absent when no viewer is resolved. */
+  activity?: SessionActivity;
   /** ISO-8601 timestamp. */
   createdAt: string;
   /** ISO-8601 timestamp. */

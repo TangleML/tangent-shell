@@ -97,6 +97,26 @@ export async function readMessages(
   }
 }
 
+export interface ChatActivity {
+  unreadCount: number;
+  lastActivityAt?: string;
+}
+
+export async function readActivity(
+  rootPath: string,
+  since?: string,
+): Promise<ChatActivity> {
+  const messages = await readAllMessages(rootPath);
+  let unreadCount = 0;
+  for (const message of messages) {
+    if (message.author.kind !== "agent") continue;
+    if (since && message.createdAt <= since) continue;
+    unreadCount += 1;
+  }
+  const last = messages.at(-1);
+  return { unreadCount, lastActivityAt: last?.createdAt };
+}
+
 /**
  * Reads every conversation file under the session's chats directory and returns
  * the merged transcript sorted by `(createdAt, id)`. Returns `[]` when no

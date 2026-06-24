@@ -9,8 +9,12 @@ import type {
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
-/** Persisted lifecycle status of a session agent. */
-export type SessionAgentStatus = "active" | "killed";
+/**
+ * Persisted lifecycle status of a session agent. `error` is distinct so the
+ * sessions list can flag "needs attention"; completions and kills both collapse
+ * to `killed`, and only `active` agents are revived on restart.
+ */
+export type SessionAgentStatus = "active" | "killed" | "error";
 
 /**
  * Input accepted by {@link SessionStore.createSession}: the public wire request
@@ -122,4 +126,9 @@ export interface SessionStore {
   ): Promise<void>;
   /** Lists a session's agents (Prime first), oldest first. */
   listAgents(sessionId: string): Promise<SessionAgent[]>;
+
+  /** Records that `userKey` viewed `sessionId` at `at` (ISO-8601), upserting. */
+  markViewed(sessionId: string, userKey: string, at: string): Promise<void>;
+  /** Returns `sessionId -> lastViewedAt` for everything `userKey` has opened. */
+  getLastViewedMap(userKey: string): Promise<Map<string, string>>;
 }
