@@ -32,7 +32,7 @@ export function MessageLayout({
     <Box group inlineSize="full">
       <InlineStack gap="2" blockAlign="end" wrap="nowrap">
         {avatar}
-        <BlockStack gap="1" align="stretch">
+        <BlockStack gap="1" align="stretch" grow>
           {header}
           <MessageBubble variant={variant} selectable={selectable}>
             {children}
