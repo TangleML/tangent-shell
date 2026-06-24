@@ -49,8 +49,8 @@ or `--help-full` on any command for detailed usage. For debugging guidance, run
    and the Nebius/GCP Cloud Logging fallback. **Do NOT** use
    `--source observe` in River sessions — it fails with `OBSERVE_AUTH not set`.
 4. **Check for auth errors**: If logs show permission denied, 401/403, or service account
-   errors, classify as `PERMISSION` and note in the resolution that the auth wizard
-   (`agents/auth-wizard.md`) should be used to diagnose and fix IAM config.
+   errors, classify as `PERMISSION` and note in the resolution that the
+   `auth-wizard` agent template should be used to diagnose and fix IAM config.
 5. **Check upstream artifacts**: If logs mention missing data/inputs, check upstream task
    outputs — an upstream task may have produced empty or wrong output.
 6. **Export the pipeline**: `tangle-deploy pipeline-run export RUN_ID /tmp/pipeline.yaml --dehydrate`

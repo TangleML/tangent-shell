@@ -2,8 +2,8 @@
 
 ## Review Gate
 
-**Launch the reviewer as a subagent using the Agent tool.** Read `agents/reviewer.md`
-and pass its full content as the agent prompt, with this task context appended:
+**Launch the reviewer as a subagent.** Spawn `spawn_subagent template: reviewer`,
+passing this task context as its task:
 
 ```
 ---

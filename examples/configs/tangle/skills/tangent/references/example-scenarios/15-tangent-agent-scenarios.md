@@ -101,7 +101,7 @@ Step 7: Decide (converged? → Stop. Else → Loop to Step 1)
 
 - Combined Ranker scenario: `discovery/prototypes/tangent/scenarios/combined_ranker/`
 - Cross-Shop L3 scenario: `discovery/prototypes/tangent/scenarios/cross_shop_l3/`
-- Tangent skills: `.agents/skills/tangent/SKILL.md`
+- Tangent skills: `.tangent/skills/tangent/SKILL.md`
 - Smoke test: `discovery/prototypes/tangent/tests/test_scenarios/smoke_test/`
 
 ## Key Observations

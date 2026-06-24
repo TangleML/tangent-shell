@@ -7,7 +7,8 @@ builder implements exactly what is written here.
 ## Workspace
 
 - **Path**: `tangent-work/<paper-slug>/`
-- **Operate as**: `tangent builder` — read `../tangent/agents/builder.md` first.
+- **Operate as**: the `builder` agent template (spawned via
+  `spawn_subagent template: builder`).
 - **CLI**: prefer `shadowenv exec -- tangle-deploy` when available. If `shadowenv`
   is not installed, report that and run `tangle-deploy` directly with the
   required env vars (`TANGLE_DEPLOY_SOURCE`, `TANGLE_AUTH`) set.

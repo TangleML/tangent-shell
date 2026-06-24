@@ -12,7 +12,7 @@ canonical **"Download from GCS"** component
 (`digest: 30c424ac6156c478aa0c3027b470baf9cb7dbbf90aebcabde7469bfbd02a512e`) —
 do not invent ad-hoc ingest components.
 
-See [`references/uploading-artifacts.md`](../references/uploading-artifacts.md)
+See [`uploading-artifacts.md`](.tangent/skills/tangent/references/uploading-artifacts.md)
 for the full ingest pattern, YAML wiring, and gotchas.
 
 ## Tools
@@ -227,10 +227,10 @@ Hand the user three things, in order:
    point the user at how to edit the existing `arguments.GCS path` instead
    of adding a new task.
 
-3. **A pointer to `agents/builder.md`** so the user can splice the snippet
-   into a real pipeline (`tangle-deploy pipeline-run validate` →
+3. **A pointer to the `builder` agent template** so the user can splice the
+   snippet into a real pipeline (`tangle-deploy pipeline-run validate` →
    `tangle-deploy pipeline-run submit --hydrate --no-wait`). See
-   [`references/uploading-artifacts.md`](../references/uploading-artifacts.md)
+   [`uploading-artifacts.md`](.tangent/skills/tangent/references/uploading-artifacts.md)
    for the full ingest pattern with both the "add a new task" and "swap
    an existing GCS path" recipes.
 

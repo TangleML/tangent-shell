@@ -67,8 +67,8 @@ AskUserQuestion:
 
 **When the user picks "Auto-research":**
 
-1. **Launch the researcher agent** — read `.agents/skills/tangent/agents/researcher.md`
-   and spawn it as a subagent via the Agent tool. Give it the baseline run ID,
+1. **Launch the researcher agent** — spawn `spawn_subagent template: researcher`.
+   Give it the baseline run ID,
    scenario directory, and the specific questions from this phase that need
    answering. The researcher does deep investigation: code tracing, data
    analysis, literature search, gap analysis — NOT shallow introspection.

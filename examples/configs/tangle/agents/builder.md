@@ -55,14 +55,14 @@ canonical **"Download from GCS"** component:
 - Output: `Data`
 
 Use the `tangent uploader` subagent to drive the upload + wiring interactively;
-see [`references/uploading-artifacts.md`](../references/uploading-artifacts.md)
+see [`uploading-artifacts.md`](.tangent/skills/tangent/references/uploading-artifacts.md)
 for the three recipes (add a new ingest task, swap an existing path, or pass
 the URI as a run-config parameter). Do **not** write a custom shell-out
 ingest component — that's what "Download from GCS" exists for.
 
 ### Iterating on an existing run
 
-See `references/iterating-on-runs.md` for the full workflow.
+See `.tangent/skills/tangent/references/iterating-on-runs.md` for the full workflow.
 
 1. **Export**: `tangle-deploy pipeline-run export RUN_ID /tmp/pipeline.yaml --dehydrate`
    — produces YAML + adjacent `.config.yaml` with run arguments.
@@ -70,7 +70,7 @@ See `references/iterating-on-runs.md` for the full workflow.
 3. **Modify**: Edit the dehydrated YAML. To swap a component, replace its `digest:` or
    `url: file://` reference with a new `url: file://` pointing to your replacement.
 4. **Validate**: `tangle-deploy pipeline-run validate /tmp/pipeline.yaml`
-5. **Submit** (see Submission Rules in `references/tangle-tools.md`):
+5. **Submit** (see Submission Rules in `.tangent/skills/tangent/references/tangle-tools.md`):
    ```bash
    if grep -q '  spec:' /tmp/pipeline.yaml; then echo "ERROR: dehydrate first"; exit 1; fi
    tangle-deploy pipeline-run submit /tmp/pipeline.yaml \
@@ -80,7 +80,7 @@ See `references/iterating-on-runs.md` for the full workflow.
 
 ### Building a containerized component
 
-See `references/containerized-component-iteration.md` for full details and gotchas.
+See `.tangent/skills/tangent/references/containerized-component-iteration.md` for full details and gotchas.
 
 1. **Find source code**: Inspect the published component to get source annotations:
 
@@ -142,7 +142,7 @@ tangle-deploy component publish component.yaml
 
 ### Validating before submission
 
-Always validate before submitting. See Submission Rules in `references/tangle-tools.md`
+Always validate before submitting. See Submission Rules in `.tangent/skills/tangent/references/tangle-tools.md`
 for the full pre-submit checklist (dehydration check, `--hydrate`, annotations).
 
 ```bash

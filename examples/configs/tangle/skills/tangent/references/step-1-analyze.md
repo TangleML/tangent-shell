@@ -11,8 +11,8 @@ Otherwise, **launch the researcher as a subagent using the Agent tool.** Do not 
 read the file — you must actually invoke it as a foreground agent and wait for completion.
 Skip only if user says "skip research" or `scenario.research.enabled` is explicitly `false`.
 
-Read `agents/researcher.md` and pass its full content as the agent prompt, with
-this task context appended:
+Spawn the researcher via `spawn_subagent template: researcher`, passing this
+task context as its task:
 
 ```
 ---
@@ -87,4 +87,4 @@ the source of truth. See `references/knowledge-corpus.md` for the bucket layout.
 - [ ] MEMORY.md reviewed for budget and lessons
 - [ ] Experiment direction chosen with **Phase A evidence** (not anchored on Phase B FYI context)
 - [ ] `step_transition` event logged
-- [ ] **Reload + review**: re-read this step file and `agents/researcher.md`; agent confirms it remembers them
+- [ ] **Reload + review**: re-read this step file and `.tangent/agents/researcher.md`; agent confirms it remembers them

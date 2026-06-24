@@ -8,9 +8,8 @@
 
 ## Report (MANDATORY — do NOT skip, do NOT defer)
 
-**Launch the reporter as a subagent using the Agent tool.** Do not just read the
-file — you must actually invoke it. Pass the full content of `agents/reporter.md`
-as the agent prompt, with this task context appended:
+**Launch the reporter as a subagent — do NOT skip, do NOT defer.** Spawn
+`spawn_subagent template: reporter`, passing this task context as its task:
 
 ```
 ---
@@ -34,6 +33,6 @@ only run. Multi-run rounds: the run with the best target metric. The same
 - [ ] `audit.yaml` round entry appended
 - [ ] **`report-<best_run_id>.md` exists at `$SCENARIO_DIR/logs/`** (verify with Read — if it doesn't exist, the reporter did not run; the per-run filename means earlier rounds are preserved)
 - [ ] `round_end` event logged
-- [ ] **Reload + review**: re-read this step file and `agents/reporter.md`; agent confirms it remembers them
+- [ ] **Reload + review**: re-read this step file and `.tangent/agents/reporter.md`; agent confirms it remembers them
 
 Print this checklist to the user with checkmarks.
