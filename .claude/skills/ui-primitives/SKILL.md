@@ -54,6 +54,11 @@ of `<div className="flex ...">`.
 - `grow`: take remaining main-axis space and host a scroll region (`flex-1 min-h-0 min-w-0`)
 - `as`: semantic element — `div` (default), `span`, `li`, `ol`, `ul`
 
+**Omit props that match the default — stating them is noise, not intent.** Defaults: both stacks
+`gap="0"`; `BlockStack` `align="start"`, `inlineAlign="start"`; `InlineStack` `blockAlign="center"`,
+`wrap="wrap"`, `align="start"` (each becomes `center` when `fill`). A `gap="0"` stack is a smell:
+if it does no spacing, you've likely picked the wrong primitive (`Box`, or rethink the layout).
+
 ### Typography — `@/shared/ui/typography`
 
 Use `Heading` for headings, `Paragraph` for paragraph text, and `Text` for inline text — never raw

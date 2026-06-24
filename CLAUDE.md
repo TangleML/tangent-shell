@@ -42,9 +42,12 @@ Scoping searches:
 
 ### Comments — keep them minimal
 
-No verbose or multiline inline comment blocks. Comment only what isn't obvious from the code;
+No verbose, wordy, or multiline comment blocks. Comment only what isn't obvious from the code;
 explain _why_, never restate _what_. Often the right number of comments is zero. The user
 actively dislikes comment noise.
+
+- **Never comment inside JSX / a component's `return`.** No `{/* ... */}` annotating elements, no
+  comments labelling sections of markup. If markup needs explaining, fix the names instead.
 
 ### UI — never pass `className` to a Tangle UI primitive
 
@@ -67,6 +70,9 @@ Invoke the `ui-primitives` skill for the component catalog.
 
 - Absolute imports with `@/` prefix; no barrel exports; import order external → internal → relative.
 - Prefer early returns over nesting.
+- **Never pass a prop whose value equals its default** — omit it. E.g. `gap="0"` on any stack
+  (default), `wrap="wrap"` / `blockAlign="center"` on `InlineStack`. Don't write a prop just to
+  satisfy a rule mechanically; if a stack does no spacing, reconsider the primitive.
 - Planning / investigation notes go in `.local/` (gitignored), not committed docs.
 - Don't modify `componentSpec` structure without explicit permission.
 - Don't add new global state without good reason.

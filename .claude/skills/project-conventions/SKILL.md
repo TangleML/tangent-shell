@@ -33,13 +33,18 @@ broader Tangle platform (tangle, tangle-ui) consumes. It is a **pnpm + turbo mon
 - Follow the ESLint config (from `@tangent/build`) and format with Prettier.
 - Prefer early returns to reduce nesting.
 - Use descriptive variable and function names.
+- **Don't pass a prop whose value equals its default** — omit it (e.g. `gap="0"` on a stack).
+  Stating defaults is noise.
 - See the `server-testing` skill for how tests work (server-side only, Node's `tsx --test`). There
   is no frontend test runner.
 
 ## Comments & Documentation
 
 - **Keep comments minimal.** Comment only what isn't obvious from the code; explain _why_, never
-  restate _what_. Often the right number of comments is zero.
+  restate _what_. Often the right number of comments is zero. No verbose, wordy, or multiline
+  comment blocks.
+- **Never comment inside JSX / a component's `return`.** No `{/* ... */}` annotating elements, no
+  comments labelling sections of markup. If markup needs explaining, fix the names instead.
 - Keep comments up to date with code changes; delete stale ones.
 
 ## Error Handling
