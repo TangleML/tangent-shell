@@ -8,11 +8,11 @@ Agent communication in this system is deliberately **server-mediated**. Agents
 never talk to each other directly. There are exactly three transports, each with
 a distinct job:
 
-| Layer | Direction | Who uses it |
-|---|---|---|
-| **Pi-RPC** (JSONL over stdin/stdout) | server ↔ a single Pi child process | `PiAgentManager` ↔ each `pi --mode rpc` subprocess |
-| **Internal HTTP API** (`/internal/*` + bearer token) | Pi child → server | extension tools (orchestrator, memory, triggers, session) |
-| **WebSockets** (Socket.IO rooms) | server → browser | the UI |
+| Layer                                                | Direction                          | Who uses it                                               |
+| ---------------------------------------------------- | ---------------------------------- | --------------------------------------------------------- |
+| **Pi-RPC** (JSONL over stdin/stdout)                 | server ↔ a single Pi child process | `PiAgentManager` ↔ each `pi --mode rpc` subprocess        |
+| **Internal HTTP API** (`/internal/*` + bearer token) | Pi child → server                  | extension tools (orchestrator, memory, triggers, session) |
+| **WebSockets** (Socket.IO rooms)                     | server → browser                   | the UI                                                    |
 
 The `PiAgentManager` (`apps/server/src/pi/piAgentManager.ts`) is the single hub.
 Every "A talks to B" path actually goes A → server → B.
@@ -53,7 +53,7 @@ In `buildPiArgs`, every agent is spawned with `--extension ORCHESTRATOR_EXTENSIO
 ```
 
 When `spawnAgent` launches the `pi` binary, it injects environment variables that
-the extension reads to decide *what tools to register*:
+the extension reads to decide _what tools to register_:
 
 ```943:953:apps/server/src/pi/piAgentManager.ts
         env: {
@@ -105,14 +105,14 @@ These requests land on `createInternalAgentsRouter` (`routes/internalAgents.ts`)
 mounted at `/internal/agents` in `index.ts:105`. Each route just calls a
 `PiAgentManager` method:
 
-| Tool (in Pi) | HTTP endpoint | Manager method |
-|---|---|---|
-| `read_room` | `GET /internal/agents/room` | reads `store.getMessages()` (the persisted transcript) |
-| `spawn_subagent` | `POST /spawn` | `pi.spawnSubagent` |
-| `message_subagent` | `POST /message` | `pi.sendToAgent` |
-| `message_prime` | `POST /report` | `pi.reportToPrime` |
-| `kill_subagent` | `POST /kill` | `pi.killAgent` |
-| `list_subagents` | `GET /list` | `pi.listSubagents` |
+| Tool (in Pi)       | HTTP endpoint               | Manager method                                         |
+| ------------------ | --------------------------- | ------------------------------------------------------ |
+| `read_room`        | `GET /internal/agents/room` | reads `store.getMessages()` (the persisted transcript) |
+| `spawn_subagent`   | `POST /spawn`               | `pi.spawnSubagent`                                     |
+| `message_subagent` | `POST /message`             | `pi.sendToAgent`                                       |
+| `message_prime`    | `POST /report`              | `pi.reportToPrime`                                     |
+| `kill_subagent`    | `POST /kill`                | `pi.killAgent`                                         |
+| `list_subagents`   | `GET /list`                 | `pi.listSubagents`                                     |
 
 **How Prime reads a sub-agent's room:** "the room" is the shared session
 transcript persisted in the `SessionStore`. When Prime (or any agent) calls
@@ -134,13 +134,13 @@ async function handleRoom(
 Crucially, every agent's output — Prime's, each sub-agent's, the human's, and
 directed messages — is written into that one shared transcript (keyed by
 `conversationId` = the producing agent's id). So `read_room` lets Prime see what
-sub-agents said. But the *primary* way Prime learns of sub-agent work isn't
+sub-agents said. But the _primary_ way Prime learns of sub-agent work isn't
 polling `read_room` — it's an automatic relay (next section).
 
 ## 3. Where Pi-RPC plays
 
 Pi-RPC is the JSONL protocol between the server and each Pi child over
-stdin/stdout. It's how the server actually *drives* an agent and *receives* its
+stdin/stdout. It's how the server actually _drives_ an agent and _receives_ its
 streamed output.
 
 **Server → agent (stdin):** `sendToAgent` writes a JSON command line to the
@@ -172,7 +172,7 @@ event `type` (`agent_start`, `message_update`, `message_end`,
 **This is the mechanism behind agent-to-agent messaging.** When Prime calls
 `message_subagent`, the chain is: Pi-RPC carries Prime's tool call out on Prime's
 stdout → orchestrator tool fires HTTP `POST /message` → `pi.sendToAgent` → Pi-RPC
-writes a `prompt` to the *sub-agent's* stdin. The reverse (sub-agent → Prime)
+writes a `prompt` to the _sub-agent's_ stdin. The reverse (sub-agent → Prime)
 happens two ways:
 
 - **Automatic relay:** when a sub-agent finalizes a message (`message_end`),
@@ -200,7 +200,7 @@ happens two ways:
 
 - **Explicit `message_prime`:** mid-run, a sub-agent calls the tool →
   `POST /report` → `reportToPrime` (`piAgentManager.ts:815`), which surfaces it
-  in the sub-agent's own thread *and* writes it to Prime's stdin.
+  in the sub-agent's own thread _and_ writes it to Prime's stdin.
 
 So agent-to-agent communication = Pi-RPC out (tool call) → internal HTTP → Pi-RPC
 in (prompt) to the other agent. The server is always in the middle.
@@ -224,7 +224,7 @@ to Socket.IO emitters in `sockets/chat.ts`:
 - `onSessionStatus` → `createSessionStatusHandler` — fans idle/active/busy status
   to the `sessions:lobby` room.
 
-The browser also sends *into* the system over WebSockets: `handleChatMessage`
+The browser also sends _into_ the system over WebSockets: `handleChatMessage`
 (`chat.ts:762`) receives a `chat:message`, persists/broadcasts it, then calls
 `pi.prompt(...)` (Prime) or `pi.sendToAgent(...)` (a specific sub-agent) — which
 hands off to the Pi-RPC stdin path. So a human message is: WS in → manager →
@@ -236,7 +236,7 @@ Pi-RPC stdin; the reply is Pi-RPC stdout → manager handler → WS out.
    `pi.prompt` → Prime's stdin (**Pi-RPC**).
 2. **Prime decides to delegate (Pi-RPC out):** Prime emits a `spawn_subagent` /
    `message_subagent` tool call on its stdout. The orchestrator tool runs
-   *inside Prime's Pi process*.
+   _inside Prime's Pi process_.
 3. **Tool → server (internal HTTP):** the tool does `POST /internal/agents/spawn`
    then `/message` with the bearer token.
 4. **Server drives the sub-agent (Pi-RPC in):** `pi.spawnSubagent` launches a new

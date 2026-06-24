@@ -17,6 +17,7 @@ import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
 import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 import { AgentModelPicker } from "./composer/AgentModelPicker";
@@ -149,30 +150,34 @@ export function SessionChat({
       <InlineStack grow wrap="nowrap" blockAlign="stretch">
         <SidebarColumn data-testid="sidepanel">
           <BlockStack fill inlineAlign="space-between">
-            <BlockStack gap="2">
+            <BlockStack grow gap="2">
               <SessionCard
                 currentSessionId={sessionId}
                 name={draft ? "New session" : (session?.name ?? "Session")}
                 rootPath={session?.rootPath}
                 connected={connected}
               />
-              <AgentList
-                agents={agents}
-                sessionId={sessionId}
-                selectedId={selectedAgentId}
-                onOpen={openAgentTab}
-                onRemove={(agent) => {
-                  dismissSubagent(agent.id);
-                  closeAsset(agent.id);
-                }}
-              />
-              <AssetList
-                sessionId={sessionId}
-                assets={assets}
-                selectedId={activeTab}
-                onOpen={openAsset}
-                onUnpin={unpinArtifact}
-              />
+              <ScrollRegion scrollbar="subtle">
+                <BlockStack gap="2">
+                  <AgentList
+                    agents={agents}
+                    sessionId={sessionId}
+                    selectedId={selectedAgentId}
+                    onOpen={openAgentTab}
+                    onRemove={(agent) => {
+                      dismissSubagent(agent.id);
+                      closeAsset(agent.id);
+                    }}
+                  />
+                  <AssetList
+                    sessionId={sessionId}
+                    assets={assets}
+                    selectedId={activeTab}
+                    onOpen={openAsset}
+                    onUnpin={unpinArtifact}
+                  />
+                </BlockStack>
+              </ScrollRegion>
             </BlockStack>
 
             <BlockStack gap="4">

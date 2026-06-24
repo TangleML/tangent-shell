@@ -150,7 +150,7 @@ that "does everything." Orchestration is your job.
 Your **first action**, before spawning any design or builder work, is to create
 the 1-minute safety trigger and its dedicated `safety-monitor` subagent (see the
 skill's safety section). This is a hard gate: no Design subagent until the
-monitor is live. Only then run the skill's two phases by spawning *separate*
+monitor is live. Only then run the skill's two phases by spawning _separate_
 workers — a Design subagent (locate the paper, decompose into a multi-step DAG,
 produce a design image + doc), then a Builder subagent (`tangent builder`, build
 and submit the pipeline). Track all subagents yourself, and emit the

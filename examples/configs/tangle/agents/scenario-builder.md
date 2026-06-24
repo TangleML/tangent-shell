@@ -49,6 +49,7 @@ AskUserQuestion with these options:
 - **"I'll answer"** — user answers the questions themselves
 
 Example for Phase 5:
+
 ```
 AskUserQuestion:
   question: "How should I define the search space? I can research the pipeline
@@ -95,12 +96,12 @@ Ask these three questions using AskUserQuestion. Do not proceed until answered.
 1. **Where should the scenario live?** Present these options with their
    **absolute local paths** so there is no ambiguity:
 
-   | Option | Repo | Absolute local path |
-   |--------|------|---------------------|
-   | `Shopify/discovery` | Cloned under tangent zone | `~/world/trees/root/src/areas/ml/tangent/discovery/prototypes/tangent/scenarios/<name>/` |
-   | `//areas/ml/upi` (ml-taxonomy) | World zone | `~/world/trees/root/src/areas/ml/upi/scenarios/<name>/` |
-   | `//areas/ml/<zone>` | Other World zone | `~/world/trees/root/src/areas/ml/<zone>/scenarios/<name>/` |
-   | Other repo | Ask for the path | User provides absolute path |
+   | Option                         | Repo                      | Absolute local path                                                                      |
+   | ------------------------------ | ------------------------- | ---------------------------------------------------------------------------------------- |
+   | `Shopify/discovery`            | Cloned under tangent zone | `~/world/trees/root/src/areas/ml/tangent/discovery/prototypes/tangent/scenarios/<name>/` |
+   | `//areas/ml/upi` (ml-taxonomy) | World zone                | `~/world/trees/root/src/areas/ml/upi/scenarios/<name>/`                                  |
+   | `//areas/ml/<zone>`            | Other World zone          | `~/world/trees/root/src/areas/ml/<zone>/scenarios/<name>/`                               |
+   | Other repo                     | Ask for the path          | User provides absolute path                                                              |
 
    **After the user picks**, resolve `~` and confirm the full absolute path
    back to them: "I'll create the scenario at `<absolute path>`. Correct?"
@@ -116,6 +117,7 @@ Ask these three questions using AskUserQuestion. Do not proceed until answered.
 STOP. Wait for answers before doing anything else.
 
 ### Gate — do NOT proceed to Phase 1 until all pass:
+
 - [ ] Asked user where the scenario should live
 - [ ] Asked user for baseline run ID
 - [ ] Asked user for pipeline source path (or confirmed export-from-run)
@@ -131,10 +133,12 @@ STOP. Wait for answers before doing anything else.
 and introspect it to understand the pipeline structure.
 
 **If no source path but run ID was provided**, export and dehydrate:
+
 ```bash
 tangle-deploy pipeline-run details <RUN_ID>   # extract task names, pipeline structure
 tangle-deploy pipeline-run export <RUN_ID> <scenario_dir>/pipeline.yaml --dehydrate
 ```
+
 `--dehydrate` keeps component refs as `name:`/`digest:` instead of inlining specs,
 so `--hydrate` on submit will resolve the latest published versions.
 
@@ -143,6 +147,7 @@ to do [description]."
 
 **Ask via AskUserQuestion** — "Auto-research" (researcher investigates
 pipeline history, PRs, team context) or "I'll answer":
+
 1. Is my description right? What am I missing about what this pipeline does?
 2. Why optimize now? What's the business motivation?
 3. What's been tried before? Any prior experiments or lessons?
@@ -150,6 +155,7 @@ pipeline history, PRs, team context) or "I'll answer":
 **STOP. Checkpoint:** "I'll record: [summary]. Correct?"
 
 ### Gate — do NOT proceed to Phase 2 until all pass:
+
 - [ ] Pipeline introspected (if run ID provided)
 - [ ] `pipeline.yaml` exported (if run ID provided)
 - [ ] Asked user to confirm/correct pipeline description
@@ -168,6 +174,7 @@ get their metric artifacts, read the JSON.
 
 **Ask via AskUserQuestion** — "Auto-research" (researcher analyzes
 baseline metrics, weak segments, proposes target/guards) or "I'll answer":
+
 1. Which metric is the optimization target? What direction? What magnitude
    of improvement is meaningful?
 2. For each secondary metric: "How much regression is acceptable?" Set
@@ -181,6 +188,7 @@ After confirmation, write a skill file documenting the metrics (name it
 based on what fits — e.g., `metrics-guide.md`, `eval-metrics.md`, etc.).
 
 ### Gate — do NOT proceed to Phase 3 until all pass:
+
 - [ ] Showed metrics table with current values
 - [ ] Asked which metric is the optimization target + direction + meaningful magnitude
 - [ ] Asked about regression thresholds for each secondary metric
@@ -202,6 +210,7 @@ findings to a file — don't leave raw results in conversation context.
 
 **Ask via AskUserQuestion** — "Auto-research" (researcher traces code
 paths, discovers data sources, explores BQ tables) or "I'll answer":
+
 1. Did I get the code paths right? Anything important I missed?
 2. Where does training data come from? How is eval data constructed?
 3. What BQ tables should Tangent know about?
@@ -214,6 +223,7 @@ based on content — NOT from a fixed template. Examples from other scenarios:
 whatever this pipeline actually needs.
 
 ### Gate — do NOT proceed to Phase 4 until all pass:
+
 - [ ] Showed key source files and data sources
 - [ ] Asked user to confirm/correct code paths
 - [ ] Asked about training data origin and eval data construction
@@ -227,6 +237,7 @@ whatever this pipeline actually needs.
 
 **Ask via AskUserQuestion** — "Auto-research" (researcher analyzes failure
 logs, GitHub issues, and resource usage patterns) or "I'll answer":
+
 1. What mistakes would a new ML engineer make on this pipeline?
 2. What errors does the pipeline commonly throw? How do you fix them?
 3. Resource limits — memory, GPU, expected runtime?
@@ -234,6 +245,7 @@ logs, GitHub issues, and resource usage patterns) or "I'll answer":
 **STOP. Checkpoint:** "Pitfalls: [list]. Failure patterns: [list]. Correct?"
 
 ### Gate — do NOT proceed to Phase 5 until all pass:
+
 - [ ] Asked about common mistakes a new ML engineer would make
 - [ ] Asked about common pipeline errors and fixes
 - [ ] Asked about resource limits (memory, GPU, runtime)
@@ -256,6 +268,7 @@ Changes are applied via [mechanism]."
 **Ask via AskUserQuestion** — "Auto-research" (researcher does gap analysis,
 literature search, code tracing to identify high-impact experiment directions
 — NOT just parameter tuning) or "I'll answer":
+
 1. What would you try first if you were running experiments manually?
 2. Walk me through how you'd change one parameter end-to-end.
 3. What's off-limits?
@@ -274,6 +287,7 @@ Research config: [enabled/disabled, terms]. Correct?"
 After confirmation, write a skill file covering experiment techniques.
 
 ### Gate — do NOT proceed to Phase 6 until all pass:
+
 - [ ] Showed configurable parameters with current values
 - [ ] Asked what user would try first manually (or auto-researched)
 - [ ] Asked how to change a parameter end-to-end (or auto-researched)
@@ -288,6 +302,7 @@ After confirmation, write a skill file covering experiment techniques.
 ## Phase 6: Budget & Convergence
 
 **Ask:**
+
 1. How many total runs? (suggest 15-20 for first experiment) How many
    parallel? How many rounds?
 2. How long does one full pipeline run take?
@@ -297,6 +312,7 @@ After confirmation, write a skill file covering experiment techniques.
 Min improvement: [X]. Pipeline takes ~[T]. Correct?"
 
 ### Gate — do NOT proceed to Generation until all pass:
+
 - [ ] Asked about total runs, parallel runs, and rounds
 - [ ] Asked about pipeline runtime
 - [ ] Asked about minimum improvement worth shipping
@@ -316,6 +332,7 @@ user gave reasoning. Use the template at the bottom of this file.
 ### MEMORY.md
 
 Initialize with:
+
 - Baseline metric values (Phase 2)
 - Known priors and prior experiment results (Phase 1)
 - Pitfalls and things to avoid (Phase 4)
@@ -334,6 +351,7 @@ Already written incrementally after Phases 2-4.
 ## Final Validation
 
 Show the user a summary of ALL generated files:
+
 - scenario.yaml — metrics, search space, guardrails, budget
 - MEMORY.md — baseline stats, priors, pitfalls
 - skills/ — list each file with 1-line summary
@@ -359,7 +377,7 @@ metrics:
   target:
     path: "<dot.separated.metric.path>"
     task: "<Pipeline Task Name>"
-    direction: maximize  # or minimize
+    direction: maximize # or minimize
     description: "<what this metric measures>"
   secondary:
     - path: "<metric path>"
@@ -368,13 +386,13 @@ metrics:
   guards:
     - path: "<metric path>"
       task: "<task>"
-      min_value: <threshold>  # or max_value for minimize
+      min_value: <threshold> # or max_value for minimize
       description: "<what must not regress>"
 
 search_space:
   <parameter>:
-    type: continuous  # or discrete, categorical
-    range: [<min>, <max>]  # or values: [a, b, c]
+    type: continuous # or discrete, categorical
+    range: [<min>, <max>] # or values: [a, b, c]
     current: <baseline value>
 
 experiment_actions:
@@ -387,7 +405,7 @@ experiment_actions:
         how: "<step-by-step>"
 
 research:
-  enabled: true  # or false
+  enabled: true # or false
   code_paths: ["<relative/path/to/code>"]
   github:
     repo: "<Org/repo>"

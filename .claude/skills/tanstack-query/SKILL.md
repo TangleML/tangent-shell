@@ -25,7 +25,10 @@ API functions build URLs with `apiUrl` from `@/shared/lib/basePath` (so requests
 proxy mount-prefix) and parse into shared types from `@tangent/shared/contracts`:
 
 ```typescript
-import type { AgentBundleMeta, ListAgentBundlesResponse } from "@tangent/shared/contracts";
+import type {
+  AgentBundleMeta,
+  ListAgentBundlesResponse,
+} from "@tangent/shared/contracts";
 import { apiUrl } from "@/shared/lib/basePath";
 
 export async function listAgentBundles(): Promise<AgentBundleMeta[]> {
@@ -91,7 +94,9 @@ export function useDeleteAgentBundle() {
   return useMutation({
     mutationFn: deleteAgentBundle,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: AgentBundleQueryKeys.All() });
+      void queryClient.invalidateQueries({
+        queryKey: AgentBundleQueryKeys.All(),
+      });
     },
   });
 }

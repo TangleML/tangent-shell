@@ -12,12 +12,15 @@ Two distinct ML applications: (1) post-checkout model evaluation via dbt for buy
 ## Pipeline Flow
 
 ### Post-Checkout Model Evaluation
+
 ```
 dbt run (post_checkout_model_evaluation) -> dbt test (assertions)
 ```
+
 Simple 2-task pipeline using dbt to materialize an incremental model in BigQuery, then validate with dbt tests. This is a SQL-driven evaluation pipeline, not traditional ML training.
 
 ### US MMM Training Pipeline
+
 ```
 Load Input Data (BQ: dma_mmm_metrics, 3yr rolling) -> Preprocess and Configure -> Train MMM Model -> Validate Model -> Save Model (GCS)
 Load Prior Data (BQ: us_mmm_prior_data) ---------^
@@ -31,34 +34,34 @@ Load Prior Data (BQ: us_mmm_prior_data) ---------^
 
 ## ML Techniques
 
-| Aspect | Post-Checkout | US MMM |
-|--------|--------------|--------|
-| **Method** | dbt incremental model + tests | Bayesian MCMC (Google Meridian) |
-| **Model type** | SQL-based evaluation | Marketing Mix Model |
-| **Inference** | BQ SQL | 8 MCMC chains, 2000 samples each |
-| **Hardware** | Standard BQ | 1x NVIDIA H200 (Nebius), 16 CPU, 64Gi |
-| **Validation** | dbt test assertions | Automated PASS/FAIL/REVIEW |
-| **Output** | BQ table `sdp-prd-payments` | `gs://sdp-prd-commercial/mmm_model_objects/us/` |
-| **Source** | `shopify-playground/buyer-risk-project-docs` | `Shopify/meridian` |
+| Aspect         | Post-Checkout                                | US MMM                                          |
+| -------------- | -------------------------------------------- | ----------------------------------------------- |
+| **Method**     | dbt incremental model + tests                | Bayesian MCMC (Google Meridian)                 |
+| **Model type** | SQL-based evaluation                         | Marketing Mix Model                             |
+| **Inference**  | BQ SQL                                       | 8 MCMC chains, 2000 samples each                |
+| **Hardware**   | Standard BQ                                  | 1x NVIDIA H200 (Nebius), 16 CPU, 64Gi           |
+| **Validation** | dbt test assertions                          | Automated PASS/FAIL/REVIEW                      |
+| **Output**     | BQ table `sdp-prd-payments`                  | `gs://sdp-prd-commercial/mmm_model_objects/us/` |
+| **Source**     | `shopify-playground/buyer-risk-project-docs` | `Shopify/meridian`                              |
 
 ## Active Users
 
-| User | Pipeline | Activity |
-|------|----------|----------|
-| nate.george | Post-checkout model evaluation | 5 runs on Apr 2 |
-| tangle-runner SA (sdp-prd-commercial) | US MMM Training Pipeline | Automated scheduled runs |
+| User                                  | Pipeline                       | Activity                 |
+| ------------------------------------- | ------------------------------ | ------------------------ |
+| nate.george                           | Post-checkout model evaluation | 5 runs on Apr 2          |
+| tangle-runner SA (sdp-prd-commercial) | US MMM Training Pipeline       | Automated scheduled runs |
 
 ## Key Components
 
-| Component | Digest | Purpose |
-|-----------|--------|---------|
-| `dbt run post_checkout_model_evaluation` | `eaafdfa6` | Materialize evaluation model |
-| `dbt test post_checkout_model_evaluation` | `4d3e6266` | Validate assertions |
-| `Run bigquery and save as dataset v02` | `aabc4353` | Load MMM input/prior data |
-| `Preprocess and configure` | `2c154996` | DMA combining, knot config |
-| `Train MMM Model` | `85b24ffb` | Meridian MCMC training |
-| `Validate model` | `600f9794` | PASS/FAIL/REVIEW gate |
-| `Save model` | `c4585cd4` | Route to production or staging GCS |
+| Component                                 | Digest     | Purpose                            |
+| ----------------------------------------- | ---------- | ---------------------------------- |
+| `dbt run post_checkout_model_evaluation`  | `eaafdfa6` | Materialize evaluation model       |
+| `dbt test post_checkout_model_evaluation` | `4d3e6266` | Validate assertions                |
+| `Run bigquery and save as dataset v02`    | `aabc4353` | Load MMM input/prior data          |
+| `Preprocess and configure`                | `2c154996` | DMA combining, knot config         |
+| `Train MMM Model`                         | `85b24ffb` | Meridian MCMC training             |
+| `Validate model`                          | `600f9794` | PASS/FAIL/REVIEW gate              |
+| `Save model`                              | `c4585cd4` | Route to production or staging GCS |
 
 ## Key Links
 

@@ -22,9 +22,7 @@ export async function seedExampleBundles(
   const dir = exampleBundlesDir();
   let names: string[];
   try {
-    names = (await readdir(dir))
-      .filter((name) => name.endsWith(".zip"))
-      .sort();
+    names = (await readdir(dir)).filter((name) => name.endsWith(".zip")).sort();
   } catch {
     console.warn(`[seed] no example bundles directory at ${dir}; skipping`);
     return 0;

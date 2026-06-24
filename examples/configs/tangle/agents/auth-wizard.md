@@ -18,11 +18,11 @@ Run `tangle-deploy quickstart` to discover available commands. Use `--help-exten
 or `--help-full` on any command for detailed usage. For service account docs, run
 `tangle-deploy docs service_accounts`.
 
-| What you need | Command |
-|---|---|
-| Generate SA Terraform config | `tangle-deploy auth setup-sa generate-config` |
+| What you need                  | Command                                         |
+| ------------------------------ | ----------------------------------------------- |
+| Generate SA Terraform config   | `tangle-deploy auth setup-sa generate-config`   |
 | Grant user access to a team SA | `tangle-deploy auth setup-sa grant-user-access` |
-| Service account documentation | `tangle-deploy docs service_accounts` |
+| Service account documentation  | `tangle-deploy docs service_accounts`           |
 
 ## Wizard Modes
 
@@ -42,24 +42,28 @@ What would you like to do?
 
 ### Mode 1: Set Up a New Service Account
 
-
 **Step 1 — Project**: Ask for the GCP project where pipelines will run.
-  - Example: `shopify-discovery-relevance`, `shopify-search-ml`
+
+- Example: `shopify-discovery-relevance`, `shopify-search-ml`
 
 **Step 2 — Existing SA?**: Ask if they already have a job service account.
-  - If yes: get the full email (e.g., `tangle-runner@project.iam.gserviceaccount.com`)
-  - If no: one will be created; note this in the output
+
+- If yes: get the full email (e.g., `tangle-runner@project.iam.gserviceaccount.com`)
+- If no: one will be created; note this in the output
 
 **Step 3 — CI/CD?**: Ask if CI/CD (e.g., Buildkite) will deploy pipelines.
-  - If yes: ask for the CI service account email, enable `--with-ci`
-  - If no: skip CI configuration
+
+- If yes: ask for the CI service account email, enable `--with-ci`
+- If no: skip CI configuration
 
 **Step 4 — Cloud Run scheduling?**: Ask if they'll use `tangle-deploy pipeline schedule`
-  for scheduled pipeline runs via Cloud Run.
-  - If yes: enable `--with-cloudrun`
-  - If no: skip
+for scheduled pipeline runs via Cloud Run.
+
+- If yes: enable `--with-cloudrun`
+- If no: skip
 
 **Step 5 — Generate**: Build and run the command:
+
 ```bash
 shadowenv exec -- tangle-deploy auth setup-sa generate-config \
   --cloudrun-project <project> \
@@ -89,17 +93,21 @@ Give users permission to impersonate an existing team service account so they
 can run pipelines under that identity.
 
 **Step 1 — Team SA**: Ask for the team service account email.
-  - Example: `tangle-runner@shopify-discovery-relevance.iam.gserviceaccount.com`
+
+- Example: `tangle-runner@shopify-discovery-relevance.iam.gserviceaccount.com`
 
 **Step 2 — User emails**: Ask for the list of user emails to grant access.
-  - Accept comma-separated or one per line
+
+- Accept comma-separated or one per line
 
 **Step 3 — Cluster**: Ask which Kubernetes cluster they use:
-  - `gke` (GKE-based Workload Identity)
-  - `nebius` (Nebius cluster)
-  - If unsure, run the command twice — once for each cluster
+
+- `gke` (GKE-based Workload Identity)
+- `nebius` (Nebius cluster)
+- If unsure, run the command twice — once for each cluster
 
 **Step 4 — Generate**: Build and run the command:
+
 ```bash
 shadowenv exec -- tangle-deploy auth setup-sa grant-user-access \
   --team-sa <sa-email> \
@@ -117,9 +125,11 @@ Workload Identity bindings. The target file is the project IAM file in
   (same `terraform-the-cloud` repo, project IAM file).
 
 After the Terraform PR is merged, users can annotate pipeline tasks with:
-  ```yaml
-  cloud-pipelines.net/launchers/google/service_account: <team-sa-email>
-  ```
+
+```yaml
+cloud-pipelines.net/launchers/google/service_account: <team-sa-email>
+```
+
 This goes in the task's `metadata.annotations` in the pipeline YAML.
 
 ---
@@ -134,9 +144,11 @@ a failed run, error messages passed by another sub-agent, or prior conversation.
 Only ask the user if you don't have enough to work with.
 
 If a run ID is known, inspect it to see which service accounts were used:
+
 ```bash
 shadowenv exec -- tangle-deploy pipeline-run details RUN_ID --include-annotations
 ```
+
 This shows the execution tree with annotations at the run, pipeline, and
 individual task/component level. Check `metadata.annotations` for
 `cloud-pipelines.net/launchers/google/service_account` to see which SA each
@@ -144,6 +156,7 @@ task ran as — the mismatch between the configured SA and the required
 permissions is often the root cause.
 
 If context is still unclear, ask the user:
+
 - What they were trying to do (submit a pipeline, schedule a run, etc.)
 - Which GCP project and service account (if known)
 

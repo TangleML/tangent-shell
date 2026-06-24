@@ -267,6 +267,30 @@
   }
 }
 
+@layer utilities {
+  .hide-scrollbar {
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .subtle-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .subtle-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .subtle-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+  }
+  .subtle-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
 /* Mac-genie-like collapse: the bubble is sucked straight up toward the row
    where the collapsed pill replaces it, pinching horizontally (the genie
    "neck") while the grid row shrinks so siblings slide up. Pure-CSS

@@ -1,6 +1,5 @@
 import type { Trigger } from "@tangent/shared/contracts";
 
-import { SidebarColumn } from "@/features/chat/components/sidebar/SidebarColumn";
 import type { Asset } from "@/features/chat/model/assets";
 import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
@@ -9,7 +8,6 @@ import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
-import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 import { Text } from "@/shared/ui/typography";
 
@@ -57,7 +55,7 @@ export function AssetList({
   };
 
   return (
-    <SidebarColumn>
+    <BlockStack align="stretch">
       <Toolbar chrome="light" gap="2" align="space-between">
         <InlineStack gap="2" blockAlign="center" wrap="nowrap">
           <Icon name="LayoutGrid" size="md" tone="subdued" />
@@ -71,45 +69,43 @@ export function AssetList({
           </Text>
         ) : null}
       </Toolbar>
-      <ScrollRegion axis="y">
-        {assets.length === 0 ? (
-          <Box padding="base">
-            <EmptyState
-              size="sm"
-              title=""
-              description="Pages, files, and triggers Prime creates show up here."
-            />
-          </Box>
-        ) : (
-          <Box padding="sm">
-            <BlockStack as="ul" gap="1">
-              {assets.map((asset) => (
-                <AssetCard
-                  key={asset.id}
-                  asset={asset}
-                  selected={selectedId === asset.id}
-                  onOpen={() => onOpen(asset)}
-                  actions={
-                    <AssetRowActions
-                      asset={asset}
-                      triggerBusy={triggerBusy}
-                      onUnpin={onUnpin}
-                      onToggleTrigger={(trigger) =>
-                        update.mutate({
-                          triggerId: trigger.id,
-                          input: { enabled: !trigger.enabled },
-                        })
-                      }
-                      onCopyCallback={copyCallback}
-                      onDeleteTrigger={(trigger) => remove.mutate(trigger.id)}
-                    />
-                  }
-                />
-              ))}
-            </BlockStack>
-          </Box>
-        )}
-      </ScrollRegion>
-    </SidebarColumn>
+      {assets.length === 0 ? (
+        <Box padding="base">
+          <EmptyState
+            size="sm"
+            title=""
+            description="Pages, files, and triggers Prime creates show up here."
+          />
+        </Box>
+      ) : (
+        <Box padding="sm">
+          <BlockStack as="ul" gap="1">
+            {assets.map((asset) => (
+              <AssetCard
+                key={asset.id}
+                asset={asset}
+                selected={selectedId === asset.id}
+                onOpen={() => onOpen(asset)}
+                actions={
+                  <AssetRowActions
+                    asset={asset}
+                    triggerBusy={triggerBusy}
+                    onUnpin={onUnpin}
+                    onToggleTrigger={(trigger) =>
+                      update.mutate({
+                        triggerId: trigger.id,
+                        input: { enabled: !trigger.enabled },
+                      })
+                    }
+                    onCopyCallback={copyCallback}
+                    onDeleteTrigger={(trigger) => remove.mutate(trigger.id)}
+                  />
+                }
+              />
+            ))}
+          </BlockStack>
+        </Box>
+      )}
+    </BlockStack>
   );
 }

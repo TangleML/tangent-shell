@@ -38,8 +38,8 @@ broader Tangle platform (tangle, tangle-ui) consumes. It is a **pnpm + turbo mon
 
 ## Comments & Documentation
 
-- **Keep comments minimal.** Comment only what isn't obvious from the code; explain *why*, never
-  restate *what*. Often the right number of comments is zero.
+- **Keep comments minimal.** Comment only what isn't obvious from the code; explain _why_, never
+  restate _what_. Often the right number of comments is zero.
 - Keep comments up to date with code changes; delete stale ones.
 
 ## Error Handling

@@ -90,7 +90,13 @@ import { Link } from "@tanstack/react-router";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
 
 <TopNav
-  brand={<Link to="/sessions"><Text size="lg" weight="bold">Tangent Shell</Text></Link>}
+  brand={
+    <Link to="/sessions">
+      <Text size="lg" weight="bold">
+        Tangent Shell
+      </Text>
+    </Link>
+  }
   links={
     <>
       <TopNavLink to="/sessions">Sessions</TopNavLink>
@@ -116,13 +122,13 @@ loosely-typed search with `useSearch({ strict: false })` when a route doesn't de
 
 ## Router hooks
 
-| Hook                           | Use case                                   |
-| ------------------------------ | ------------------------------------------ |
-| `useNavigate()`                | Programmatic navigation                    |
-| `useParams({ from })`          | Route params (`$sessionId`)                |
-| `useSearch({ strict: false })` | Search/query params                        |
-| `useLocation()`                | Current pathname                           |
-| `useRouter()` / `useRouterState()` | Router instance / advanced state       |
+| Hook                               | Use case                         |
+| ---------------------------------- | -------------------------------- |
+| `useNavigate()`                    | Programmatic navigation          |
+| `useParams({ from })`              | Route params (`$sessionId`)      |
+| `useSearch({ strict: false })`     | Search/query params              |
+| `useLocation()`                    | Current pathname                 |
+| `useRouter()` / `useRouterState()` | Router instance / advanced state |
 
 ## Layout nesting
 
