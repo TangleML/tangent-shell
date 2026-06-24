@@ -7,12 +7,13 @@ import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { BlockStack } from "@/shared/ui/layout";
+import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
+import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
 import { Paragraph } from "@/shared/ui/typography";
 
 import { NewSessionButton } from "./components/NewSessionButton";
-import { SessionsSidebar } from "./components/SessionsSidebar";
 import { SessionsTable } from "./components/SessionsTable";
 
 export function SessionsPage() {
@@ -44,9 +45,6 @@ export function SessionsPage() {
   const startFromBundle = (bundleId: string, name: string) =>
     createSession({ bundleId, name }, { onSuccess: openSession });
 
-  const pickConfig = (config: File) =>
-    createSession({ config }, { onSuccess: openSession });
-
   const newSessionButton = (
     <NewSessionButton
       bundles={bundles}
@@ -56,19 +54,15 @@ export function SessionsPage() {
     />
   );
 
-  const sidebar = (
-    <SessionsSidebar
-      bundles={bundles}
-      creating={isCreating}
-      onCreateBlank={createBlank}
-      onPickConfig={pickConfig}
-      onStartFromBundle={startFromBundle}
-    />
-  );
-
   return (
-    <WorkArea sidebar={sidebar}>
+    <WorkArea>
       <BlockStack gap="6">
+        <PageHeader
+          breadcrumb={<CrumbCurrent>Sessions</CrumbCurrent>}
+          title="Sessions"
+          description="Conversations with your agents. Start a new one or resume where you left off."
+        />
+
         {error ? (
           <Paragraph size="sm" tone="critical">
             Failed to load sessions: {error.message}

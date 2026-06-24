@@ -3,12 +3,13 @@ import { useState } from "react";
 import { useGlobalMemory } from "@/features/global-memory/hooks/useGlobalMemory";
 import { useUpdateGlobalMemory } from "@/features/global-memory/hooks/useUpdateGlobalMemory";
 import { Button } from "@/shared/ui/button";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Breadcrumbs, CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
+import { BlockStack } from "@/shared/ui/layout";
+import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
+import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { Section } from "@/shared/ui/patterns/section";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
 import { Textarea } from "@/shared/ui/textarea";
-import { Heading, Paragraph } from "@/shared/ui/typography";
+import { Paragraph } from "@/shared/ui/typography";
 
 export function GlobalMemoryPage() {
   const { data, isLoading, error } = useGlobalMemory();
@@ -41,23 +42,11 @@ export function GlobalMemoryPage() {
   return (
     <WorkArea>
       <BlockStack gap="6" align="stretch">
-        <BlockStack gap="2">
-          <Breadcrumbs>
-            <CrumbCurrent>Global memory</CrumbCurrent>
-          </Breadcrumbs>
-          <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
-            <BlockStack gap="1">
-              <Heading level={1} size="xl" weight="bold">
-                Global memory
-              </Heading>
-              <Paragraph size="sm" tone="subdued">
-                Standing context shared with every session's agents. Edits apply
-                to new sessions; running sessions pick them up on their next
-                spawn.
-              </Paragraph>
-            </BlockStack>
-          </InlineStack>
-        </BlockStack>
+        <PageHeader
+          breadcrumb={<CrumbCurrent>Global memory</CrumbCurrent>}
+          title="Global memory"
+          description="Standing context shared with every session's agents. Edits apply to new sessions; running sessions pick them up on their next spawn."
+        />
 
         {error ? (
           <Paragraph size="sm" tone="critical">

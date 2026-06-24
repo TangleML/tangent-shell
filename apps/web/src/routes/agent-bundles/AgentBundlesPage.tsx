@@ -5,10 +5,11 @@ import { useUploadAgentBundle } from "@/features/agent-bundles/hooks/useUploadAg
 import { Box } from "@/shared/ui/box";
 import { Button } from "@/shared/ui/button";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Breadcrumbs, CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
+import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
+import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
-import { Heading, Paragraph } from "@/shared/ui/typography";
+import { Paragraph } from "@/shared/ui/typography";
 
 import { AgentBundleCard } from "./AgentBundleCard";
 import { BundleGrid } from "./bundle-grid";
@@ -47,22 +48,11 @@ export function AgentBundlesPage() {
   return (
     <WorkArea>
       <BlockStack gap="6">
-        <BlockStack gap="2">
-          <Breadcrumbs>
-            <CrumbCurrent>Agent bundles</CrumbCurrent>
-          </Breadcrumbs>
-          <InlineStack align="space-between" blockAlign="center" wrap="nowrap">
-            <BlockStack gap="1">
-              <Heading level={1} size="xl" weight="bold">
-                Agent bundles
-              </Heading>
-              <Paragraph size="sm" tone="subdued">
-                Portable presets that provision a session's prompts, tools,
-                skills, workflows, rules, and memory.
-              </Paragraph>
-            </BlockStack>
-          </InlineStack>
-        </BlockStack>
+        <PageHeader
+          breadcrumb={<CrumbCurrent>Agent bundles</CrumbCurrent>}
+          title="Agent bundles"
+          description="Portable presets that provision a session's prompts, tools, skills, workflows, rules, and memory."
+        />
 
         {error ? (
           <Paragraph size="sm" tone="critical">
