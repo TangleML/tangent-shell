@@ -20,6 +20,7 @@ import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
+import { ActiveTasksIndicator } from "./composer/ActiveTasksIndicator";
 import { AgentModelPicker } from "./composer/AgentModelPicker";
 import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
 import { ChatInput } from "./composer/ChatInput";
@@ -121,11 +122,10 @@ export function SessionChat({
     (m) => m.conversationId === PI_AGENT.id,
   );
 
-  // Sub-agents currently running on Prime's behalf, surfaced as a "waiting for
-  // subagents" bubble in Prime's thread while Prime itself is idle.
-  const busySubagentNames = subagents
+  const busySubagents = subagents
     .filter((s) => isConversationBusy(s.id))
-    .map((s) => s.name);
+    .map((s) => ({ id: s.id, name: s.name }));
+  const armedTriggers = triggers.filter((t) => t.enabled);
 
   // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
   // viewable "page" asset keyed by its resolved URL, so both dedupe to one tab.
@@ -230,7 +230,6 @@ export function SessionChat({
                 messages={primeMessages}
                 currentAuthorId={currentAuthorId}
                 activity={getActivity(PI_AGENT.id)}
-                waitingForSubagents={busySubagentNames}
                 bundleId={bundleId}
                 onSendPrompt={send}
                 onOpenArtifact={openArtifactTab}
@@ -257,7 +256,28 @@ export function SessionChat({
               ) : null}
               {!draft ? (
                 <Box paddingInline="base" paddingBlock="sm">
-                  <InlineStack align="end">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack blockAlign="center">
+                      <ActiveTasksIndicator
+                        sessionId={sessionId}
+                        busySubagents={busySubagents}
+                        armedTriggers={armedTriggers}
+                        onOpenAgent={(id) =>
+                          openAgent({
+                            id,
+                            name:
+                              subagents.find((s) => s.id === id)?.name ?? id,
+                          })
+                        }
+                        onAbort={abort}
+                        onOpenTrigger={(id) => {
+                          const asset = assets.find(
+                            (a) => a.kind === "trigger" && a.id === id,
+                          );
+                          if (asset) openAsset(asset);
+                        }}
+                      />
+                    </InlineStack>
                     <AgentModelPicker
                       model={primeModel?.model}
                       thinkingDepth={primeModel?.thinkingDepth}

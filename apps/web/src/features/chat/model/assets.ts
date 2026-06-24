@@ -55,7 +55,7 @@ export const ASSET_ICON: Record<AssetKind, IconName> = {
 };
 
 /** Short, human-readable subtitle describing a trigger's signal source. */
-function triggerSubtitle(trigger: Trigger): string {
+export function triggerSubtitle(trigger: Trigger): string {
   if (trigger.kind === "schedule") {
     const every = trigger.schedule?.every ?? trigger.schedule?.cron;
     return every ? `Every ${every}` : "Schedule";
