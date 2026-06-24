@@ -12,6 +12,8 @@ import {
   handleCreateSession,
   handleDeleteSession,
   handleGetSession,
+  handleListSessions,
+  handleMarkSessionViewed,
   handleUpdateSession,
   handleUploadFiles,
   uploadFiles,
@@ -36,10 +38,9 @@ function registerSessionCollectionRoutes(
   triggerEngine: TriggerEngine,
   agentBundleStore: AgentBundleStore,
 ): void {
-  router.get("/", async (_req: Request, res: Response) => {
-    const sessions = await store.listSessions();
-    res.json({ sessions });
-  });
+  router.get("/", (req: Request, res: Response) =>
+    handleListSessions(store, req, res),
+  );
 
   // `bundleUpload.single` parses a multipart `config` ZIP (form field `name`
   // lands in `req.body`); plain JSON requests pass through untouched (parsed
@@ -103,6 +104,24 @@ function registerSessionItemRoutes(
         res,
       ),
   );
+}
+
+/** Registers the routes that record activity against a single session. */
+function registerSessionActivityRoutes(
+  router: Router,
+  store: SessionStore,
+): void {
+  router.post(
+    "/:id/viewed",
+    validate({ params: sessionParamsSchema }),
+    (req: Request, res: Response) =>
+      handleMarkSessionViewed(
+        store,
+        req,
+        getValidated<unknown, SessionParams>(req).params.id,
+        res,
+      ),
+  );
 
   // Uploads land in the session's `uploads/` folder; `uploadFiles.array` writes
   // each file to disk before the handler records the resulting metadata.
@@ -132,6 +151,7 @@ export function createSessionsRouter(
     agentBundleStore,
   );
   registerSessionItemRoutes(router, store, pi, triggerEngine);
+  registerSessionActivityRoutes(router, store);
   registerTriggerRoutes(router, store, triggers, triggerEngine);
 
   // Declared after the trigger routes so the `*splat` catch-all doesn't shadow

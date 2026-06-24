@@ -4,9 +4,11 @@ import {
   type SessionStatusSnapshotPayload,
   SocketEvents,
 } from "@tangent/shared/contracts";
+import { useQueryClient } from "@tanstack/react-query";
 import { type PropsWithChildren, useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
+import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
 import {
   SessionStatusContext,
   type SessionStatusMap,
@@ -21,6 +23,7 @@ import { BASE_PREFIX } from "@/shared/lib/basePath";
  */
 export function SessionStatusProvider({ children }: PropsWithChildren) {
   const [statuses, setStatuses] = useState<SessionStatusMap>(() => new Map());
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     // Same connection style as `useSessionChat`: Vite proxies /socket.io to the
@@ -44,6 +47,10 @@ export function SessionStatusProvider({ children }: PropsWithChildren) {
       SocketEvents.SessionStatus,
       ({ sessionId, status }: SessionStatusPayload) => {
         setStatuses((prev) => upsertStatus(prev, sessionId, status));
+        // A turn boundary usually means new messages; refresh list activity.
+        void queryClient.invalidateQueries({
+          queryKey: SessionQueryKeys.All(),
+        });
       },
     );
 
@@ -51,7 +58,7 @@ export function SessionStatusProvider({ children }: PropsWithChildren) {
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, []);
+  }, [queryClient]);
 
   return (
     <SessionStatusContext.Provider value={statuses}>

@@ -4,6 +4,8 @@ import path from "node:path";
 
 import type {
   Attachment,
+  Session,
+  SessionActivity,
   SessionConfigMeta,
   UploadFilesResponse,
   UserIdentity,
@@ -23,6 +25,7 @@ import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import { PRIME_AGENT_ID } from "../../pi/types.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
+import { readActivity } from "../../store/chatLog.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type {
   CreateSessionInput,
@@ -248,6 +251,63 @@ export async function handleUploadFiles(
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   const response: UploadFilesResponse = { files: toAttachments(files) };
   res.status(201).json(response);
+}
+
+/** Read-state key: the viewer's email, or `"local"` when no identity resolves. */
+function resolveUserKey(req: Request): string {
+  return resolveUserIdentity(req.headers.cookie)?.email ?? "local";
+}
+
+/** Computes the requesting user's {@link SessionActivity} for one session. */
+async function activityFor(
+  store: SessionStore,
+  session: Session,
+  lastViewedAt: string | undefined,
+): Promise<SessionActivity> {
+  const [{ unreadCount, lastActivityAt }, agents] = await Promise.all([
+    readActivity(session.rootPath, lastViewedAt),
+    store.listAgents(session.id),
+  ]);
+  return {
+    unreadCount,
+    lastActivityAt,
+    hasError: agents.some((agent) => agent.status === "error"),
+    activeAgentCount: agents.filter(
+      (agent) => agent.role !== "prime" && agent.status === "active",
+    ).length,
+  };
+}
+
+/** Handles `GET /api/sessions`, attaching each session's per-viewer activity. */
+export async function handleListSessions(
+  store: SessionStore,
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const [list, viewed] = await Promise.all([
+    store.listSessions(),
+    store.getLastViewedMap(resolveUserKey(req)),
+  ]);
+  const sessions = await Promise.all(
+    list.map(async (session) => ({
+      ...session,
+      activity: await activityFor(store, session, viewed.get(session.id)),
+    })),
+  );
+  res.json({ sessions });
+}
+
+/** Handles `POST /api/sessions/:id/viewed`: records the viewer's read state. */
+export async function handleMarkSessionViewed(
+  store: SessionStore,
+  req: Request,
+  id: string,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, id);
+  if (!session) return;
+  await store.markViewed(id, resolveUserKey(req), new Date().toISOString());
+  res.status(204).end();
 }
 
 /** Handles `GET /api/sessions/:id`. */

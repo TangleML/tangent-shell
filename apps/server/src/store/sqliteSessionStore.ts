@@ -25,6 +25,7 @@ import {
   sessionAssets,
   type SessionRow,
   sessions,
+  sessionViews,
 } from "./db/schema.ts";
 import type {
   CreateSessionParams,
@@ -366,6 +367,33 @@ export class SqliteSessionStore implements SessionStore {
       .orderBy(asc(sessionAgents.createdAt))
       .all();
     return rows.map(toAgent);
+  }
+
+  async markViewed(
+    sessionId: string,
+    userKey: string,
+    at: string,
+  ): Promise<void> {
+    this.db
+      .insert(sessionViews)
+      .values({ sessionId, userKey, lastViewedAt: at })
+      .onConflictDoUpdate({
+        target: [sessionViews.sessionId, sessionViews.userKey],
+        set: { lastViewedAt: at },
+      })
+      .run();
+  }
+
+  async getLastViewedMap(userKey: string): Promise<Map<string, string>> {
+    const rows = this.db
+      .select({
+        sessionId: sessionViews.sessionId,
+        lastViewedAt: sessionViews.lastViewedAt,
+      })
+      .from(sessionViews)
+      .where(eq(sessionViews.userKey, userKey))
+      .all();
+    return new Map(rows.map((row) => [row.sessionId, row.lastViewedAt]));
   }
 
   /** Resolves a session's root folder, caching the lookup. */
