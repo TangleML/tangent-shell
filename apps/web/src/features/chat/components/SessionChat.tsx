@@ -121,6 +121,12 @@ export function SessionChat({
     (m) => m.conversationId === PI_AGENT.id,
   );
 
+  // Sub-agents currently running on Prime's behalf, surfaced as a "waiting for
+  // subagents" bubble in Prime's thread while Prime itself is idle.
+  const busySubagentNames = subagents
+    .filter((s) => isConversationBusy(s.id))
+    .map((s) => s.name);
+
   // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
   // viewable "page" asset keyed by its resolved URL, so both dedupe to one tab.
   const openArtifactTab = (url: string, title: string) => {
@@ -224,6 +230,7 @@ export function SessionChat({
                 messages={primeMessages}
                 currentAuthorId={currentAuthorId}
                 activity={getActivity(PI_AGENT.id)}
+                waitingForSubagents={busySubagentNames}
                 bundleId={bundleId}
                 onSendPrompt={send}
                 onOpenArtifact={openArtifactTab}
