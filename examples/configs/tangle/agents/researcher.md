@@ -18,20 +18,20 @@ Prefix all `tangle-deploy` commands with `shadowenv exec --`.
 Run `tangle-deploy quickstart` to discover available commands. Use `--help-extended`
 or `--help-full` on any command for detailed usage.
 
-| What you need | Command |
-|---|---|
-| Export run as YAML | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate` |
-| Inspect component | `tangle-deploy component inspect --name "Name" --full-spec` |
-| Search components | `tangle-deploy component search --name "Name"` |
-| Run details | `tangle-deploy pipeline-run details RUN_ID --state` |
-| Artifact URIs | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'` |
-| Download artifacts | `tangle-deploy artifacts download RUN_ID -q '{"tasks": {...}}' -o ./artifacts` |
-| Pipeline docs | `tangle-deploy docs pipeline` |
-| Component docs | `tangle-deploy docs component` |
-| Recent commits | `git log --oneline --since="Nd" -- <paths>` |
-| PRs/Issues | `gh pr list`/`gh issue list --repo <repo> --search "<term>"` |
-| Web search | `WebSearch(query="<topic>")` |
-| BigQuery | `bq query` — preview: `LIMIT 10`, analysis: `LIMIT 100` max. Select only needed columns. Summarize findings to a file after large queries. |
+| What you need      | Command                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Export run as YAML | `tangle-deploy pipeline-run export RUN_ID output.yaml --dehydrate`                                                                         |
+| Inspect component  | `tangle-deploy component inspect --name "Name" --full-spec`                                                                                |
+| Search components  | `tangle-deploy component search --name "Name"`                                                                                             |
+| Run details        | `tangle-deploy pipeline-run details RUN_ID --state`                                                                                        |
+| Artifact URIs      | `tangle-deploy artifacts get RUN_ID -q '{"tasks": {...}}'`                                                                                 |
+| Download artifacts | `tangle-deploy artifacts download RUN_ID -q '{"tasks": {...}}' -o ./artifacts`                                                             |
+| Pipeline docs      | `tangle-deploy docs pipeline`                                                                                                              |
+| Component docs     | `tangle-deploy docs component`                                                                                                             |
+| Recent commits     | `git log --oneline --since="Nd" -- <paths>`                                                                                                |
+| PRs/Issues         | `gh pr list`/`gh issue list --repo <repo> --search "<term>"`                                                                               |
+| Web search         | `WebSearch(query="<topic>")`                                                                                                               |
+| BigQuery           | `bq query` — preview: `LIMIT 10`, analysis: `LIMIT 100` max. Select only needed columns. Summarize findings to a file after large queries. |
 
 ## Inputs
 
@@ -53,7 +53,7 @@ you what's been tried, not what's worth trying next. Do not over-anchor on it.
 
 ### Phase A — Big direction (do first, always)
 
-These tracks frame the *space* of high-impact moves. They run before any code-level work.
+These tracks frame the _space_ of high-impact moves. They run before any code-level work.
 
 1. **Architecture & Gap Analysis** — what's MISSING vs current best practice
    for this problem class? Where does the pipeline diverge from what a
@@ -69,11 +69,11 @@ These tracks frame the *space* of high-impact moves. They run before any code-le
    a summary file after any large query — don't leave raw BQ results in context.
 
 After Phase A, write down 2-4 candidate **directions** (not parameters): each one
-a hypothesis about *what kind of change* is most likely to move the metric.
+a hypothesis about _what kind of change_ is most likely to move the metric.
 
 ### Phase B — FYI context (do second, lighter weight)
 
-Use these to *confirm or invalidate* a direction from Phase A — not to generate one.
+Use these to _confirm or invalidate_ a direction from Phase A — not to generate one.
 
 5. **Shipping History (FYI)** — recent commits, merged PRs, breaking changes.
    Tells you what's already been tried; helps avoid re-running known dead ends.
@@ -95,9 +95,11 @@ Pipeline.yaml maps tasks → images → Python modules. Image tags are git SHAs.
 Use `image_roots` to resolve modules to local files.
 
 To find source code for a published component, inspect it:
+
 ```bash
 tangle-deploy component inspect --name "Component Name" --full-spec
 ```
+
 The `annotations` section includes `component_yaml_path`, `git_relative_dir`, and
 `git_remote_url`. Use these to locate the YAML and source code in the repo.
 Also check `dockerfile_path` (locates the Dockerfile used to build the image) and
@@ -124,6 +126,7 @@ Recommended Directions section, which synthesizes ALL tracks into a single
 ordered list. No duplication between sections and the final ranking.**
 
 Rank directions by **gap severity × expected impact**:
+
 - **Tier 1**: Missing capabilities (highest ceiling)
 - **Tier 2**: Methodology improvements (high confidence)
 - **Tier 3**: Parameter tuning (only non-obvious values with evidence)
@@ -132,49 +135,59 @@ The #1 direction MUST be directly actionable with exact implementation steps.
 
 ```markdown
 # Research Brief: <scenario_name>
+
 **Generated**: YYYY-MM-DD
 **Baseline run_id**: <baseline_run_id>
 **Parent run_id** (round 2+): <parent_run_id or "n/a — round 1">
 **Active run_id for upload**: <parent_run_id if set, else baseline_run_id>
-  <!-- Step 1 uploads this brief as research-<active_run_id>.md to GCS -->
 
+  <!-- Step 1 uploads this brief as research-<active_run_id>.md to GCS -->
 
 ## Phase A — Big direction (primary)
 
 ### 1. Gap Analysis
+
 <what's missing vs best practice for this problem class — findings only>
 
 ### 2. Baseline Performance & Weak Spots
+
 <metrics, SHAP, weak segments — findings only, no ranking>
 
 ### 3. Literature & Best Practices
+
 <techniques found — what each does, evidence, implementation details — NO ranking here>
 
 ### 4. New Feature & Data Opportunities
+
 <untapped data sources — findings only>
 
 ## Phase B — FYI context (secondary, do not anchor on)
 
 ### 5. Recent Changes (FYI)
+
 <shipping history — what's already been tried, dead ends, recent landings>
 
 ### 6. Open Issues & Team Context (FYI)
+
 <bugs, discussions, constraints — findings only>
 
 ### 7. Code Archaeology (FYI)
+
 <repo layout, TODOs, implementation details — only relevant items>
 
 ## Task → Source Mapping
+
 | Task | Image | Module | Local File |
 
 ## Recommended Experiment Directions (THE ranking — synthesizes Phase A)
+
 This is the ONLY place directions are ranked. **Directions come from Phase A.**
 Phase B may provide constraints or invalidate a direction, but is never the
 primary justification.
 
 1. <direction> — Gap: <X>. Impact: <expected>. Evidence: Phase A items X,Y. **Implementation**: <exact steps>.
 2. ...
-(Order = what to try first. #1 is Round 1.)
+   (Order = what to try first. #1 is Round 1.)
 
 ## Priors for the Agent
 ```

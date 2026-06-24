@@ -5,7 +5,7 @@ tells you which to load and the rules that must never be skipped.
 
 ## Read the right skill BEFORE you code
 
-Skills are not auto-loaded — you must invoke them. Do it *before* writing code, not after:
+Skills are not auto-loaded — you must invoke them. Do it _before_ writing code, not after:
 
 - Writing JSX / styling / layout / typography → **`ui-primitives`** (non-negotiable, see below)
 - Creating files, organizing imports, general structure → **`project-conventions`**
@@ -30,6 +30,7 @@ messages, config keys, CSS classes, URLs). Codanna results are pointers; confirm
 before editing. Setup is per-user and optional — skip this if the server isn't connected.
 
 Scoping searches:
+
 - Narrow with `kind` (`Function`, `Interface`, `TypeAlias`, `Class`, `Method`, `Constant`) — the
   most effective lever.
 - The `module` filter and `lang: "typescript"` do **not** separate frontend from backend: module
@@ -40,11 +41,13 @@ Scoping searches:
 ## Non-negotiable rules
 
 ### Comments — keep them minimal
+
 No verbose or multiline inline comment blocks. Comment only what isn't obvious from the code;
-explain *why*, never restate *what*. Often the right number of comments is zero. The user
+explain _why_, never restate _what_. Often the right number of comments is zero. The user
 actively dislikes comment noise.
 
 ### UI — never pass `className` to a Tangle UI primitive
+
 Use a semantic prop or a Layer-3 pattern instead. Enforced by `tangle-ui/no-classname-on-primitives`
 (error on `apps/web/src/features/**` and `apps/web/src/routes/**`). The `className` escape hatch
 is deprecated — do not use it in new code.
@@ -61,6 +64,7 @@ Full reference: [apps/web/src/shared/ui/DESIGN_SYSTEM.md](apps/web/src/shared/ui
 Invoke the `ui-primitives` skill for the component catalog.
 
 ### Other standing rules
+
 - Absolute imports with `@/` prefix; no barrel exports; import order external → internal → relative.
 - Prefer early returns over nesting.
 - Planning / investigation notes go in `.local/` (gitignored), not committed docs.
@@ -84,7 +88,9 @@ Invoke the `ui-primitives` skill for the component catalog.
 Package manager is **pnpm** (`pnpm@10.28.0`). Use `pnpm --filter <pkg>` for a single workspace.
 
 ### Tests
+
 Tests exist in **`apps/server` only**, run via Node's built-in test runner (not Vitest):
+
 - All: `pnpm --filter @tangent/server test` (runs `src/**/*.test.ts`)
 - One file: `pnpm --filter @tangent/server exec tsx --test src/path/to/x.test.ts`
 
@@ -93,5 +99,6 @@ assume those runners exist. See the `server-testing` skill for patterns. `pnpm v
 so run the server tests explicitly when you touch server code.
 
 ### Database (apps/server)
+
 Persistence is **Drizzle + SQLite**. If you change the schema, generate a migration —
 `pnpm --filter @tangent/server db:generate` — and apply with `db:migrate`. Don't hand-edit the DB.

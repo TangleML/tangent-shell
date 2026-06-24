@@ -3,11 +3,11 @@
 **Never exceed budget.** Infra retries and analysis actions don't count against it.
 Maximize concurrency — fill all `scenario.budget.max_parallel_runs` slots.
 
-| Budget | Runs/Round | Strategy |
-|--------|-----------|----------|
-| Tight (< 10) | 2-3 | Sequential refinement |
-| Moderate (10-20) | 3-5 | Sweep primary dimension, refine |
-| Generous (20-50) | 5-8 | Parallel sweeps |
+| Budget           | Runs/Round | Strategy                        |
+| ---------------- | ---------- | ------------------------------- |
+| Tight (< 10)     | 2-3        | Sequential refinement           |
+| Moderate (10-20) | 3-5        | Sweep primary dimension, refine |
+| Generous (20-50) | 5-8        | Parallel sweeps                 |
 
 ## Submission
 
@@ -22,6 +22,7 @@ Analysis actions don't consume budget — run locally, update session log.
 `--hydrate --no-wait`, and `tangent` annotation are all mandatory.
 
 Build a config file with experiment args and auto-loop annotations:
+
 ```yaml
 # $SCENARIO_DIR/run_config.yaml
 args:
@@ -35,6 +36,7 @@ annotations:
 ```
 
 Submit:
+
 ```bash
 if grep -q '  spec:' $SCENARIO_DIR/pipeline.yaml; then echo "ERROR: dehydrate first"; exit 1; fi
 shadowenv exec -- tangle-deploy pipeline-run submit $SCENARIO_DIR/pipeline.yaml \
@@ -42,6 +44,7 @@ shadowenv exec -- tangle-deploy pipeline-run submit $SCENARIO_DIR/pipeline.yaml 
 ```
 
 ### If you modified component source code:
+
 1. Rebuild: `tangle-deploy component generate from-docker <Dockerfile> -o component.yaml --quick`
 2. Update ref in pipeline YAML: swap `digest: ...` with `url: file://<path-to-component.yaml>`
 3. Submit with the command above
@@ -62,6 +65,7 @@ pipeline. Treat `run_id` as a first-class session concept:
    so make sure it's recorded verbatim.
 
 ## Gate — do NOT proceed to Step 4 until all pass:
+
 - [ ] Pipeline submitted with `--hydrate` flag
 - [ ] If source code was modified: component rebuilt and pipeline ref updated
 - [ ] All runs submitted successfully (run IDs received)

@@ -33,39 +33,39 @@ Trains and evaluates learning-to-rank models for Shopify storefront product sear
 
 ## ML Techniques
 
-| Aspect | Details |
-|--------|---------|
-| **Model type** | LightGBM (primary), CatBoost (experimental via zhibiao.rao) |
-| **Relevance loss** | LambdaRank (pairwise learning-to-rank) |
-| **Engagement loss** | Fair pairs (click agreement) |
-| **Features** | ~900 features in base_v16 featureset; GTE embedding dominant at 18.6% SHAP |
-| **Ensemble** | Z-score normalization per model, weighted combination (weight ~0.18 for engagement) |
-| **Score transforms** | Configurable: zscore / sigmoid / minmax |
-| **Explainability** | SHAP analysis on 5000 samples with summary + bar plots |
-| **Experiment tracking** | Comet ML with `combined_eval` prefix |
-| **Hardware** | 64 CPU / 512Gi RAM per training/eval task; 32 CPU / 256Gi for SHAP (no GPU -- tree models) |
+| Aspect                  | Details                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| **Model type**          | LightGBM (primary), CatBoost (experimental via zhibiao.rao)                                |
+| **Relevance loss**      | LambdaRank (pairwise learning-to-rank)                                                     |
+| **Engagement loss**     | Fair pairs (click agreement)                                                               |
+| **Features**            | ~900 features in base_v16 featureset; GTE embedding dominant at 18.6% SHAP                 |
+| **Ensemble**            | Z-score normalization per model, weighted combination (weight ~0.18 for engagement)        |
+| **Score transforms**    | Configurable: zscore / sigmoid / minmax                                                    |
+| **Explainability**      | SHAP analysis on 5000 samples with summary + bar plots                                     |
+| **Experiment tracking** | Comet ML with `combined_eval` prefix                                                       |
+| **Hardware**            | 64 CPU / 512Gi RAM per training/eval task; 32 CPU / 256Gi for SHAP (no GPU -- tree models) |
 
 ## Key Components
 
-| Component | Purpose |
-|-----------|---------|
-| `scripts.generate_base` | Generate base dataset from SQL template |
-| `scripts.generate_featureset` | Enrich base with product attributes |
-| `scripts.generate_click_base` | Generate click-based dataset with fair pairs + OFE features |
-| `reranker.models.scripts.train` | Train LightGBM/CatBoost ranker |
-| `scripts.eval_adhoc` | DCG evaluation |
-| `scripts.eval_fair_pairs` | Click agreement evaluation |
-| `tangle.components.sources.shap_analysis` | SHAP feature importance |
-| `tangle.components.sources.compute_zscore_stats` | Score distribution stats for normalization |
-| `tangle.components.sources.log_metrics_to_comet` | Log all metrics to Comet ML |
+| Component                                        | Purpose                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------- |
+| `scripts.generate_base`                          | Generate base dataset from SQL template                     |
+| `scripts.generate_featureset`                    | Enrich base with product attributes                         |
+| `scripts.generate_click_base`                    | Generate click-based dataset with fair pairs + OFE features |
+| `reranker.models.scripts.train`                  | Train LightGBM/CatBoost ranker                              |
+| `scripts.eval_adhoc`                             | DCG evaluation                                              |
+| `scripts.eval_fair_pairs`                        | Click agreement evaluation                                  |
+| `tangle.components.sources.shap_analysis`        | SHAP feature importance                                     |
+| `tangle.components.sources.compute_zscore_stats` | Score distribution stats for normalization                  |
+| `tangle.components.sources.log_metrics_to_comet` | Log all metrics to Comet ML                                 |
 
 ## Active Users & Runs
 
-| User | Pipeline Variant | Branch | Notes |
-|------|-----------------|--------|-------|
-| noah.frank | Combined L2 Ranker (LGBM) | `nefrank/metrics-v4-retrain` | Standard production recipe |
-| zhibiao.rao | Combined L2 Ranker (CatBoost) | `zhrao/catboost_pipeline` | CatBoost migration experiment; `.cbm` model files |
-| madhav.thaker | Train Ranker V8 ANN Union | `03-23-multi-negative-training` | Round 31 of ANN union optimization; single-model (relevance only) |
+| User          | Pipeline Variant              | Branch                          | Notes                                                             |
+| ------------- | ----------------------------- | ------------------------------- | ----------------------------------------------------------------- |
+| noah.frank    | Combined L2 Ranker (LGBM)     | `nefrank/metrics-v4-retrain`    | Standard production recipe                                        |
+| zhibiao.rao   | Combined L2 Ranker (CatBoost) | `zhrao/catboost_pipeline`       | CatBoost migration experiment; `.cbm` model files                 |
+| madhav.thaker | Train Ranker V8 ANN Union     | `03-23-multi-negative-training` | Round 31 of ANN union optimization; single-model (relevance only) |
 
 ## Key Links
 

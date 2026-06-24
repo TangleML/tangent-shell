@@ -54,6 +54,7 @@ Every `pipeline-run submit` MUST follow these three rules:
 ### 1. Dehydration check
 
 Before submitting, verify the YAML is dehydrated:
+
 ```bash
 if grep -q '  spec:' <pipeline.yaml>; then
   echo "ERROR: pipeline has inline specs — dehydrate first"
@@ -80,6 +81,7 @@ attributable downstream.
 In addition to the `source` annotation, **also include the legacy `tangent: "true"`
 custom annotation** in the config file passed via `-f` (kept for dashboard /
 search backwards-compat):
+
 ```yaml
 # config.yaml — add to existing args file or create a new one
 annotations:
@@ -87,22 +89,24 @@ annotations:
 ```
 
 Or set after submission:
+
 ```bash
 tangle-deploy pipeline-run annotations set <RUN_ID> tangent true
 ```
 
 ### Auto-loop annotations (step-3 adds these)
 
-| Key | Value | When | Source |
-|-----|-------|------|--------|
-| `source` | `tangent` or `river-tangent` | Every submit | `TANGLE_DEPLOY_SOURCE` env (auto via shadowenv) |
-| `tangent` | `"true"` | Every submit | Custom annotation in config file |
-| `session` | `YYYY-MM-DD-scenario` | Auto-loop | Custom annotation |
-| `round` | `"1"`, `"2"`, ... | Auto-loop | Custom annotation |
-| `type` | experiment type | Auto-loop | Custom annotation |
-| `label` | short description | Auto-loop | Custom annotation |
+| Key       | Value                        | When         | Source                                          |
+| --------- | ---------------------------- | ------------ | ----------------------------------------------- |
+| `source`  | `tangent` or `river-tangent` | Every submit | `TANGLE_DEPLOY_SOURCE` env (auto via shadowenv) |
+| `tangent` | `"true"`                     | Every submit | Custom annotation in config file                |
+| `session` | `YYYY-MM-DD-scenario`        | Auto-loop    | Custom annotation                               |
+| `round`   | `"1"`, `"2"`, ...            | Auto-loop    | Custom annotation                               |
+| `type`    | experiment type              | Auto-loop    | Custom annotation                               |
+| `label`   | short description            | Auto-loop    | Custom annotation                               |
 
 ### Canonical submit command
+
 ```bash
 shadowenv exec -- tangle-deploy pipeline-run submit <pipeline.yaml> \
   -f <config.yaml> --hydrate --no-wait
@@ -111,6 +115,7 @@ shadowenv exec -- tangle-deploy pipeline-run submit <pipeline.yaml> \
 ## Checking Run Status (Light vs Heavy)
 
 **Light (~120 tokens)** — use for polling. Returns per-task status counts:
+
 ```bash
 shadowenv exec -- python3 -c "
 from tangle_deploy import TangleApiClient
@@ -123,6 +128,7 @@ print(state.status_totals, 'failed=', state.failed_execution_ids)
 ```
 
 **Heavy (~17K tokens)** — use only after completion, for debugging or extracting execution_ids:
+
 ```bash
 shadowenv exec -- tangle-deploy pipeline-run details RUN_ID --state
 ```
@@ -137,9 +143,9 @@ shadowenv exec -- tangle-deploy pipeline-run logs EXECUTION_ID
 
 **Container logs and K8s events are distinct signals** — you may need both:
 
-- *Container (pod) logs* = stdout/stderr from the running container. Tangle has
+- _Container (pod) logs_ = stdout/stderr from the running container. Tangle has
   these; Observe also has them (in `catchall`, filtered by `kube_pod`).
-- *K8s events* = API-server pod-lifecycle events (`Scheduled`, `Pulled`,
+- _K8s events_ = API-server pod-lifecycle events (`Scheduled`, `Pulled`,
   `Started`, `FailedScheduling`, `OOMKilling`, `Evicted`, `Preempted`, …).
   Tangle does **not** have these. They answer "why did the pod disappear?".
 
@@ -185,7 +191,7 @@ yourself from:
 Both signals (pod logs and K8s events) live in the **`catchall`** dataset on
 Observe; use `query_dataset` (or `investigate_api`) with these filter shapes:
 
-*Container (pod) logs:*
+_Container (pod) logs:_
 
 ```
 dataset: catchall
@@ -195,7 +201,7 @@ filters:
 time range: <started_at> .. <ended_at>
 ```
 
-*K8s events for that pod (via the eventbuddy controller):*
+_K8s events for that pod (via the eventbuddy controller):_
 
 ```
 dataset: catchall
@@ -207,7 +213,7 @@ time range: <started_at> .. <ended_at>
 ```
 
 These mirror the queries `tangle-deploy`'s `log_client._fetch_observe_logs` issues
-internally when `OBSERVE_AUTH` *is* set — you're just running them via River's
+internally when `OBSERVE_AUTH` _is_ set — you're just running them via River's
 Observe MCP instead.
 
 **Nebius caveat:** for Nebius clusters, K8s events bypass eventbuddy and go to
