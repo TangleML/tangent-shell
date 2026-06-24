@@ -1,7 +1,8 @@
 import type { AgentActivity } from "@tangent/shared/contracts";
-import { useEffect, useRef, useState } from "react";
-import { Virtualizer, type VirtualizerHandle } from "virtua";
+import { useState } from "react";
+import { Virtualizer } from "virtua";
 
+import { useChatScroll } from "@/features/chat/hooks/useChatScroll";
 import { isThinkingOnly } from "@/features/chat/model/messageState";
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Box } from "@/shared/ui/box";
@@ -43,28 +44,6 @@ type Row =
   | { key: string; kind: "activity"; activity: AgentActivity };
 
 const ACTIVITY_ROW_KEY = "__activity__";
-
-// Distance (px) from the bottom within which we still consider the user
-// "pinned": once they scroll further up, streaming autoscroll pauses.
-const PIN_THRESHOLD_PX = 32;
-
-// Instant stick-to-bottom: clamp scrollTop to the (virtua-sized) content
-// height. Robust during streaming because it doesn't depend on the last item
-// being fully measured yet — the ResizeObserver re-pins once it is.
-function stickToBottom(container: HTMLDivElement | null) {
-  if (container) container.scrollTop = container.scrollHeight;
-}
-
-// Smooth scroll to the last virtualized row, used for explicit jumps and new
-// message snaps so the motion matches the previous non-virtualized list.
-function smoothScrollToBottom(
-  handle: VirtualizerHandle | null,
-  rowCount: number,
-) {
-  if (handle && rowCount > 0) {
-    handle.scrollToIndex(rowCount - 1, { align: "end", smooth: true });
-  }
-}
 
 interface RowContentProps {
   row: Row;
@@ -133,16 +112,6 @@ export function ChatMessageList({
   onTogglePinArtifact,
   isMessageStreaming,
 }: ChatMessageListProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const virtualizerRef = useRef<VirtualizerHandle>(null);
-  const pinnedRef = useRef(true);
-  const prevLenRef = useRef(0);
-  const rowCountRef = useRef(0);
-  const didInitRef = useRef(false);
-
-  const [showJump, setShowJump] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-
   // Collapse state is ephemeral per view (not URL or server). Thinking-only
   // messages collapse by default once they finish streaming; `expandedIds`
   // records the user overriding that default, while `collapsedIds` records the
@@ -200,89 +169,19 @@ export function ChatMessageList({
   if (activity) {
     rows.push({ key: ACTIVITY_ROW_KEY, kind: "activity", activity });
   }
-  const hasRows = rows.length > 0;
+  const {
+    containerRef,
+    virtualizerRef,
+    onScroll,
+    showJump,
+    unreadCount,
+    jumpToBottom,
+  } = useChatScroll({ messages, currentAuthorId, rowCount: rows.length });
 
-  // Latest row count for effects/handlers that snap to the bottom, kept in a
-  // ref so the message effect below doesn't need `rows` as a dependency.
-  useEffect(() => {
-    rowCountRef.current = rows.length;
-  });
-
-  // Explicit jump (pill click): mark pinned and smooth-scroll to the last row.
-  const jumpToBottom = () => {
-    pinnedRef.current = true;
-    setShowJump(false);
-    setUnreadCount(0);
-    smoothScrollToBottom(virtualizerRef.current, rows.length);
-  };
-
-  // Track pinned state from the scroll position.
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const onScroll = () => {
-      const distanceFromBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight;
-      const atBottom = distanceFromBottom <= PIN_THRESHOLD_PX;
-      pinnedRef.current = atBottom;
-      setShowJump(!atBottom);
-      if (atBottom) setUnreadCount(0);
-    };
-    container.addEventListener("scroll", onScroll, { passive: true });
-    return () => container.removeEventListener("scroll", onScroll);
-  }, []);
-
-  // Keep pinned views at the bottom as content grows. virtua re-measures items
-  // internally (without re-rendering this component), so we observe its own
-  // sized container element — the scroll container's only child — and re-pin on
-  // every size change. Re-runs when the list flips between empty and populated
-  // so it tracks whichever element virtua mounts.
-  useEffect(() => {
-    const container = containerRef.current;
-    const inner = container?.firstElementChild;
-    if (!container || !inner) return;
-
-    const observer = new ResizeObserver(() => {
-      if (pinnedRef.current) stickToBottom(container);
-    });
-    observer.observe(inner);
-    return () => observer.disconnect();
-  }, [hasRows]);
-
-  // First load snaps to the bottom instantly; afterwards a count increase
-  // (new message, not a streaming delta) snaps own sends and pinned agent
-  // messages, else tallies the unread pill.
-  useEffect(() => {
-    const prevLen = prevLenRef.current;
-    prevLenRef.current = messages.length;
-
-    if (!didInitRef.current) {
-      didInitRef.current = true;
-      if (messages.length > 0) stickToBottom(containerRef.current);
-      return;
-    }
-
-    if (messages.length <= prevLen) return;
-
-    const lastMessage = messages[messages.length - 1];
-    const isOwnSend = lastMessage?.author.id === currentAuthorId;
-
-    if (isOwnSend || pinnedRef.current) {
-      pinnedRef.current = true;
-      setShowJump(false);
-      setUnreadCount(0);
-      smoothScrollToBottom(virtualizerRef.current, rowCountRef.current);
-    } else {
-      setUnreadCount((count) => count + (messages.length - prevLen));
-      setShowJump(true);
-    }
-  }, [messages, currentAuthorId]);
-
-  // The scroll container (and the persistent content wrapper) is always
-  // rendered so its refs exist on mount and the setup effect above can attach
-  // its scroll listener and ResizeObserver; otherwise streaming growth on an
-  // initially empty thread wouldn't autoscroll once the first message arrives.
+  // The scroll container is always rendered so its ref exists on mount and the
+  // hook can attach its ResizeObserver and gesture listeners; otherwise
+  // streaming growth on an initially empty thread wouldn't autoscroll once the
+  // first message arrives.
   return (
     <BlockStack grow>
       <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col">
@@ -297,7 +196,7 @@ export function ChatMessageList({
               </Paragraph>
             </Box>
           ) : (
-            <Virtualizer ref={virtualizerRef}>
+            <Virtualizer ref={virtualizerRef} onScroll={onScroll}>
               {rows.map((row, index) => {
                 const isLast = index === rows.length - 1;
                 return (
