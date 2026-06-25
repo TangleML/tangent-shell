@@ -63,6 +63,12 @@ export interface WindowOptions {
   id?: string;
   /** Window title displayed in header */
   title: string;
+  /**
+   * Optional override for the header's content region (icon + title + suffix).
+   * When provided, the chrome renders this in place of the default title; it
+   * keeps the grip drag-handle and reveals the window actions on hover.
+   */
+  header?: ReactNode;
   /** Initial position - defaults to cascaded from last window */
   position?: Position;
   /** Initial size - defaults to 320x420 */

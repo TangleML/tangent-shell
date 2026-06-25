@@ -2,9 +2,12 @@ import { useWindowStore, type WindowOptions } from "@tangent/windows";
 import { useEffect } from "react";
 
 import { AgentsWindow } from "./AgentsWindow";
+import { AgentsWindowHeader } from "./AgentsWindowHeader";
 import { AssetsWindow } from "./AssetsWindow";
+import { AssetsWindowHeader } from "./AssetsWindowHeader";
 import { SessionSwitcherWindow } from "./SessionSwitcherWindow";
 import { SessionWindow } from "./SessionWindow";
+import { WindowHeaderContent } from "./WindowHeaderContent";
 
 const SHARED_OPTIONS = {
   defaultDockState: "left",
@@ -30,16 +33,19 @@ export function useSessionChatWindows() {
     store.openWindow(<AgentsWindow />, {
       id: "agents",
       title: "Agents",
+      header: <AgentsWindowHeader />,
       ...SHARED_OPTIONS,
     });
     store.openWindow(<AssetsWindow />, {
       id: "assets",
       title: "Assets",
+      header: <AssetsWindowHeader />,
       ...SHARED_OPTIONS,
     });
     store.openWindow(<SessionSwitcherWindow />, {
       id: "sessions",
       title: "Sessions",
+      header: <WindowHeaderContent icon="Layers" title="Other sessions" />,
       ...SHARED_OPTIONS,
     });
   }, [store]);

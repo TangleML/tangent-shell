@@ -23,7 +23,7 @@ import { WindowHeader } from "./WindowHeader";
 const HEADER_HEIGHT = 36;
 
 export const DockedWindow = observer(function DockedWindow() {
-  const { model, content, dockIndex = 0 } = useWindowContext();
+  const { model, content, header, dockIndex = 0 } = useWindowContext();
   const { track } = useAnalytics();
   const store = useWindowStore();
 
@@ -98,6 +98,7 @@ export const DockedWindow = observer(function DockedWindow() {
       >
         <WindowHeader
           title={model.title}
+          header={header}
           leadingIcon={
             <Icon
               name="PanelLeft"
@@ -156,6 +157,7 @@ export const DockedWindow = observer(function DockedWindow() {
         >
           <WindowHeader
             title={model.title}
+            header={header}
             isDragging={isDragging}
             onMouseDown={handleHeaderMouseDown}
             leadingIcon={
