@@ -7,6 +7,7 @@
   "prettier": "@tangent/build/prettier",
   "scripts": {
     "dev": "SESSIONS_ROOT=\"$PWD/.sessions\" SESSIONS_DB=\"$PWD/.sessions/tangent.db\" AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" GLOBAL_MEMORY_DIR=\"$PWD/.memory\" turbo run dev",
+    "oasis:token": "tsx scripts/print-oasis-token.ts",
     "seed": "AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" SEED_BUNDLES_DIR=\"$PWD/examples/configs\" pnpm --filter @tangent/server seed",
     "build": "turbo run build",
     "lint": "turbo run lint",
@@ -21,7 +22,9 @@
     "@tangent/build": "workspace:*",
     "fflate": "^0.8.3",
     "fta-cli": "^3.0.0",
+    "open": "^11.0.0",
     "prettier": "^3.8.4",
+    "tsx": "^4.22.3",
     "turbo": "^2.9.16",
     "typescript": "^6.0.3",
     "yaml": "^2.9.0"

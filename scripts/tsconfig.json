@@ -1,0 +1,11 @@
+{
+  "extends": "@tangent/build/tsconfig/node.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "typeRoots": [
+      "../apps/server/node_modules/@types",
+      "../node_modules/@types"
+    ]
+  },
+  "include": ["**/*.ts"]
+}

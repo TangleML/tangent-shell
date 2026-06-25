@@ -16,6 +16,11 @@ ui-dist
 # Turborepo task cache
 .turbo
 
+# Local environment files (keep the committed example)
+.env
+.env.*
+!.env.example
+
 # Session scoped root folders created by the dev server
 .sessions
 
