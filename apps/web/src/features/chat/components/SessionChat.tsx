@@ -30,6 +30,7 @@ import {
 import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
 
 import { PrimeChatPanel } from "./PrimeChatPanel";
+import { SessionCard } from "./sidebar/sessions/SessionCard";
 import { AssetTabContent } from "./tabs/AssetTabContent";
 import { OpenedTabTrigger } from "./tabs/OpenedTabTrigger";
 import { SessionChatWindowsContext } from "./windows/SessionChatWindowsContext";
@@ -176,9 +177,6 @@ export function SessionChat({
       <SessionChatWindowsContext
         value={{
           sessionId,
-          draft,
-          session,
-          connected,
           agents,
           selectedAgentId,
           activeTab,
@@ -195,7 +193,17 @@ export function SessionChat({
         <SessionChatWindowsMount />
         <BlockStack grow align="stretch">
           <InlineStack grow wrap="nowrap" blockAlign="stretch">
-            <DockArea side="left" />
+            <DockArea
+              side="left"
+              header={
+                <SessionCard
+                  currentSessionId={sessionId}
+                  name={draft ? "New session" : (session?.name ?? "Session")}
+                  rootPath={session?.rootPath}
+                  connected={connected}
+                />
+              }
+            />
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value={CHAT_TAB_VALUE}>
