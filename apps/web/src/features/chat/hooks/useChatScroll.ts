@@ -8,6 +8,10 @@ import type { ChatMessage } from "@/features/chat/model/types";
 // virtua's measured sizes and the DOM after a programmatic scroll.
 const PIN_THRESHOLD_PX = 32;
 
+// After any real user scroll input we suppress auto-snapping for this long, so a
+// re-measure or streaming-growth snap can't yank the view back down mid-gesture.
+const SCROLL_QUIET_MS = 200;
+
 interface UseChatScrollParams {
   messages: ChatMessage[];
   currentAuthorId: string;
@@ -61,6 +65,9 @@ export function useChatScroll({
   // Set while a user scroll gesture is in flight, so `onScroll` can tell a real
   // scroll-away from virtua's own measurement/append driven offset changes.
   const userScrolledRef = useRef(false);
+  // Timestamp (performance.now) of the most recent user scroll input. Auto-snap
+  // backs off while this is fresh so it never fights a gesture in progress.
+  const lastUserScrollAtRef = useRef(0);
   const prevLenRef = useRef(0);
   const didInitRef = useRef(false);
 
@@ -77,6 +84,11 @@ export function useChatScroll({
   const scrollToBottom = () => {
     scrollToLastRow(virtualizerRef.current, rowCountRef.current);
   };
+
+  // True once enough time has passed since the last user scroll input that an
+  // auto-snap won't fight a gesture still in progress.
+  const isScrollQuiet = () =>
+    performance.now() - lastUserScrollAtRef.current > SCROLL_QUIET_MS;
 
   const onScroll = () => {
     const handle = virtualizerRef.current;
@@ -98,8 +110,9 @@ export function useChatScroll({
       // A genuine scroll up: release the bottom and surface the jump pill.
       stickyRef.current = false;
       setShowJump(true);
-    } else if (stickyRef.current) {
-      // Drift from measurement/append while still pinned: snap back down.
+    } else if (stickyRef.current && isScrollQuiet()) {
+      // Drift from measurement/append while still pinned: snap back down, but
+      // only once the user's last gesture has settled.
       scrollToBottom();
     }
   };
@@ -159,6 +172,7 @@ export function useChatScroll({
 
     const markUserScroll = () => {
       userScrolledRef.current = true;
+      lastUserScrollAtRef.current = performance.now();
     };
     const clearUserScroll = () => {
       userScrolledRef.current = false;
@@ -172,7 +186,7 @@ export function useChatScroll({
 
     const inner = container.firstElementChild;
     const observer = new ResizeObserver(() => {
-      if (stickyRef.current) {
+      if (stickyRef.current && isScrollQuiet()) {
         scrollToLastRow(virtualizerRef.current, rowCountRef.current);
       }
     });
