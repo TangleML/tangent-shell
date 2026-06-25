@@ -1,0 +1,28 @@
+{
+  "name": "@tangent/analytics",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@tangent/utils": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.2.6"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "@types/react": "^19.2.15",
+    "eslint": "^10.4.0",
+    "react": "^19.2.6",
+    "typescript": "^6.0.3"
+  }
+}
