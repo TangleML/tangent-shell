@@ -1,0 +1,38 @@
+{
+  "name": "@tangent/windows",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.ts": "./src/*.ts",
+    "./*": "./src/*.tsx"
+  },
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@tangent/analytics": "workspace:*",
+    "@tangent/ui-primitives": "workspace:*",
+    "@tangent/utils": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "mobx": "^6.15.0",
+    "mobx-react-lite": "^4.1.1"
+  },
+  "peerDependencies": {
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^10.4.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "typescript": "^6.0.3"
+  }
+}
