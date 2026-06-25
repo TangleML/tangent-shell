@@ -1,15 +1,15 @@
+import { Button } from "@tangent/ui-primitives/button";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Textarea } from "@tangent/ui-primitives/textarea";
+import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 
 import { useGlobalMemory } from "@/features/global-memory/hooks/useGlobalMemory";
 import { useUpdateGlobalMemory } from "@/features/global-memory/hooks/useUpdateGlobalMemory";
-import { Button } from "@/shared/ui/button";
-import { BlockStack } from "@/shared/ui/layout";
 import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { Section } from "@/shared/ui/patterns/section";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
-import { Textarea } from "@/shared/ui/textarea";
-import { Paragraph } from "@/shared/ui/typography";
 
 export function GlobalMemoryPage() {
   const { data, isLoading, error } = useGlobalMemory();

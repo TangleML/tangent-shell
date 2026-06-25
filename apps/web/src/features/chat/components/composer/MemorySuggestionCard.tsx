@@ -1,10 +1,10 @@
 import type { MemorySuggestionPayload } from "@tangent/shared/contracts";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Paragraph, Text } from "@tangent/ui-primitives/typography";
 
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Surface } from "@/shared/ui/patterns/surface";
-import { Paragraph, Text } from "@/shared/ui/typography";
 
 interface MemorySuggestionCardProps {
   suggestion: MemorySuggestionPayload;

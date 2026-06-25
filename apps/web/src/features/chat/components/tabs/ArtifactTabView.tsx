@@ -1,4 +1,7 @@
 import type { Attachment } from "@tangent/shared/contracts";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 import { useRef, useState } from "react";
 
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
@@ -6,9 +9,6 @@ import {
   isMarkdownArtifact,
   isPdfArtifact,
 } from "@/shared/lib/markdown/artifact";
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack } from "@/shared/ui/layout";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 
 import { useViewportCapture } from "../../hooks/useViewportCapture";

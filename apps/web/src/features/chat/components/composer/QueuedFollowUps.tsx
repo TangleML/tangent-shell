@@ -1,10 +1,11 @@
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack } from "@/shared/ui/layout";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
+
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
-import { Text } from "@/shared/ui/typography";
 
 /** A single queued follow-up, as shown above the composer. */
 export interface QueuedFollowUp {

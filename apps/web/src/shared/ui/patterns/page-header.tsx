@@ -1,8 +1,8 @@
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Heading, Paragraph } from "@tangent/ui-primitives/typography";
 import type { ReactNode } from "react";
 
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Breadcrumbs } from "@/shared/ui/patterns/breadcrumbs";
-import { Heading, Paragraph } from "@/shared/ui/typography";
 
 /**
  * PageHeader — Layer 3 semantic primitive.

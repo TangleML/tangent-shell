@@ -1,8 +1,8 @@
+import { Icon, type IconName } from "@tangent/ui-primitives/icon";
 import { cva, type VariantProps } from "class-variance-authority";
 import { forwardRef } from "react";
 
 import { cn } from "@/shared/lib/utils";
-import { Icon, type IconName } from "@/shared/ui/icon";
 
 /**
  * IconButton — Layer 3 semantic primitive.

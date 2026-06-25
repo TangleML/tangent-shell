@@ -1,6 +1,6 @@
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
 
 interface RunControlsProps {
   /** Whether the composed message can be sent/steered. */

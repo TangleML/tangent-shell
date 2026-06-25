@@ -1,4 +1,4 @@
-import { Progress } from "@/shared/ui/progress";
+import { Progress } from "@tangent/ui-primitives/progress";
 
 import { makeHostComponent } from "../_shared/make-host-component";
 import { attributes } from "./progress.contract";

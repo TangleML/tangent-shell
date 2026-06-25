@@ -1,9 +1,9 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 import type { ReactNode } from "react";
 
-import { Box } from "@/shared/ui/box";
-import { InlineStack } from "@/shared/ui/layout";
 import { Truncating } from "@/shared/ui/patterns/truncating";
-import { Text } from "@/shared/ui/typography";
 
 interface DetailRowProps {
   label: string;

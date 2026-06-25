@@ -1,11 +1,12 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Heading, Paragraph } from "@tangent/ui-primitives/typography";
+
 import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
 import { SESSION_STATUS_DISPLAY } from "@/features/sessions/model/sessionStatusDisplay";
 import { truncateMiddle } from "@/shared/lib/utils";
-import { Box } from "@/shared/ui/box";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Truncating } from "@/shared/ui/patterns/truncating";
-import { Heading, Paragraph } from "@/shared/ui/typography";
 
 import { StatusDot } from "../StatusDot";
 import { SessionDropDownSwitcher } from "./SessionDropDownSwitcher";

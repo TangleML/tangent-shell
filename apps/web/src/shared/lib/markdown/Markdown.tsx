@@ -1,6 +1,11 @@
 // local primitive — renders agent markdown output, styling the raw markdown
 // HTML elements (h1/ul/a/img/code/table/...). These are not Tangle UI
 // primitives, so the scoped classNames here are an allowed escape hatch.
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Link } from "@tangent/ui-primitives/link";
+import { Separator } from "@tangent/ui-primitives/separator";
+import { Heading, Paragraph, Text } from "@tangent/ui-primitives/typography";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { createContext, useContext } from "react";
 import ReactMarkdown, {
@@ -19,11 +24,6 @@ import {
   resolveUrl,
 } from "@/shared/lib/markdown/artifact";
 import { cn } from "@/shared/lib/utils";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
-import { Link } from "@/shared/ui/link";
-import { Separator } from "@/shared/ui/separator";
-import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 import { CodeBlock } from "./CodeBlock";
 

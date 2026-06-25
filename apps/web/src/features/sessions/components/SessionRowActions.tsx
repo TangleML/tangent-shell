@@ -1,4 +1,12 @@
 import type { Session } from "@tangent/shared/contracts";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@tangent/ui-primitives/popover";
 import { type MouseEvent, type SyntheticEvent, useState } from "react";
 
 import {
@@ -7,10 +15,6 @@ import {
 } from "@/features/sessions/components/sessionActionForms";
 import { useDeleteSession } from "@/features/sessions/hooks/useDeleteSession";
 import { useUpdateSession } from "@/features/sessions/hooks/useUpdateSession";
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
-import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 
 interface SessionRowActionsProps {
   session: Session;

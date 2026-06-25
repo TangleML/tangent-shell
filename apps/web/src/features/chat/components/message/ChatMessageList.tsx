@@ -1,13 +1,13 @@
 import type { AgentActivity } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 import { Virtualizer } from "virtua";
 
 import { useChatScroll } from "@/features/chat/hooks/useChatScroll";
 import { isThinkingOnly } from "@/features/chat/model/messageState";
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
-import { Box } from "@/shared/ui/box";
-import { BlockStack } from "@/shared/ui/layout";
-import { Paragraph } from "@/shared/ui/typography";
 
 import { AgentActivityBubble } from "./AgentActivityBubble";
 import { ChatMessage } from "./ChatMessage";

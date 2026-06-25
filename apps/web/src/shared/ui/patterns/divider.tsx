@@ -1,7 +1,7 @@
+import { Separator } from "@tangent/ui-primitives/separator";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/utils";
-import { Separator } from "@/shared/ui/separator";
 
 /**
  * Divider — Layer 3 semantic primitive.

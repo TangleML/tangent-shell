@@ -1,10 +1,11 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Spinner } from "@tangent/ui-primitives/spinner";
+
 import { apiUrl } from "@/shared/lib/basePath";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
-import { Box } from "@/shared/ui/box";
-import { BlockStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
-import { Spinner } from "@/shared/ui/spinner";
 
 import { useArtifactText } from "../../hooks/useArtifactText";
 

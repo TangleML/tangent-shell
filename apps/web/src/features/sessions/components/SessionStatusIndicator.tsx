@@ -1,8 +1,9 @@
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
+
 import { StatusDot } from "@/features/chat/components/sidebar/StatusDot";
 import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
 import { SESSION_STATUS_DISPLAY } from "@/features/sessions/model/sessionStatusDisplay";
-import { InlineStack } from "@/shared/ui/layout";
-import { Text } from "@/shared/ui/typography";
 
 interface SessionStatusIndicatorProps {
   sessionId: string;

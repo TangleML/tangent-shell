@@ -3,8 +3,8 @@
 // live status indicator; the raw <div>/<span>/<button> wrappers carry the
 // scoped classNames needed to position the close affordance and truncate the
 // name, which the Tangle primitives don't express on a Radix tab trigger.
-import { Icon } from "@/shared/ui/icon";
-import { TabsTrigger } from "@/shared/ui/tabs";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { TabsTrigger } from "@tangent/ui-primitives/tabs";
 
 import { AgentStatusIndicator } from "../sidebar/agents/AgentStatusIndicator";
 

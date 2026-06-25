@@ -1,5 +1,5 @@
-import { Box } from "@/shared/ui/box";
-import { BlockStack } from "@/shared/ui/layout";
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 
 import { SessionSwitcherList } from "./SessionSwitcherList";
 import { useSessionSwitcher } from "./useSessionSwitcher";

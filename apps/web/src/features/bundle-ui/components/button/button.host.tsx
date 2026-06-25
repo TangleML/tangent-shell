@@ -1,4 +1,4 @@
-import { Button } from "@/shared/ui/button";
+import { Button } from "@tangent/ui-primitives/button";
 
 import { makeHostComponent } from "../_shared/make-host-component";
 import { attributes } from "./button.contract";

@@ -1,10 +1,10 @@
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 import { type MouseEvent, useEffect, useState } from "react";
 
 import { cn } from "@/shared/lib/utils";
-import { InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { Truncating } from "@/shared/ui/patterns/truncating";
-import { Text } from "@/shared/ui/typography";
 
 /**
  * CopyText — Layer 3 semantic primitive.

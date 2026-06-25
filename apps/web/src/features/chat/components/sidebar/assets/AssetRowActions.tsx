@@ -1,7 +1,7 @@
 import type { Trigger } from "@tangent/shared/contracts";
+import { InlineStack } from "@tangent/ui-primitives/layout";
 
 import type { Asset } from "@/features/chat/model/assets";
-import { InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 interface AssetRowActionsProps {

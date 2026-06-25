@@ -1,4 +1,5 @@
-import { InlineStack } from "@/shared/ui/layout";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 

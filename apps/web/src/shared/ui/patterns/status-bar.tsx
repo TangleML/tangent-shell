@@ -1,7 +1,12 @@
 // local primitive
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@tangent/ui-primitives/tooltip";
+
 import { cn } from "@/shared/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 /**
  * StatusBar — Layer 3 semantic primitive.

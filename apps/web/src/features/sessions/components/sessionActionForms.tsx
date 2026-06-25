@@ -1,8 +1,7 @@
+import { Button } from "@tangent/ui-primitives/button";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 import { type KeyboardEvent, useState } from "react";
-
-import { Button } from "@/shared/ui/button";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Text } from "@/shared/ui/typography";
 
 interface SessionRenameFormProps {
   initialName: string;

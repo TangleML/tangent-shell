@@ -2,15 +2,14 @@
 // screenshot. The selection surface, rubber-band rect, and dimming mask are raw
 // DOM with scoped classes (an allowed escape hatch, like the artifact iframe);
 // the annotation panel uses Tangle UI primitives.
+import { Box } from "@tangent/ui-primitives/box";
+import { Text } from "@tangent/ui-primitives/typography";
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useRef,
   useState,
 } from "react";
-
-import { Box } from "@/shared/ui/box";
-import { Text } from "@/shared/ui/typography";
 
 import { ReviewAnnotationPanel } from "./ReviewAnnotationPanel";
 import { clamp, cropRegion, normalizeRect, type Rect } from "./reviewGeometry";

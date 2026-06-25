@@ -1,12 +1,13 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
+
 import type { Agent } from "@/features/chat/model/agents";
-import { Box } from "@/shared/ui/box";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
-import { Text } from "@/shared/ui/typography";
 
 import { AgentStatusIndicator, AgentStatusLabel } from "./AgentStatusIndicator";
 

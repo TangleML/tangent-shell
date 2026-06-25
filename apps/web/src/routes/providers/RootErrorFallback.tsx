@@ -1,9 +1,9 @@
+import { Button } from "@tangent/ui-primitives/button";
+import { Heading } from "@tangent/ui-primitives/typography";
 import type { FallbackProps } from "react-error-boundary";
 
 import { ErrorMessage } from "@/routes/components/ErrorMessage";
-import { Button } from "@/shared/ui/button";
 import { CenteredScreen } from "@/shared/ui/patterns/centered-screen";
-import { Heading } from "@/shared/ui/typography";
 
 export function RootErrorFallback({
   error,

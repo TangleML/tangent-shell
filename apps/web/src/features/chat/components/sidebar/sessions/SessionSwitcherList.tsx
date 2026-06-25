@@ -1,16 +1,16 @@
 import type { Session } from "@tangent/shared/contracts";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 import { useEffect, useRef } from "react";
 
 import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
 import { SessionActionsMenu } from "@/features/sessions/components/SessionActionsMenu";
 import { SessionStatusIndicator } from "@/features/sessions/components/SessionStatusIndicator";
 import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack } from "@/shared/ui/layout";
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
-import { Text } from "@/shared/ui/typography";
 
 interface SessionSwitcherListProps {
   sessions: Session[];

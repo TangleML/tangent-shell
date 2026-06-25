@@ -1,3 +1,11 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@tangent/ui-primitives/popover";
+import { Text } from "@tangent/ui-primitives/typography";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -5,11 +13,6 @@ import {
   useRef,
   useState,
 } from "react";
-
-import { Box } from "@/shared/ui/box";
-import { BlockStack } from "@/shared/ui/layout";
-import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
-import { Text } from "@/shared/ui/typography";
 
 import { SessionFilterInput } from "./SessionFilterInput";
 import { SessionSwitcherList } from "./SessionSwitcherList";

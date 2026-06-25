@@ -1,15 +1,15 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useRef } from "react";
 
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useUploadAgentBundle } from "@/features/agent-bundles/hooks/useUploadAgentBundle";
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
-import { Paragraph } from "@/shared/ui/typography";
 
 import { AgentBundleCard } from "./AgentBundleCard";
 import { BundleGrid } from "./bundle-grid";

@@ -1,7 +1,8 @@
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+
 import type { Attachment } from "@/features/chat/model/types";
 import { apiUrl } from "@/shared/lib/basePath";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
 import { Pill } from "@/shared/ui/patterns/pill";
 
 interface MessageAttachmentsProps {

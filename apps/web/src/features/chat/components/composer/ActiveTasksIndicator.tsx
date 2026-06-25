@@ -1,16 +1,20 @@
 import type { Trigger } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@tangent/ui-primitives/popover";
+import { Spinner } from "@tangent/ui-primitives/spinner";
+import { Text } from "@tangent/ui-primitives/typography";
 
 import { triggerSubtitle } from "@/features/chat/model/assets";
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Truncating } from "@/shared/ui/patterns/truncating";
-import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
-import { Spinner } from "@/shared/ui/spinner";
-import { Text } from "@/shared/ui/typography";
 
 import { AgentStatusLabel } from "../sidebar/agents/AgentStatusIndicator";
 

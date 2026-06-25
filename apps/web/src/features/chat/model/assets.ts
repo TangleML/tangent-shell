@@ -1,8 +1,8 @@
 import type { PinnedArtifact, Trigger } from "@tangent/shared/contracts";
+import type { IconName } from "@tangent/ui-primitives/icon";
 
 import { apiUrl } from "@/shared/lib/basePath";
 import { isViewableArtifact, resolveUrl } from "@/shared/lib/markdown/artifact";
-import type { IconName } from "@/shared/ui/icon";
 
 /**
  * A session resource the user (or an agent) created, surfaced in the sidebar as

@@ -1,4 +1,4 @@
-import { Text } from "@/shared/ui/typography";
+import { Text } from "@tangent/ui-primitives/typography";
 
 import { makeHostComponent } from "../_shared/make-host-component";
 import { attributes } from "./text.contract";

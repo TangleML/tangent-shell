@@ -1,7 +1,6 @@
+import type { IconName } from "@tangent/ui-primitives/icon";
 import { icons } from "lucide-react";
 import { z } from "zod";
-
-import type { IconName } from "@/shared/ui/icon";
 
 import type { RemoteEvents } from "../_shared/events";
 

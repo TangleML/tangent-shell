@@ -1,6 +1,7 @@
+import { Icon } from "@tangent/ui-primitives/icon";
+import { Text } from "@tangent/ui-primitives/typography";
+
 import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
-import { Icon } from "@/shared/ui/icon";
-import { Text } from "@/shared/ui/typography";
 
 import { StatusDot } from "../StatusDot";
 

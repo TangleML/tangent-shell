@@ -1,9 +1,10 @@
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
+
 import { useThinkingCollapse } from "@/features/chat/hooks/useThinkingCollapse";
 import { isThinkingDone } from "@/features/chat/model/messageState";
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
-import { InlineStack } from "@/shared/ui/layout";
-import { Text } from "@/shared/ui/typography";
 
 import { HeaderCollapseButton } from "./HeaderCollapseButton";
 import { MessageAvatar } from "./MessageAvatar";

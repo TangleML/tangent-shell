@@ -1,3 +1,4 @@
+import { Icon } from "@tangent/ui-primitives/icon";
 import { createLink } from "@tanstack/react-router";
 import {
   type AnchorHTMLAttributes,
@@ -8,7 +9,6 @@ import {
 } from "react";
 
 import { cn } from "@/shared/lib/utils";
-import { Icon } from "@/shared/ui/icon";
 
 /**
  * Breadcrumbs — Layer 3 semantic primitive.

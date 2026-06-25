@@ -1,9 +1,10 @@
 import type { Session } from "@tangent/shared/contracts";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 
 import { SessionActivityCell } from "@/features/sessions/components/SessionActivityCell";
 import { SessionRowActions } from "@/features/sessions/components/SessionRowActions";
 import { SessionStatusIndicator } from "@/features/sessions/components/SessionStatusIndicator";
-import { InlineStack } from "@/shared/ui/layout";
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { Pill } from "@/shared/ui/patterns/pill";
 import {
@@ -14,7 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/patterns/table";
-import { Text } from "@/shared/ui/typography";
 
 interface SessionsTableProps {
   sessions: Session[];

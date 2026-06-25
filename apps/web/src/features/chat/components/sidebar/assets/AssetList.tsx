@@ -1,11 +1,11 @@
 import type { Trigger } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 
 import type { Asset } from "@/features/chat/model/assets";
 import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
 import { apiUrl } from "@/shared/lib/basePath";
-import { Box } from "@/shared/ui/box";
-import { BlockStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
 import { AssetCard } from "./AssetCard";

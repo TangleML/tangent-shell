@@ -1,14 +1,15 @@
-import { useThinkingCollapse } from "@/features/chat/hooks/useThinkingCollapse";
-import { Markdown } from "@/shared/lib/markdown/Markdown";
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/shared/ui/collapsible";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack } from "@/shared/ui/layout";
+} from "@tangent/ui-primitives/collapsible";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+
+import { useThinkingCollapse } from "@/features/chat/hooks/useThinkingCollapse";
+import { Markdown } from "@/shared/lib/markdown/Markdown";
 
 interface ThinkingDisclosureProps {
   thinking: string;

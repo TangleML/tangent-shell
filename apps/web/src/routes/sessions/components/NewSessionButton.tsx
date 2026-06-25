@@ -1,19 +1,19 @@
 import type { AgentBundleMeta } from "@tangent/shared/contracts";
-
-import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
-import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
-import { Button } from "@/shared/ui/button";
-import { ButtonGroup } from "@/shared/ui/button-group";
+import { Button } from "@tangent/ui-primitives/button";
+import { ButtonGroup } from "@tangent/ui-primitives/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
+} from "@tangent/ui-primitives/dropdown-menu";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
+
+import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
+import { BundleIconImage } from "@/routes/agent-bundles/bundle-grid";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Text } from "@/shared/ui/typography";
 
 interface NewSessionButtonProps {
   bundles?: AgentBundleMeta[];

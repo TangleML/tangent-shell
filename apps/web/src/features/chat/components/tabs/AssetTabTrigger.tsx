@@ -2,10 +2,11 @@
 // Tabs primitive's TabsTrigger with an overlaid close button; the raw <div>/
 // <span>/<button> wrappers carry the scoped classNames needed to position the
 // close affordance, which the Tangle primitives don't express.
+import { Icon } from "@tangent/ui-primitives/icon";
+import { TabsTrigger } from "@tangent/ui-primitives/tabs";
+
 import type { AssetKind } from "@/features/chat/model/assets";
 import { ASSET_ICON } from "@/features/chat/model/assets";
-import { Icon } from "@/shared/ui/icon";
-import { TabsTrigger } from "@/shared/ui/tabs";
 
 interface AssetTabTriggerProps {
   value: string;

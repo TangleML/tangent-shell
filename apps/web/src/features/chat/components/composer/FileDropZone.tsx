@@ -1,8 +1,8 @@
 // local primitive
+import { Text } from "@tangent/ui-primitives/typography";
 import { type DragEvent, type PropsWithChildren, useState } from "react";
 
 import { cn } from "@/shared/lib/utils";
-import { Text } from "@/shared/ui/typography";
 
 interface FileDropZoneProps {
   /** Called with the files when a drop completes (ignored while disabled). */

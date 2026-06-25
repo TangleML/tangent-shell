@@ -1,9 +1,9 @@
 import type { Session } from "@tangent/shared/contracts";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 
 import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
-import { InlineStack } from "@/shared/ui/layout";
 import { Pill } from "@/shared/ui/patterns/pill";
-import { Text } from "@/shared/ui/typography";
 
 interface SessionActivityCellProps {
   session: Session;
