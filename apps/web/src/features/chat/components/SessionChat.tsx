@@ -20,23 +20,13 @@ import {
   peekPendingNewSession,
 } from "@/features/sessions/model/pendingNewSession";
 import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
-import { Box } from "@/shared/ui/box";
 import { Icon } from "@/shared/ui/icon";
 import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
-import { ActiveTasksIndicator } from "./composer/ActiveTasksIndicator";
-import { AgentModelPicker } from "./composer/AgentModelPicker";
-import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
-import { ChatInput } from "./composer/ChatInput";
-import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
-import { NewSessionComposer } from "./composer/NewSessionComposer";
-import { ChatMessageList } from "./message/ChatMessageList";
-import { AgentTabTrigger } from "./tabs/AgentTabTrigger";
-import { ArtifactTabView } from "./tabs/ArtifactTabView";
-import { AssetTabTrigger } from "./tabs/AssetTabTrigger";
-import { SubagentTabView } from "./tabs/SubagentTabView";
-import { TriggerTabPanel } from "./tabs/TriggerTabPanel";
+import { PrimeChatPanel } from "./PrimeChatPanel";
+import { AssetTabContent } from "./tabs/AssetTabContent";
+import { OpenedTabTrigger } from "./tabs/OpenedTabTrigger";
 import { SessionChatWindowsContext } from "./windows/SessionChatWindowsContext";
 import { useSessionChatWindows } from "./windows/useSessionChatWindows";
 
@@ -152,6 +142,30 @@ export function SessionChat({
     }
   };
 
+  // The chat state every opened asset tab's body shares; forwarded as-is so
+  // AssetTabContent can resolve and render the right per-kind view.
+  const sharedTabProps = {
+    sessionId,
+    subagents,
+    triggers,
+    messages,
+    currentAuthorId,
+    bundleId,
+    connected,
+    pinnedPaths,
+    getActivity,
+    isConversationBusy,
+    isMessageStreaming,
+    getAgentModel,
+    setAgentModel,
+    abort,
+    dismissSubagent,
+    closeAsset,
+    send,
+    openArtifactTab,
+    togglePinArtifact,
+  };
+
   return (
     <WindowStoreProvider>
       <SessionChatWindowsContext
@@ -183,188 +197,52 @@ export function SessionChat({
                   <Icon name="MessageSquare" size="xs" tone="subdued" />
                   Chat
                 </TabsTrigger>
-                {tabs.map((tab) => {
-                  if (tab.kind === "agent") {
-                    const info = subagents.find((s) => s.id === tab.agentId);
-                    return (
-                      <AgentTabTrigger
-                        key={tab.id}
-                        value={tab.id}
-                        name={info?.name ?? tab.title}
-                        sessionId={sessionId}
-                        agentId={tab.agentId}
-                        onClose={() => closeAsset(tab.id)}
-                      />
-                    );
-                  }
-                  return (
-                    <AssetTabTrigger
-                      key={tab.id}
-                      value={tab.id}
-                      title={tab.title}
-                      kind={tab.kind}
-                      onClose={() => closeAsset(tab.id)}
-                    />
-                  );
-                })}
+                {tabs.map((tab) => (
+                  <OpenedTabTrigger
+                    key={tab.id}
+                    tab={tab}
+                    sessionId={sessionId}
+                    subagents={subagents}
+                    onClose={() => closeAsset(tab.id)}
+                  />
+                ))}
               </TabsList>
 
               <TabsContent value={CHAT_TAB_VALUE} forceMount>
-                <BlockStack grow>
-                  <ChatMessageList
-                    sessionId={sessionId}
-                    messages={primeMessages}
-                    currentAuthorId={currentAuthorId}
-                    activity={getActivity(PI_AGENT.id)}
-                    bundleId={bundleId}
-                    onSendPrompt={send}
-                    onOpenArtifact={openArtifactTab}
-                    pinnedPaths={pinnedPaths}
-                    onTogglePinArtifact={togglePinArtifact}
-                    isMessageStreaming={isMessageStreaming}
-                  />
-                  {!draft && memorySuggestions.length > 0 ? (
-                    <Box paddingInline="base" paddingBlock="sm">
-                      <BlockStack gap="2">
-                        {memorySuggestions.map((suggestion) => (
-                          <MemorySuggestionCard
-                            key={suggestion.suggestionId}
-                            suggestion={suggestion}
-                            onConfirm={confirmMemory}
-                            onDismiss={dismissMemory}
-                          />
-                        ))}
-                      </BlockStack>
-                    </Box>
-                  ) : null}
-                  {!draft && bundleId ? (
-                    <BundlePanelLauncher
-                      bundleId={bundleId}
-                      onSendPrompt={send}
-                    />
-                  ) : null}
-                  {!draft ? (
-                    <Box paddingInline="base" paddingBlock="sm">
-                      <InlineStack align="space-between" blockAlign="center">
-                        <InlineStack blockAlign="center">
-                          <ActiveTasksIndicator
-                            sessionId={sessionId}
-                            busySubagents={busySubagents}
-                            armedTriggers={armedTriggers}
-                            onOpenAgent={(id) =>
-                              openAgent({
-                                id,
-                                name:
-                                  subagents.find((s) => s.id === id)?.name ??
-                                  id,
-                              })
-                            }
-                            onAbort={abort}
-                            onOpenTrigger={(id) => {
-                              const asset = assets.find(
-                                (a) => a.kind === "trigger" && a.id === id,
-                              );
-                              if (asset) openAsset(asset);
-                            }}
-                          />
-                        </InlineStack>
-                        <AgentModelPicker
-                          model={primeModel?.model}
-                          thinkingDepth={primeModel?.thinkingDepth}
-                          onChange={(selection) =>
-                            setAgentModel(PI_AGENT.id, selection)
-                          }
-                          disabled={!connected}
-                        />
-                      </InlineStack>
-                    </Box>
-                  ) : null}
-                  {draft && draftActions ? (
-                    <NewSessionComposer
-                      onSend={draftActions.onSend}
-                      onAttach={draftActions.onAttach}
-                      busy={draftActions.busy}
-                    />
-                  ) : (
-                    <ChatInput
-                      key={`${sessionId}:${PI_AGENT.id}`}
-                      sessionId={sessionId}
-                      agentId={PI_AGENT.id}
-                      initialFiles={handoff?.files}
-                      disabled={!connected}
-                      agentBusy={agentBusy}
-                      onAbort={() => abort(PI_AGENT.id)}
-                      onSubmit={(content, { delivery, attachments }) =>
-                        send(content, {
-                          conversationId: PI_AGENT.id,
-                          delivery,
-                          attachments,
-                        })
-                      }
-                    />
-                  )}
-                </BlockStack>
+                <PrimeChatPanel
+                  sessionId={sessionId}
+                  draft={draft}
+                  draftActions={draftActions}
+                  messages={primeMessages}
+                  currentAuthorId={currentAuthorId}
+                  bundleId={bundleId}
+                  connected={connected}
+                  agentBusy={agentBusy}
+                  handoffFiles={handoff?.files}
+                  activity={getActivity(PI_AGENT.id)}
+                  isMessageStreaming={isMessageStreaming}
+                  memorySuggestions={memorySuggestions}
+                  confirmMemory={confirmMemory}
+                  dismissMemory={dismissMemory}
+                  busySubagents={busySubagents}
+                  armedTriggers={armedTriggers}
+                  subagents={subagents}
+                  assets={assets}
+                  primeModel={primeModel}
+                  send={send}
+                  abort={abort}
+                  openAgent={openAgent}
+                  openAsset={openAsset}
+                  setAgentModel={setAgentModel}
+                  openArtifactTab={openArtifactTab}
+                  pinnedPaths={pinnedPaths}
+                  togglePinArtifact={togglePinArtifact}
+                />
               </TabsContent>
 
               {tabs.map((tab) => (
                 <TabsContent key={tab.id} value={tab.id} forceMount>
-                  {tab.kind === "agent" ? (
-                    <SubagentTabView
-                      sessionId={sessionId}
-                      agentId={tab.agentId}
-                      name={
-                        subagents.find((s) => s.id === tab.agentId)?.name ??
-                        tab.title
-                      }
-                      messages={messages}
-                      currentAuthorId={currentAuthorId}
-                      bundleId={bundleId}
-                      activity={getActivity(tab.agentId)}
-                      status={
-                        subagents.find((s) => s.id === tab.agentId)?.status ??
-                        "completed"
-                      }
-                      busy={isConversationBusy(tab.agentId)}
-                      disabled={!connected}
-                      isMessageStreaming={isMessageStreaming}
-                      model={getAgentModel(tab.agentId)?.model}
-                      thinkingDepth={getAgentModel(tab.agentId)?.thinkingDepth}
-                      onSetModel={(selection) =>
-                        setAgentModel(tab.agentId, selection)
-                      }
-                      onAbort={() => abort(tab.agentId)}
-                      onRemove={() => {
-                        dismissSubagent(tab.agentId);
-                        closeAsset(tab.id);
-                      }}
-                      onSubmit={(content, { delivery, attachments }) =>
-                        send(content, {
-                          conversationId: tab.agentId,
-                          delivery,
-                          attachments,
-                        })
-                      }
-                      onOpenArtifact={openArtifactTab}
-                      pinnedPaths={pinnedPaths}
-                      onTogglePinArtifact={togglePinArtifact}
-                    />
-                  ) : tab.kind === "trigger" ? (
-                    <TriggerTabPanel
-                      sessionId={sessionId}
-                      triggerId={tab.triggerId}
-                      triggers={triggers}
-                      onClose={() => closeAsset(tab.id)}
-                    />
-                  ) : (
-                    <ArtifactTabView
-                      sessionId={sessionId}
-                      url={tab.url}
-                      title={tab.title}
-                      onSendPrompt={(content, attachments) =>
-                        send(content, { attachments })
-                      }
-                    />
-                  )}
+                  <AssetTabContent tab={tab} {...sharedTabProps} />
                 </TabsContent>
               ))}
             </Tabs>
