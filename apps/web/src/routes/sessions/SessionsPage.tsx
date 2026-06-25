@@ -8,7 +8,6 @@ import { useState } from "react";
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
-import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
@@ -58,7 +57,6 @@ export function SessionsPage() {
     <WorkArea>
       <BlockStack gap="6">
         <PageHeader
-          breadcrumb={<CrumbCurrent>Sessions</CrumbCurrent>}
           title="Sessions"
           description="Conversations with your agents. Start a new one or resume where you left off."
         />
