@@ -1,3 +1,5 @@
+import "./MemoryMessage.css";
+
 import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
@@ -43,7 +45,9 @@ export function MemoryMessage({ message, onCollapse }: MemoryMessageProps) {
         </InlineStack>
       }
     >
-      <Markdown size="sm">{message.content}</Markdown>
+      <Markdown size="sm" tone="subdued">
+        {message.content}
+      </Markdown>
     </MessageLayout>
   );
 }
