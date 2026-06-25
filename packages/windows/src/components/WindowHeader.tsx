@@ -36,7 +36,7 @@ export function WindowHeader({
   return (
     <div
       className={cn(
-        "group/header relative flex items-center justify-between px-2 py-2.5 shrink-0 transition-all duration-300 group-hover/window:bg-purple-50",
+        "group/header relative flex items-center justify-between px-2 py-2.5 shrink-0 transition-all duration-300 group-hover/window:bg-accent",
         onMouseDown && "cursor-grab",
         onMouseDown && isDragging && "cursor-grabbing",
         className,
@@ -56,10 +56,7 @@ export function WindowHeader({
             <Text
               size="xs"
               weight="semibold"
-              className={cn(
-                "truncate",
-                tone === "dark" ? "text-gray-100" : "text-gray-700",
-              )}
+              className="truncate text-foreground"
             >
               {title}
             </Text>
@@ -70,7 +67,7 @@ export function WindowHeader({
         className={cn(
           actionsOnHover &&
             "absolute inset-y-0 right-2 flex items-center pl-3 opacity-0 transition-opacity duration-200 group-hover/window:opacity-100",
-          actionsOnHover && (tone === "dark" ? "bg-gray-800" : "bg-purple-50"),
+          actionsOnHover && (tone === "dark" ? "bg-secondary" : "bg-accent"),
         )}
       >
         {actions}

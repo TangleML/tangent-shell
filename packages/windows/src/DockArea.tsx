@@ -82,7 +82,7 @@ export const DockArea = observer(function DockArea({
       <div
         ref={setRef}
         data-dock-area={side}
-        className={cn("relative shrink-0 bg-gray-100 flex flex-col")}
+        className={cn("relative shrink-0 bg-muted flex flex-col")}
         style={{ width: COLLAPSED_DOCK_AREA_WIDTH }}
       >
         <BlockStack
@@ -112,7 +112,7 @@ export const DockArea = observer(function DockArea({
     <div
       ref={setRef}
       data-dock-area={side}
-      className={cn("relative shrink-0 bg-white flex flex-col")}
+      className={cn("relative shrink-0 bg-background flex flex-col")}
       style={{ width: dockArea.width }}
     >
       {header ? <div className="shrink-0">{header}</div> : null}
