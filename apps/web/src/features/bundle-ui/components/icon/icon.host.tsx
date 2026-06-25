@@ -1,4 +1,4 @@
-import { Icon } from "@/shared/ui/icon";
+import { Icon } from "@tangent/ui-primitives/icon";
 
 import type { RemoteProps } from "../_shared/remote-props";
 import { attributes } from "./icon.contract";

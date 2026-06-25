@@ -1,4 +1,12 @@
 import { PI_AGENT } from "@tangent/shared/contracts";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@tangent/ui-primitives/tabs";
 import {
   DockArea,
   useWindowPersistence,
@@ -20,9 +28,6 @@ import {
   peekPendingNewSession,
 } from "@/features/sessions/model/pendingNewSession";
 import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 import { PrimeChatPanel } from "./PrimeChatPanel";
 import { AssetTabContent } from "./tabs/AssetTabContent";

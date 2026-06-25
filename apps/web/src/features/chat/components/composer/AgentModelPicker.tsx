@@ -5,18 +5,17 @@ import {
   THINKING_LEVELS,
   type ThinkingLevel,
 } from "@tangent/shared/contracts";
-
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
-import { Text } from "@/shared/ui/typography";
+} from "@tangent/ui-primitives/dropdown-menu";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 
 /** The model/thinking selection this picker reads and writes. */
 export interface AgentModelPickerValue {

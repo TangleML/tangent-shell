@@ -1,8 +1,7 @@
+import { Icon, type IconName } from "@tangent/ui-primitives/icon";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Heading, Paragraph } from "@tangent/ui-primitives/typography";
 import { forwardRef, type ReactNode, type Ref } from "react";
-
-import { Icon, type IconName } from "@/shared/ui/icon";
-import { BlockStack } from "@/shared/ui/layout";
-import { Heading, Paragraph } from "@/shared/ui/typography";
 
 /**
  * EmptyState — Layer 3 semantic primitive.

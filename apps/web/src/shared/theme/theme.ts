@@ -1,4 +1,4 @@
-import type { IconName } from "@/shared/ui/icon";
+import type { IconName } from "@tangent/ui-primitives/icon";
 
 export type Theme = "light" | "dark" | "xterm" | "piforge";
 

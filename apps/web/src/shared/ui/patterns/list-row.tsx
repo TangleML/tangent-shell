@@ -1,3 +1,4 @@
+import { InlineStack } from "@tangent/ui-primitives/layout";
 import { cva, type VariantProps } from "class-variance-authority";
 import {
   forwardRef,
@@ -9,7 +10,6 @@ import {
 } from "react";
 
 import { cn } from "@/shared/lib/utils";
-import { InlineStack } from "@/shared/ui/layout";
 
 /**
  * ListRow — Layer 3 semantic primitive.

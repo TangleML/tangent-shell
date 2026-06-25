@@ -1,8 +1,8 @@
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Textarea } from "@/shared/ui/textarea";
-import { Text } from "@/shared/ui/typography";
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Textarea } from "@tangent/ui-primitives/textarea";
+import { Text } from "@tangent/ui-primitives/typography";
 
 interface ReviewAnnotationPanelProps {
   /** The user's note for the selected region. */

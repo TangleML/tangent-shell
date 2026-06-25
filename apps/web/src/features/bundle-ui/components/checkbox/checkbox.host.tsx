@@ -1,4 +1,4 @@
-import { Checkbox } from "@/shared/ui/checkbox";
+import { Checkbox } from "@tangent/ui-primitives/checkbox";
 
 import { makeHostComponent } from "../_shared/make-host-component";
 import { attributes } from "./checkbox.contract";

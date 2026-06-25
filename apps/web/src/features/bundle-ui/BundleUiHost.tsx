@@ -16,10 +16,9 @@ import {
   RemoteReceiver,
   RemoteRootRenderer,
 } from "@remote-dom/react/host";
+import { Text } from "@tangent/ui-primitives/typography";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
-
-import { Text } from "@/shared/ui/typography";
 
 import {
   BUNDLE_UI_ELEMENT_NAMES,

@@ -1,12 +1,12 @@
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { SessionChat } from "@/features/chat/components/SessionChat";
 import { useMarkSessionViewed } from "@/features/sessions/hooks/useMarkSessionViewed";
 import { useSession } from "@/features/sessions/hooks/useSession";
-import { BlockStack } from "@/shared/ui/layout";
 import { Section } from "@/shared/ui/patterns/section";
-import { Paragraph } from "@/shared/ui/typography";
 
 export function SessionChatPage() {
   const { sessionId } = useParams({ from: "/app/sessions/$sessionId" });

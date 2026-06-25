@@ -1,15 +1,16 @@
-import { THEMES } from "@/shared/theme/theme";
-import { useTheme } from "@/shared/theme/themeContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
+} from "@tangent/ui-primitives/dropdown-menu";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
+
+import { THEMES } from "@/shared/theme/theme";
+import { useTheme } from "@/shared/theme/themeContext";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Text } from "@/shared/ui/typography";
 
 /**
  * ThemeMenu — top-nav control for choosing the active UI theme

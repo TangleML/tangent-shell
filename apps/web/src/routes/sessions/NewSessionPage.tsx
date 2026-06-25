@@ -1,5 +1,6 @@
 import type { Session } from "@tangent/shared/contracts";
 import { PI_AGENT } from "@tangent/shared/contracts";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 
@@ -8,7 +9,6 @@ import { writeDraft } from "@/features/chat/model/chatDraft";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { setPendingNewSession } from "@/features/sessions/model/pendingNewSession";
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
-import { BlockStack } from "@/shared/ui/layout";
 
 export function NewSessionPage() {
   const { mutate: createSession, isPending } = useCreateSession();

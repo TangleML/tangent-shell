@@ -1,9 +1,9 @@
+import { Text } from "@tangent/ui-primitives/typography";
 import { Link } from "@tanstack/react-router";
 
 import { UserAvatar } from "@/features/user/components/UserAvatar";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
-import { Text } from "@/shared/ui/typography";
 
 import { ThemeMenu } from "./ThemeMenu";
 

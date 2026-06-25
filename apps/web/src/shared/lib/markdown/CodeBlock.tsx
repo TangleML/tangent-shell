@@ -1,11 +1,11 @@
 // local primitive — Prism-highlighted, read-only code block with a copy
 // button. Renders raw <pre>/<button> elements, so the scoped Tailwind classes
 // here are an allowed escape hatch (not Tangle UI primitives).
+import { Icon } from "@tangent/ui-primitives/icon";
 import { Highlight, themes } from "prism-react-renderer";
 import { memo, useState } from "react";
 
 import { cn } from "@/shared/lib/utils";
-import { Icon } from "@/shared/ui/icon";
 
 interface CodeBlockProps {
   code: string;

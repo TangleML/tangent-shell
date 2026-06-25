@@ -1,8 +1,8 @@
+import { InlineStack } from "@tangent/ui-primitives/layout";
 import { cva, type VariantProps } from "class-variance-authority";
 import { forwardRef, type PropsWithChildren, type Ref } from "react";
 
 import { cn } from "@/shared/lib/utils";
-import { InlineStack } from "@/shared/ui/layout";
 
 /**
  * Toolbar — Layer 3 semantic primitive.

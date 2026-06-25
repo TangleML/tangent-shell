@@ -1,4 +1,12 @@
 import type { Session } from "@tangent/shared/contracts";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@tangent/ui-primitives/popover";
 import { useState } from "react";
 
 import {
@@ -7,11 +15,7 @@ import {
 } from "@/features/sessions/components/sessionActionForms";
 import { useDeleteSession } from "@/features/sessions/hooks/useDeleteSession";
 import { useUpdateSession } from "@/features/sessions/hooks/useUpdateSession";
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 
 /** Which sub-view the actions popover currently shows. */
 type View = "menu" | "rename" | "delete";

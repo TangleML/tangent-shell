@@ -1,10 +1,13 @@
 import type { AgentBundleMeta } from "@tangent/shared/contracts";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 import { useNavigate } from "@tanstack/react-router";
 
 import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
 import { useDeleteAgentBundle } from "@/features/agent-bundles/hooks/useDeleteAgentBundle";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
-import { Button } from "@/shared/ui/button";
 import {
   Card,
   CardContent,
@@ -12,10 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Text } from "@/shared/ui/typography";
 
 import { BundleIconImage } from "./bundle-grid";
 

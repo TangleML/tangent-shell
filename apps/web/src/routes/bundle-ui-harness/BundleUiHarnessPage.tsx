@@ -8,15 +8,15 @@
  * (captured below). It is wired into the router only when `env.isDev`.
  */
 
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Heading, Paragraph, Text } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { BlockStack } from "@/shared/ui/layout";
 import { Page } from "@/shared/ui/patterns/page";
 import { Section } from "@/shared/ui/patterns/section";
-import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 const SAMPLE_MODULE_URL = "/bundle-ui-harness/sample.js";
 

@@ -1,5 +1,5 @@
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
 
 interface JumpToBottomButtonProps {
   unreadCount: number;

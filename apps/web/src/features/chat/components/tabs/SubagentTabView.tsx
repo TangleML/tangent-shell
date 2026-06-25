@@ -5,10 +5,10 @@ import type {
   SubagentStatus,
   ThinkingLevel,
 } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
 import type { ChatMessage } from "@/features/chat/model/types";
-import { Box } from "@/shared/ui/box";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 
 import {
   AgentModelPicker,

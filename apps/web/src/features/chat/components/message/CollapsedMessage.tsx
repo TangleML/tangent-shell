@@ -1,8 +1,9 @@
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
+
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
-import { Button } from "@/shared/ui/button";
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
-import { Text } from "@/shared/ui/typography";
 
 import { roleLabelFor } from "./messageRole";
 

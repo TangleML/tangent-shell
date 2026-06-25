@@ -7,12 +7,12 @@ import {
   type SubagentInfo,
   type Trigger,
 } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
 import type { Asset } from "@/features/chat/model/assets";
 import type { ChatMessage } from "@/features/chat/model/types";
-import { Box } from "@/shared/ui/box";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 
 import { ActiveTasksIndicator } from "./composer/ActiveTasksIndicator";
 import { AgentModelPicker } from "./composer/AgentModelPicker";

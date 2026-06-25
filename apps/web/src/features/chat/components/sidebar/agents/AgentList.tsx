@@ -1,6 +1,7 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+
 import type { Agent } from "@/features/chat/model/agents";
-import { Box } from "@/shared/ui/box";
-import { BlockStack } from "@/shared/ui/layout";
 
 import { AgentCard } from "./AgentCard";
 

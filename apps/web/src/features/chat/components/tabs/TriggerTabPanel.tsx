@@ -1,6 +1,6 @@
 import type { Trigger } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
 
-import { Box } from "@/shared/ui/box";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
 import { TriggerTabView } from "./TriggerTabView";

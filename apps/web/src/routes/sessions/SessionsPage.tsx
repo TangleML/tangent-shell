@@ -1,17 +1,17 @@
 import type { Session } from "@tangent/shared/contracts";
+import { Checkbox } from "@tangent/ui-primitives/checkbox";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
-import { Checkbox } from "@/shared/ui/checkbox";
-import { BlockStack } from "@/shared/ui/layout";
 import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
-import { Paragraph } from "@/shared/ui/typography";
 
 import { NewSessionButton } from "./components/NewSessionButton";
 import { SessionsTable } from "./components/SessionsTable";

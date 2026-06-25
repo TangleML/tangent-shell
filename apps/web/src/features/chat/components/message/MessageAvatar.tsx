@@ -1,8 +1,8 @@
+import { Icon } from "@tangent/ui-primitives/icon";
 import { cva } from "class-variance-authority";
 
 import type { AgentRole } from "@/features/chat/model/types";
 import { cn } from "@/shared/lib/utils";
-import { Icon } from "@/shared/ui/icon";
 
 // Role-keyed avatar styling. The `agent`/`subagent` roles reuse the same
 // `message-surface` tokens as the agent `MessageBubble`, so a theme can

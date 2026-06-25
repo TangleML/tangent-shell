@@ -1,3 +1,6 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Textarea } from "@tangent/ui-primitives/textarea";
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -6,10 +9,7 @@ import {
   useRef,
 } from "react";
 
-import { Box } from "@/shared/ui/box";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Textarea } from "@/shared/ui/textarea";
 
 import { FileDropZone } from "./FileDropZone";
 

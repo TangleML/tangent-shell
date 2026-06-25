@@ -1,7 +1,6 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import type { ReactNode } from "react";
-
-import { Box } from "@/shared/ui/box";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 
 import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
 

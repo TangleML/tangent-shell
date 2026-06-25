@@ -1,5 +1,5 @@
-import { InlineStack } from "@/shared/ui/layout";
-import { Text } from "@/shared/ui/typography";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 
 import { MessageActions } from "./MessageActions";
 

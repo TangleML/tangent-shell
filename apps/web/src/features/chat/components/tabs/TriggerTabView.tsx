@@ -1,19 +1,19 @@
 import type { Trigger } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
+import { Icon, type IconName } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Heading, Paragraph, Text } from "@tangent/ui-primitives/typography";
 
 import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
 import { apiUrl } from "@/shared/lib/basePath";
 import { truncateMiddle } from "@/shared/lib/utils";
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { Icon, type IconName } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { CopyText } from "@/shared/ui/patterns/copy-text";
 import { Pill } from "@/shared/ui/patterns/pill";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Section } from "@/shared/ui/patterns/section";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
-import { Heading, Paragraph, Text } from "@/shared/ui/typography";
 
 import { DetailRow } from "./DetailRow";
 

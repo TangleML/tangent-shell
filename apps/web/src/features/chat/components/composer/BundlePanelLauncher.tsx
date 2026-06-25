@@ -1,13 +1,13 @@
+import { Box } from "@tangent/ui-primitives/box";
+import { Button } from "@tangent/ui-primitives/button";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 
 import { useAgentBundle } from "@/features/agent-bundles/hooks/useAgentBundle";
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
 import { apiUrl } from "@/shared/lib/basePath";
-import { Box } from "@/shared/ui/box";
-import { Button } from "@/shared/ui/button";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { Text } from "@/shared/ui/typography";
 
 interface BundlePanelLauncherProps {
   /** The bundle whose `kind: "panel"` components are offered to the user. */

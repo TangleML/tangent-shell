@@ -1,4 +1,4 @@
-import { Heading } from "@/shared/ui/typography";
+import { Heading } from "@tangent/ui-primitives/typography";
 
 import { makeHostComponent } from "../_shared/make-host-component";
 import { attributes } from "./heading.contract";

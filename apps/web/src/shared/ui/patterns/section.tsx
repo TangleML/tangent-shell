@@ -1,7 +1,6 @@
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { Heading } from "@tangent/ui-primitives/typography";
 import { forwardRef, type PropsWithChildren, type ReactNode } from "react";
-
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Heading } from "@/shared/ui/typography";
 
 import { Surface, type SurfaceLevel, type SurfaceTone } from "./surface";
 

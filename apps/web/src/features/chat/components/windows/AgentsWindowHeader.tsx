@@ -1,4 +1,4 @@
-import { Text } from "@/shared/ui/typography";
+import { Text } from "@tangent/ui-primitives/typography";
 
 import { useSessionChatWindowsContext } from "./SessionChatWindowsContext";
 import { WindowHeaderContent } from "./WindowHeaderContent";

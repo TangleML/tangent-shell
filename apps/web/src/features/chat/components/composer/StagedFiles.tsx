@@ -1,5 +1,6 @@
-import { Icon } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
+import { Icon } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { Pill } from "@/shared/ui/patterns/pill";
 

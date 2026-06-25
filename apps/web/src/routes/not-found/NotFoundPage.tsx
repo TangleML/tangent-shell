@@ -1,8 +1,8 @@
+import { Button } from "@tangent/ui-primitives/button";
+import { Heading, Paragraph } from "@tangent/ui-primitives/typography";
 import { Link } from "@tanstack/react-router";
 
-import { Button } from "@/shared/ui/button";
 import { CenteredScreen } from "@/shared/ui/patterns/centered-screen";
-import { Heading, Paragraph } from "@/shared/ui/typography";
 
 export function NotFoundPage() {
   return (

@@ -1,8 +1,7 @@
 import type { AgentActivity } from "@tangent/shared/contracts";
-
-import { InlineStack } from "@/shared/ui/layout";
-import { Spinner } from "@/shared/ui/spinner";
-import { Text } from "@/shared/ui/typography";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Spinner } from "@tangent/ui-primitives/spinner";
+import { Text } from "@tangent/ui-primitives/typography";
 
 import { MessageAvatar } from "./MessageAvatar";
 import { MessageLayout } from "./MessageLayout";

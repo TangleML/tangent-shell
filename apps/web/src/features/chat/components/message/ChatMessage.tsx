@@ -1,3 +1,5 @@
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 
 import {
@@ -8,8 +10,6 @@ import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types
 import { apiUrl } from "@/shared/lib/basePath";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 import { cn } from "@/shared/lib/utils";
-import { BlockStack } from "@/shared/ui/layout";
-import { Paragraph } from "@/shared/ui/typography";
 
 import { AgentThinking } from "./AgentThinking";
 import { MemoryMessage } from "./MemoryMessage";

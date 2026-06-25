@@ -1,8 +1,7 @@
+import { Icon, type IconName } from "@tangent/ui-primitives/icon";
+import { InlineStack } from "@tangent/ui-primitives/layout";
+import { Text } from "@tangent/ui-primitives/typography";
 import type { ReactNode } from "react";
-
-import { Icon, type IconName } from "@/shared/ui/icon";
-import { InlineStack } from "@/shared/ui/layout";
-import { Text } from "@/shared/ui/typography";
 
 interface WindowHeaderContentProps {
   icon: IconName;
