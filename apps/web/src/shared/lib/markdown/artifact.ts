@@ -5,6 +5,13 @@
  * them without tripping the react-refresh "only export components" rule.
  */
 
+const ARTIFACTS_LINK = /^(?:\.\/)?artifacts\//i;
+
+/** True for a relative `artifacts/`-prefixed reference (the safety-net target). */
+export function isArtifactsLink(url: string): boolean {
+  return ARTIFACTS_LINK.test(url);
+}
+
 /** True for URLs we must not rewrite (absolute, anchor, or non-file schemes). */
 export function isAbsoluteUrl(url: string): boolean {
   return (

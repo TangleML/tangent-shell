@@ -20,6 +20,7 @@ import { apiUrl } from "@/shared/lib/basePath";
 import {
   artifactPath,
   isAbsoluteUrl,
+  isArtifactsLink,
   isViewableArtifact,
   resolveUrl,
 } from "@/shared/lib/markdown/artifact";
@@ -467,6 +468,7 @@ function MdAnchor({ href, title, children }: AnchorProps) {
     onOpenArtifact,
     pinnedPaths,
     onTogglePinArtifact,
+    sessionId,
   } = useMarkdownOptions();
 
   if (typeof href === "string" && href.startsWith(PROMPT_SCHEME)) {
@@ -506,8 +508,16 @@ function MdAnchor({ href, title, children }: AnchorProps) {
     );
   }
 
+  const safetyBase =
+    artifactBaseUrl ??
+    (sessionId ? apiUrl(`/api/sessions/${sessionId}/files`) : undefined);
+  const fixedHref =
+    safetyBase != null && typeof href === "string" && isArtifactsLink(href)
+      ? (resolveUrl(href, safetyBase) ?? href)
+      : href;
+
   return (
-    <Link href={href} title={title} variant="primary" size={size} external>
+    <Link href={fixedHref} title={title} variant="primary" size={size} external>
       {children}
     </Link>
   );

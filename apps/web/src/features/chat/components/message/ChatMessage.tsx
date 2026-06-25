@@ -54,7 +54,13 @@ function ChatMessageContent({
   onCollapse,
 }: ChatMessageProps) {
   if (message.memory)
-    return <MemoryMessage message={message} onCollapse={onCollapse} />;
+    return (
+      <MemoryMessage
+        sessionId={sessionId}
+        message={message}
+        onCollapse={onCollapse}
+      />
+    );
 
   const isAgent = message.author.kind === "agent";
   const variant: MessageBubbleVariant = isOwn
