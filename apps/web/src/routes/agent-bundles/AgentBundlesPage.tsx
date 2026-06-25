@@ -6,7 +6,6 @@ import { useRef } from "react";
 
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useUploadAgentBundle } from "@/features/agent-bundles/hooks/useUploadAgentBundle";
-import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
@@ -49,7 +48,6 @@ export function AgentBundlesPage() {
     <WorkArea>
       <BlockStack gap="6">
         <PageHeader
-          breadcrumb={<CrumbCurrent>Agent bundles</CrumbCurrent>}
           title="Agent bundles"
           description="Portable presets that provision a session's prompts, tools, skills, workflows, rules, and memory."
         />

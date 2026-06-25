@@ -6,7 +6,6 @@ import { useState } from "react";
 
 import { useGlobalMemory } from "@/features/global-memory/hooks/useGlobalMemory";
 import { useUpdateGlobalMemory } from "@/features/global-memory/hooks/useUpdateGlobalMemory";
-import { CrumbCurrent } from "@/shared/ui/patterns/breadcrumbs";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { Section } from "@/shared/ui/patterns/section";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
@@ -43,7 +42,6 @@ export function GlobalMemoryPage() {
     <WorkArea>
       <BlockStack gap="6" align="stretch">
         <PageHeader
-          breadcrumb={<CrumbCurrent>Global memory</CrumbCurrent>}
           title="Global memory"
           description="Standing context shared with every session's agents. Edits apply to new sessions; running sessions pick them up on their next spawn."
         />
