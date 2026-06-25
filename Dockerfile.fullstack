@@ -57,6 +57,10 @@ COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 COPY packages/build/package.json packages/build/
+COPY packages/ui-primitives/package.json packages/ui-primitives/
+COPY packages/windows/package.json packages/windows/
+COPY packages/analytics/package.json packages/analytics/
+COPY packages/utils/package.json packages/utils/
 RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false
 
 # Server + UI source plus the shared workspace packages they build against
@@ -64,8 +68,7 @@ RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false
 # next to the server bundle).
 COPY apps/server ./apps/server
 COPY apps/web ./apps/web
-COPY packages/shared ./packages/shared
-COPY packages/build ./packages/build
+COPY packages ./packages
 
 # Bundle the server -> apps/server/dist/index.js plus its runtime assets
 # (prompts, agents, extensions, migrations). Invoked via node directly to avoid
