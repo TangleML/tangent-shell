@@ -42,9 +42,11 @@ interface EgressRule {
 }
 
 /**
- * Optional bearer token for the Oasis API, injected server-side. Unset by
- * default (the public executions-state endpoint is unauthenticated); set
- * `OASIS_TOKEN` to attach `Authorization: Bearer <token>`.
+ * Optional credential for the Oasis API, injected server-side as a `Cookie`
+ * header. Unset by default (the public executions-state endpoint is
+ * unauthenticated); set `OASIS_TOKEN` to a cookie string such as
+ * `MINERVA_TOKEN=<session>` to authenticate. Generate one with
+ * `pnpm oasis:token` (or `pnpm dev:auth`).
  */
 function oasisAuthHeaders(): Record<string, string> {
   const token = process.env.OASIS_TOKEN;
