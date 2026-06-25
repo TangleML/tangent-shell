@@ -37,3 +37,4 @@ ui-dist
 .codanna/*
 .fastembed_cache
 .memory
+.env

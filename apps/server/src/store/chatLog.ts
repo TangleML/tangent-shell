@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ChatMessage } from "@tangent/shared/contracts.ts";
+import { type ChatMessage, PI_AGENT } from "@tangent/shared/contracts.ts";
 
 /** Per-session subdirectory (under `.tangent/`) holding chat JSONL files. */
 const CHATS_DIR = path.join(".tangent", "chats");
@@ -107,12 +107,11 @@ export async function readActivity(
   since?: string,
 ): Promise<ChatActivity> {
   const messages = await readAllMessages(rootPath);
-  let unreadCount = 0;
-  for (const message of messages) {
-    if (message.author.kind !== "agent") continue;
-    if (since && message.createdAt <= since) continue;
-    unreadCount += 1;
-  }
+  const isUnread = (message: ChatMessage): boolean =>
+    message.author.kind === "agent" &&
+    message.conversationId === PI_AGENT.id &&
+    (!since || message.createdAt > since);
+  const unreadCount = messages.filter(isUnread).length;
   const last = messages.at(-1);
   return { unreadCount, lastActivityAt: last?.createdAt };
 }
