@@ -5,6 +5,7 @@ import { Server as SocketIOServer } from "socket.io";
 
 import { PORT } from "./config.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
+import { serveStaticUi } from "./middleware/staticUi.ts";
 import { MemoryManager } from "./pi/memory.ts";
 import { PiAgentManager } from "./pi/piAgentManager.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
@@ -122,6 +123,10 @@ app.use(
 );
 // Internal API for the session extension running inside each Pi process.
 app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
+
+// Serves the built UI + SPA fallback in the combined image so no reverse proxy
+// is needed; no-op in dev. Mounted after every API/internal router.
+serveStaticUi(app);
 
 // Mounted last: async failures from any handler above land here with a
 // consistent `{ error }` shape (Express 5 forwards rejected promises to it).

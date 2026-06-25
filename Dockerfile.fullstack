@@ -1,25 +1,23 @@
-# Combined UI + server image: one exposed port, nginx out front.
+# Combined UI + server image: one exposed port, no reverse proxy.
 #
-# nginx serves the built static UI and reverse-proxies /api and /socket.io
-# (WebSocket upgrade included) to the Node server on loopback:8787 — the same
-# routing the Vite dev proxy provides (see vite.config.ts). The server still
-# spawns the Pi coding agent (`pi`), which shells out to ripgrep/fd/jq/git, so
-# those CLIs are installed alongside the published Pi package.
+# The Node server serves the built static UI, the REST API, and the Socket.IO
+# transport (Express and Socket.IO share one HTTP server) from a single port —
+# the same routing the Vite dev proxy provides (see vite.config.ts). The server
+# also spawns the Pi coding agent (`pi`), which shells out to ripgrep/fd/jq/git,
+# so those CLIs are installed alongside the published Pi package.
 #
 # Layered as three stages so each cache layer is invalidated independently:
-#   1. base    - Node + CLI tools + nginx + Pi (changes rarely)
+#   1. base    - Node + CLI tools + Pi (changes rarely)
 #   2. builder - install deps, bundle the server (dist/) and build the UI (ui-dist/)
-#   3. runtime - copy the compiled bundle + static UI + nginx config and run
+#   3. runtime - copy the compiled bundle + static UI and run
 
 # ---------------------------------------------------------------------------
-# Stage 1: base — Node runtime, the CLI tools Pi needs, nginx, and Pi itself.
+# Stage 1: base — Node runtime, the CLI tools Pi needs, and Pi itself.
 # ---------------------------------------------------------------------------
 FROM node:24-bookworm-slim AS base
 
-# CLI tools the Pi agent's built-in tools (bash/grep/find) rely on at runtime,
-# plus nginx (reverse proxy) and gettext-base (envsubst, used to template the
-# nginx config at startup). Debian ships `fd` as `fdfind`, so expose it under
-# the expected `fd` name.
+# CLI tools the Pi agent's built-in tools (bash/grep/find) rely on at runtime.
+# Debian ships `fd` as `fdfind`, so expose it under the expected `fd` name.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
   git \
@@ -27,8 +25,6 @@ RUN apt-get update \
   fd-find \
   jq \
   ca-certificates \
-  nginx \
-  gettext-base \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && rm -rf /var/lib/apt/lists/*
 
@@ -87,16 +83,19 @@ RUN test -f apps/web/dist/index.html || { echo "missing apps/web/dist/index.html
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: runtime — assemble the final image from base (tools + nginx + Pi)
-# plus the self-contained server bundle and the static UI. No node_modules /
-# pnpm: the bundle inlines all deps.
+# Stage 3: runtime — assemble the final image from base (tools + Pi) plus the
+# self-contained server bundle and the static UI. No node_modules / pnpm: the
+# bundle inlines all deps.
 # ---------------------------------------------------------------------------
 FROM base AS runtime
 
 ENV NODE_ENV=production
-# Cloud Run injects PORT; default to 8000. nginx listens on this externally
-# exposed port; the Node server runs internally on 8787.
+# Cloud Run injects PORT; default to 8000. The Node server listens on this
+# externally exposed port directly.
 ENV PORT=8000
+# Directory the server serves the built static UI from (with an SPA fallback),
+# so the image needs no reverse proxy. See apps/server/src/middleware/staticUi.ts.
+ENV WEB_DIST_DIR=/app/ui-dist
 # Writable locations on Cloud Run for session workspaces and Pi's lockfiles/config.
 ENV SESSIONS_ROOT=/tmp/sessions
 ENV HOME=/tmp
@@ -114,8 +113,7 @@ ENV PI_PROXY_URL=https://proxy.shopify.ai
 COPY --from=builder /app/apps/server/dist ./dist
 COPY --from=builder /app/apps/web/dist ./ui-dist
 
-# nginx config template + process supervisor entrypoint.
-COPY docker/nginx.conf.template /app/docker/nginx.conf.template
+# Process entrypoint.
 COPY docker/docker-entrypoint.sh /app/docker/docker-entrypoint.sh
 RUN chmod +x /app/docker/docker-entrypoint.sh
 
