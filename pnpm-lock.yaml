@@ -243,6 +243,28 @@ importers:
         specifier: ^8.0.14
         version: 8.0.14(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
+  packages/analytics:
+    dependencies:
+      '@tangent/utils':
+        specifier: workspace:*
+        version: link:../utils
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../build
+      '@types/react':
+        specifier: ^19.2.15
+        version: 19.2.15
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      react:
+        specifier: ^19.2.6
+        version: 19.2.6
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/build:
     dependencies:
       '@eslint/js':
@@ -278,6 +300,18 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../build
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/utils:
     devDependencies:
       '@tangent/build':
         specifier: workspace:*
