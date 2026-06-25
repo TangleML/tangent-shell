@@ -18,11 +18,16 @@ import { MessageLayout } from "./MessageLayout";
  * the agent's claim).
  */
 interface MemoryMessageProps {
+  sessionId: string;
   message: ChatMessageType;
   onCollapse?: () => void;
 }
 
-export function MemoryMessage({ message, onCollapse }: MemoryMessageProps) {
+export function MemoryMessage({
+  sessionId,
+  message,
+  onCollapse,
+}: MemoryMessageProps) {
   const scope = message.memory?.scope === "global" ? "global" : "session";
   return (
     <MessageLayout
@@ -47,7 +52,7 @@ export function MemoryMessage({ message, onCollapse }: MemoryMessageProps) {
       }
     >
       <ClampedReveal>
-        <Markdown size="sm" tone="subdued">
+        <Markdown size="sm" tone="subdued" sessionId={sessionId}>
           {message.content}
         </Markdown>
       </ClampedReveal>
