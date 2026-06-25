@@ -2,7 +2,7 @@ import { BlockStack } from "@tangent/ui-primitives/layout";
 import { VerticalResizeHandle } from "@tangent/ui-primitives/resize-handle";
 import { cn } from "@tangent/ui-primitives/utils";
 import { observer } from "mobx-react-lite";
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { CollapsedDockWindowMini } from "./CollapsedDockWindowMini";
 import { registerDockAreaElement } from "./snapUtils";
@@ -16,9 +16,13 @@ import { useWindowStore } from "./WindowStoreContext";
 
 interface DockAreaProps {
   side: "left" | "right";
+  header?: ReactNode;
 }
 
-export const DockArea = observer(function DockArea({ side }: DockAreaProps) {
+export const DockArea = observer(function DockArea({
+  side,
+  header,
+}: DockAreaProps) {
   const windows = useWindowStore();
   const dockArea = windows.getDockAreaConfig(side);
   const { collapsed, windowOrder } = dockArea;
@@ -108,12 +112,13 @@ export const DockArea = observer(function DockArea({ side }: DockAreaProps) {
     <div
       ref={setRef}
       data-dock-area={side}
-      className={cn("relative shrink-0 bg-white")}
+      className={cn("relative shrink-0 bg-white flex flex-col")}
       style={{ width: dockArea.width }}
     >
+      {header ? <div className="shrink-0">{header}</div> : null}
       <div
         data-dock-scroll
-        className="absolute inset-0 overflow-y-auto overflow-x-hidden hide-scrollbar"
+        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden hide-scrollbar"
       >
         <BlockStack>
           {visibleWindows.map((windowId, index) => (

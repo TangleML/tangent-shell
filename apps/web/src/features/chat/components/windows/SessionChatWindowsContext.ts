@@ -1,4 +1,3 @@
-import type { Session } from "@tangent/shared/contracts";
 import { createContext, useContext } from "react";
 
 import type { Agent } from "@/features/chat/model/agents";
@@ -12,9 +11,6 @@ import type { Asset } from "@/features/chat/model/assets";
  */
 export interface SessionChatWindowsValue {
   sessionId: string;
-  draft: boolean;
-  session: Session | undefined;
-  connected: boolean;
   agents: Agent[];
   selectedAgentId: string | null;
   activeTab: string;

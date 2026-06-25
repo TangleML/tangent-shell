@@ -6,7 +6,6 @@ import { AgentsWindowHeader } from "./AgentsWindowHeader";
 import { AssetsWindow } from "./AssetsWindow";
 import { AssetsWindowHeader } from "./AssetsWindowHeader";
 import { SessionSwitcherWindow } from "./SessionSwitcherWindow";
-import { SessionWindow } from "./SessionWindow";
 import { WindowHeaderContent } from "./WindowHeaderContent";
 
 const SHARED_OPTIONS = {
@@ -25,11 +24,6 @@ const SHARED_OPTIONS = {
 export function useSessionChatWindows() {
   const store = useWindowStore();
   useEffect(() => {
-    store.openWindow(<SessionWindow />, {
-      id: "session",
-      title: "Session",
-      ...SHARED_OPTIONS,
-    });
     store.openWindow(<AgentsWindow />, {
       id: "agents",
       title: "Agents",
