@@ -139,6 +139,9 @@ importers:
       '@tangent/ui-primitives':
         specifier: workspace:*
         version: link:../../packages/ui-primitives
+      '@tangent/windows':
+        specifier: workspace:*
+        version: link:../../packages/windows
       '@tanstack/history':
         specifier: 1.162.0
         version: 1.162.0
