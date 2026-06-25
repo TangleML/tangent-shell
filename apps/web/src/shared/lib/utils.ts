@@ -1,9 +1,4 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+export { cn } from "@tangent/ui-primitives/utils";
 
 /**
  * Shorten a string by keeping its head and tail and replacing the middle with

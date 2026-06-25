@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@source "../../../packages/ui-primitives/src";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
