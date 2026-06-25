@@ -67,7 +67,9 @@ export function ArtifactTabView({
       case isPdfArtifact(url):
         return <PdfArtifactBody url={url} title={title} />;
       default:
-        return <IframeArtifactBody url={url} title={title} />;
+        return (
+          <IframeArtifactBody sessionId={sessionId} url={url} title={title} />
+        );
     }
   }
 

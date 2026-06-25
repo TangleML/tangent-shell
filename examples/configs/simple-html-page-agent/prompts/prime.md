@@ -49,69 +49,65 @@ When the user asks for a page with a form that should submit somewhere — for e
 
   `RSVP received. Name: {{body.name}}; Attendance: {{body.attendance}}; Guests: {{body.guests}}; Message: {{body.message}}`
 
-- Wire the generated callback URL into the form’s `action`.
-- Use `method="post"` and `enctype="application/x-www-form-urlencoded"` by default unless the user explicitly requests JSON.
 - Give every form control a stable `name` attribute that matches the callback interpolation fields.
 - Include accessible labels for all form fields.
 - Include a visible success/status message area with `aria-live="polite"`.
 
-### Recommended form submission behavior
+### Submitting a callback (use the host bridge)
 
-For callback-trigger forms in standalone HTML pages:
+The page renders inside a sandboxed preview, so a plain form `action` or a direct `fetch` to the callback URL does **not** work — the request lacks credentials and the path gets rewritten by the proxy. Instead, ask the host to fire the callback on the page's behalf via `window.parent.postMessage`.
 
-- Prefer small vanilla JavaScript that submits with `fetch`.
-- Encode the body with `URLSearchParams(new FormData(form))`.
-- Set the request content type to:
+- Do **not** put the callback URL in the form's `action`. Submit with vanilla JavaScript that calls `preventDefault()`.
+- Post a message shaped exactly like this (the host validates it):
 
-  `application/x-www-form-urlencoded;charset=UTF-8`
+  `{ type: "tangent:callback", requestId, path: CALLBACK_PATH, body }`
 
-- Callback endpoints may successfully receive the POST while the browser cannot read the response because of CORS, opaque responses, local-file behavior, or redirect behavior.
-- Do not show a scary failure message just because the browser cannot inspect the callback response.
-- If needed, use `mode: "no-cors"` and treat the action as submitted after the POST attempt.
-- Phrase fallback messages carefully, for example:
+  - `CALLBACK_PATH` is the path returned when you created the trigger (it starts with `/api/sessions/...`). Pass it unchanged.
+  - `body` is a plain object of string field values, e.g. from `Object.fromEntries(new FormData(form))`. Text inputs only.
+  - `requestId` is any unique string you generate (e.g. `crypto.randomUUID()`), used to match the host's reply.
+  - Form encoding defaults to `application/x-www-form-urlencoded`; add `encoding: "json"` to the message to send JSON instead.
 
-  `RSVP submitted, but the browser could not read the callback response. Check the session for the RSVP echo.`
-
-- Do not claim the callback failed if the page may have successfully posted the form.
+- The host replies with a `message` event `{ type: "tangent:callback:result", requestId, ok, status }`. Match `requestId`, then show success when `ok` is true and a calm retry message otherwise. Don't show a scary failure before the reply arrives.
 
 Example client-side submit pattern:
 
 ```html
-<form
-  id="rsvp-form"
-  method="post"
-  action="CALLBACK_URL"
-  enctype="application/x-www-form-urlencoded"
->
+<form id="rsvp-form">
   <!-- fields with name attributes -->
 </form>
 
 <script>
+  const CALLBACK_PATH = "CALLBACK_PATH"; // from trigger creation
   const form = document.querySelector("#rsvp-form");
   const status = document.querySelector("#status");
 
-  form.addEventListener("submit", async (event) => {
+  form.addEventListener("submit", (event) => {
     event.preventDefault();
     status.textContent = "Sending...";
 
-    const body = new URLSearchParams(new FormData(form));
+    const requestId = crypto.randomUUID();
+    const body = Object.fromEntries(new FormData(form));
 
-    try {
-      await fetch(form.action, {
-        method: "POST",
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        },
-        body,
-      });
-
-      status.textContent = "Submitted! Watch for the callback echo.";
-      form.reset();
-    } catch (error) {
-      status.textContent =
-        "Submitted, but the browser could not read the callback response. Check the session for the echo.";
+    function onResult(event) {
+      const data = event.data;
+      if (!data || data.type !== "tangent:callback:result") return;
+      if (data.requestId !== requestId) return;
+      window.removeEventListener("message", onResult);
+      if (data.ok) {
+        status.textContent = "Submitted! Watch for the echo in the session.";
+        form.reset();
+      } else {
+        status.textContent = "Could not submit just now — please try again.";
+      }
     }
+
+    window.addEventListener("message", onResult);
+    window.parent.postMessage(
+      { type: "tangent:callback", requestId, path: CALLBACK_PATH, body },
+      "*",
+    );
   });
 </script>
 ```
+
+For links that open another site, use a normal `<a href="https://..." target="_blank" rel="noopener">` — it opens in a new tab. To open a link from script, post `{ type: "tangent:openUrl", url }` to `window.parent` instead.
