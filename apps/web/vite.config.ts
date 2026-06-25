@@ -25,6 +25,24 @@ export default defineConfig({
     __API_ORIGIN__: JSON.stringify(process.env.API_TARGET ?? ""),
   },
   plugins: [
+    // oxc (the transform behind @vitejs/plugin-react@6) does not lower TC39
+    // standard decorators, so it would pass MobX's `@observable accessor`
+    // through unchanged and break at runtime (oxc-project/oxc#20133). A
+    // dedicated Babel pre-pass lowers decorators in @tangent/windows' .ts model
+    // files before oxc strips types. Kept separate from the react-compiler pass
+    // so the compiler preset's file filter doesn't skip this workspace package,
+    // and to avoid TSX-vs-TS parsing conflicts (decorators live only in .ts).
+    babel({
+      include: /packages[\\/]windows[\\/]src[\\/].+\.ts$/,
+      exclude: /node_modules/,
+      plugins: [
+        [
+          "@babel/plugin-syntax-typescript",
+          { allExtensions: false, isTSX: false },
+        ],
+        ["@babel/plugin-proposal-decorators", { version: "2023-05" }],
+      ],
+    }),
     // React Compiler runs as a Babel preset. @vitejs/plugin-react@6 dropped
     // inline Babel, so it is wired in through @rolldown/plugin-babel. The babel
     // step must run before react() so the compiler sees source JSX, not the
