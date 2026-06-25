@@ -25,22 +25,23 @@ export function useSessionChatWindows() {
   const store = useWindowStore();
   useEffect(() => {
     store.openWindow(<AgentsWindow />, {
+      ...SHARED_OPTIONS,
       id: "agents",
       title: "Agents",
       header: <AgentsWindowHeader />,
-      ...SHARED_OPTIONS,
     });
     store.openWindow(<AssetsWindow />, {
+      ...SHARED_OPTIONS,
       id: "assets",
       title: "Assets",
       header: <AssetsWindowHeader />,
-      ...SHARED_OPTIONS,
     });
     store.openWindow(<SessionSwitcherWindow />, {
+      ...SHARED_OPTIONS,
       id: "sessions",
       title: "Sessions",
       header: <WindowHeaderContent icon="Layers" title="Other sessions" />,
-      ...SHARED_OPTIONS,
+      defaultDockState: "right",
     });
   }, [store]);
 }
