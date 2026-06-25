@@ -26,6 +26,7 @@ export class WindowStoreImpl implements WindowStoreRef {
    * React Compiler issues. React elements must never be stored in an observable.
    */
   private contentMap = new Map<string, ReactNode>();
+  private headerMap = new Map<string, ReactNode>();
   private miniContentMap = new Map<string, ReactNode>();
   @observable.shallow accessor windows: Record<string, WindowModel> = {};
   @observable.shallow accessor windowOrder: string[] = [];
@@ -69,9 +70,11 @@ export class WindowStoreImpl implements WindowStoreRef {
   private focusExistingWindow(
     id: string,
     content: ReactNode,
+    header: ReactNode,
     existing: WindowModel,
   ): WindowRef {
     this.contentMap.set(id, content);
+    this.setHeader(id, header);
     this.bringToFront(id);
     if (existing.state === "hidden" || existing.isMinimized) {
       existing.restore();
@@ -94,10 +97,11 @@ export class WindowStoreImpl implements WindowStoreRef {
 
     const existing = this.windows[id];
     if (existing) {
-      return this.focusExistingWindow(id, content, existing);
+      return this.focusExistingWindow(id, content, options.header, existing);
     }
 
     this.contentMap.set(id, content);
+    this.setHeader(id, options.header);
     if (options.miniContent !== undefined) {
       this.miniContentMap.set(id, options.miniContent);
     }
@@ -127,6 +131,7 @@ export class WindowStoreImpl implements WindowStoreRef {
     this.removeFromDockAreaOrder(id);
     delete this.windows[id];
     this.contentMap.delete(id);
+    this.headerMap.delete(id);
     this.miniContentMap.delete(id);
 
     const index = this.windowOrder.indexOf(id);
@@ -359,6 +364,18 @@ export class WindowStoreImpl implements WindowStoreRef {
 
   getWindowContent(id: string): ReactNode | undefined {
     return this.contentMap.get(id);
+  }
+
+  getWindowHeader(id: string): ReactNode | undefined {
+    return this.headerMap.get(id);
+  }
+
+  private setHeader(id: string, header: ReactNode): void {
+    if (header === undefined) {
+      this.headerMap.delete(id);
+      return;
+    }
+    this.headerMap.set(id, header);
   }
 
   getWindowMiniContent(id: string): ReactNode | undefined {

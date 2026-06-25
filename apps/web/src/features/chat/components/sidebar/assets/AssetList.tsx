@@ -5,11 +5,8 @@ import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
 import { apiUrl } from "@/shared/lib/basePath";
 import { Box } from "@/shared/ui/box";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
+import { BlockStack } from "@/shared/ui/layout";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
-import { Toolbar } from "@/shared/ui/patterns/toolbar";
-import { Text } from "@/shared/ui/typography";
 
 import { AssetCard } from "./AssetCard";
 import { AssetRowActions } from "./AssetRowActions";
@@ -56,19 +53,6 @@ export function AssetList({
 
   return (
     <BlockStack align="stretch">
-      <Toolbar chrome="light" gap="2" align="space-between">
-        <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-          <Icon name="LayoutGrid" size="md" tone="subdued" />
-          <Text size="xs" weight="medium">
-            Assets
-          </Text>
-        </InlineStack>
-        {assets.length > 0 ? (
-          <Text size="xs" tone="subdued">
-            {assets.length}
-          </Text>
-        ) : null}
-      </Toolbar>
       {assets.length === 0 ? (
         <Box padding="base">
           <EmptyState

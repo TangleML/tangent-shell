@@ -21,9 +21,10 @@ export const Window = observer(function Window({
   if (!model || model.state === "hidden") return null;
 
   const content = windows.getWindowContent(windowId);
+  const header = windows.getWindowHeader(windowId);
 
   return (
-    <WindowContextProvider value={{ model, content, dockIndex }}>
+    <WindowContextProvider value={{ model, content, header, dockIndex }}>
       {docked ? <DockedWindow /> : <FloatingWindow />}
     </WindowContextProvider>
   );

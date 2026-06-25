@@ -1,9 +1,6 @@
 import type { Agent } from "@/features/chat/model/agents";
 import { Box } from "@/shared/ui/box";
-import { Icon } from "@/shared/ui/icon";
-import { BlockStack, InlineStack } from "@/shared/ui/layout";
-import { Toolbar } from "@/shared/ui/patterns/toolbar";
-import { Text } from "@/shared/ui/typography";
+import { BlockStack } from "@/shared/ui/layout";
 
 import { AgentCard } from "./AgentCard";
 
@@ -32,18 +29,7 @@ export function AgentList({
   onRemove,
 }: AgentListProps) {
   return (
-    <BlockStack gap="0" align="stretch">
-      <Toolbar chrome="light" gap="2" align="space-between">
-        <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-          <Icon name="Bot" size="md" tone="subdued" />
-          <Text size="xs" weight="medium">
-            Agents
-          </Text>
-        </InlineStack>
-        <Text size="xs" tone="subdued">
-          {agents.length}
-        </Text>
-      </Toolbar>
+    <BlockStack align="stretch">
       <Box padding="sm">
         <BlockStack as="ul" gap="1">
           {agents.map((agent) => (
