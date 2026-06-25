@@ -5,24 +5,13 @@ import { observer } from "mobx-react-lite";
 
 import { useWindowContext } from "../ContentWindowStateContext";
 
-const lightButtonClassName =
-  "h-5 w-5 text-gray-700 hover:text-gray-900 hover:bg-white/50";
-const darkButtonClassName =
-  "h-5 w-5 text-gray-300 hover:text-white hover:bg-white/10";
-
-const lightCloseButtonClassName =
-  "h-5 w-5 text-gray-500 hover:text-red-500 hover:bg-gray-300";
-const darkCloseButtonClassName =
-  "h-5 w-5 text-gray-300 hover:text-red-400 hover:bg-white/10";
+const buttonClassName =
+  "h-5 w-5 text-muted-foreground hover:text-foreground hover:bg-accent";
+const closeButtonClassName =
+  "h-5 w-5 text-muted-foreground hover:text-destructive hover:bg-accent";
 
 export const WindowActions = observer(function WindowActions() {
   const { model } = useWindowContext();
-  const buttonClassName = model.isDocked
-    ? lightButtonClassName
-    : darkButtonClassName;
-  const closeButtonClassName = model.isDocked
-    ? lightCloseButtonClassName
-    : darkCloseButtonClassName;
 
   return (
     <div

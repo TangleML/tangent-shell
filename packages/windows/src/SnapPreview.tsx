@@ -53,7 +53,7 @@ function EdgeDockPreview({
 
   return (
     <div
-      className="fixed pointer-events-none z-[100] bg-blue-500/20 border-2 border-blue-500/50 border-dashed rounded-lg transition-all duration-150"
+      className="fixed pointer-events-none z-[100] bg-primary/20 border-2 border-primary/50 border-dashed rounded-lg transition-all duration-150"
       style={{
         left: side === "left" ? 0 : window.innerWidth - windowWidth,
         top: viewportTopOffset,
@@ -62,7 +62,7 @@ function EdgeDockPreview({
       }}
     >
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="bg-blue-500/80 text-white text-xs px-2 py-1 rounded font-medium">
+        <div className="bg-primary/80 text-primary-foreground text-xs px-2 py-1 rounded font-medium">
           Dock {side}
         </div>
       </div>
@@ -95,8 +95,8 @@ function DockInsertPreview({
         height: 4,
       }}
     >
-      <div className="h-full bg-blue-500 rounded-full" />
-      <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-blue-500 rounded-full border-2 border-white" />
+      <div className="h-full bg-primary rounded-full" />
+      <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary rounded-full border-2 border-background" />
     </div>
   );
 }
