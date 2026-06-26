@@ -55,59 +55,6 @@ When the user asks for a page with a form that should submit somewhere — for e
 
 ### Submitting a callback (use the host bridge)
 
-The page renders inside a sandboxed preview, so a plain form `action` or a direct `fetch` to the callback URL does **not** work — the request lacks credentials and the path gets rewritten by the proxy. Instead, ask the host to fire the callback on the page's behalf via `window.parent.postMessage`.
+The page renders in a sandboxed preview, so a form `action` or a direct `fetch` to the callback URL does **not** work. Use the **`page-host-bridge`** skill: the page posts the callback to its host with `window.parent.postMessage` and the host fires it on the page's behalf. Follow that skill's pattern exactly — never put the callback URL in a form `action` or `fetch` it directly.
 
-- Do **not** put the callback URL in the form's `action`. Submit with vanilla JavaScript that calls `preventDefault()`.
-- Post a message shaped exactly like this (the host validates it):
-
-  `{ type: "tangent:callback", requestId, path: CALLBACK_PATH, body }`
-
-  - `CALLBACK_PATH` is the path returned when you created the trigger (it starts with `/api/sessions/...`). Pass it unchanged.
-  - `body` is a plain object of string field values, e.g. from `Object.fromEntries(new FormData(form))`. Text inputs only.
-  - `requestId` is any unique string you generate (e.g. `crypto.randomUUID()`), used to match the host's reply.
-  - Form encoding defaults to `application/x-www-form-urlencoded`; add `encoding: "json"` to the message to send JSON instead.
-
-- The host replies with a `message` event `{ type: "tangent:callback:result", requestId, ok, status }`. Match `requestId`, then show success when `ok` is true and a calm retry message otherwise. Don't show a scary failure before the reply arrives.
-
-Example client-side submit pattern:
-
-```html
-<form id="rsvp-form">
-  <!-- fields with name attributes -->
-</form>
-
-<script>
-  const CALLBACK_PATH = "CALLBACK_PATH"; // from trigger creation
-  const form = document.querySelector("#rsvp-form");
-  const status = document.querySelector("#status");
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    status.textContent = "Sending...";
-
-    const requestId = crypto.randomUUID();
-    const body = Object.fromEntries(new FormData(form));
-
-    function onResult(event) {
-      const data = event.data;
-      if (!data || data.type !== "tangent:callback:result") return;
-      if (data.requestId !== requestId) return;
-      window.removeEventListener("message", onResult);
-      if (data.ok) {
-        status.textContent = "Submitted! Watch for the echo in the session.";
-        form.reset();
-      } else {
-        status.textContent = "Could not submit just now — please try again.";
-      }
-    }
-
-    window.addEventListener("message", onResult);
-    window.parent.postMessage(
-      { type: "tangent:callback", requestId, path: CALLBACK_PATH, body },
-      "*",
-    );
-  });
-</script>
-```
-
-For links that open another site, use a normal `<a href="https://..." target="_blank" rel="noopener">` — it opens in a new tab. To open a link from script, post `{ type: "tangent:openUrl", url }` to `window.parent` instead.
+Links that open another site use a normal `<a href="https://..." target="_blank" rel="noopener">`; see the skill to open one from script.
