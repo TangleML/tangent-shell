@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: simple-html-page-agent
 name: Simple HTML Page Agent
-version: 1.9.0
+version: 1.10.0
 description: Builds simple standalone HTML page pieces with playful animated SVG illustrations from the user's first prompt onward.
 author: Tangent
 icon: icon.svg
@@ -24,4 +24,3 @@ prime:
 
 skills:
   - skills/simple-html-pages/SKILL.md
-  - skills/page-host-bridge/SKILL.md

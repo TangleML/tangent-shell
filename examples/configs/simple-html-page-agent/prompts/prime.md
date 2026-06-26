@@ -51,10 +51,18 @@ When the user asks for a page with a form that should submit somewhere — for e
 
 - Give every form control a stable `name` attribute that matches the callback interpolation fields.
 - Include accessible labels for all form fields.
-- Include a visible success/status message area with `aria-live="polite"`.
 
-### Submitting a callback (use the host bridge)
+### Submitting a callback (plain form)
 
-The page renders in a sandboxed preview, so a form `action` or a direct `fetch` to the callback URL does **not** work. Use the **`page-host-bridge`** skill: the page posts the callback to its host with `window.parent.postMessage` and the host fires it on the page's behalf. Follow that skill's pattern exactly — never put the callback URL in a form `action` or `fetch` it directly.
+Point the form at the callback path returned when you created the trigger — the shell wires up submission automatically. Write a normal form and **no JavaScript**:
 
-Links that open another site use a normal `<a href="https://..." target="_blank" rel="noopener">`; see the skill to open one from script.
+- Set the form's `action` to the callback path (it starts with `/api/sessions/...`) and `method="post"`.
+- Keep field `name`s matching the trigger's `{{body.field}}` interpolation.
+- Optionally place a status element where you want the result message:
+  `<p data-tangent-status aria-live="polite"></p>`. If you omit it, one is added
+  after the form. Control the wording with `data-success` / `data-error` on it.
+- Do not add `fetch`/`onsubmit` JavaScript and do not rewrite the callback URL —
+  the shell intercepts the submit, fires the callback with credentials, and fills
+  in the status message.
+
+Links that open another site use a normal `<a href="https://..." target="_blank" rel="noopener">`.

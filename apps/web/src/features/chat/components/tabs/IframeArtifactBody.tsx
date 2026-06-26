@@ -22,9 +22,10 @@ interface IframeArtifactBodyProps {
  * Relative page assets still resolve since they load against the document URL.
  *
  * `allow-popups-to-escape-sandbox` lets `target="_blank"` links open as a normal
- * top-level tab. {@link usePageBridge} gives the page a postMessage channel for
- * firing trigger callbacks and opening links, since the sandbox blocks both
- * directly.
+ * top-level tab. The sandbox blocks the page from firing trigger callbacks
+ * directly, so the server injects a bridge client into served HTML that posts
+ * the callback to {@link usePageBridge}, which fires it with the app's
+ * credentials on the page's behalf.
  */
 export function IframeArtifactBody({
   sessionId,

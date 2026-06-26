@@ -27,6 +27,7 @@ import { PRIME_AGENT_ID } from "../../pi/types.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import { readActivity } from "../../store/chatLog.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
+import { injectPageBridge } from "./pageBridge.ts";
 import type {
   CreateSessionInput,
   SessionParams,
@@ -101,13 +102,33 @@ export function createArtifactFileHandler() {
       return;
     }
 
-    // Serve relative to the session root: `send` only applies its dotfile
-    // check to the path after `root`, so the `.sessions` root dir doesn't
-    // trip it up. `sendFile` derives the Content-Type from the extension.
-    res.sendFile(rel, { root: rootPath }, (err) => {
-      if (err) res.status(404).end();
-    });
+    serveArtifact(res, rootPath, rel, target);
   };
+}
+
+/**
+ * Sends a validated artifact. HTML gets the page bridge injected so its forms
+ * can fire trigger callbacks through the sandboxed frame's parent; everything
+ * else streams via `sendFile`, which derives the Content-Type from the extension
+ * and only applies its dotfile check to the path after `root`.
+ */
+function serveArtifact(
+  res: Response,
+  rootPath: string,
+  rel: string,
+  target: string,
+): void {
+  if (/\.html?$/i.test(rel)) {
+    fs.readFile(target, "utf8", (err, html) => {
+      if (err) res.status(404).end();
+      else res.type("html").send(injectPageBridge(html));
+    });
+    return;
+  }
+
+  res.sendFile(rel, { root: rootPath }, (err) => {
+    if (err) res.status(404).end();
+  });
 }
 
 /**
