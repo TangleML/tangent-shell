@@ -7,7 +7,7 @@ set -euo pipefail
 
 # nginx owns the externally exposed port (Cloud Run injects PORT; default 8000).
 export PORT="${PORT:-8000}"
-envsubst '${PORT}' < /app/docker/nginx.conf.template > /etc/nginx/conf.d/default.conf
+envsubst '${PORT}' < /app/docker/nginx.conf.template > /app/docker/nginx.conf
 
 # Internal Node server on a fixed loopback port, kept distinct from nginx's PORT
 # so config.ts's INTERNAL_URL (http://127.0.0.1:${PORT}) resolves to the server
@@ -15,7 +15,7 @@ envsubst '${PORT}' < /app/docker/nginx.conf.template > /etc/nginx/conf.d/default
 PORT=8787 node /app/dist/index.js &
 node_pid=$!
 
-nginx -g 'daemon off;' &
+nginx -c /app/docker/nginx.conf -g 'daemon off;' &
 nginx_pid=$!
 
 # Whichever process exits first, stop the other and fail so the container exits.
