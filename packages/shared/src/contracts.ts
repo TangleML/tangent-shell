@@ -768,3 +768,61 @@ export const SocketEvents = {
 } as const;
 
 export type SocketEvent = (typeof SocketEvents)[keyof typeof SocketEvents];
+
+/**
+ * Messages a sandboxed page-preview artifact posts to its host frame via
+ * `window.parent.postMessage`. The preview iframe runs at an opaque origin (no
+ * `allow-same-origin`), so the host can neither read its DOM nor trust the
+ * message origin — it validates by source window instead. The host performs the
+ * privileged action on the page's behalf: it carries the deployment's
+ * same-origin credentials and re-bases paths onto the proxy mount, so a page
+ * cannot reach either by itself. The `tangent:` prefix avoids colliding with
+ * framework/library postMessages.
+ */
+export type PageBridgeMessage =
+  | {
+      type: "tangent:callback";
+      /** Correlates the host's result message back to this request. */
+      requestId: string;
+      /** Origin-root trigger callback path the page already holds. */
+      path: string;
+      /** Form fields to submit; defaults to an empty body. */
+      body?: Record<string, string>;
+      /** Wire encoding; defaults to form-urlencoded. */
+      encoding?: "form" | "json";
+    }
+  | { type: "tangent:openUrl"; url: string };
+
+/** Host's reply to a `tangent:callback` message. */
+export interface PageCallbackResult {
+  type: "tangent:callback:result";
+  requestId: string;
+  ok: boolean;
+  status: number;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).every((v) => typeof v === "string");
+}
+
+/** Narrows an untrusted postMessage payload to a {@link PageBridgeMessage}. */
+export function isPageBridgeMessage(data: unknown): data is PageBridgeMessage {
+  if (typeof data !== "object" || data === null) return false;
+  const msg = data as Record<string, unknown>;
+  switch (msg.type) {
+    case "tangent:callback":
+      return (
+        typeof msg.requestId === "string" &&
+        typeof msg.path === "string" &&
+        (msg.body === undefined || isStringRecord(msg.body)) &&
+        (msg.encoding === undefined ||
+          msg.encoding === "form" ||
+          msg.encoding === "json")
+      );
+    case "tangent:openUrl":
+      return typeof msg.url === "string";
+    default:
+      return false;
+  }
+}
