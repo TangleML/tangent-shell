@@ -8,7 +8,7 @@
 #
 # Arguments:
 #   SOURCE_DIR            Bundle source folder (default:
-#                         examples/configs/tangle-ml-pipeline-optimizer).
+#                         examples/tangle-ml-pipeline-optimizer).
 #                         May also be passed via -s/--source.
 #
 # Options:
@@ -25,14 +25,14 @@
 #   -h, --help            Show this help.
 #
 # The bundle id and version are read from <SOURCE_DIR>/tangent.yaml. The packed
-# archive lands at examples/configs/<id>.zip (see scripts/pack-bundle.mjs).
+# archive lands at examples/<id>.zip (see scripts/pack-bundle.mjs).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-SOURCE_DIR="examples/configs/tangle-ml-pipeline-optimizer"
+SOURCE_DIR="examples/tangle-ml-pipeline-optimizer"
 BUMP="minor"
 SERVER="http://localhost:8787"
 DO_INSTALL=1
@@ -99,9 +99,9 @@ deploy_one() {
   echo "Bundle:  $BUNDLE_ID@$BUNDLE_VERSION"
   echo "Source:  $SOURCE_DIR"
 
-  # Pack into examples/configs/<id>.zip.
+  # Pack into examples/<id>.zip.
   pnpm pack:bundle "$SOURCE_DIR"
-  ZIP_PATH="examples/configs/$BUNDLE_ID.zip"
+  ZIP_PATH="examples/$BUNDLE_ID.zip"
 
   if [[ "$DO_INSTALL" -eq 0 ]]; then
     echo "Packed (install skipped): $ZIP_PATH"
