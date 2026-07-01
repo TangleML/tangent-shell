@@ -98,7 +98,7 @@ See [`apps/web/src/shared/ui/DESIGN_SYSTEM.md`](apps/web/src/shared/ui/DESIGN_SY
 
 ```bash
 pnpm install
-pnpm dev          # runs server + web via Turbo
+PI_PROXY_URL="https://proxy..." PI_PROXY_API_KEY="...." pnpm dev
 ```
 
 `pnpm dev` sets the session/bundle/memory paths to local gitignored folders (`.sessions`,
