@@ -406,6 +406,11 @@ function readInstalledEntries(installRoot: string): ZipEntries {
         walk(abs);
         continue;
       }
+      if (!entry.isFile()) {
+        const rel = path.relative(installRoot, abs).split(path.sep).join("/");
+        console.warn(`bundle: skipping non-file entry "${rel}"`);
+        continue;
+      }
       const rel = path.relative(installRoot, abs).split(path.sep).join("/");
       entries[rel] = new Uint8Array(readFileSync(abs));
     }
