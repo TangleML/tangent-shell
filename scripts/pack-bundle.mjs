@@ -4,9 +4,9 @@
  * Usage:
  *   node scripts/pack-bundle.mjs [sourceDir]
  *
- * `sourceDir` defaults to `examples/configs/research-assistant`. The folder's
+ * `sourceDir` defaults to `examples/tangle-oss`. The folder's
  * `tangent.yaml` is read to derive the bundle `id`, and the archive is written
- * to `examples/configs/<id>.zip`.
+ * to `examples/<id>.zip`.
  *
  * The walk skips dotfiles and OS junk, uses forward-slash relative paths, and
  * rejects any entry that would escape the source root. A fixed mtime is used so
@@ -22,8 +22,8 @@ import { parse as parseYaml } from "yaml";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const DEFAULT_SOURCE = "examples/configs/research-assistant";
-const OUTPUT_DIR = "examples/configs";
+const DEFAULT_SOURCE = "examples/tangle-oss";
+const OUTPUT_DIR = "examples";
 
 /** Skip OS junk and any dotfile/dotdir. */
 function shouldSkip(name) {

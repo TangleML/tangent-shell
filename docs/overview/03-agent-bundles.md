@@ -45,7 +45,7 @@ everything else is optional and auto-discovered when present.
 
 ## A real example: the Tangle ML Pipeline Optimizer
 
-The example bundle in `examples/configs/tangle-ml-pipeline-optimizer` is a
+The example bundle in `examples/tangle-ml-pipeline-optimizer` is a
 working expert. Its manifest declares who it is, the exact tools Prime may use
 (including custom `tangle_*` tools that call a real ML platform), a set of
 specialist sub-agents, and three custom UI components:

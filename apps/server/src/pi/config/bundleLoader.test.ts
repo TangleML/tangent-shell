@@ -19,10 +19,7 @@ import { installBundle, loadInstalledConfig } from "./bundleLoader.ts";
 const here = path.dirname(fileURLToPath(import.meta.url));
 // apps/server/src/pi/config -> repo root is five levels up.
 const repoRoot = path.resolve(here, "../../../../..");
-const EXAMPLE_BUNDLE = path.join(
-  repoRoot,
-  "examples/configs/research-assistant",
-);
+const EXAMPLE_BUNDLE = path.join(repoRoot, "examples/research-assistant");
 
 /** Collects a bundle source dir into the POSIX-keyed entries fflate zips. */
 function collectFiles(

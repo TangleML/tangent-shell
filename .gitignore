@@ -43,3 +43,5 @@ ui-dist
 .fastembed_cache
 .memory
 .env
+examples/local
+examples/*.zip

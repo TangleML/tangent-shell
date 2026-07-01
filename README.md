@@ -18,7 +18,7 @@ workflow — research, code generation, document building, scheduled automation,
   and tool calls.
 - **Agent Bundles** — Portable `.zip` packages that preconfigure a session with a system
   prompt, tool allowlist, skills, workflows, sub-agent templates, seed memory, triggers, and
-  optional custom UI. A handful of ready-to-use bundles ship in [`examples/configs`](examples/configs).
+  optional custom UI. A handful of ready-to-use bundles ship in [`examples`](examples).
 - **Sub-agent orchestration** — Prime delegates work to specialist sub-agents (researcher,
   builder, reviewer, …) that run in parallel in a shared workspace and report back.
 - **Memory** — Per-session memory plus a global, cross-session store the agent reads and
@@ -107,7 +107,7 @@ pnpm dev          # runs server + web via Turbo
 To load the example agent bundles into your local marketplace:
 
 ```bash
-pnpm seed         # installs bundles from examples/configs
+pnpm seed         # installs bundles from examples
 ```
 
 ### Configuration

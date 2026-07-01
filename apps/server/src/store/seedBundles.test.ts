@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { zipSync } from "fflate";
 
 import { FileAgentBundleStore } from "./fileAgentBundleStore.ts";
 import { seedExampleBundles } from "./seedBundles.ts";
@@ -11,7 +19,39 @@ import { seedExampleBundles } from "./seedBundles.ts";
 const here = path.dirname(fileURLToPath(import.meta.url));
 // apps/server/src/store -> repo root is four levels up.
 const repoRoot = path.resolve(here, "../../../..");
-const EXAMPLES_DIR = path.join(repoRoot, "examples/configs");
+const EXAMPLES_SRC = path.join(repoRoot, "examples");
+
+/** Collects a bundle source dir into the POSIX-keyed entries fflate zips. */
+function collectFiles(
+  root: string,
+  dir: string,
+  files: Record<string, Uint8Array>,
+): Record<string, Uint8Array> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectFiles(root, abs, files);
+      continue;
+    }
+    const rel = path.relative(root, abs).split(path.sep).join("/");
+    files[rel] = new Uint8Array(readFileSync(abs));
+  }
+  return files;
+}
+
+/** Packs every `examples/<name>/` source folder into `<dir>/<name>.zip`. */
+function packExamplesInto(dir: string): void {
+  for (const entry of readdirSync(EXAMPLES_SRC, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const src = path.join(EXAMPLES_SRC, entry.name);
+    const files = collectFiles(src, src, {});
+    if (!("tangent.yaml" in files)) continue;
+    writeFileSync(
+      path.join(dir, `${entry.name}.zip`),
+      Buffer.from(zipSync(files)),
+    );
+  }
+}
 
 /** Runs `body` with `SEED_BUNDLES_DIR` set, restoring it afterwards. */
 async function withSeedDir(dir: string, body: () => Promise<void>) {
@@ -22,6 +62,17 @@ async function withSeedDir(dir: string, body: () => Promise<void>) {
   } finally {
     if (prev === undefined) delete process.env.SEED_BUNDLES_DIR;
     else process.env.SEED_BUNDLES_DIR = prev;
+  }
+}
+
+/** Packs the real example sources into a throwaway zip dir for `body`. */
+async function withPackedExamples(body: (dir: string) => Promise<void>) {
+  const dir = mkdtempSync(path.join(tmpdir(), "seed-src-"));
+  packExamplesInto(dir);
+  try {
+    await withSeedDir(dir, () => body(dir));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -37,7 +88,7 @@ function tempStore(): { store: FileAgentBundleStore; cleanup: () => void } {
 test("seeds the example bundles into an empty marketplace", async () => {
   const { store, cleanup } = tempStore();
   try {
-    await withSeedDir(EXAMPLES_DIR, async () => {
+    await withPackedExamples(async () => {
       const installed = await seedExampleBundles(store);
       const bundles = await store.list();
 
@@ -56,7 +107,7 @@ test("seeds the example bundles into an empty marketplace", async () => {
 test("is a no-op against an already-populated marketplace", async () => {
   const { store, cleanup } = tempStore();
   try {
-    await withSeedDir(EXAMPLES_DIR, async () => {
+    await withPackedExamples(async () => {
       const first = await seedExampleBundles(store);
       assert.ok(first >= 1);
 

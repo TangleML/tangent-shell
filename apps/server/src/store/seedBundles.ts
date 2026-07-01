@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { AgentBundleStore } from "./agentBundleStore.ts";
 
-// Set by the `pnpm seed` script (to "$PWD/examples/configs").
+// Set by the `pnpm seed` script (to "$PWD/examples").
 function exampleBundlesDir(): string {
   const dir = process.env.SEED_BUNDLES_DIR;
   if (!dir) throw new Error("SEED_BUNDLES_DIR is not set; run via `pnpm seed`");
