@@ -17,7 +17,7 @@
     "TANGENT_INTERNAL_URL",
     "TANGENT_INTERNAL_TOKEN",
     "TANGLE_API_URL",
-    "OASIS_TOKEN"
+    "TANGLE_TOKEN"
   ],
   "tasks": {
     "build": {

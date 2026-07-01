@@ -49,7 +49,7 @@ conditionally mounted for dev use `env.isDev` from `@/shared/config/env`.
 ## Router config
 
 `apps/web/src/routes/router.tsx` creates the router. It mounts under the proxy sub-path via
-`BASE_PREFIX` (from `@/shared/lib/basePath`) so client routing resolves behind the oasis pod-proxy:
+`BASE_PREFIX` (from `@/shared/lib/basePath`) so client routing resolves behind the tangle pod-proxy:
 
 ```typescript
 export const router = createRouter({

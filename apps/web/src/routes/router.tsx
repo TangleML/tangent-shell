@@ -9,7 +9,7 @@ export const router = createRouter({
   routeTree,
   history: createBrowserHistory(),
   // Mount the router under the proxy sub-path so client-side routing resolves
-  // relative to the oasis pod-proxy prefix (`/` at the origin root).
+  // relative to the tangle pod-proxy prefix (`/` at the origin root).
   basepath: BASE_PREFIX,
   defaultPreload: "intent",
 });

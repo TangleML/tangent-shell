@@ -6,7 +6,7 @@ import { DEFAULT_USER } from "../model/userDisplay";
 
 /**
  * Fetches the current user from `GET /api/me`. The endpoint returns `401`/`501`
- * when no Minerva JWT is present (e.g. local development), so any non-ok
+ * when no Oktasso JWT is present (e.g. local development), so any non-ok
  * response resolves to {@link DEFAULT_USER} rather than throwing — the UI always
  * has an identity to render.
  */

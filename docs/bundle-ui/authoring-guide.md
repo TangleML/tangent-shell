@@ -56,7 +56,7 @@ renders a progress chip:
 import { BlockStack, Card, host, Progress, Text } from "@tangent/bundle-ui";
 import { useEffect, useState } from "react";
 
-const OASIS_BASE = "https://oasis.shopify.io/api/executions";
+const TANGLE_BASE = "https://tangle.example.com/api/executions";
 
 export default function PipelineProgress() {
   const [executionId, setExecutionId] = useState<string | null>(null);
@@ -79,7 +79,7 @@ export default function PipelineProgress() {
     const tick = async () => {
       try {
         // A real, allowlisted endpoint — the host proxy validates the URL.
-        const res = await host.fetch(`${OASIS_BASE}/${executionId}/state`);
+        const res = await host.fetch(`${TANGLE_BASE}/${executionId}/state`);
         if (active && res.ok) {
           const s = (res.json as { child_execution_status_summary?: unknown })
             ?.child_execution_status_summary as

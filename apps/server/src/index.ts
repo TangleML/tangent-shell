@@ -99,7 +99,7 @@ app.use(
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
-// Returns the current user, derived from the Minerva JWT cookie.
+// Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use("/internal/agents", createInternalAgentsRouter(store, pi));

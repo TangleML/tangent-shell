@@ -54,7 +54,7 @@ function pickString(
 
 /**
  * Resolves the current {@link UserIdentity} from a raw `Cookie` header. Reads
- * the Minerva JWT from {@link AUTH_JWT_TOKEN_COOKIE_NAME}, decodes its payload
+ * the Oktasso JWT from {@link AUTH_JWT_TOKEN_COOKIE_NAME}, decodes its payload
  * (no signature check), and maps the email + name claims onto the identity.
  *
  * Returns `null` when the cookie name is unconfigured, the cookie is missing,

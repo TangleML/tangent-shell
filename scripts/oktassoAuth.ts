@@ -1,9 +1,9 @@
 /**
- * Minerva (Shopify SSO) authentication via Okta PKCE flow.
+ * Oktasso SSO authentication via Okta PKCE flow.
  *
- * Mirrors `rowlet.auth.MinervaAuth` (Python) — the helper that `tangle_deploy`
- * uses to obtain a `MINERVA_TOKEN` cookie for authenticated requests against
- * Oasis / Tangle.
+ * Mirrors `rowlet.auth.OktassoAuth` (Python) — the helper that `tangle_deploy`
+ * uses to obtain an `OKTASSO_TOKEN` cookie for authenticated requests against
+ * Tangle.
  *
  * Flow:
  *   1. Generate PKCE verifier + challenge.
@@ -11,11 +11,11 @@
  *   3. Run a one-shot HTTP server on http://localhost:3001/auth to catch the
  *      redirect with the authorization code.
  *   4. Exchange the code for an Okta access token at `/token`.
- *   5. Exchange the access token for a Minerva session token via
- *      `https://minerva.shopifycloud.com/client_auth/okta_token_exchange/`,
+ *   5. Exchange the access token for an Oktasso session token via the
+ *      configured token-exchange endpoint,
  *      passing the target API base URL as the `audience` parameter.
- *   6. Return headers `{ cookie: "MINERVA_TOKEN=<session>" }` and persist them
- *      to `~/.cache/tangle-deploy/minerva_token.json` so subsequent CLI
+ *   6. Return headers `{ cookie: "OKTASSO_TOKEN=<session>" }` and persist them
+ *      to `~/.cache/tangle-deploy/oktasso_token.json` so subsequent CLI
  *      invocations don't re-prompt for login.
  *
  * The on-disk cache shape intentionally matches what the Python client writes,
@@ -36,24 +36,24 @@ function env(name: string): string {
   return process.env[name] ?? "";
 }
 
-const OAUTH_ENDPOINT_BASE = env("MINERVA_OAUTH_ENDPOINT_BASE");
-const MINERVA_ENDPOINT_BASE = env("MINERVA_TOKEN_EXCHANGE_URL");
-const SCOPES = env("MINERVA_SCOPES");
+const OAUTH_ENDPOINT_BASE = env("OKTASSO_OAUTH_ENDPOINT_BASE");
+const OKTASSO_ENDPOINT_BASE = env("OKTASSO_TOKEN_EXCHANGE_URL");
+const SCOPES = env("OKTASSO_SCOPES");
 
-const DEFAULT_CLIENT_ID = env("MINERVA_CLIENT_ID");
-const DEFAULT_REDIRECT_URI = env("MINERVA_REDIRECT_URI");
-const DEFAULT_CALLBACK_PORT = Number(env("MINERVA_CALLBACK_PORT"));
-const DEFAULT_REFRESH_AFTER_MS = Number(env("MINERVA_REFRESH_AFTER_MS"));
+const DEFAULT_CLIENT_ID = env("OKTASSO_CLIENT_ID");
+const DEFAULT_REDIRECT_URI = env("OKTASSO_REDIRECT_URI");
+const DEFAULT_CALLBACK_PORT = Number(env("OKTASSO_CALLBACK_PORT"));
+const DEFAULT_REFRESH_AFTER_MS = Number(env("OKTASSO_REFRESH_AFTER_MS"));
 
 const CACHE_DIR = path.join(os.homedir(), ".cache", "tangle-deploy");
-const CACHE_FILE = path.join(CACHE_DIR, "minerva_token.json");
+const CACHE_FILE = path.join(CACHE_DIR, "oktasso_token.json");
 
-export interface MinervaHeaders {
+export interface OktassoHeaders {
   cookie: string;
   expiry?: string;
 }
 
-export interface GetMinervaHeadersOptions {
+export interface GetOktassoHeadersOptions {
   baseUrl: string;
   clientId?: string;
   refreshAfterMs?: number;
@@ -62,7 +62,7 @@ export interface GetMinervaHeadersOptions {
 }
 
 interface CachedTokenPayload {
-  headers: MinervaHeaders;
+  headers: OktassoHeaders;
   base_url: string;
   created_at: number; // seconds since epoch, matching Python's time.time()
 }
@@ -72,9 +72,9 @@ interface CachedTokenPayload {
  * fetch requests targeting `baseUrl`. Uses the on-disk cache when fresh and
  * for the same base URL; otherwise runs the full PKCE browser flow.
  */
-export async function getMinervaHeaders(
-  opts: GetMinervaHeadersOptions,
-): Promise<MinervaHeaders> {
+export async function getOktassoHeaders(
+  opts: GetOktassoHeadersOptions,
+): Promise<OktassoHeaders> {
   const clientId = opts.clientId ?? DEFAULT_CLIENT_ID;
   const refreshAfterMs = opts.refreshAfterMs ?? DEFAULT_REFRESH_AFTER_MS;
 
@@ -91,7 +91,7 @@ export async function getMinervaHeaders(
 async function loadCachedToken(
   baseUrl: string,
   refreshAfterMs: number,
-): Promise<MinervaHeaders | null> {
+): Promise<OktassoHeaders | null> {
   try {
     const raw = await readFile(CACHE_FILE, "utf8");
     const payload = JSON.parse(raw) as CachedTokenPayload;
@@ -106,7 +106,7 @@ async function loadCachedToken(
 }
 
 async function saveCachedToken(
-  headers: MinervaHeaders,
+  headers: OktassoHeaders,
   baseUrl: string,
 ): Promise<void> {
   try {
@@ -121,7 +121,7 @@ async function saveCachedToken(
     await chmod(CACHE_FILE, 0o600);
   } catch (err) {
     console.warn(
-      `[minervaAuth] warning: could not cache Minerva token: ${stringifyError(err)}`,
+      `[oktassoAuth] warning: could not cache Oktasso token: ${stringifyError(err)}`,
     );
   }
 }
@@ -129,7 +129,7 @@ async function saveCachedToken(
 async function runAuthFlow(
   clientId: string,
   audienceUrl: string,
-): Promise<MinervaHeaders> {
+): Promise<OktassoHeaders> {
   const { verifier, challenge } = generatePkcePair();
   const code = await getAuthorizationCode(clientId, challenge);
   const accessToken = await exchangeCodeForAccessToken(
@@ -137,13 +137,13 @@ async function runAuthFlow(
     code,
     verifier,
   );
-  const minervaToken = await exchangeAccessTokenForMinervaToken(
+  const oktassoToken = await exchangeAccessTokenForOktassoToken(
     accessToken,
     audienceUrl,
   );
   const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
   return {
-    cookie: `MINERVA_TOKEN=${minervaToken}`,
+    cookie: `OKTASSO_TOKEN=${oktassoToken}`,
     expiry: formatExpiry(expiry),
   };
 }
@@ -180,16 +180,14 @@ async function getAuthorizationCode(
   url.searchParams.set("state", "1234");
   url.searchParams.set("redirect_uri", DEFAULT_REDIRECT_URI);
 
-  console.error(
-    "[minervaAuth] opening browser for Shopify SSO login (Minerva)...",
-  );
-  console.error(`[minervaAuth] if no browser opens, visit:\n${url.toString()}`);
+  console.error("[oktassoAuth] opening browser for Oktasso SSO login...");
+  console.error(`[oktassoAuth] if no browser opens, visit:\n${url.toString()}`);
 
   try {
     await open(url.toString());
   } catch (err) {
     console.warn(
-      `[minervaAuth] could not auto-open browser (${stringifyError(err)}); please open the URL above manually.`,
+      `[oktassoAuth] could not auto-open browser (${stringifyError(err)}); please open the URL above manually.`,
     );
   }
 
@@ -209,7 +207,7 @@ function waitForAuthorizationCode(port: number): Promise<string> {
       if (!code) {
         res.statusCode = 400;
         res.end("Missing ?code");
-        reject(new Error("Minerva auth: callback missing ?code parameter"));
+        reject(new Error("Oktasso auth: callback missing ?code parameter"));
         server.close();
         return;
       }
@@ -224,7 +222,7 @@ function waitForAuthorizationCode(port: number): Promise<string> {
     server.on("error", (err) => {
       reject(
         new Error(
-          `Minerva auth: local callback server failed to start on port ${port}: ${stringifyError(err)}`,
+          `Oktasso auth: local callback server failed to start on port ${port}: ${stringifyError(err)}`,
         ),
       );
     });
@@ -234,7 +232,7 @@ function waitForAuthorizationCode(port: number): Promise<string> {
       server.close();
       reject(
         new Error(
-          `Minerva auth: timed out after ${TIMEOUT_MS / 1000}s waiting for browser callback. Try again.`,
+          `Oktasso auth: timed out after ${TIMEOUT_MS / 1000}s waiting for browser callback. Try again.`,
         ),
       );
     }, TIMEOUT_MS);
@@ -267,27 +265,27 @@ async function exchangeCodeForAccessToken(
 
   if (!res.ok) {
     throw new Error(
-      `Minerva auth: Okta token exchange failed: ${res.status} ${res.statusText}\n${await safeText(res)}`,
+      `Oktasso auth: Okta token exchange failed: ${res.status} ${res.statusText}\n${await safeText(res)}`,
     );
   }
   const json = (await res.json()) as { access_token?: string };
   if (!json.access_token) {
     throw new Error(
-      "Minerva auth: Okta token response did not include access_token",
+      "Oktasso auth: Okta token response did not include access_token",
     );
   }
   return json.access_token;
 }
 
-async function exchangeAccessTokenForMinervaToken(
+async function exchangeAccessTokenForOktassoToken(
   accessToken: string,
   audienceUrl: string,
 ): Promise<string> {
   // The Python rowlet client uses GET with a form-encoded body
   // (`requests.get(..., data=payload)`). Node's fetch (undici) forbids
   // bodies on GET regardless of `duplex`, so we send `audience` as a
-  // query parameter instead — Minerva accepts either form.
-  const url = new URL(MINERVA_ENDPOINT_BASE);
+  // query parameter instead — Oktasso accepts either form.
+  const url = new URL(OKTASSO_ENDPOINT_BASE);
   url.searchParams.set("audience", audienceUrl);
 
   const res = await fetch(url, {
@@ -300,13 +298,13 @@ async function exchangeAccessTokenForMinervaToken(
 
   if (!res.ok) {
     throw new Error(
-      `Minerva auth: token exchange failed: ${res.status} ${res.statusText}\n${await safeText(res)}`,
+      `Oktasso auth: token exchange failed: ${res.status} ${res.statusText}\n${await safeText(res)}`,
     );
   }
   const json = (await res.json()) as { access_token?: string };
   if (!json.access_token) {
     throw new Error(
-      "Minerva auth: token exchange response did not include access_token",
+      "Oktasso auth: token exchange response did not include access_token",
     );
   }
   return json.access_token;
@@ -345,12 +343,6 @@ const SUCCESS_PAGE = `<!doctype html>
   <h2 style="text-align:center;font-family:Arial,Helvetica,sans-serif;color:#909090;margin-top:50px;">
     Auth successful! This window will close shortly.
   </h2>
-  <div style="text-align:center;">
-    <img alt="Shopify" src="https://cdn.shopify.com/assets/images/logos/shopify-bag.png">
-  </div>
-  <h4 style="text-align:center;font-family:Arial,Helvetica,sans-serif;color:#B0B0B0;margin-top:30px;">
-    Shopify
-  </h4>
   <script>setTimeout(function(){window.close();}, 2000);</script>
 </body>
 </html>`;

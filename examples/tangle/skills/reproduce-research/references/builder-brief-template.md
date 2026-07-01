@@ -89,5 +89,5 @@ write their artifacts at runtime. Before submitting:
 3. `CORRECTED_DAG_READY` — pipeline path, config path, exact tasks present, wiring summary, "not monolithic".
 4. `VALIDATION_STATUS` — commands run, success/failure output, hydrated pipeline path; confirm pre-submit checks passed.
 5. Submit with `--no-wait` only after validation success.
-6. `PIPELINE_SUBMITTED` — pipeline path, config path, RUN_ID, ROOT_EXECUTION_ID, Oasis URL, source annotation.
+6. `PIPELINE_SUBMITTED` — pipeline path, config path, RUN_ID, ROOT_EXECUTION_ID, Tangle URL, source annotation.
 7. `SUBMISSION_FAILED` (on failure) — exact command, exact error, files involved, next fix.

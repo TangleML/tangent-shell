@@ -3,7 +3,7 @@
  *
  * A sandboxed component can only reach destinations registered here; anything
  * else is denied before a network call is made. Unlike the earlier alias-based
- * stub, components now name a **real, full URL** (e.g. the Oasis executions API)
+ * stub, components now name a **real, full URL** (e.g. the Tangle executions API)
  * and the proxy validates it against the allowlist of host/path patterns, then
  * performs the actual `fetch` server-side, injecting any credentials and
  * stripping host internals out of the response.
@@ -42,14 +42,14 @@ interface EgressRule {
 }
 
 /**
- * Optional credential for the Oasis API, injected server-side as a `Cookie`
+ * Optional credential for the Tangle API, injected server-side as a `Cookie`
  * header. Unset by default (the public executions-state endpoint is
- * unauthenticated); set `OASIS_TOKEN` to a cookie string such as
- * `MINERVA_TOKEN=<session>` to authenticate. Generate one with
- * `pnpm oasis:token` (or `pnpm dev:auth`).
+ * unauthenticated); set `TANGLE_TOKEN` to a cookie string such as
+ * `OKTASSO_TOKEN=<session>` to authenticate. Generate one with
+ * `pnpm tangle:token` (or `pnpm dev:auth`).
  */
-function oasisAuthHeaders(): Record<string, string> {
-  const token = process.env.OASIS_TOKEN;
+function tangleAuthHeaders(): Record<string, string> {
+  const token = process.env.TANGLE_TOKEN;
   return token ? { cookie: token } : {};
 }
 
@@ -91,7 +91,7 @@ const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
   method: rule.method,
   matches: (url) =>
     url.origin === TANGLE_API_ORIGIN && rule.test.test(url.pathname),
-  headers: oasisAuthHeaders,
+  headers: tangleAuthHeaders,
 }));
 
 /** Registered destinations the bridge may reach. */
@@ -103,7 +103,7 @@ const EGRESS_RULES: EgressRule[] = [
     matches: (url) =>
       url.origin === "https://oasis.shopify.io" &&
       /^\/api\/executions\/[^/]+\/state$/.test(url.pathname),
-    headers: oasisAuthHeaders,
+    headers: tangleAuthHeaders,
   },
   ...TANGLE_RULES,
 ];

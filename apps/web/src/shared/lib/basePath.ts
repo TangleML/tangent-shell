@@ -1,7 +1,7 @@
 /**
  * Proxy mount-prefix awareness.
  *
- * Behind the oasis pod-proxy the app is served from a sub-path
+ * Behind the tangle pod-proxy the app is served from a sub-path
  * (e.g. `.../ports/8000/`), not the origin root. `index.html` injects a
  * `<base href>` pointing at that mount root, so `document.baseURI` reflects it.
  * `BASE_PREFIX` captures that prefix once at boot and `apiUrl` rewrites

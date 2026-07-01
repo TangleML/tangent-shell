@@ -210,7 +210,7 @@ export async function handleCreateSession(
     return;
   }
 
-  // Resolve the creator's identity from their Minerva JWT cookie so every agent
+  // Resolve the creator's identity from their Oktasso JWT cookie so every agent
   // spawned for the session knows who it's helping.
   const user = resolveUserIdentity(req.headers.cookie) ?? undefined;
   const session = await store.createSession({ name: body.name, user });

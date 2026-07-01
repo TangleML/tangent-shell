@@ -4,14 +4,14 @@ import { resolveUserIdentity } from "../auth/identity.ts";
 import { AUTH_JWT_TOKEN_COOKIE_NAME } from "../config.ts";
 
 /**
- * Handles `GET /api/me`. Resolves the current user from the Minerva JWT in the
+ * Handles `GET /api/me`. Resolves the current user from the Oktasso JWT in the
  * configured cookie ({@link AUTH_JWT_TOKEN_COOKIE_NAME}) and returns the full
  * identity. `user_id` is kept (set to the email) for backward compatibility
  * alongside the structured `email` / `first_name` / `last_name` fields.
  */
 function handleGetMe(req: Request, res: Response): void {
   if (!AUTH_JWT_TOKEN_COOKIE_NAME) {
-    res.status(501).json({ error: "Minerva cookie name not configured" });
+    res.status(501).json({ error: "Oktasso cookie name not configured" });
     return;
   }
 
@@ -25,8 +25,8 @@ function handleGetMe(req: Request, res: Response): void {
 }
 
 /**
- * Public REST router exposing the current user, derived from the Minerva JWT in
- * the `MINERVA_TOKEN` cookie. The signature is not verified at this time.
+ * Public REST router exposing the current user, derived from the Oktasso JWT in
+ * the `OKTASSO_TOKEN` cookie. The signature is not verified at this time.
  */
 export function createMeRouter(): Router {
   const router = Router();
