@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, mock, test } from "node:test";
 
 import type { SessionAgent } from "../store/sessionStore.ts";
@@ -95,6 +98,16 @@ function agentRow(overrides: Partial<SessionAgent>): SessionAgent {
   };
 }
 
+/** Creates a throwaway session root and removes it after `fn`. */
+function withTempRoot(fn: (root: string) => void): void {
+  const root = mkdtempSync(path.join(tmpdir(), "tangent-pi-manager-"));
+  try {
+    fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 afterEach(() => {
   mock.timers.reset();
   mock.restoreAll();
@@ -155,6 +168,28 @@ test("reviveSubagents is idempotent and skips already-live agents", () => {
   pi.reviveSubagents("s1", persisted);
 
   assert.equal(spawns.length, 2, "second revive does not double-spawn");
+});
+
+test("ensure falls back when an installed bundle config cannot be reloaded", () => {
+  withTempRoot((root) => {
+    const { pi, spawns } = makeManager();
+    const warn = mock.method(console, "warn", () => {});
+    mkdirSync(path.join(root, ".tangent"));
+    writeFileSync(
+      path.join(root, ".tangent", "tangent.yaml"),
+      "not: valid: yaml",
+    );
+
+    assert.doesNotThrow(() => pi.ensure("s1", root));
+
+    assert.equal(spawns.length, 1, "ensure still spawns Prime");
+    assert.ok(
+      warn.mock.calls.some((call) =>
+        String(call.arguments[0]).includes("failed to load installed bundle"),
+      ),
+      "expected corrupt bundle reload to be logged",
+    );
+  });
 });
 
 test("supervisor auto-respawns a crashed agent with backoff, then gives up", () => {

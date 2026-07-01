@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -67,5 +74,22 @@ test("loadInstalledConfig reproduces installBundle's resolved config", async () 
 test("loadInstalledConfig returns undefined for a plain session root", async () => {
   await withTempRoot((root) => {
     assert.equal(loadInstalledConfig(root), undefined);
+  });
+});
+
+test("loadInstalledConfig skips non-file entries in the installed tree", async () => {
+  await withTempRoot(async (root) => {
+    const { config: installed } = await installBundle(
+      packExampleBundle(),
+      root,
+    );
+    const target = path.join(root, "linked-dir-target");
+    mkdirSync(target);
+    symlinkSync(target, path.join(root, ".tangent", "linked-dir"));
+
+    const reloaded = loadInstalledConfig(root);
+
+    assert.ok(reloaded, "expected a config to be recovered from disk");
+    assert.deepStrictEqual(reloaded, installed);
   });
 });

@@ -298,7 +298,17 @@ function resolveEffectiveConfig(
   existing: SessionAgents | undefined,
   rootPath: string,
 ): ResolvedSessionConfig | undefined {
-  return config ?? existing?.config ?? loadInstalledConfig(rootPath);
+  if (config) return config;
+  if (existing?.config) return existing.config;
+  try {
+    return loadInstalledConfig(rootPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[pi] failed to load installed bundle config for "${rootPath}"; using default config. ${message}`,
+    );
+    return undefined;
+  }
 }
 
 /**
