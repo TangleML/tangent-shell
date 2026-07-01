@@ -3,7 +3,7 @@
  *
  * The agent emits a `tangent-ui:pipeline-progress` block carrying
  * `{ "executionId": "<id>" }`; the host parses it and delivers it via
- * `host.getProps()`. We then poll the real Oasis executions-state endpoint
+ * `host.getProps()`. We then poll the real Tangle executions-state endpoint
  * through the allowlisted `host.fetch` bridge and render a progress bar.
  *
  * The header shows the pipeline's real title (resolved live from the Tangle API
@@ -29,9 +29,11 @@ import {
 } from "@tangent/bundle-ui";
 import { useEffect, useState } from "react";
 
-const TANGLE_BASE = "https://oasis.shopify.io";
-const OASIS_BASE = `${TANGLE_BASE}/api/executions`;
 const POLL_INTERVAL_MS = 4000;
+
+function tangleApi(path: string) {
+  return { target: "tangle" as const, path };
+}
 
 /** Candidate keys for the pipeline's human title across API shapes. */
 const TITLE_KEYS = ["pipeline_name", "display_name", "name", "title"];
@@ -49,10 +51,10 @@ interface ExecutionState {
 
 interface PipelineMeta {
   title: string | null;
-  url: string | null;
+  path: string | null;
 }
 
-interface OasisStateResponse {
+interface TangleStateResponse {
   child_execution_status_summary?: {
     total_executions?: number;
     ended_executions?: number;
@@ -66,7 +68,7 @@ interface OasisStateResponse {
 
 /** Flatten the nested per-child status stats into a single status->count map. */
 function flattenStatusStats(
-  childStats: OasisStateResponse["child_execution_status_stats"],
+  childStats: TangleStateResponse["child_execution_status_stats"],
 ): StatusStats {
   if (!childStats) return {};
   const result: StatusStats = {};
@@ -82,7 +84,7 @@ function flattenStatusStats(
 }
 
 function toExecutionState(json: unknown): ExecutionState | null {
-  const response = json as OasisStateResponse | null;
+  const response = json as TangleStateResponse | null;
   const summary = response?.child_execution_status_summary;
   if (!summary) return null;
   return {
@@ -170,7 +172,7 @@ function extractTitle(json: unknown): string | null {
 async function loadRunTitle(runId: string): Promise<string | null> {
   try {
     const res = await host.fetch(
-      `${TANGLE_BASE}/api/pipeline_runs/${encodeURIComponent(runId)}`,
+      tangleApi(`/api/pipeline_runs/${encodeURIComponent(runId)}`),
     );
     return res.ok ? extractTitle(res.json) : null;
   } catch {
@@ -188,14 +190,14 @@ async function loadPipelineMeta(
 ): Promise<PipelineMeta | null> {
   try {
     const res = await host.fetch(
-      `${OASIS_BASE}/${encodeURIComponent(executionId)}/details`,
+      tangleApi(`/api/executions/${encodeURIComponent(executionId)}/details`),
     );
     if (!res.ok) return null;
     const runId = extractRunId(res.json);
-    const url = runId ? `${TANGLE_BASE}/runs/${runId}` : null;
+    const path = runId ? `/runs/${encodeURIComponent(runId)}` : null;
     const title =
       extractTitle(res.json) ?? (runId ? await loadRunTitle(runId) : null);
-    return { title, url };
+    return { title, path };
   } catch {
     return null;
   }
@@ -205,7 +207,7 @@ export default function PipelineProgress() {
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [state, setState] = useState<ExecutionState | null>(null);
   const [title, setTitle] = useState<string | null>(null);
-  const [pipelineUrl, setPipelineUrl] = useState<string | null>(null);
+  const [pipelinePath, setPipelinePath] = useState<string | null>(null);
 
   useEffect(() => {
     host.getProps().then((props) => {
@@ -222,7 +224,7 @@ export default function PipelineProgress() {
     loadPipelineMeta(executionId).then((meta) => {
       if (!active || !meta) return;
       setTitle(meta.title);
-      setPipelineUrl(meta.url);
+      setPipelinePath(meta.path);
     });
 
     return () => {
@@ -243,7 +245,7 @@ export default function PipelineProgress() {
     const tick = async () => {
       try {
         const res = await host.fetch(
-          `${OASIS_BASE}/${encodeURIComponent(executionId)}/state`,
+          tangleApi(`/api/executions/${encodeURIComponent(executionId)}/state`),
         );
         if (!active || !res.ok) return;
         const next = toExecutionState(res.json);
@@ -283,8 +285,12 @@ export default function PipelineProgress() {
   const displayTitle = title ?? "Pipeline";
 
   const openPipeline = async () => {
-    if (!pipelineUrl) return;
-    await host.execUICommand({ type: "openUrl", url: pipelineUrl });
+    if (!pipelinePath) return;
+    await host.execUICommand({
+      type: "openTargetUrl",
+      target: "tangle",
+      path: pipelinePath,
+    });
   };
 
   return (
@@ -296,7 +302,7 @@ export default function PipelineProgress() {
             variant="link"
             size="sm"
             onPress={openPipeline}
-            disabled={!pipelineUrl}
+            disabled={!pipelinePath}
           >
             {displayTitle}
             <Icon name="ExternalLink" size="xs" />

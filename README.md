@@ -104,6 +104,10 @@ pnpm dev          # runs server + web via Turbo
 `pnpm dev` sets the session/bundle/memory paths to local gitignored folders (`.sessions`,
 `.agent-bundles`, `.memory`) so a checkout runs without extra setup.
 
+Copy `.env.example` to `.env` for local-only provider values. Keep real deployment
+URLs, cookies, proxy credentials, and auth endpoints out of committed files; inject them
+through your process manager, container platform, or secret manager.
+
 To load the example agent bundles into your local marketplace:
 
 ```bash
@@ -115,17 +119,25 @@ pnpm seed         # installs bundles from examples
 Key environment variables (see [`apps/server/src/config.ts`](apps/server/src/config.ts) for
 the full list and defaults):
 
-| Variable                                   | Purpose                                                |
-| ------------------------------------------ | ------------------------------------------------------ |
-| `PORT`                                     | HTTP server port                                       |
-| `SESSIONS_ROOT`                            | Root directory for per-session workspaces              |
-| `SESSIONS_DB`                              | SQLite metadata database file                          |
-| `AGENT_BUNDLES_ROOT`                       | Bundle marketplace storage                             |
-| `GLOBAL_MEMORY_DIR`                        | Global (cross-session) memory store                    |
-| `PI_BIN`                                   | Path to the `pi` agent executable                      |
-| `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING` | Default LLM provider, model, and thinking level        |
-| `PI_PROXY_URL` / `PI_PROXY_API_KEY`        | LLM proxy endpoint and credential                      |
-| `TANGLE_API_URL` / `TANGLE_TOKEN`          | Tangle pipeline API for bundles that integrate with it |
+| Variable                                          | Purpose                                                        |
+| ------------------------------------------------- | -------------------------------------------------------------- |
+| `PORT`                                            | HTTP server port                                               |
+| `SESSIONS_ROOT`                                   | Root directory for per-session workspaces                      |
+| `SESSIONS_DB`                                     | SQLite metadata database file                                  |
+| `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                     |
+| `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                            |
+| `PI_BIN`                                          | Path to the `pi` agent executable                              |
+| `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                |
+| `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                              |
+| `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets         |
+| `TANGLE_TOKEN`                                    | Optional cookie string injected server-side for egress         |
+| `AUTH_JWT_TOKEN_COOKIE_NAME`                      | Optional auth cookie name for `/api/me`                        |
+| `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                        |
+| `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh` |
+
+Bundle UI extensions should call logical egress targets such as
+`{ target: "tangle", path: "/api/..." }`; the server resolves the actual base URL from
+`TANGLE_API_URL` at runtime.
 
 ### Common commands
 

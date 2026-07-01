@@ -20,11 +20,13 @@ import { Text } from "@tangent/ui-primitives/typography";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
+import { apiUrl } from "@/shared/lib/basePath";
+
 import {
   BUNDLE_UI_ELEMENT_NAMES,
   hostAdapters,
 } from "./components/host-registry";
-import { createHostBridge } from "./hostBridge";
+import { createHostBridge, TARGET_URL_ENDPOINT } from "./hostBridge";
 import type { BundleUiKind, HostBridge, UICommand, WorkerApi } from "./types";
 
 /** Reads a JSON value persisted under `<namespace>:<key>`, or `null`. */
@@ -59,6 +61,19 @@ function writePersistedState(
 function openExternalUrl(url: unknown): void {
   if (typeof url !== "string" || !/^https:\/\//.test(url)) return;
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+async function openTargetUrl(
+  command: Extract<UICommand, { type: "openTargetUrl" }>,
+) {
+  const response = await fetch(apiUrl(TARGET_URL_ENDPOINT), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target: command.target, path: command.path }),
+  });
+  if (!response.ok) return;
+  const body = (await response.json()) as { url?: unknown };
+  openExternalUrl(body.url);
 }
 
 const remoteComponents: RemoteComponentRendererMap = new Map([
@@ -145,9 +160,16 @@ export function BundleUiHost({
         const namespace = stateNamespaceRef.current;
         if (namespace) writePersistedState(namespace, key, value);
       },
-      onUICommand: (command: UICommand) => {
-        if (command.type === "collapse") collapseRef.current?.();
-        if (command.type === "openUrl") openExternalUrl(command.url);
+      onUICommand: async (command: UICommand) => {
+        if (command.type === "collapse") {
+          collapseRef.current?.();
+          return;
+        }
+        if (command.type === "openUrl") {
+          openExternalUrl(command.url);
+          return;
+        }
+        await openTargetUrl(command);
       },
     });
 

@@ -21,7 +21,7 @@ import { Type } from "typebox";
 
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
-const TANGLE_API_URL = process.env.TANGLE_API_URL ?? "https://oasis.shopify.io";
+const TANGLE_API_URL = process.env.TANGLE_API_URL ?? "https://api.example.com";
 
 interface EgressInit {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";

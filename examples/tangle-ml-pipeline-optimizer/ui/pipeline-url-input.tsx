@@ -26,9 +26,11 @@ import {
 } from "@tangent/bundle-ui";
 import { useEffect, useState } from "react";
 
-/** Tangle API origin; only this host's pipeline-runs path is allowlisted. */
-const TANGLE_BASE = "https://oasis.shopify.io";
 const RECENT_RUN_LIMIT = 5;
+
+function tangleApi(path: string) {
+  return { target: "tangle" as const, path };
+}
 
 /**
  * Key for the host-mediated KV store. Holds `{ url }` once a pipeline has been
@@ -165,7 +167,7 @@ function RecentRunItem({
       <Button
         key={run.id}
         variant="outline"
-        onPress={() => onAnalyze(`https://oasis.shopify.io/runs/${run.id}`)}
+        onPress={() => onAnalyze(`Tangle run ${run.id}`)}
       >
         Analyze
       </Button>
@@ -217,7 +219,7 @@ export default function PipelineUrlInput() {
     let active = true;
     (async () => {
       try {
-        const res = await host.fetch(`${TANGLE_BASE}/api/pipeline_runs/`, {
+        const res = await host.fetch(tangleApi("/api/pipeline_runs/"), {
           query: {
             include_execution_stats: true,
             include_pipeline_names: true,

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   EgressDeniedError,
+  type EgressInput,
   type EgressRequestInit,
   resolveEgress,
 } from "../bundleUi/egressAllowlist.ts";
@@ -16,18 +17,26 @@ import { getValidated, validate } from "../middleware/validate.ts";
  * so we type it via `z.custom` rather than re-describing its shape, keeping the
  * validated value assignable without an `as` cast.
  */
+const egressInputSchema = z.union([
+  z.string().min(1),
+  z.object({
+    target: z.literal("tangle"),
+    path: z.string().min(1),
+  }),
+]);
+
 const egressBodySchema = z.object({
-  input: z.string().min(1),
+  input: egressInputSchema,
   init: z.custom<EgressRequestInit>().optional(),
 });
-type EgressInput = z.infer<typeof egressBodySchema>;
+type EgressBody = z.infer<typeof egressBodySchema>;
 
 /**
  * Resolves the requested destination against the egress allowlist, mapping a
  * denied destination to `403` and any other failure to `502`.
  */
 async function handleEgress(
-  input: string,
+  input: EgressInput,
   init: EgressRequestInit | undefined,
   res: Response,
 ): Promise<void> {
@@ -63,7 +72,7 @@ export function createInternalEgressRouter(): Router {
     "/",
     validate({ body: egressBodySchema }),
     (req: Request, res: Response) => {
-      const { input, init } = getValidated<EgressInput>(req).body;
+      const { input, init } = getValidated<EgressBody>(req).body;
       return handleEgress(input, init, res);
     },
   );

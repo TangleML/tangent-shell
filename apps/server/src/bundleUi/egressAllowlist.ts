@@ -2,16 +2,22 @@
  * Server-side egress allowlist for the bundle-UI `host.fetch` bridge (Phase 5+7).
  *
  * A sandboxed component can only reach destinations registered here; anything
- * else is denied before a network call is made. Unlike the earlier alias-based
- * stub, components now name a **real, full URL** (e.g. the Tangle executions API)
- * and the proxy validates it against the allowlist of host/path patterns, then
- * performs the actual `fetch` server-side, injecting any credentials and
- * stripping host internals out of the response.
+ * else is denied before a network call is made. Components name a logical target
+ * and path; the proxy resolves that target from server config, validates it
+ * against the allowlist, performs the actual `fetch` server-side, injects any
+ * credentials, and strips host internals out of the response.
  *
  * See `docs/bundle-ui/host-bridge.md` for the contract.
  */
 
 import { TANGLE_API_URL } from "../config.ts";
+
+export interface EgressTargetRequest {
+  target: "tangle";
+  path: string;
+}
+
+export type EgressInput = string | EgressTargetRequest;
 
 /** A tiny subset of `RequestInit` that crosses the bridge. */
 export interface EgressRequestInit {
@@ -31,9 +37,9 @@ export interface EgressResponse {
 }
 
 /**
- * One allowlisted destination. The component supplies the full URL; a request
- * is permitted only when its method and parsed URL match a rule. `headers()`
- * lets the server inject credentials the worker never sees.
+ * One allowlisted destination. A request is permitted only when its method and
+ * resolved URL match a rule. `headers()` lets the server inject credentials the
+ * worker never sees.
  */
 interface EgressRule {
   method: NonNullable<EgressRequestInit["method"]>;
@@ -95,18 +101,7 @@ const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
 }));
 
 /** Registered destinations the bridge may reach. */
-const EGRESS_RULES: EgressRule[] = [
-  {
-    // Oasis execution state, e.g.
-    // https://oasis.shopify.io/api/executions/019ea56d72cd5f4d75f6/state
-    method: "GET",
-    matches: (url) =>
-      url.origin === "https://oasis.shopify.io" &&
-      /^\/api\/executions\/[^/]+\/state$/.test(url.pathname),
-    headers: tangleAuthHeaders,
-  },
-  ...TANGLE_RULES,
-];
+const EGRESS_RULES: EgressRule[] = [...TANGLE_RULES];
 
 /** Response headers we are willing to surface back across the bridge. */
 const ALLOWED_RESPONSE_HEADERS = new Set(["content-type"]);
@@ -122,7 +117,7 @@ export class EgressDeniedError extends Error {
   }
 }
 
-/** Parses `input` as an absolute http(s) URL, or returns `undefined`. */
+/** Parses a string as an absolute http(s) URL, or returns `undefined`. */
 function parseHttpUrl(input: string): URL | undefined {
   let url: URL;
   try {
@@ -132,6 +127,14 @@ function parseHttpUrl(input: string): URL | undefined {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
   return url;
+}
+
+function isEgressTargetRequest(
+  input: EgressInput,
+): input is EgressTargetRequest {
+  return (
+    typeof input === "object" && input !== null && input.target === "tangle"
+  );
 }
 
 /** Picks the allowlisted subset of response headers as a plain object. */
@@ -144,18 +147,34 @@ function sanitizeResponseHeaders(headers: Headers): Record<string, string> {
 }
 
 /**
- * Resolves an absolute http(s) URL with merged query params, or throws
- * {@link EgressDeniedError} for anything that isn't an http(s) URL.
+ * Resolves a logical target or absolute http(s) URL with merged query params, or
+ * throws {@link EgressDeniedError} for anything that cannot be safely resolved.
  */
-function resolveUrl(input: string, query: EgressRequestInit["query"]): URL {
-  const url = parseHttpUrl(input);
-  if (!url) throw new EgressDeniedError(input);
+function resolveUrl(
+  input: EgressInput,
+  query: EgressRequestInit["query"],
+): URL {
+  const url = isEgressTargetRequest(input)
+    ? resolveTargetUrl(input)
+    : parseHttpUrl(input);
+  if (!url) throw new EgressDeniedError(formatDeniedInput(input));
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       url.searchParams.set(key, String(value));
     }
   }
   return url;
+}
+
+export function resolveTargetUrl(input: EgressTargetRequest): URL | undefined {
+  if (!input.path.startsWith("/") || input.path.startsWith("//")) {
+    return undefined;
+  }
+  return new URL(input.path, TANGLE_API_URL);
+}
+
+function formatDeniedInput(input: EgressInput): string {
+  return typeof input === "string" ? input : `${input.target}:${input.path}`;
 }
 
 /** Whether this request carries a JSON body (anything but a bodyless GET). */
@@ -240,12 +259,12 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
 
 /**
  * Resolves an allowlisted egress request by performing the real network call
- * server-side. Throws {@link EgressDeniedError} when `input` is not an absolute
- * http(s) URL matching a registered destination. Network/transport failures
- * propagate as generic errors (the route maps them to a 502).
+ * server-side. Throws {@link EgressDeniedError} when `input` cannot resolve to a
+ * registered destination. Network/transport failures propagate as generic
+ * errors (the route maps them to a 502).
  */
 export async function resolveEgress(
-  input: string,
+  input: EgressInput,
   init: EgressRequestInit = {},
 ): Promise<EgressResponse> {
   const method = init.method ?? "GET";
@@ -253,7 +272,7 @@ export async function resolveEgress(
   const rule = EGRESS_RULES.find(
     (entry) => entry.method === method && entry.matches(url),
   );
-  if (!rule) throw new EgressDeniedError(input);
+  if (!rule) throw new EgressDeniedError(formatDeniedInput(input));
 
   const response = await performFetch(url, method, init, rule);
   return toEgressResponse(response);

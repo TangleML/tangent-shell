@@ -23,8 +23,6 @@ import {
   Text,
 } from "@tangent/bundle-ui";
 
-const OASIS_BASE = "https://oasis.shopify.io/api/executions";
-
 export default function PipelineProgress() {
   const [executionId, setExecutionId] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -50,7 +48,10 @@ export default function PipelineProgress() {
     let active = true;
     const tick = async () => {
       try {
-        const res = await host.fetch(`${OASIS_BASE}/${executionId}/state`);
+        const res = await host.fetch({
+          target: "tangle",
+          path: `/api/executions/${executionId}/state`,
+        });
         if (active && res.ok) {
           const s =
             res.json && res.json.child_execution_status_summary

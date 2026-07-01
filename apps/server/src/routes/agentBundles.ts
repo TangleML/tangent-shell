@@ -4,8 +4,10 @@ import { z } from "zod";
 
 import {
   EgressDeniedError,
+  type EgressInput,
   type EgressRequestInit,
   resolveEgress,
+  resolveTargetUrl,
 } from "../bundleUi/egressAllowlist.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import {
@@ -35,11 +37,25 @@ type UiComponentParams = z.infer<typeof uiComponentParamsSchema>;
  * {@link resolveEgress}, so we type it via `z.custom` rather than re-describing
  * its shape, keeping the validated value assignable without an `as` cast.
  */
+const uiEgressInputSchema = z.union([
+  z.string().min(1),
+  z.object({
+    target: z.literal("tangle"),
+    path: z.string().min(1),
+  }),
+]);
+
+const uiTargetUrlBodySchema = z.object({
+  target: z.literal("tangle"),
+  path: z.string().min(1),
+});
+
 const uiEgressBodySchema = z.object({
-  input: z.string().min(1),
+  input: uiEgressInputSchema,
   init: z.custom<EgressRequestInit>().optional(),
 });
 type UiEgressInput = z.infer<typeof uiEgressBodySchema>;
+type UiTargetUrlInput = z.infer<typeof uiTargetUrlBodySchema>;
 
 /** Handles `GET /api/agent-bundles`: lists stored bundle metadata. */
 async function handleList(
@@ -128,7 +144,7 @@ async function handleUiComponent(
  * destination that isn't registered (see Phase 5 of the bundle-ui spec).
  */
 async function handleUiEgress(
-  input: string,
+  input: EgressInput,
   init: EgressRequestInit | undefined,
   res: Response,
 ): Promise<void> {
@@ -142,6 +158,16 @@ async function handleUiEgress(
     }
     res.status(502).json({ error: "bundle-ui egress request failed" });
   }
+}
+
+/** Handles `POST /api/agent-bundles/ui-target-url`: resolves openable target URLs. */
+function handleUiTargetUrl(input: UiTargetUrlInput, res: Response): void {
+  const url = resolveTargetUrl(input);
+  if (!url) {
+    res.status(400).json({ error: "Invalid target URL" });
+    return;
+  }
+  res.json({ url: url.href });
 }
 
 /** Handles `POST /api/agent-bundles`: validates and stores an uploaded bundle. */
@@ -203,6 +229,15 @@ function registerBundleCollectionRoutes(
     (req: Request, res: Response) => {
       const { body } = getValidated<UiEgressInput>(req);
       return handleUiEgress(body.input, body.init, res);
+    },
+  );
+
+  router.post(
+    "/ui-target-url",
+    validate({ body: uiTargetUrlBodySchema }),
+    (req: Request, res: Response) => {
+      const { body } = getValidated<UiTargetUrlInput>(req);
+      handleUiTargetUrl(body, res);
     },
   );
 }

@@ -22,6 +22,13 @@ export interface HostRequestInit {
   query?: Record<string, string | number | boolean>;
 }
 
+export interface HostTargetRequest {
+  target: "tangle";
+  path: string;
+}
+
+export type HostFetchInput = string | HostTargetRequest;
+
 /** JSON-safe stand-in for a `Response` (a live `Response` can't cross a thread). */
 export interface HostResponse {
   ok: boolean;
@@ -38,11 +45,14 @@ export interface HostResponse {
  *
  * Modeled as a discriminated union (rather than bespoke methods) so new actions
  * can be added — each carrying its own payload — without growing the bridge
- * surface. `collapse` collapses the chat message the component is rendered in
- * (a no-op outside a message surface); `openUrl` opens an `https:` destination
- * in a new browser tab.
+ * surface. `collapse` collapses the chat message the component is rendered in,
+ * and URL commands open either a supplied `https:` URL or a server-configured
+ * target URL in a new browser tab.
  */
-export type UICommand = { type: "collapse" } | { type: "openUrl"; url: string };
+export type UICommand =
+  | { type: "collapse" }
+  | { type: "openUrl"; url: string }
+  | { type: "openTargetUrl"; target: "tangle"; path: string };
 
 /**
  * The only channel a sandboxed component has to the host. Exposed to the worker
@@ -54,7 +64,7 @@ export interface HostBridge {
   /** Composes and sends a chat message to Prime. */
   sendPrompt(text: string): Promise<void>;
   /** Host-mediated, allowlist-proxied network egress. */
-  fetch(input: string, init?: HostRequestInit): Promise<HostResponse>;
+  fetch(input: HostFetchInput, init?: HostRequestInit): Promise<HostResponse>;
   /**
    * Reads a previously persisted value for `key` from this instance's
    * key-value store, or `null` if absent. State survives page reloads and is
