@@ -180,7 +180,7 @@ From [server/src/config.ts](../../server/src/config.ts):
 - `PI_BIN` (`pi`), `PI_PROVIDER` (`openai`), `PI_MODEL` (`gpt-5.5`),
   `PI_PROXY_URL` (`https://proxy.example.com`), `PI_DEBUG` (on by default).
 - `INTERNAL_URL` (loopback on `PORT`) + `INTERNAL_TOKEN` (per-start UUID).
-- `TANGLE_API_URL` (`https://tangle.example.com`) — origin for the egress
+- `TANGLE_API_URL` (`https://api.example.com`) — origin for the egress
   allowlist.
 
 ## Glossary

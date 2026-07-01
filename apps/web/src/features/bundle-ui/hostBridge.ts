@@ -11,6 +11,7 @@ import { apiUrl } from "@/shared/lib/basePath";
 
 import type {
   HostBridge,
+  HostFetchInput,
   HostRequestInit,
   HostResponse,
   UICommand,
@@ -18,6 +19,7 @@ import type {
 
 /** Default server route that proxies allowlisted egress. */
 export const EGRESS_ENDPOINT = "/api/agent-bundles/ui-egress";
+export const TARGET_URL_ENDPOINT = "/api/agent-bundles/ui-target-url";
 
 export interface HostBridgeOptions {
   /** Returns the current JSON props for a `message` component. */
@@ -29,13 +31,13 @@ export interface HostBridgeOptions {
   /** Persists `value` under `key`; omitted disables `setState`. */
   saveState?: (key: string, value: unknown) => void;
   /** Handles a host UI command; omitted makes `execUICommand` a no-op. */
-  onUICommand?: (command: UICommand) => void;
+  onUICommand?: (command: UICommand) => void | Promise<void>;
   /** Override the egress endpoint (tests / harness). */
   egressEndpoint?: string;
 }
 
 export function createHostBridge(options: HostBridgeOptions): HostBridge {
-  const endpoint = options.egressEndpoint ?? EGRESS_ENDPOINT;
+  const egressEndpoint = options.egressEndpoint ?? EGRESS_ENDPOINT;
 
   return {
     async getProps() {
@@ -60,11 +62,14 @@ export function createHostBridge(options: HostBridgeOptions): HostBridge {
 
     async execUICommand(command: UICommand) {
       if (!command || typeof command !== "object") return;
-      options.onUICommand?.(command);
+      await options.onUICommand?.(command);
     },
 
-    async fetch(input: string, init?: HostRequestInit): Promise<HostResponse> {
-      const response = await fetch(apiUrl(endpoint), {
+    async fetch(
+      input: HostFetchInput,
+      init?: HostRequestInit,
+    ): Promise<HostResponse> {
+      const response = await fetch(apiUrl(egressEndpoint), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ input, init }),

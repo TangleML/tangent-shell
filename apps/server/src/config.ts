@@ -6,6 +6,16 @@ import {
   DEFAULT_THINKING_LEVEL,
 } from "@tangent/shared/contracts.ts";
 
+function readAbsoluteUrl(name: string, fallback: string): string {
+  const value = process.env[name] ?? fallback;
+  try {
+    new URL(value);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  return value;
+}
+
 /** Port the dev server listens on. Vite proxies /api and /socket.io here. */
 export const PORT = Number(process.env.PORT ?? 8787);
 
@@ -81,12 +91,13 @@ export const PI_BIN = process.env.PI_BIN ?? "pi";
 
 /**
  * Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
- * Defaults to the Shopify proxy so local behavior matches the auto-discovered
- * `~/.pi/agent` extension; override in deployments (e.g. Cloud Run) to target a
- * different proxy. Mirrored here for logging; the extension reads it directly.
+ * Override in deployments to target the proxy available in that environment.
+ * Mirrored here for logging; the extension reads it directly.
  */
-export const PI_PROXY_URL =
-  process.env.PI_PROXY_URL ?? "https://proxy.shopify.ai";
+export const PI_PROXY_URL = readAbsoluteUrl(
+  "PI_PROXY_URL",
+  "https://proxy.example.com",
+);
 
 /**
  * Provider/model Pi is pinned to when spawned. In the container there is no
@@ -136,10 +147,11 @@ export const AUTH_JWT_TOKEN_COOKIE_NAME =
   process.env.AUTH_JWT_TOKEN_COOKIE_NAME ?? "";
 
 /**
- * Base URL of the Tangle (Cloud Pipelines) API reached by the bundle-UI/agent
- * egress allowlist. The OpenAPI doc declares no `servers`, so this is supplied
- * per environment: defaults to the local dev server and is overridden in
- * production. Only the origin is used when matching egress destinations.
+ * Base URL of the Tangle API reached by the bundle-UI/agent egress allowlist.
+ * The OpenAPI doc declares no `servers`, so this is supplied per environment.
+ * Only the origin is used when matching egress destinations.
  */
-export const TANGLE_API_URL =
-  process.env.TANGLE_API_URL ?? "https://oasis.shopify.io";
+export const TANGLE_API_URL = readAbsoluteUrl(
+  "TANGLE_API_URL",
+  "https://api.example.com",
+);

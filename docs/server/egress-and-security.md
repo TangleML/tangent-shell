@@ -58,10 +58,10 @@ sequenceDiagram
 
 Agents and sandboxed bundle-UI components must never hold outbound credentials
 and must not reach arbitrary hosts. Both go through
-[`resolveEgress`](../../server/src/bundleUi/egressAllowlist.ts), which validates
-the requested URL against a fixed allowlist, performs the real `fetch`
-server-side (injecting credentials), and returns a JSON-safe response with only
-allowlisted headers.
+[`resolveEgress`](../../server/src/bundleUi/egressAllowlist.ts), which resolves
+logical targets from server configuration, validates the resulting URL against a
+fixed allowlist, performs the real `fetch` server-side (injecting credentials),
+and returns a JSON-safe response with only allowlisted headers.
 
 Two routes wrap the same resolver:
 
@@ -78,11 +78,11 @@ sequenceDiagram
   participant Resolver as resolveEgress
   participant Upstream as Tangle
 
-  Caller->>Route: POST egress { input: URL, init }
+  Caller->>Route: POST egress { input: target/path, init }
   activate Route
   Route->>Resolver: resolveEgress(input, init)
   activate Resolver
-  Resolver->>Resolver: parse http(s) URL + merge query
+  Resolver->>Resolver: resolve target + merge query
   Resolver->>Resolver: find rule (method + matches(url))
   alt no matching rule
     Resolver-->>Route: throw EgressDeniedError
@@ -103,12 +103,12 @@ sequenceDiagram
 
 Allowlist properties:
 
-- Only `http(s)` URLs whose method + parsed URL match a registered `EgressRule`
-  are permitted; everything else throws `EgressDeniedError` (403).
+- Bundle UI callers should use logical target input such as
+  `{ target: "tangle", path: "/api/executions/<id>/state" }`; trusted internal
+  tools may still pass absolute `http(s)` URLs for compatibility.
 - Rules cover the configured Tangle API origin (`TANGLE_API_URL`) for specific
-  `pipeline_runs` / `executions` / `artifacts` paths, plus the Tangle execution
-  state endpoint. Credentials are injected by the rule's `headers()` so the
-  caller never sees them.
+  `pipeline_runs` / `executions` / `artifacts` paths. Credentials are injected
+  by the rule's `headers()` so the caller never sees them.
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
   upstream calls; transport failures map to a 502.
 
@@ -137,50 +137,22 @@ Allowlist properties:
 
 ---
 
-## Security findings
+## Security notes
 
-### Finding 1 (critical): hardcoded personal `OKTASSO_TOKEN` in source
+### Note 1: egress credentials are deployment secrets
 
-[server/src/bundleUi/egressAllowlist.ts](../../server/src/bundleUi/egressAllowlist.ts)
-currently hardcodes a personal Oktasso JWT directly in `tangleAuthHeaders()`:
+`TANGLE_TOKEN` is read from the process environment and injected as a cookie
+header only inside the server-side egress proxy. Do not commit this value, bake it
+into Docker images, or expose it to bundle UI workers.
 
-```ts
-function tangleAuthHeaders(): Record<string, string> {
-  return {
-    cookie: `OKTASSO_TOKEN=eyJ...<full JWT>...`,
-  };
-  // unreachable below:
-  const token = process.env.TANGLE_TOKEN;
-  return token ? { authorization: `Bearer ${token}` } : {};
-}
-```
-
-Problems:
-
-- A live, personal credential (decoded subject `user@example.com`) is
-  committed to the repository. It will be exposed to anyone with repo access and
-  in git history.
-- The early `return` makes the intended `TANGLE_TOKEN` env path dead code, so the
-  hardcoded cookie is attached to **every** allowlisted Tangle egress
-  request from any session's agents and UI components.
-
-Recommended remediation:
-
-1. Revoke/rotate the leaked Oktasso token immediately.
-2. Remove the hardcoded `cookie` block and restore the `TANGLE_TOKEN` (and
-   `TANGLE_AUTH`) env-sourced path so credentials are injected from the
-   environment, never from source.
-3. Scrub the secret from git history (e.g. `git filter-repo`) since rotating
-   alone leaves the old token in history.
-
-### Finding 2 (informational): default-open internal token in misconfigured deploys
+### Note 2: default-open internal token in misconfigured deploys
 
 `INTERNAL_TOKEN` is a per-start random UUID, which is sound. But because
 `INTERNAL_URL` defaults to loopback and the token guards real capabilities,
 deployments must ensure the internal routers are not exposed beyond loopback and
 that `TANGENT_INTERNAL_TOKEN`, if pinned via env, is treated as a secret.
 
-### Finding 3 (informational): in-memory session store
+### Note 3: in-memory session store
 
 Session records + chat history are in-memory
 ([sessions-and-storage.md](./sessions-and-storage.md)); a restart drops them

@@ -91,12 +91,16 @@ without growing the bridge surface.
   the worker thread, the new tab opens outside the original click's
   user-activation window, so a popup blocker may suppress it — trigger it
   directly from a user gesture (e.g. a `Button` press) for the best result.
+- `{ type: "openTargetUrl", target: "tangle", path }` — asks the host to resolve
+  a configured target URL and open it. Bundle code supplies only the logical
+  target and path; the deployment-specific origin stays in server config.
 
 ```ts
 await host.execUICommand({ type: "collapse" });
 await host.execUICommand({
-  type: "openUrl",
-  url: "https://tangle.example.com/runs/abc",
+  type: "openTargetUrl",
+  target: "tangle",
+  path: "/runs/abc",
 });
 ```
 
@@ -119,6 +123,11 @@ interface HostRequestInit {
   query?: Record<string, string | number | boolean>;
 }
 
+interface HostTargetRequest {
+  target: "tangle";
+  path: string;
+}
+
 interface HostResponse {
   ok: boolean;
   status: number;
@@ -128,10 +137,11 @@ interface HostResponse {
 }
 ```
 
-- `input` is a **real, absolute `https://` URL** for the destination. The proxy
-  matches it against allowlisted host/path patterns; authors name the actual
-  endpoint (e.g. `https://tangle.example.com/api/executions/<id>/state`) rather
-  than a logical alias.
+- `input` is normally a **logical target request** such as
+  `{ target: "tangle", path: "/api/executions/<id>/state" }`. The server resolves
+  the target from deployment configuration and then matches the resolved URL
+  against allowlisted path patterns. Absolute `http(s)` URLs are accepted only as
+  a compatibility path for trusted internal tooling.
 - The proxy **rejects any destination not on the allowlist** before making a
   network call, and strips/normalizes headers in both directions. Credentials
   the destination needs are injected server-side and never reach the worker.
@@ -151,17 +161,17 @@ const EGRESS_RULES = [
   {
     method: "GET",
     matches: (url) =>
-      url.origin === "https://tangle.example.com" &&
+      url.origin === TANGLE_API_ORIGIN &&
       /^\/api\/executions\/[^/]+\/state$/.test(url.pathname),
-    // optional bearer token attached server-side; never exposed to the worker
+    // optional credential attached server-side; never exposed to the worker
     headers: tangleAuthHeaders,
   },
 ];
 ```
 
-A request whose method+URL does not match any rule is denied. New destinations
-are enabled by adding rules server-side, never by the component naming an
-arbitrary URL. (Per-bundle allowlists are a future refinement — see
+A request whose method+resolved URL does not match any rule is denied. New
+destinations are enabled by adding rules server-side, never by the component
+naming an arbitrary URL. (Per-bundle allowlists are a future refinement — see
 [`security.md`](security.md).)
 
 ### Example
@@ -170,9 +180,10 @@ Request from the component:
 
 ```ts
 const id = "019ea56d72cd5f4d75f6";
-const res = await host.fetch(
-  `https://tangle.example.com/api/executions/${id}/state`,
-);
+const res = await host.fetch({
+  target: "tangle",
+  path: `/api/executions/${id}/state`,
+});
 if (!res.ok) throw new Error(`status ${res.status}`);
 const summary = (res.json as { child_execution_status_summary: unknown })
   .child_execution_status_summary;

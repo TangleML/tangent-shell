@@ -13,9 +13,7 @@
 import { getOktassoHeaders } from "./oktassoAuth.ts";
 
 const baseUrl =
-  process.argv[2] ??
-  process.env.TANGLE_BASE_URL ??
-  "https://tangle.example.com";
+  process.argv[2] ?? process.env.TANGLE_BASE_URL ?? "https://api.example.com";
 const forceRefresh = process.env.TANGLE_TOKEN_FORCE_REFRESH === "1";
 
 try {
