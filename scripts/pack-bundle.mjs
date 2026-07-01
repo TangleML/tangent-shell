@@ -1,10 +1,11 @@
 /**
- * Packs a Tangent Configuration Bundle source folder into a `*.zip`.
+ * Packs Tangent Configuration Bundle source folders into `*.zip` archives.
  *
  * Usage:
  *   node scripts/pack-bundle.mjs [sourceDir]
  *
- * `sourceDir` defaults to `examples/tangle-oss`. The folder's
+ * With a `sourceDir` argument, packs just that folder. With no argument, packs
+ * every `examples/<name>/` folder that contains a `tangent.yaml`. Each folder's
  * `tangent.yaml` is read to derive the bundle `id`, and the archive is written
  * to `examples/<id>.zip`.
  *
@@ -13,7 +14,13 @@
  * repacking unchanged sources yields byte-identical archives.
  */
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,8 +29,7 @@ import { parse as parseYaml } from "yaml";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const DEFAULT_SOURCE = "examples/tangle-oss";
-const OUTPUT_DIR = "examples";
+const OUTPUT_DIR = process.env.PACK_BUNDLE_OUTPUT_DIR || "examples";
 
 /** Skip OS junk and any dotfile/dotdir. */
 function shouldSkip(name) {
@@ -54,8 +60,7 @@ function collectFiles(root, dir, files) {
   return files;
 }
 
-function main() {
-  const sourceArg = process.argv[2] ?? DEFAULT_SOURCE;
+function packBundle(sourceArg) {
   const sourceDir = resolve(repoRoot, sourceArg);
 
   if (!statSync(sourceDir).isDirectory()) {
@@ -88,6 +93,25 @@ function main() {
   console.log(`Packed ${entries.length} files from ${sourceArg}:`);
   for (const key of entries) console.log(`  ${key}`);
   console.log(`-> ${relative(repoRoot, outPath)} (${zipped.length} bytes)`);
+}
+
+/** Every `examples/<name>/` folder that holds a `tangent.yaml`, repo-relative. */
+function discoverBundleSources() {
+  const examplesDir = resolve(repoRoot, OUTPUT_DIR);
+  return readdirSync(examplesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(OUTPUT_DIR, entry.name))
+    .filter((rel) => existsSync(resolve(repoRoot, rel, "tangent.yaml")))
+    .sort();
+}
+
+function main() {
+  const sourceArg = process.argv[2];
+  const sources = sourceArg ? [sourceArg] : discoverBundleSources();
+  if (sources.length === 0) {
+    throw new Error(`no bundle sources found under ${OUTPUT_DIR}`);
+  }
+  for (const source of sources) packBundle(source);
 }
 
 main();
