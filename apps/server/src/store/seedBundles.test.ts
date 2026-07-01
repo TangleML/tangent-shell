@@ -96,7 +96,7 @@ test("seeds the example bundles into an empty marketplace", async () => {
       assert.ok(installed >= 1, "expected at least one example bundle");
 
       const ids = bundles.map((b) => b.id);
-      assert.ok(ids.includes("tangle"), "expected the `tangle` bundle");
+      assert.ok(ids.includes("tangle-oss"), "expected the `tangle-oss` bundle");
       assert.equal(new Set(ids).size, ids.length, "bundle ids must be unique");
     });
   } finally {
