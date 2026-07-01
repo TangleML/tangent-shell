@@ -8,14 +8,7 @@ import type {
 
 import { apiUrl } from "@/shared/lib/basePath";
 
-/**
- * Input for {@link createSession}. An optional `config` file is a Tangent
- * Configuration Bundle ZIP; when present the request is sent as multipart so
- * the server installs the bundle into the new session.
- */
-export interface CreateSessionInput extends CreateSessionRequest {
-  config?: File;
-}
+export type CreateSessionInput = CreateSessionRequest;
 
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -40,36 +33,16 @@ export async function getSession(id: string): Promise<Session> {
 }
 
 export async function createSession(
-  input: CreateSessionInput = {},
+  input: CreateSessionInput,
 ): Promise<Session> {
-  const { config, ...rest } = input;
-
-  // With a bundle, send multipart so the file rides alongside the name; without
-  // one, keep the plain JSON path.
-  const request: RequestInit = config
-    ? { method: "POST", body: buildSessionFormData(config, rest) }
-    : {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(rest),
-      };
-
   const data = await parseJson<{ session: Session }>(
-    await fetch(apiUrl("/api/sessions"), request),
+    await fetch(apiUrl("/api/sessions"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
   );
   return data.session;
-}
-
-/** Assembles the multipart body for a bundle-backed session create. */
-function buildSessionFormData(
-  config: File,
-  fields: CreateSessionRequest,
-): FormData {
-  const form = new FormData();
-  if (fields.name) form.append("name", fields.name);
-  if (fields.bundleId) form.append("bundleId", fields.bundleId);
-  form.append("config", config);
-  return form;
 }
 
 export async function updateSession(

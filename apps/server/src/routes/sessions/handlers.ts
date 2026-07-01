@@ -182,27 +182,16 @@ async function createSessionFromBundle(
   }
 }
 
-/**
- * Resolves the bundle ZIP a create request should install: an uploaded `config`
- * multipart file, or a marketplace bundle referenced by `bundleId`. Returns
- * `undefined` when no bundle was requested and `"not-found"` when a `bundleId`
- * doesn't resolve, so the caller can answer `404` before creating a session.
- */
 async function resolveCreateBundle(
-  req: Request,
   body: CreateSessionInput,
   agentBundleStore: AgentBundleStore,
-): Promise<Buffer | "not-found" | undefined> {
-  if (req.file) return req.file.buffer;
-  if (!body.bundleId) return undefined;
+): Promise<Buffer | "not-found"> {
   return (await agentBundleStore.readBundle(body.bundleId)) ?? "not-found";
 }
 
 /**
- * Handles `POST /api/sessions`. A session can be created plain, from an
- * uploaded bundle ZIP (`config` multipart field), or from a marketplace agent
- * bundle (`bundleId`); the latter two share the {@link createSessionFromBundle}
- * install path.
+ * Handles `POST /api/sessions`. Sessions are created from a saved marketplace
+ * agent bundle so every session carries bundle config metadata.
  */
 export async function handleCreateSession(
   store: SessionStore,
@@ -215,7 +204,7 @@ export async function handleCreateSession(
 ): Promise<void> {
   // Resolve any bundle before creating the session so a bad id fails without
   // leaving an empty session behind.
-  const zipBuffer = await resolveCreateBundle(req, body, agentBundleStore);
+  const zipBuffer = await resolveCreateBundle(body, agentBundleStore);
   if (zipBuffer === "not-found") {
     res.status(404).json({ error: "Agent bundle not found" });
     return;
@@ -226,24 +215,16 @@ export async function handleCreateSession(
   const user = resolveUserIdentity(req.headers.cookie) ?? undefined;
   const session = await store.createSession({ name: body.name, user });
 
-  if (zipBuffer) {
-    await createSessionFromBundle(
-      store,
-      pi,
-      triggerEngine,
-      session.id,
-      session.rootPath,
-      zipBuffer,
-      user,
-      res,
-    );
-    return;
-  }
-
-  // No bundle: spawn the session's Pi agent with the global config so it's
-  // ready when the chat opens.
-  pi.ensure(session.id, session.rootPath, undefined, undefined, user);
-  res.status(201).json({ session });
+  await createSessionFromBundle(
+    store,
+    pi,
+    triggerEngine,
+    session.id,
+    session.rootPath,
+    zipBuffer,
+    user,
+    res,
+  );
 }
 
 /**

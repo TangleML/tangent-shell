@@ -1,7 +1,6 @@
 import type {
   AgentRole,
   ChatMessage,
-  CreateSessionRequest,
   PinnedArtifact,
   Session,
   SessionConfigMeta,
@@ -16,12 +15,8 @@ import type {
  */
 export type SessionAgentStatus = "active" | "killed" | "error";
 
-/**
- * Input accepted by {@link SessionStore.createSession}: the public wire request
- * plus the server-resolved {@link UserIdentity} (from the creator's Minerva JWT),
- * which is never part of the client-supplied body.
- */
-export interface CreateSessionParams extends CreateSessionRequest {
+export interface CreateSessionParams {
+  name?: string;
   user?: UserIdentity;
 }
 

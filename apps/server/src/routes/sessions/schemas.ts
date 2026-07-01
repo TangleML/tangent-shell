@@ -1,14 +1,9 @@
 import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { z } from "zod";
 
-/**
- * Create-session body. Every field is optional so a multipart request (the
- * `config` ZIP upload, whose form fields land in `req.body`) still validates;
- * the uploaded file itself is read from `req.file`, not from the body.
- */
 export const createSessionSchema = z.object({
   name: z.string().optional(),
-  bundleId: z.string().optional(),
+  bundleId: z.string().min(1),
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 

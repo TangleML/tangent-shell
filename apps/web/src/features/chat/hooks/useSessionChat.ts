@@ -84,10 +84,7 @@ export interface AgentModelSelection {
  * unmount or when the session changes, so the socket identity stays stable for
  * a given room.
  */
-export function useSessionChat(
-  sessionId: string,
-  options?: { initialMessage?: string },
-) {
+export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
   // Per-agent model/thinking selection, keyed by agent id (`"prime"` or a
@@ -120,7 +117,6 @@ export function useSessionChat(
     Map<string, AgentActivity>
   >(() => new Map());
   const socketRef = useRef<Socket | null>(null);
-  const sentInitialRef = useRef(false);
   // Maps an in-flight message id to its conversation so `agent:error` (which
   // only carries a messageId) can clear the right thread's streaming state.
   const conversationByMessageId = useRef<Map<string, string>>(new Map());
@@ -465,25 +461,6 @@ export function useSessionChat(
     };
     socket.emit(SocketEvents.ChatMessage, payload);
   }
-
-  // Send the first message handed off from `/sessions/new` once connected;
-  // sentInitialRef guards against a reconnect resending it.
-  const initialMessage = options?.initialMessage;
-  const { id: authorId, name: authorName } = author;
-  useEffect(() => {
-    const socket = socketRef.current;
-    if (!connected || sentInitialRef.current || !initialMessage || !socket)
-      return;
-    sentInitialRef.current = true;
-    const payload: ChatMessagePayload = {
-      sessionId,
-      author: { id: authorId, kind: "human", name: authorName },
-      content: initialMessage,
-      conversationId: PI_AGENT.id,
-      delivery: "auto",
-    };
-    socket.emit(SocketEvents.ChatMessage, payload);
-  }, [connected, initialMessage, sessionId, authorId, authorName]);
 
   // Aborts an agent's in-progress run by id (`"prime"` or a sub-agent id). The
   // server resets the run's state and the UI clears via the usual agent events.

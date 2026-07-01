@@ -19,23 +19,23 @@ interface NewSessionButtonProps {
   bundles?: AgentBundleMeta[];
   /** Whether a session is currently being created. */
   creating: boolean;
-  onCreateBlank: () => void;
+  onStartDefaultBundle: () => void;
   onStartFromBundle: (bundleId: string, name: string) => void;
 }
 
-/**
- * Split button that creates a blank session, with a dropdown to instead start
- * from any available bundle.
- */
 export function NewSessionButton({
   bundles,
   creating,
-  onCreateBlank,
+  onStartDefaultBundle,
   onStartFromBundle,
 }: NewSessionButtonProps) {
   return (
     <ButtonGroup aria-label="New session">
-      <Button variant="outline" onClick={onCreateBlank} disabled={creating}>
+      <Button
+        variant="outline"
+        onClick={onStartDefaultBundle}
+        disabled={creating}
+      >
         {creating ? "Creating..." : "New session"}
       </Button>
       <DropdownMenu>

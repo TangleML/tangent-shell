@@ -19,14 +19,7 @@ import { AgentModelPicker } from "./composer/AgentModelPicker";
 import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
 import { ChatInput } from "./composer/ChatInput";
 import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
-import { NewSessionComposer } from "./composer/NewSessionComposer";
 import { ChatMessageList } from "./message/ChatMessageList";
-
-interface DraftActions {
-  onSend: (content: string) => void;
-  onAttach: (files: File[], content: string) => void;
-  busy?: boolean;
-}
 
 type SendFn = (
   content: string,
@@ -39,14 +32,11 @@ type SendFn = (
 
 interface PrimeChatPanelProps {
   sessionId: string;
-  draft: boolean;
-  draftActions?: DraftActions;
   messages: ChatMessage[];
   currentAuthorId: string;
   bundleId?: string;
   connected: boolean;
   agentBusy: boolean;
-  handoffFiles?: File[];
   activity: AgentActivity | null;
   isMessageStreaming: (messageId: string) => boolean;
   memorySuggestions: MemorySuggestionPayload[];
@@ -67,22 +57,13 @@ interface PrimeChatPanelProps {
   togglePinArtifact: (path: string, title: string) => void;
 }
 
-/**
- * Prime's main thread tab: the message list plus the composer area (memory
- * suggestions, bundle panel launcher, active-tasks footer, and the input). On
- * the new-session draft screen only the message list and the draft composer
- * render; the live-session affordances are hidden until the session exists.
- */
 export function PrimeChatPanel({
   sessionId,
-  draft,
-  draftActions,
   messages,
   currentAuthorId,
   bundleId,
   connected,
   agentBusy,
-  handoffFiles,
   activity,
   isMessageStreaming,
   memorySuggestions,
@@ -116,7 +97,7 @@ export function PrimeChatPanel({
         onTogglePinArtifact={togglePinArtifact}
         isMessageStreaming={isMessageStreaming}
       />
-      {!draft && memorySuggestions.length > 0 && (
+      {memorySuggestions.length > 0 && (
         <Box paddingInline="base" paddingBlock="sm">
           <BlockStack gap="2">
             {memorySuggestions.map((suggestion) => (
@@ -130,48 +111,37 @@ export function PrimeChatPanel({
           </BlockStack>
         </Box>
       )}
-      {!draft && bundleId && (
+      {bundleId && (
         <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
       )}
-      {!draft && (
-        <PrimeComposerFooter
-          sessionId={sessionId}
-          busySubagents={busySubagents}
-          armedTriggers={armedTriggers}
-          subagents={subagents}
-          assets={assets}
-          connected={connected}
-          primeModel={primeModel}
-          openAgent={openAgent}
-          openAsset={openAsset}
-          abort={abort}
-          setAgentModel={setAgentModel}
-        />
-      )}
-      {draft && draftActions ? (
-        <NewSessionComposer
-          onSend={draftActions.onSend}
-          onAttach={draftActions.onAttach}
-          busy={draftActions.busy}
-        />
-      ) : (
-        <ChatInput
-          key={`${sessionId}:${PI_AGENT.id}`}
-          sessionId={sessionId}
-          agentId={PI_AGENT.id}
-          initialFiles={handoffFiles}
-          disabled={!connected}
-          agentBusy={agentBusy}
-          onAbort={() => abort(PI_AGENT.id)}
-          onSubmit={(content, { delivery, attachments }) =>
-            send(content, {
-              conversationId: PI_AGENT.id,
-              delivery,
-              attachments,
-            })
-          }
-        />
-      )}
+      <PrimeComposerFooter
+        sessionId={sessionId}
+        busySubagents={busySubagents}
+        armedTriggers={armedTriggers}
+        subagents={subagents}
+        assets={assets}
+        connected={connected}
+        primeModel={primeModel}
+        openAgent={openAgent}
+        openAsset={openAsset}
+        abort={abort}
+        setAgentModel={setAgentModel}
+      />
+      <ChatInput
+        key={`${sessionId}:${PI_AGENT.id}`}
+        sessionId={sessionId}
+        agentId={PI_AGENT.id}
+        disabled={!connected}
+        agentBusy={agentBusy}
+        onAbort={() => abort(PI_AGENT.id)}
+        onSubmit={(content, { delivery, attachments }) =>
+          send(content, {
+            conversationId: PI_AGENT.id,
+            delivery,
+            attachments,
+          })
+        }
+      />
     </BlockStack>
   );
 }
