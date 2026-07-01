@@ -6,7 +6,7 @@
 set -euo pipefail
 
 default_bundle_placeholder="__TANGENT_RUNTIME_DEFAULT_SESSION_BUNDLE_ID__"
-default_session_bundle_id="${VITE_DEFAULT_SESSION_BUNDLE_ID:-tangle}"
+default_session_bundle_id="${VITE_DEFAULT_SESSION_BUNDLE_ID:-tangle-oss}"
 
 if ! [[ "$default_session_bundle_id" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   echo "VITE_DEFAULT_SESSION_BUNDLE_ID must be a bundle id slug (lowercase letters, numbers, and hyphens)" >&2
