@@ -76,7 +76,7 @@ sequenceDiagram
   participant Caller as Agent tool / UI component
   participant Route as Egress route
   participant Resolver as resolveEgress
-  participant Upstream as Tangle / Oasis
+  participant Upstream as Tangle
 
   Caller->>Route: POST egress { input: URL, init }
   activate Route
@@ -106,7 +106,7 @@ Allowlist properties:
 - Only `http(s)` URLs whose method + parsed URL match a registered `EgressRule`
   are permitted; everything else throws `EgressDeniedError` (403).
 - Rules cover the configured Tangle API origin (`TANGLE_API_URL`) for specific
-  `pipeline_runs` / `executions` / `artifacts` paths, plus the Oasis execution
+  `pipeline_runs` / `executions` / `artifacts` paths, plus the Tangle execution
   state endpoint. Credentials are injected by the rule's `headers()` so the
   caller never sees them.
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
@@ -139,35 +139,35 @@ Allowlist properties:
 
 ## Security findings
 
-### Finding 1 (critical): hardcoded personal `MINERVA_TOKEN` in source
+### Finding 1 (critical): hardcoded personal `OKTASSO_TOKEN` in source
 
 [server/src/bundleUi/egressAllowlist.ts](../../server/src/bundleUi/egressAllowlist.ts)
-currently hardcodes a personal Minerva JWT directly in `oasisAuthHeaders()`:
+currently hardcodes a personal Oktasso JWT directly in `tangleAuthHeaders()`:
 
 ```ts
-function oasisAuthHeaders(): Record<string, string> {
+function tangleAuthHeaders(): Record<string, string> {
   return {
-    cookie: `MINERVA_TOKEN=eyJ...<full JWT>...`,
+    cookie: `OKTASSO_TOKEN=eyJ...<full JWT>...`,
   };
   // unreachable below:
-  const token = process.env.OASIS_TOKEN;
+  const token = process.env.TANGLE_TOKEN;
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 ```
 
 Problems:
 
-- A live, personal credential (decoded subject `maxim.ezhov@shopify.com`) is
+- A live, personal credential (decoded subject `user@example.com`) is
   committed to the repository. It will be exposed to anyone with repo access and
   in git history.
-- The early `return` makes the intended `OASIS_TOKEN` env path dead code, so the
-  hardcoded cookie is attached to **every** allowlisted Oasis/Tangle egress
+- The early `return` makes the intended `TANGLE_TOKEN` env path dead code, so the
+  hardcoded cookie is attached to **every** allowlisted Tangle egress
   request from any session's agents and UI components.
 
 Recommended remediation:
 
-1. Revoke/rotate the leaked Minerva token immediately.
-2. Remove the hardcoded `cookie` block and restore the `OASIS_TOKEN` (and
+1. Revoke/rotate the leaked Oktasso token immediately.
+2. Remove the hardcoded `cookie` block and restore the `TANGLE_TOKEN` (and
    `TANGLE_AUTH`) env-sourced path so credentials are injected from the
    environment, never from source.
 3. Scrub the secret from git history (e.g. `git filter-repo`) since rotating

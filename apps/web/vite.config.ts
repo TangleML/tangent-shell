@@ -13,7 +13,7 @@ const apiTarget = process.env.API_TARGET ?? "http://localhost:8787";
 // https://vite.dev/config/
 export default defineConfig({
   // Relative asset base so the built index.html references assets as
-  // "./assets/..." rather than "/assets/...". Behind the oasis pod-proxy the
+  // "./assets/..." rather than "/assets/...". Behind the tangle pod-proxy the
   // Kubernetes apiserver rewrites same-host absolute-path URLs in HTML to its
   // own proxy path; relative URLs are left untouched and resolve against the
   // runtime-injected <base href> (see index.html).

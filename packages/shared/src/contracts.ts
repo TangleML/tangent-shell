@@ -10,7 +10,7 @@
 export type SessionStatus = "created";
 
 /**
- * The current human's identity, resolved from the Minerva JWT by `GET /api/me`.
+ * The current human's identity, resolved from the Oktasso JWT by `GET /api/me`.
  * The `email` doubles as the user id used when constructing Tangle API requests;
  * `first_name` lets agents address the user by name. Name fields default to an
  * empty string when the JWT omits the corresponding claim.
@@ -71,7 +71,7 @@ export interface Session {
   status: SessionStatus;
   /** Configuration Bundle this session was created from, when applicable. */
   config?: SessionConfigMeta;
-  /** The human who created the session, resolved from their Minerva JWT. */
+  /** The human who created the session, resolved from their Oktasso JWT. */
   user?: UserIdentity;
   /** Whether the session is archived (hidden from the default list). */
   archived: boolean;

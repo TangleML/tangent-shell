@@ -1,7 +1,7 @@
 import type { UserIdentity } from "@tangent/shared/contracts";
 
 /**
- * Safety-net identity used when the Minerva JWT is unavailable (e.g. local
+ * Safety-net identity used when the Oktasso JWT is unavailable (e.g. local
  * development without the cookie configured), so the UI always has a name to
  * show.
  */

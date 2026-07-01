@@ -59,7 +59,7 @@ flowchart TB
   end
 
   LLM["LLM proxy (PI_PROXY_URL)"]
-  Tangle["Tangle / Oasis API"]
+  Tangle["Tangle API"]
 
   UI -->|"REST /api/*"| Express
   UI <-->|"Socket.IO session room"| SocketIO
@@ -178,9 +178,9 @@ From [server/src/config.ts](../../server/src/config.ts):
 - `ARTIFACTS_DIRNAME` (`artifacts`) and `UPLOADS_DIRNAME` (`uploads`) — the only
   per-session subtrees served over HTTP.
 - `PI_BIN` (`pi`), `PI_PROVIDER` (`openai`), `PI_MODEL` (`gpt-5.5`),
-  `PI_PROXY_URL` (`https://proxy.shopify.ai`), `PI_DEBUG` (on by default).
+  `PI_PROXY_URL` (`https://proxy.example.com`), `PI_DEBUG` (on by default).
 - `INTERNAL_URL` (loopback on `PORT`) + `INTERNAL_TOKEN` (per-start UUID).
-- `TANGLE_API_URL` (`https://oasis.shopify.io`) — origin for the egress
+- `TANGLE_API_URL` (`https://tangle.example.com`) — origin for the egress
   allowlist.
 
 ## Glossary

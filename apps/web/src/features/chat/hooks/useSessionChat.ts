@@ -135,7 +135,7 @@ export function useSessionChat(sessionId: string) {
     if (!sessionId) return;
 
     // Connects to the same origin; Vite proxies /socket.io to the dev server.
-    // The path is mount-prefix aware so it works behind the oasis pod-proxy
+    // The path is mount-prefix aware so it works behind the tangle pod-proxy
     // sub-path (`${BASE_PREFIX}socket.io`, i.e. `/socket.io` at the origin root).
     const socket = io({ autoConnect: true, path: `${BASE_PREFIX}socket.io` });
     socketRef.current = socket;

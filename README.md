@@ -125,7 +125,7 @@ the full list and defaults):
 | `PI_BIN`                                   | Path to the `pi` agent executable                      |
 | `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING` | Default LLM provider, model, and thinking level        |
 | `PI_PROXY_URL` / `PI_PROXY_API_KEY`        | LLM proxy endpoint and credential                      |
-| `TANGLE_API_URL` / `OASIS_TOKEN`           | Tangle pipeline API for bundles that integrate with it |
+| `TANGLE_API_URL` / `TANGLE_TOKEN`          | Tangle pipeline API for bundles that integrate with it |
 
 ### Common commands
 

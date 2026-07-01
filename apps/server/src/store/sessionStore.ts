@@ -15,6 +15,11 @@ import type {
  */
 export type SessionAgentStatus = "active" | "killed" | "error";
 
+/**
+ * Input accepted by {@link SessionStore.createSession}: the public wire request
+ * plus the server-resolved {@link UserIdentity} (from the creator's Oktasso JWT),
+ * which is never part of the client-supplied body.
+ */
 export interface CreateSessionParams {
   name?: string;
   user?: UserIdentity;

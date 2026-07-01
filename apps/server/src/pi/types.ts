@@ -155,7 +155,7 @@ export interface SessionAgents {
    */
   config?: ResolvedSessionConfig;
   /**
-   * The human who owns the session, resolved from their Minerva JWT. Captured
+   * The human who owns the session, resolved from their Oktasso JWT. Captured
    * so every agent's system prompt can be told who it's helping. Absent for
    * unauthenticated sessions.
    */

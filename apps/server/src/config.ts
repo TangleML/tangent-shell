@@ -128,7 +128,7 @@ export const INTERNAL_TOKEN =
   process.env.TANGENT_INTERNAL_TOKEN ?? randomUUID();
 
 /**
- * Name of the cookie holding the Minerva JWT that `GET /api/me` reads to resolve
+ * Name of the cookie holding the Oktasso JWT that `GET /api/me` reads to resolve
  * the current user. Empty by default so the route is effectively disabled until
  * an environment supplies the cookie name (the local `dev` script sets it).
  */

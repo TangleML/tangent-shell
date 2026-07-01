@@ -25,7 +25,7 @@ export function BundleUiHarnessPage() {
   const [crashToken, setCrashToken] = useState(0);
   const [showCrash, setShowCrash] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  // A sample Oasis execution id; the component polls the real allowlisted
+  // A sample Tangle execution id; the component polls the real allowlisted
   // endpoint and degrades to a loading state when the host is unreachable.
   const [executionId] = useState("019ea56d72cd5f4d75f6");
 
@@ -36,7 +36,7 @@ export function BundleUiHarnessPage() {
           <Heading level={2}>Bundle UI harness</Heading>
           <Paragraph tone="subdued">
             Renders a sandboxed component in a Web Worker via remote-dom. The
-            progress bar polls the real allowlisted egress endpoint (Oasis
+            progress bar polls the real allowlisted egress endpoint (Tangle
             execution state); the button sends a prompt through the host bridge.
           </Paragraph>
         </BlockStack>

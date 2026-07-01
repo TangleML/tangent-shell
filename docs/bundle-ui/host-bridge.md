@@ -96,7 +96,7 @@ without growing the bridge surface.
 await host.execUICommand({ type: "collapse" });
 await host.execUICommand({
   type: "openUrl",
-  url: "https://oasis.shopify.io/runs/abc",
+  url: "https://tangle.example.com/runs/abc",
 });
 ```
 
@@ -130,7 +130,7 @@ interface HostResponse {
 
 - `input` is a **real, absolute `https://` URL** for the destination. The proxy
   matches it against allowlisted host/path patterns; authors name the actual
-  endpoint (e.g. `https://oasis.shopify.io/api/executions/<id>/state`) rather
+  endpoint (e.g. `https://tangle.example.com/api/executions/<id>/state`) rather
   than a logical alias.
 - The proxy **rejects any destination not on the allowlist** before making a
   network call, and strips/normalizes headers in both directions. Credentials
@@ -151,10 +151,10 @@ const EGRESS_RULES = [
   {
     method: "GET",
     matches: (url) =>
-      url.origin === "https://oasis.shopify.io" &&
+      url.origin === "https://tangle.example.com" &&
       /^\/api\/executions\/[^/]+\/state$/.test(url.pathname),
     // optional bearer token attached server-side; never exposed to the worker
-    headers: oasisAuthHeaders,
+    headers: tangleAuthHeaders,
   },
 ];
 ```
@@ -171,7 +171,7 @@ Request from the component:
 ```ts
 const id = "019ea56d72cd5f4d75f6";
 const res = await host.fetch(
-  `https://oasis.shopify.io/api/executions/${id}/state`,
+  `https://tangle.example.com/api/executions/${id}/state`,
 );
 if (!res.ok) throw new Error(`status ${res.status}`);
 const summary = (res.json as { child_execution_status_summary: unknown })
