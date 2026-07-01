@@ -6,7 +6,6 @@ import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
-import { bundleUpload } from "../bundleUpload.ts";
 import {
   createArtifactFileHandler,
   handleCreateSession,
@@ -42,13 +41,8 @@ function registerSessionCollectionRoutes(
     handleListSessions(store, req, res),
   );
 
-  // `bundleUpload.single` parses a multipart `config` ZIP (form field `name`
-  // lands in `req.body`); plain JSON requests pass through untouched (parsed
-  // earlier by the global `express.json()`). `validate` then narrows the body
-  // either way, while the uploaded file is read from `req.file`.
   router.post(
     "/",
-    bundleUpload.single("config"),
     validate({ body: createSessionSchema }),
     (req: Request, res: Response) =>
       handleCreateSession(

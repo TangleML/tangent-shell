@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
+import { env } from "@/shared/config/env";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
@@ -31,6 +32,10 @@ export function SessionsPage() {
   const visibleSessions = showArchived
     ? sessions
     : sessions?.filter((session) => !session.archived);
+  const defaultBundle = bundles?.find(
+    (bundle) => bundle.id === env.defaultSessionBundleId,
+  );
+  const defaultBundleName = defaultBundle?.name ?? env.defaultSessionBundleId;
 
   const openSession = (session: Session) =>
     void navigate({
@@ -38,8 +43,11 @@ export function SessionsPage() {
       params: { sessionId: session.id },
     });
 
-  // Defer creation until the first message; the draft screen is ephemeral.
-  const createBlank = () => void navigate({ to: "/sessions/new" });
+  const startDefaultBundle = () =>
+    createSession(
+      { bundleId: env.defaultSessionBundleId, name: defaultBundleName },
+      { onSuccess: openSession },
+    );
 
   const startFromBundle = (bundleId: string, name: string) =>
     createSession({ bundleId, name }, { onSuccess: openSession });
@@ -48,7 +56,7 @@ export function SessionsPage() {
     <NewSessionButton
       bundles={bundles}
       creating={isCreating}
-      onCreateBlank={createBlank}
+      onStartDefaultBundle={startDefaultBundle}
       onStartFromBundle={startFromBundle}
     />
   );
@@ -58,7 +66,7 @@ export function SessionsPage() {
       <BlockStack gap="6">
         <PageHeader
           title="Sessions"
-          description="Conversations with your agents. Start a new one or resume where you left off."
+          description="Conversations with your agents. Start with the default bundle, choose another bundle, or resume where you left off."
         />
 
         {error ? (
@@ -83,7 +91,7 @@ export function SessionsPage() {
           <EmptyState
             icon="FolderOpen"
             title="No sessions yet"
-            description="Create one from the sidebar to get started."
+            description="Start with the default bundle or choose another agent bundle to get started."
             action={newSessionButton}
           />
         ) : null}

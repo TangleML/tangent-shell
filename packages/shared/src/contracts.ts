@@ -443,7 +443,7 @@ export interface ListAgentBundlesResponse {
 export interface CreateSessionRequest {
   name?: string;
   /** Marketplace agent bundle id to create the session from. */
-  bundleId?: string;
+  bundleId: string;
 }
 
 export interface UpdateSessionRequest {

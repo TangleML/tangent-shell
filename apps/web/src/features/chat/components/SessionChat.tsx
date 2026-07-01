@@ -13,7 +13,6 @@ import {
   WindowContainer,
   WindowStoreProvider,
 } from "@tangent/windows";
-import { useEffect, useState } from "react";
 
 import {
   CHAT_TAB_VALUE,
@@ -23,10 +22,6 @@ import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { type Agent, buildAgents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { useSession } from "@/features/sessions/hooks/useSession";
-import {
-  clearPendingNewSession,
-  peekPendingNewSession,
-} from "@/features/sessions/model/pendingNewSession";
 import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
 
 import { PrimeChatPanel } from "./PrimeChatPanel";
@@ -38,24 +33,9 @@ import { useSessionChatWindows } from "./windows/useSessionChatWindows";
 
 interface SessionChatProps {
   sessionId: string;
-  draft?: boolean;
-  draftActions?: {
-    onSend: (content: string) => void;
-    onAttach: (files: File[], content: string) => void;
-    busy?: boolean;
-  };
 }
 
-export function SessionChat({
-  sessionId,
-  draft = false,
-  draftActions,
-}: SessionChatProps) {
-  const [handoff] = useState(() => (draft ? null : peekPendingNewSession()));
-  useEffect(() => {
-    if (!draft) clearPendingNewSession();
-  }, [draft]);
-
+export function SessionChat({ sessionId }: SessionChatProps) {
   const {
     messages,
     subagents,
@@ -78,7 +58,7 @@ export function SessionChat({
     getAgentModel,
     setAgentModel,
     dismissSubagent,
-  } = useSessionChat(sessionId, { initialMessage: handoff?.initialMessage });
+  } = useSessionChat(sessionId);
 
   // Prime's current model/thinking selection (null = server default).
   const primeModel = getAgentModel(PI_AGENT.id);
@@ -198,7 +178,7 @@ export function SessionChat({
               header={
                 <SessionCard
                   currentSessionId={sessionId}
-                  name={draft ? "New session" : (session?.name ?? "Session")}
+                  name={session?.name ?? "Session"}
                   rootPath={session?.rootPath}
                   connected={connected}
                 />
@@ -224,14 +204,11 @@ export function SessionChat({
               <TabsContent value={CHAT_TAB_VALUE} forceMount>
                 <PrimeChatPanel
                   sessionId={sessionId}
-                  draft={draft}
-                  draftActions={draftActions}
                   messages={primeMessages}
                   currentAuthorId={currentAuthorId}
                   bundleId={bundleId}
                   connected={connected}
                   agentBusy={agentBusy}
-                  handoffFiles={handoff?.files}
                   activity={getActivity(PI_AGENT.id)}
                   isMessageStreaming={isMessageStreaming}
                   memorySuggestions={memorySuggestions}

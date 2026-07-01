@@ -13,7 +13,6 @@ import { BundleUiHarnessPage } from "./bundle-ui-harness/BundleUiHarnessPage";
 import { GlobalMemoryPage } from "./global-memory/GlobalMemoryPage";
 import { AppTopNav } from "./layout/AppTopNav";
 import { NotFoundPage } from "./not-found/NotFoundPage";
-import { NewSessionPage } from "./sessions/NewSessionPage";
 import { SessionChatPage } from "./sessions/SessionChatPage";
 import { SessionsPage } from "./sessions/SessionsPage";
 
@@ -60,14 +59,6 @@ const sessionsRoute = createRoute({
   component: SessionsPage,
 });
 
-// Static route ranks above `/sessions/$sessionId`, so the ephemeral draft
-// screen wins over the dynamic session route.
-const newSessionRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: "/sessions/new",
-  component: NewSessionPage,
-});
-
 const sessionChatRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: "/sessions/$sessionId",
@@ -97,7 +88,6 @@ export const routeTree = rootRoute.addChildren([
   appLayoutRoute.addChildren([
     indexRoute,
     sessionsRoute,
-    newSessionRoute,
     sessionChatRoute,
     agentBundlesRoute,
     globalMemoryRoute,

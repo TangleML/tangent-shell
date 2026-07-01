@@ -34,8 +34,6 @@ interface ChatInputProps {
   agentId: string;
   /** Disables the whole composer (e.g. while the socket is disconnected). */
   disabled?: boolean;
-  /** Files staged on mount (e.g. handed off from the new-session draft screen). */
-  initialFiles?: File[];
   /**
    * Whether the target agent is mid-run. When busy, the composer stays usable
    * and surfaces Stop / Steer / Follow up controls above the input so the user
@@ -64,7 +62,6 @@ export function ChatInput({
   sessionId,
   agentId,
   disabled,
-  initialFiles,
   agentBusy,
   agentStatus,
   onRemove,
@@ -75,7 +72,7 @@ export function ChatInput({
   // reloads. Seed from storage on mount; callers key this component by
   // session+agent, so it remounts (and re-seeds) when either changes.
   const [value, setValue] = useState(() => readDraft(sessionId, agentId));
-  const [files, setFiles] = useState<File[]>(() => initialFiles ?? []);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   // Follow-ups composed while the agent is busy wait here until the run ends
   // (auto-drained) or the user sends one immediately. They never become chat
