@@ -5,7 +5,7 @@
   "type": "module",
   "prettier": "@tangent/build/prettier",
   "scripts": {
-    "dev": "AUTH_JWT_TOKEN_COOKIE_NAME=OKTASSO_TOKEN tsx watch --tsconfig ./tsconfig.json src/index.ts",
+    "dev": "tsx watch --tsconfig ./tsconfig.json src/index.ts",
     "seed": "tsx --tsconfig ./tsconfig.json src/seed.ts",
     "build": "node build.mjs",
     "lint": "eslint .",
