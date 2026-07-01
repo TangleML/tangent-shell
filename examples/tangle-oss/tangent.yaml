@@ -1,0 +1,86 @@
+schemaVersion: 1
+id: tangle-oss
+name: Tangle OSS
+version: 1.0.0
+description: An open-source Tangle-aware assistant with Tangle API tools and scoped worker agents for everyday work with Tangle ML pipelines and runs, driven by the open-source Tangle CLI.
+author: Tangent
+icon: icon.svg
+tags:
+  - tangle
+  - ml
+
+prime:
+  systemPrompt: prompts/prime.md
+  welcomeMessage: prompts/welcome.md
+  tools:
+    - read
+    - write
+    - edit
+    - bash
+    # Tangle API tools (tools/tangle-api.ts). Must be listed here or Pi's
+    # --tools allowlist filters the extension-registered tools out.
+    - tangle_run_list
+    - tangle_run_status
+    - tangle_run_submit
+    - tangle_run_cancel
+    - tangle_run_annotation_set
+    - tangle_execution_state
+    - tangle_execution_details
+    - tangle_execution_logs
+    - tangle_execution_artifacts
+    - tangle_artifact_signed_url
+    # Triggers
+    - create_trigger
+    - list_triggers
+    - enable_trigger
+    - disable_trigger
+    - delete_trigger
+
+subagents:
+  defaultSystemPrompt: prompts/subagent.md
+  # Fallback tools for an ad-hoc generic worker (spawned without a named
+  # template). The role agents under `agents/` carry their own scoped tool sets
+  # (see `agents:` below) and override these defaults; the heavy ML roles drive
+  # the open-source Tangle CLI (`uv run tangle ...`) via bash, so they don't list
+  # the `tangle_*` API tools. This default keeps a generic worker able to do
+  # Tangle lookups and run-affecting actions, which Prime delegates per
+  # `prompts/prime.md`. The tangle-api extension is loaded into every agent, but
+  # Pi's --tools allowlist would strip its tools from sub-agents unless they
+  # appear here.
+  defaultTools:
+    - read
+    - write
+    - bash
+    - grep
+    - tangle_run_list
+    - tangle_run_status
+    - tangle_run_submit
+    - tangle_run_cancel
+    - tangle_run_annotation_set
+    - tangle_execution_state
+    - tangle_execution_details
+    - tangle_execution_logs
+    - tangle_execution_artifacts
+    - tangle_artifact_signed_url
+
+# Sub-agent templates Prime can spawn via `spawn_subagent template: <name>`.
+# Loaded from the top-level `agents/` directory; each file's frontmatter defines
+# its `name`, `description`, and scoped `tools`. Listed here for clarity.
+agents:
+  - agents/builder.md
+  - agents/debugger.md
+  - agents/reviewer.md
+  - agents/researcher.md
+  - agents/reporter.md
+  - agents/designer.md
+  - agents/safety-monitor.md
+
+# Multi-step orchestration recipes (Pi --prompt-template).
+workflows:
+  - workflows/reproduce-research.md
+
+ui:
+  components:
+    - name: pipeline-progress
+      kind: message
+      entry: ui/pipeline-progress.tsx
