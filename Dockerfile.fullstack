@@ -76,8 +76,11 @@ COPY packages ./packages
 RUN node apps/server/build.mjs
 
 # Build the static UI -> apps/web/dist. Runs `vite build` directly (skips the
-# tsc typecheck) to keep the image build resilient.
-RUN pnpm --filter @tangent/web exec vite build
+# tsc typecheck) to keep the image build resilient. The default session bundle
+# id is patched by docker-entrypoint.sh at runtime so the same image can target
+# different bundle defaults.
+RUN VITE_DEFAULT_SESSION_BUNDLE_ID=__TANGENT_RUNTIME_DEFAULT_SESSION_BUNDLE_ID__ \
+  pnpm --filter @tangent/web exec vite build
 
 # Defense in depth: fail the image build if any extension the server loads at
 # runtime is missing from the bundle (the build script also asserts this).
@@ -104,14 +107,6 @@ ENV PORT=8000
 ENV SESSIONS_ROOT=/tmp/sessions
 ENV HOME=/tmp
 ENV PI_BIN=pi
-# Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
-# Because HOME=/tmp there is no auto-discovered ~/.pi/agent provider config, so
-# the extension registers providers itself. Override to target a different proxy.
-ENV PI_PROXY_URL=https://proxy.shopify.ai
-# PI_PROXY_API_KEY must be supplied at deploy time (e.g. a Cloud Run secret) so
-# Pi can authenticate to the proxy; it is intentionally not baked into the image.
-# Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default openai/gpt-5.5),
-# PI_DEBUG=1 enables verbose Pi RPC logging.
 
 # Compiled server bundle (+ runtime assets) and the built static UI.
 COPY --from=builder /app/apps/server/dist ./dist

@@ -5,6 +5,17 @@
 # orchestrator (Cloud Run, etc.) restarts it instead of leaving a half-up image.
 set -euo pipefail
 
+default_bundle_placeholder="__TANGENT_RUNTIME_DEFAULT_SESSION_BUNDLE_ID__"
+default_session_bundle_id="${VITE_DEFAULT_SESSION_BUNDLE_ID:-tangle}"
+
+if ! [[ "$default_session_bundle_id" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  echo "VITE_DEFAULT_SESSION_BUNDLE_ID must be a bundle id slug (lowercase letters, numbers, and hyphens)" >&2
+  exit 1
+fi
+
+find /app/ui-dist -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' \) \
+  -exec sed -i "s/${default_bundle_placeholder}/${default_session_bundle_id}/g" {} +
+
 # nginx owns the externally exposed port (Cloud Run injects PORT; default 8000).
 export PORT="${PORT:-8000}"
 envsubst '${PORT}' < /app/docker/nginx.conf.template > /etc/nginx/conf.d/default.conf
