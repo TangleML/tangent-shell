@@ -1,3 +1,5 @@
+import "./loadEnv.ts";
+
 import { createServer } from "node:http";
 
 import express from "express";

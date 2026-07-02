@@ -47,6 +47,7 @@ const DEFAULT_REFRESH_AFTER_MS = Number(env("OKTASSO_REFRESH_AFTER_MS"));
 
 const CACHE_DIR = path.join(os.homedir(), ".cache", "tangle-deploy");
 const CACHE_FILE = path.join(CACHE_DIR, "oktasso_token.json");
+const OKTASSO_TOKEN_NAME = env("AUTH_JWT_TOKEN_COOKIE_NAME");
 
 export interface OktassoHeaders {
   cookie: string;
@@ -143,7 +144,7 @@ async function runAuthFlow(
   );
   const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
   return {
-    cookie: `OKTASSO_TOKEN=${oktassoToken}`,
+    cookie: `${OKTASSO_TOKEN_NAME}=${oktassoToken}`,
     expiry: formatExpiry(expiry),
   };
 }
