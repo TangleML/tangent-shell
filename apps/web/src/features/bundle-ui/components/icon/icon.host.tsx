@@ -1,7 +1,7 @@
+import { attributes } from "@tangent/ui-extensions-sdk/contracts/icon";
 import { Icon } from "@tangent/ui-primitives/icon";
 
 import type { RemoteProps } from "../_shared/remote-props";
-import { attributes } from "./icon.contract";
 
 // Explicit (not via `makeHostComponent`) because an invalid icon name must render
 // nothing rather than spread an undefined `name` into the required `Icon` prop.

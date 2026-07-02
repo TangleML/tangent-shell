@@ -1,0 +1,15 @@
+{
+  "extends": "../../packages/ui-extensions-sdk/tsconfig.author.json",
+  "compilerOptions": {
+    "paths": {
+      "@tangent/ui-extensions-sdk": [
+        "../../packages/ui-extensions-sdk/src/index.ts"
+      ],
+      "react": ["../../apps/web/node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": [
+        "../../apps/web/node_modules/@types/react/jsx-runtime.d.ts"
+      ]
+    }
+  },
+  "include": ["ui/**/*.tsx"]
+}

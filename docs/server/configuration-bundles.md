@@ -164,9 +164,11 @@ listing), an optional `icon.svg`, and compiled UI component JS under `ui/`.
 
 `compileUiComponents` extracts the bundle to a temp dir so esbuild can resolve
 relative sibling imports, then transpiles each declared `ui.components[].entry`
-to ESM with `packages: "external"` (bare imports like `react`,
-`@tangent/bundle-ui`, `@remote-dom/*` are left for the worker import map; the
-component never executes at upload). Output lands at `ui/<name>.js`.
+to ESM via the shared `buildUiComponent` helper from `@tangent/ui-extensions-sdk`
+(the same helper the `ui-extensions` authoring CLI uses, so local builds match).
+Bare imports like `react` and `@tangent/ui-extensions-sdk` are left for the
+worker import map; the component never executes at upload. Output lands at
+`ui/<name>.js`.
 
 The marketplace routes ([routes/agentBundles.ts](../../server/src/routes/agentBundles.ts))
 expose list / get / icon / download / `ui/:file` / upload / delete, plus the

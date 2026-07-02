@@ -1,6 +1,11 @@
+import {
+  attributes,
+  events,
+  TAG,
+} from "@tangent/ui-extensions-sdk/contracts/icon";
+
 import { makeAuthorComponent } from "../_shared/author-component";
 import { defineRemoteElement } from "../_shared/define-remote-element";
-import { attributes, events, TAG } from "./icon.contract";
 
 const IconElement = defineRemoteElement(TAG, attributes, events);
 

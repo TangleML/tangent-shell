@@ -1,7 +1,8 @@
 /* eslint-disable react-refresh/only-export-components -- worker-only runtime barrel that intentionally exports the `host` bridge alongside the element wrappers; never hot-reloaded on the host. */
 
 /**
- * `@tangent/bundle-ui` — the module a sandboxed bundle component imports.
+ * `@tangent/ui-extensions-sdk` — the runtime the worker injects for the module a
+ * sandboxed UI extension imports.
  *
  * It is a barrel that exposes:
  *  - `host`: the allowlisted bridge (`getProps` / `sendPrompt` / `fetch`), which
@@ -28,7 +29,9 @@ declare global {
 function bridge(): HostBridge {
   const current = globalThis.__TANGENT_BUNDLE_UI_HOST__;
   if (!current) {
-    throw new Error("@tangent/bundle-ui: host bridge is not available yet");
+    throw new Error(
+      "@tangent/ui-extensions-sdk: host bridge is not available yet",
+    );
   }
   return current;
 }
