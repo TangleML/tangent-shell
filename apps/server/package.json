@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@tangent/shared": "workspace:*",
+    "@tangent/ui-extensions-sdk": "workspace:*",
     "better-sqlite3": "^12.10.0",
     "croner": "^10.0.1",
     "drizzle-orm": "^0.45.2",

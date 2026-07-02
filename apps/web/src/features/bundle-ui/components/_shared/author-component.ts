@@ -7,10 +7,13 @@
  */
 
 import { createRemoteComponent } from "@remote-dom/react";
+import type {
+  EventPayload,
+  RemoteEvents,
+} from "@tangent/ui-extensions-sdk/contracts/events";
 import { type ComponentType, createElement, type ReactNode } from "react";
 
 import type { AnyRemoteElementConstructor } from "./define-remote-element";
-import type { EventPayload, RemoteEvents } from "./events";
 
 type AnyProps = Record<string, unknown>;
 type Handler = (...args: unknown[]) => void;

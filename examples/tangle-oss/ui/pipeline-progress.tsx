@@ -26,7 +26,7 @@ import {
   Progress,
   StatusBar,
   Text,
-} from "@tangent/bundle-ui";
+} from "@tangent/ui-extensions-sdk";
 import { useEffect, useState } from "react";
 
 const POLL_INTERVAL_MS = 4000;

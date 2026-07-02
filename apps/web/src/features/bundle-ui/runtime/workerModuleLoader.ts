@@ -2,7 +2,8 @@
  * Worker-side loader for compiled bundle components (Phase 3 output).
  *
  * The server transpiles author `.tsx` with `packages: "external"`, so the served
- * JS keeps bare imports (`react`, `react/jsx-runtime`, `@tangent/bundle-ui`).
+ * JS keeps bare imports (`react`, `react/jsx-runtime`,
+ * `@tangent/ui-extensions-sdk`).
  * Dedicated module workers cannot use import maps, so we resolve those bare
  * specifiers ourselves: the worker bundles its own copies of these modules, and
  * this loader exposes them to the dynamically-imported component via tiny

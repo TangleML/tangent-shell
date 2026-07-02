@@ -11,9 +11,9 @@ import {
   createRemoteElement,
   type RemoteElementConstructor,
 } from "@remote-dom/core/elements";
+import type { RemoteEvents } from "@tangent/ui-extensions-sdk/contracts/events";
 import type { z } from "zod";
 
-import type { RemoteEvents } from "./events";
 import { wireProperties } from "./wire-properties";
 
 export type AnyRemoteElementConstructor = RemoteElementConstructor<
