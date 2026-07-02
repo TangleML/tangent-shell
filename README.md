@@ -10,7 +10,38 @@ It is the orchestration front-end of the wider **Tangle** platform: agents here 
 and submit ML pipelines to Tangle for execution, but the shell is useful for any agentic
 workflow — research, code generation, document building, scheduled automation, and more.
 
-## What you can do with it
+<img src="docs/assets/shell-ui-1.png" alt="Tangent Shell UI" width="900">
+
+## Getting started
+
+### Prerequisites
+
+- **Node.js** (the version matching the Docker base image, currently 24+)
+- **pnpm** `10.28.0` (the pinned package manager)
+- The **`pi`** agent binary on your `PATH` (or set `PI_BIN` to its location)
+- Access to an LLM proxy for `pi` to call (see `PI_PROXY_URL` / `PI_PROXY_API_KEY` below)
+
+### Install and run
+
+```bash
+pnpm install
+pnpm dev
+```
+
+`pnpm dev` sets the session/bundle/memory paths to local gitignored folders (`.sessions`,
+`.agent-bundles`, `.memory`) so a checkout runs without extra setup.
+
+Copy `.env.example` to `.env` for local-only provider values. Keep real deployment
+URLs, cookies, proxy credentials, and auth endpoints out of committed files; inject them
+through your process manager, container platform, or secret manager.
+
+To load the example agent bundles into your local marketplace:
+
+```bash
+pnpm seed         # installs bundles from examples
+```
+
+## Terminology
 
 - **Sessions** — Isolated workspaces, each with its own folder on disk, chat transcript, and
   agent. Work in one never leaks into another, and everything survives restarts.
@@ -47,6 +78,8 @@ tangent-shell/
 ├── examples/     Ready-to-use agent bundles
 └── docker/       nginx config + entrypoint for the full-stack image
 ```
+
+<img src="docs/assets/slide-architecture-1.png" alt="Tangent Shell Architecture" width="900">
 
 ### Server (`apps/server`)
 
@@ -85,34 +118,7 @@ design system). The UI is a layered design system — base primitives (`BlockSta
 semantic Layer-3 patterns (`Surface`, `Card`, `ListRow`, …), and feature components on top.
 See [`apps/web/src/shared/ui/DESIGN_SYSTEM.md`](apps/web/src/shared/ui/DESIGN_SYSTEM.md).
 
-## Getting started
-
-### Prerequisites
-
-- **Node.js** (the version matching the Docker base image, currently 24+)
-- **pnpm** `10.28.0` (the pinned package manager)
-- The **`pi`** agent binary on your `PATH` (or set `PI_BIN` to its location)
-- Access to an LLM proxy for `pi` to call (see `PI_PROXY_URL` / `PI_PROXY_API_KEY` below)
-
-### Install and run
-
-```bash
-pnpm install
-PI_PROXY_URL="https://proxy..." PI_PROXY_API_KEY="...." pnpm dev
-```
-
-`pnpm dev` sets the session/bundle/memory paths to local gitignored folders (`.sessions`,
-`.agent-bundles`, `.memory`) so a checkout runs without extra setup.
-
-Copy `.env.example` to `.env` for local-only provider values. Keep real deployment
-URLs, cookies, proxy credentials, and auth endpoints out of committed files; inject them
-through your process manager, container platform, or secret manager.
-
-To load the example agent bundles into your local marketplace:
-
-```bash
-pnpm seed         # installs bundles from examples
-```
+## Operation manual
 
 ### Configuration
 
