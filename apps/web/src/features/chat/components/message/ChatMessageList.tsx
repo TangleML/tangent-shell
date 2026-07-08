@@ -6,7 +6,10 @@ import { useState } from "react";
 import { Virtualizer } from "virtua";
 
 import { useChatScroll } from "@/features/chat/hooks/useChatScroll";
-import { isThinkingOnly } from "@/features/chat/model/messageState";
+import {
+  isEmptyMessage,
+  isThinkingOnly,
+} from "@/features/chat/model/messageState";
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 
 import { AgentActivityBubble } from "./AgentActivityBubble";
@@ -148,10 +151,17 @@ export function ChatMessageList({
     });
   };
 
+  // Empty agent messages (no content, thinking, or attachments) carry nothing to
+  // show, so they are dropped entirely rather than collapsed. A still-streaming
+  // message is kept since content may yet arrive.
+  const visibleMessages = messages.filter(
+    (message) => !isEmptyMessage(message) || isMessageStreaming(message.id),
+  );
+
   // Flatten segments (plus the trailing activity bubble) into one stably-keyed
   // index space for virtua.
   const rows: Row[] = [];
-  for (const segment of buildSegments(messages, isCollapsed)) {
+  for (const segment of buildSegments(visibleMessages, isCollapsed)) {
     if (segment.kind === "visible") {
       rows.push({
         key: segment.message.id,
@@ -176,7 +186,11 @@ export function ChatMessageList({
     showJump,
     unreadCount,
     jumpToBottom,
-  } = useChatScroll({ messages, currentAuthorId, rowCount: rows.length });
+  } = useChatScroll({
+    messages: visibleMessages,
+    currentAuthorId,
+    rowCount: rows.length,
+  });
 
   // The scroll container is always rendered so its ref exists on mount and the
   // hook can attach its ResizeObserver and gesture listeners; otherwise
