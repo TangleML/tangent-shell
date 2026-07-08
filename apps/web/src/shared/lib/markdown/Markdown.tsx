@@ -27,6 +27,7 @@ import {
 import { cn } from "@/shared/lib/utils";
 
 import { CodeBlock } from "./CodeBlock";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 /**
  * Matches a bundle-UI message token's language class, e.g.
@@ -65,6 +66,13 @@ interface MarkdownProps {
    * left untouched. When set, relative `a` links render as artifact chips.
    */
   artifactBaseUrl?: string;
+  /**
+   * Whether the message this markdown belongs to is still receiving streamed
+   * deltas. Forwarded to blocks that must not render half-written source (e.g.
+   * `mermaid` diagrams, which only parse/render once streaming completes).
+   * @default false
+   */
+  isStreaming?: boolean;
   /**
    * The agent bundle this session was created from, if any. When set, fenced
    * `tangent-ui:<name>` blocks the agent emits render that bundle's sandboxed
@@ -121,6 +129,7 @@ interface MarkdownProps {
  */
 interface MarkdownComponentsOptions {
   artifactBaseUrl?: string;
+  isStreaming: boolean;
   size: MarkdownSize;
   tone: MarkdownTone;
   bundleId?: string;
@@ -540,8 +549,14 @@ function MdImage({ src, alt, title }: ImageProps) {
 }
 
 function MdCode({ className, children, node }: CodeProps) {
-  const { bundleId, onSendPrompt, sessionId, messageId, onCollapse } =
-    useMarkdownOptions();
+  const {
+    bundleId,
+    isStreaming,
+    onSendPrompt,
+    sessionId,
+    messageId,
+    onCollapse,
+  } = useMarkdownOptions();
 
   // Bundle-UI message token: render the bundle's sandboxed component when we
   // know which bundle to load it from; otherwise treat it as code.
@@ -568,6 +583,15 @@ function MdCode({ className, children, node }: CodeProps) {
   }
 
   const match = className?.match(/language-(\w+)/);
+
+  if (match?.[1] === "mermaid") {
+    return (
+      <MermaidDiagram
+        code={String(children).replace(/\n$/, "")}
+        isStreaming={isStreaming}
+      />
+    );
+  }
 
   if (match) {
     const code = String(children).replace(/\n$/, "");
@@ -637,6 +661,7 @@ export function Markdown({
   size = "sm",
   tone = "inherit",
   artifactBaseUrl,
+  isStreaming = false,
   bundleId,
   onSendPrompt,
   onOpenArtifact,
@@ -648,6 +673,7 @@ export function Markdown({
 }: MarkdownProps) {
   const options: MarkdownComponentsOptions = {
     artifactBaseUrl,
+    isStreaming,
     size,
     tone,
     bundleId,

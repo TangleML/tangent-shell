@@ -113,6 +113,7 @@ function ChatMessageContent({
           ) : null}
           <Markdown
             artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
+            isStreaming={isStreaming}
             bundleId={bundleId}
             onSendPrompt={onSendPrompt}
             onOpenArtifact={onOpenArtifact}
