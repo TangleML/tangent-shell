@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { useSessionTabStore } from "@/features/chat/hooks/useSessionTabStore";
 import type { Asset } from "@/features/chat/model/assets";
 
 /**
@@ -39,18 +40,24 @@ function toTab(asset: Asset): AssetTab {
  * active tab falls back to chat.
  */
 export function useAssetTabs(sessionId: string) {
+  const store = useSessionTabStore();
   const [tabs, setTabs] = useState<AssetTab[]>([]);
   const [activeTab, setActiveTab] = useState<string>(CHAT_TAB_VALUE);
   const [seenSessionId, setSeenSessionId] = useState(sessionId);
 
-  // Switching sessions reuses this hook instance, so drop the previous
-  // session's tabs (their assets/sub-agents don't exist here) and fall back to
-  // the chat tab.
+  // Switching sessions reuses this hook instance, so restore the incoming
+  // session's remembered tabs (the outgoing session's were saved by the effect
+  // below), falling back to just the chat tab for a session we haven't opened.
   if (seenSessionId !== sessionId) {
     setSeenSessionId(sessionId);
-    setTabs([]);
-    setActiveTab(CHAT_TAB_VALUE);
+    const restored = store.read(sessionId);
+    setTabs(restored?.tabs ?? []);
+    setActiveTab(restored?.activeTab ?? CHAT_TAB_VALUE);
   }
+
+  useEffect(() => {
+    store.write(sessionId, { tabs, activeTab });
+  }, [store, sessionId, tabs, activeTab]);
 
   function openTab(tab: AssetTab) {
     setTabs((prev) =>
