@@ -312,9 +312,11 @@ function resolveEffectiveConfig(
 }
 
 /**
- * A persisted roster row is eligible for revive when it is an `active`
- * sub-agent (Prime is handled by {@link PiAgentManager.ensure}) that isn't
- * already live in the in-memory roster (so a reconnect won't double-spawn it).
+ * A persisted roster row is eligible for revive when it is an `active`,
+ * locally-hosted sub-agent (Prime is handled by {@link PiAgentManager.ensure})
+ * that isn't already live in the in-memory roster (so a reconnect won't
+ * double-spawn it). Remote- and external-hosted sub-agents are never revived
+ * here — they re-establish when their environment/bridge reconnects.
  */
 function canReviveSubagent(
   session: SessionAgents,
@@ -322,6 +324,7 @@ function canReviveSubagent(
 ): boolean {
   if (agent.role !== "subagent") return false;
   if (agent.status !== "active") return false;
+  if (agent.host === "remote" || agent.host === "external") return false;
   return !session.agents.has(agent.id);
 }
 

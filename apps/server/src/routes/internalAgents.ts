@@ -1,11 +1,16 @@
-import { PI_AGENT } from "@tangent/shared/contracts.ts";
+import { PI_AGENT, type SubagentHost } from "@tangent/shared/contracts.ts";
 import { type Response, Router } from "express";
 import { z } from "zod";
 
+import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
-import { parseThinkingLevel } from "../pi/agentConfig.ts";
-import type { PiAgentManager } from "../pi/piAgentManager.ts";
+import {
+  parseThinkingLevel,
+  type SubagentSpawnRequest,
+} from "../pi/agentConfig.ts";
+import type { PiAgentManager, SpawnedSubagent } from "../pi/piAgentManager.ts";
+import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 /** Spawn a sub-agent; `sessionId` and `name` identify and label it. */
@@ -18,6 +23,8 @@ export const spawnSchema = z.object({
   model: z.string().optional(),
   thinkingDepth: z.string().optional(),
   task: z.string().optional(),
+  /** Where to host the sub-agent. Defaults to `local`. */
+  environment: z.enum(["local", "remote"]).optional(),
 });
 export type SpawnInput = z.infer<typeof spawnSchema>;
 
@@ -59,18 +66,48 @@ const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
 
 /**
- * Spawns a sub-agent (resolving its model/thinking) and persists it so the
- * roster survives a restart. Extracted from the router so the route function
- * stays small.
+ * The hosts a sub-agent can be routed to. `pi` (local) and `remote` are
+ * spawnable via `spawn_subagent`; `external` sub-agent tabs are created and
+ * driven by a bundle tool over `/internal/external-agents`, so the external
+ * gateway is present here only to merge its roster into `list`.
+ */
+interface AgentHosts {
+  pi: PiAgentManager;
+  remote: RemoteEnvironmentGateway;
+  external: ExternalSubagentGateway;
+}
+
+/** Narrows a spawn request's `environment` to a concrete {@link SubagentHost}. */
+function resolveHost(environment: SpawnInput["environment"]): SubagentHost {
+  return environment === "remote" ? "remote" : "local";
+}
+
+/** Spawns a sub-agent on its requested host (local Pi or remote env). */
+function spawnOnHost(
+  hosts: AgentHosts,
+  sessionId: string,
+  request: SubagentSpawnRequest,
+  host: SubagentHost,
+): SpawnedSubagent {
+  if (host === "remote") return hosts.remote.spawnSubagent(sessionId, request);
+  return hosts.pi.spawnSubagent(sessionId, request);
+}
+
+/**
+ * Spawns a sub-agent (resolving its model/thinking) on the requested host and
+ * persists it so the roster survives a restart. Extracted from the router so
+ * the route function stays small.
  */
 function handleSpawn(
   store: SessionStore,
-  pi: PiAgentManager,
+  hosts: AgentHosts,
   body: SpawnInput,
   res: Response,
 ): void {
   try {
-    const { info, tools, systemPrompt, autoRelayToPrime } = pi.spawnSubagent(
+    const host = resolveHost(body.environment);
+    const { info, tools, systemPrompt, autoRelayToPrime } = spawnOnHost(
+      hosts,
       body.sessionId,
       {
         name: body.name,
@@ -80,7 +117,9 @@ function handleSpawn(
         model: body.model,
         thinkingDepth: parseThinkingLevel(body.thinkingDepth),
         task: body.task,
+        environment: host,
       },
+      host,
     );
     void store.recordAgent(body.sessionId, {
       id: info.id,
@@ -94,6 +133,7 @@ function handleSpawn(
       tools,
       systemPrompt,
       autoRelayToPrime,
+      host,
     });
     res.json({ subagent: info });
   } catch (err) {
@@ -103,35 +143,53 @@ function handleSpawn(
 
 /** Surfaces a Prime-issued directive in the sub-agent's transcript. */
 function handleMessage(
-  pi: PiAgentManager,
+  hosts: AgentHosts,
   body: MessageInput,
   res: Response,
 ): void {
   // Attributed to Prime (message_subagent is always a Prime-issued directive).
-  pi.sendToAgent(body.sessionId, body.agentId, body.text, PI_AGENT);
+  // Remote-hosted sub-agents route through their gateway; else local.
+  const { sessionId, agentId, text } = body;
+  if (hosts.remote.hasAgent(sessionId, agentId)) {
+    hosts.remote.sendToAgent(sessionId, agentId, text, PI_AGENT);
+  } else {
+    hosts.pi.sendToAgent(sessionId, agentId, text, PI_AGENT);
+  }
   res.json({ ok: true });
 }
 
 /** Surfaces a sub-agent's report in its own thread and delivers it to Prime. */
 function handleReport(
-  pi: PiAgentManager,
+  hosts: AgentHosts,
   body: ReportInput,
   res: Response,
 ): void {
   // message_prime is a sub-agent-issued update; Prime reacts immediately.
-  pi.reportToPrime(body.sessionId, body.agentId, body.text);
+  hosts.pi.reportToPrime(body.sessionId, body.agentId, body.text);
   res.json({ ok: true });
 }
 
 /** Terminates a sub-agent, optionally marking its work completed. */
-function handleKill(pi: PiAgentManager, body: KillInput, res: Response): void {
-  pi.killAgent(body.sessionId, body.agentId, body.completed ?? false);
+function handleKill(hosts: AgentHosts, body: KillInput, res: Response): void {
+  const { sessionId, agentId } = body;
+  const completed = body.completed ?? false;
+  if (hosts.remote.hasAgent(sessionId, agentId)) {
+    hosts.remote.killAgent(sessionId, agentId, completed);
+  } else {
+    hosts.pi.killAgent(sessionId, agentId, completed);
+  }
   res.json({ ok: true });
 }
 
-/** Lists the sub-agents registered for a session. */
-function handleList(pi: PiAgentManager, query: ListQuery, res: Response): void {
-  res.json({ subagents: pi.listSubagents(query.sessionId) });
+/** Lists the sub-agents registered for a session across all hosts. */
+function handleList(hosts: AgentHosts, query: ListQuery, res: Response): void {
+  res.json({
+    subagents: [
+      ...hosts.pi.listSubagents(query.sessionId),
+      ...hosts.remote.listSubagents(query.sessionId),
+      ...hosts.external.listSubagents(query.sessionId),
+    ],
+  });
 }
 
 /** Returns the tail of the shared transcript, clamped to the room limit. */
@@ -159,29 +217,40 @@ async function handleRoom(
 export function createInternalAgentsRouter(
   store: SessionStore,
   pi: PiAgentManager,
+  remoteGateway: RemoteEnvironmentGateway,
+  externalGateway: ExternalSubagentGateway,
 ): Router {
   const router = Router();
+  const hosts: AgentHosts = {
+    pi,
+    remote: remoteGateway,
+    external: externalGateway,
+  };
 
   router.use(requireInternalToken);
 
   router.post("/spawn", validate({ body: spawnSchema }), (req, res) =>
-    handleSpawn(store, pi, getValidated<SpawnInput>(req).body, res),
+    handleSpawn(store, hosts, getValidated<SpawnInput>(req).body, res),
   );
 
   router.post("/message", validate({ body: messageSchema }), (req, res) =>
-    handleMessage(pi, getValidated<MessageInput>(req).body, res),
+    handleMessage(hosts, getValidated<MessageInput>(req).body, res),
   );
 
   router.post("/report", validate({ body: reportSchema }), (req, res) =>
-    handleReport(pi, getValidated<ReportInput>(req).body, res),
+    handleReport(hosts, getValidated<ReportInput>(req).body, res),
   );
 
   router.post("/kill", validate({ body: killSchema }), (req, res) =>
-    handleKill(pi, getValidated<KillInput>(req).body, res),
+    handleKill(hosts, getValidated<KillInput>(req).body, res),
   );
 
   router.get("/list", validate({ query: listQuerySchema }), (req, res) =>
-    handleList(pi, getValidated<unknown, unknown, ListQuery>(req).query, res),
+    handleList(
+      hosts,
+      getValidated<unknown, unknown, ListQuery>(req).query,
+      res,
+    ),
   );
 
   router.get("/room", validate({ query: roomQuerySchema }), (req, res) =>

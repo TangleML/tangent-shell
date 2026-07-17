@@ -4,6 +4,7 @@ import type {
   PinnedArtifact,
   Session,
   SessionConfigMeta,
+  SubagentHost,
   UpdateSessionRequest,
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
@@ -49,6 +50,13 @@ export interface SessionAgent {
   systemPrompt?: string;
   /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
   autoRelayToPrime?: boolean;
+  /**
+   * Which host runs the sub-agent: `local` (a `pi` child), `remote` (a
+   * connected remote environment), or `external` (a tab driven by a bundle
+   * tool). Defaults to `local` on legacy rows; only `local` sub-agents are
+   * revived after a restart.
+   */
+  host?: SubagentHost;
   createdAt: string;
 }
 
@@ -69,6 +77,8 @@ export interface RecordAgentInput {
   systemPrompt?: string;
   /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
   autoRelayToPrime?: boolean;
+  /** Which host runs the sub-agent (`local` default, `remote`, or `external`). */
+  host?: SubagentHost;
 }
 
 /**
