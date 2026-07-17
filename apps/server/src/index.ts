@@ -19,11 +19,13 @@ import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
 import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
+import { createInternalCsomRouter } from "./routes/internalCsom.ts";
 import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
 import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createMeRouter } from "./routes/me.ts";
+import { createRemoteEnvRouter } from "./routes/remoteEnv.ts";
 import { createSessionsRouter } from "./routes/sessions/index.ts";
 import {
   createAgentEventHandler,
@@ -120,6 +122,9 @@ app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
+// Hands the SPA the `/remote-env` token so the Pipeline Editor tab can connect
+// as its session's CSOM executor (only when remote hosting is enabled).
+app.use("/api/remote-env", createRemoteEnvRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use(
   "/internal/agents",
@@ -127,6 +132,9 @@ app.use(
 );
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
 app.use("/internal/egress", createInternalEgressRouter());
+// Internal CSOM relay: Prime's pipeline-editor tools drive the browser's
+// embedded Tangle editor through the remote-environment gateway.
+app.use("/internal/csom", createInternalCsomRouter(remoteGateway));
 // Internal API for the triggers extension running inside each Pi process.
 app.use(
   "/internal/triggers",

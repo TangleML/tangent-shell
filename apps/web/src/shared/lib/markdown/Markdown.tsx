@@ -1,6 +1,7 @@
 // local primitive — renders agent markdown output, styling the raw markdown
 // HTML elements (h1/ul/a/img/code/table/...). These are not Tangle UI
 // primitives, so the scoped classNames here are an allowed escape hatch.
+import type { UICommand } from "@tangent/ui-extensions-sdk/types";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Link } from "@tangent/ui-primitives/link";
@@ -35,6 +36,9 @@ import { CodeBlock } from "./CodeBlock";
  * a colon), so this prefix is checked first.
  */
 const BUNDLE_UI_LANGUAGE = /language-tangent-ui:([a-z0-9][a-z0-9-]*)/;
+
+/** The `openTab` UI command a bundle message component can request. */
+type OpenTabCommand = Extract<UICommand, { type: "openTab" }>;
 
 /** Body-text size for flowing markdown content (paragraphs, list items, links). */
 type MarkdownSize = "xs" | "sm" | "md";
@@ -112,6 +116,11 @@ interface MarkdownProps {
    * components so they can request collapse via `host.execUICommand`.
    */
   onCollapse?: () => void;
+  /**
+   * Opens a full-screen in-app tab requested by a bundle message component via
+   * `host.execUICommand({ type: "openTab" })`. Omitted disables the command.
+   */
+  onOpenTab?: (command: OpenTabCommand) => void;
 }
 
 /**
@@ -131,6 +140,7 @@ interface MarkdownComponentsOptions {
   sessionId?: string;
   messageId?: string;
   onCollapse?: () => void;
+  onOpenTab?: (command: OpenTabCommand) => void;
 }
 
 /**
@@ -344,6 +354,7 @@ interface BundleUiMessageProps {
   sessionId?: string;
   messageId?: string;
   onCollapse?: () => void;
+  onOpenTab?: (command: OpenTabCommand) => void;
 }
 
 function BundleUiMessage({
@@ -355,6 +366,7 @@ function BundleUiMessage({
   sessionId,
   messageId,
   onCollapse,
+  onOpenTab,
 }: BundleUiMessageProps) {
   let props: Record<string, unknown> | undefined;
   try {
@@ -389,6 +401,7 @@ function BundleUiMessage({
       onSendPrompt={onSendPrompt}
       stateNamespace={stateNamespace}
       onCollapse={onCollapse}
+      onOpenTab={onOpenTab}
     />
   );
 }
@@ -540,8 +553,14 @@ function MdImage({ src, alt, title }: ImageProps) {
 }
 
 function MdCode({ className, children, node }: CodeProps) {
-  const { bundleId, onSendPrompt, sessionId, messageId, onCollapse } =
-    useMarkdownOptions();
+  const {
+    bundleId,
+    onSendPrompt,
+    sessionId,
+    messageId,
+    onCollapse,
+    onOpenTab,
+  } = useMarkdownOptions();
 
   // Bundle-UI message token: render the bundle's sandboxed component when we
   // know which bundle to load it from; otherwise treat it as code.
@@ -563,6 +582,7 @@ function MdCode({ className, children, node }: CodeProps) {
         sessionId={sessionId}
         messageId={messageId}
         onCollapse={onCollapse}
+        onOpenTab={onOpenTab}
       />
     );
   }
@@ -645,6 +665,7 @@ export function Markdown({
   sessionId,
   messageId,
   onCollapse,
+  onOpenTab,
 }: MarkdownProps) {
   const options: MarkdownComponentsOptions = {
     artifactBaseUrl,
@@ -658,6 +679,7 @@ export function Markdown({
     sessionId,
     messageId,
     onCollapse,
+    onOpenTab,
   };
 
   return (

@@ -8,12 +8,12 @@ Agent communication in this system is deliberately **server-mediated**. Agents
 never talk to each other directly. There are exactly three transports, each with
 a distinct job:
 
-| Layer                                                               | Direction                                | Who uses it                                                     |
-| ------------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
-| **Pi-RPC** (JSONL over stdin/stdout)                                | server ↔ a single Pi child process       | `PiAgentManager` ↔ each `pi --mode rpc` subprocess              |
-| **Internal HTTP API** (`/internal/*` + bearer token)               | Pi child → server                        | extension tools (orchestrator, memory, triggers, session)       |
-| **WebSockets** (Socket.IO rooms)                                    | server → browser                         | the UI                                                          |
-| **Remote sub-agent transport** (Socket.IO `/remote-env` namespace)  | server ↔ a connected remote environment  | `RemoteEnvironmentGateway` ↔ the `@tangent/remote-subagent` SDK |
+| Layer                                                              | Direction                               | Who uses it                                                     |
+| ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
+| **Pi-RPC** (JSONL over stdin/stdout)                               | server ↔ a single Pi child process      | `PiAgentManager` ↔ each `pi --mode rpc` subprocess              |
+| **Internal HTTP API** (`/internal/*` + bearer token)               | Pi child → server                       | extension tools (orchestrator, memory, triggers, session)       |
+| **WebSockets** (Socket.IO rooms)                                   | server → browser                        | the UI                                                          |
+| **Remote sub-agent transport** (Socket.IO `/remote-env` namespace) | server ↔ a connected remote environment | `RemoteEnvironmentGateway` ↔ the `@tangent/remote-subagent` SDK |
 
 The `PiAgentManager` (`apps/server/src/pi/piAgentManager.ts`) is the single hub.
 Every "A talks to B" path actually goes A → server → B.
@@ -292,3 +292,31 @@ The wire shapes live in `@tangent/shared/remoteSubagent.ts`, shared by both
 sides so the protocol cannot drift. Remote sub-agents are **not** revived after
 a server restart (`reviveSubagents` skips `host: "remote"` rows); they
 re-establish when their environment reconnects.
+
+## 6. Remote CSOM (Prime drives the pipeline editor live)
+
+The `/remote-env` transport carries one more command besides spawn/message/kill:
+`remote:csom:call`. It lets Prime build a Tangle pipeline in real time inside the
+embedded editor, without hosting an agent runtime in the environment.
+
+- **The environment is the browser tab.** When the user opens the Pipeline
+  Editor tab (`PipelineEditorTabView`, triggered by the `openTab` UI command),
+  it embeds `/embed/editor` in an iframe (driven over the CSOM `postMessage`
+  bridge) and connects to `/remote-env` as a CSOM executor, passing its
+  `sessionId` in the handshake. The gateway records a `sessionId → environmentId`
+  binding (`csomBindings`).
+- **Prime's tools relay through the server.** Prime gets `csom_*` tools
+  (`examples/tangle-oss/tools/csom.ts`) that `POST /internal/csom/invoke`
+  `{ sessionId, method, args }`. `createInternalCsomRouter` calls
+  `RemoteEnvironmentGateway.invokeCsom`, which emits `remote:csom:call` to the
+  bound socket **with a Socket.IO ack** and resolves with the response.
+- **The browser runs the call.** `@tangent/remote-subagent`'s optional
+  `onCsomCall` handler forwards `method`/`args` to the embed's `TangleEmbedClient`
+  and returns the value; the connector answers the ack. When no editor is bound
+  (tab closed), `invokeCsom` returns `{ ok: false, error }` so the tool tells
+  Prime to ask the user to open the editor.
+
+So the flow is: Prime tool call (Pi-RPC out) → internal HTTP → gateway →
+`remote:csom:call` (ack) → browser → `tangle-csom:call` (postMessage) → editor,
+and the result travels back the same way. The graph updates live in the iframe
+as Prime works.

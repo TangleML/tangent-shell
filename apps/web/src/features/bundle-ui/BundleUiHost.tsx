@@ -101,6 +101,8 @@ interface BundleUiHostProps {
   stateNamespace?: string;
   /** Collapses the message this component is rendered in (message surface). */
   onCollapse?: () => void;
+  /** Opens a full-screen in-app tab requested via `execUICommand({ type: "openTab" })`. */
+  onOpenTab?: (command: Extract<UICommand, { type: "openTab" }>) => void;
 }
 
 function Placeholder() {
@@ -118,6 +120,7 @@ export function BundleUiHost({
   onSendPrompt,
   stateNamespace,
   onCollapse,
+  onOpenTab,
 }: BundleUiHostProps) {
   const receiver = useMemo(() => new RemoteReceiver(), []);
   const [failed, setFailed] = useState(false);
@@ -128,11 +131,15 @@ export function BundleUiHost({
   const sendPromptRef = useRef<((text: string) => void) | undefined>(undefined);
   const stateNamespaceRef = useRef<string | undefined>(undefined);
   const collapseRef = useRef<(() => void) | undefined>(undefined);
+  const openTabRef = useRef<
+    ((command: Extract<UICommand, { type: "openTab" }>) => void) | undefined
+  >(undefined);
   useEffect(() => {
     propsRef.current = props ?? {};
     sendPromptRef.current = onSendPrompt;
     stateNamespaceRef.current = stateNamespace;
     collapseRef.current = onCollapse;
+    openTabRef.current = onOpenTab;
   });
 
   useEffect(() => {
@@ -167,6 +174,10 @@ export function BundleUiHost({
         }
         if (command.type === "openUrl") {
           openExternalUrl(command.url);
+          return;
+        }
+        if (command.type === "openTab") {
+          openTabRef.current?.(command);
           return;
         }
         await openTargetUrl(command);

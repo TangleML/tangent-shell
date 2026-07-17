@@ -118,7 +118,14 @@ await host.fetch("https://api.example.com/…", { method: "POST", body: {…} })
 await host.getState("key"); // per-instance persisted value (message only)
 await host.setState("key", value);
 await host.execUICommand({ type: "collapse" }); // collapse the host message
+await host.execUICommand({ type: "openTab", tab: "pipeline-editor" }); // open a full-screen in-app tab
 ```
+
+`openTab` asks the host to open one of its built-in full-screen tabs. Today the
+only tab is `"pipeline-editor"` — a native surface that embeds the Tangle
+pipeline editor and lets Prime drive it live over CSOM. The sandbox itself
+cannot render an iframe or open a socket, so a component uses this command to
+hand off to the app instead.
 
 `host.fetch` is proxied through the server's egress allowlist; direct/global
 `fetch` is not available. See `docs/bundle-ui/` for the full host-bridge and

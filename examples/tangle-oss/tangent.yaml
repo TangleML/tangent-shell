@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangle-oss
 name: Tangle OSS
-version: 1.0.0
+version: 1.2.0
 description: An open-source Tangle-aware assistant with Tangle API tools and scoped worker agents for everyday work with Tangle ML pipelines and runs, driven by the open-source Tangle CLI.
 author: Tangent
 icon: icon.svg
@@ -35,6 +35,24 @@ prime:
     - enable_trigger
     - disable_trigger
     - delete_trigger
+    # CSOM pipeline-editor tools (tools/csom.ts). Drive the embedded Tangle
+    # editor live; require the user to have the Pipeline Editor tab open.
+    - csom_load_spec
+    - csom_get_pipeline_state
+    - csom_get_spec_yaml
+    - csom_set_pipeline_name
+    - csom_set_pipeline_description
+    - csom_search_components
+    - csom_add_task
+    - csom_delete_task
+    - csom_rename_task
+    - csom_add_input
+    - csom_add_output
+    - csom_connect_nodes
+    - csom_delete_edge
+    - csom_set_task_argument
+    - csom_validate_pipeline
+    - csom_submit_run
 
 subagents:
   defaultSystemPrompt: prompts/subagent.md
@@ -84,3 +102,8 @@ ui:
     - name: pipeline-progress
       kind: message
       entry: ui/pipeline-progress.tsx
+    # Launcher card: opens the full-screen Pipeline Editor tab (embedded Tangle
+    # editor) via the `openTab` UI command, so Prime can build a pipeline live.
+    - name: pipeline-editor
+      kind: message
+      entry: ui/pipeline-editor.tsx

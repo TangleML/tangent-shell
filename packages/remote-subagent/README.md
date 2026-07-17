@@ -13,6 +13,13 @@ This package is **only the connector**. It contains no agent runtime — you
 plug your own agent implementation (built on whatever agent SDK you like) into
 the handlers. Unimplemented handlers throw, so the integration gap is explicit.
 
+An environment can also act as a **CSOM executor** rather than (or in addition
+to) hosting sub-agents: implement the optional `onCsomCall` handler and pass a
+`sessionId` when connecting. The server then routes that session's
+`remote:csom:call` invocations to this connection and awaits the result — this
+is how the browser Pipeline Editor tab lets Prime drive the embedded Tangle
+editor live. Its host binding is the connection's `sessionId`.
+
 ## Install
 
 ```bash
@@ -59,6 +66,11 @@ const client = connectRemoteEnvironment({
         command.completed ? "completed" : "killed",
       );
     },
+    async onCsomCall(request) {
+      // Optional: run a CSOM editing method against an embedded pipeline editor
+      // this environment hosts and return the result. Throw to reject.
+      return editor.call(request.method, ...request.args);
+    },
   },
 });
 
@@ -75,6 +87,13 @@ const messages = await client.readRoom(sessionId, 30);
 - `client.report(sessionId, agentId, text)` — send a directed report to Prime.
 - `client.readRoom(sessionId, limit?)` — read the tail of the shared transcript.
 - `client.disconnect()` — close the connection.
+
+## Inbound handlers
+
+- `onSpawn` / `onMessage` / `onKill` — sub-agent orchestration (required if the
+  corresponding command can arrive; unimplemented handlers throw).
+- `onCsomCall(request)` — optional; run `request.method` with `request.args`
+  against an embedded editor and return the value. Errors become an error ack.
 
 ## Protocol
 

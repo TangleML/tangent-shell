@@ -34,6 +34,12 @@ export const REMOTE_ENV_NAMESPACE = "/remote-env";
 export interface RemoteEnvHandshake {
   environmentId: string;
   token: string;
+  /**
+   * When set, binds this environment as the CSOM executor for `sessionId`, so
+   * the gateway can route `remote:csom:call` invocations for that session to
+   * this connection (e.g. a browser tab hosting the embedded pipeline editor).
+   */
+  sessionId?: string;
 }
 
 /**
@@ -56,6 +62,12 @@ export const RemoteEnvEvents = {
   AgentMessage: "remote:agent-message",
   /** remote -> server (ack): read the shared session transcript. */
   RoomRead: "remote:room:read",
+  /**
+   * server -> remote (ack): invoke a CSOM editing method on the environment's
+   * embedded pipeline editor and return the result. Lets Prime drive the editor
+   * live without hosting an agent runtime in the environment.
+   */
+  CsomCall: "remote:csom:call",
 } as const;
 
 export type RemoteEnvEvent =
@@ -154,4 +166,28 @@ export interface RemoteRoomReadRequest {
 /** server -> remote (ack response): the tail of the shared session transcript. */
 export interface RemoteRoomReadResponse {
   messages: ChatMessage[];
+}
+
+/**
+ * server -> remote (ack request): invoke a single CSOM editing method (the
+ * camelCase names from the embed's CSOM bridge, e.g. `addTask`, `connectNodes`,
+ * `getSpecYaml`) with positional `args` against the environment's embedded
+ * pipeline editor.
+ */
+export interface RemoteCsomCallRequest {
+  sessionId: string;
+  method: string;
+  args: unknown[];
+}
+
+/**
+ * remote -> server (ack response): the CSOM call outcome. `ok` reports whether
+ * the call itself succeeded; on success `value` carries the method's return
+ * (which may itself be a domain-level `{ success: false, error }`), and on
+ * failure `error` explains why (e.g. no editor connected, unknown method).
+ */
+export interface RemoteCsomCallResponse {
+  ok: boolean;
+  value?: unknown;
+  error?: string;
 }

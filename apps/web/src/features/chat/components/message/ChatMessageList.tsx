@@ -1,4 +1,5 @@
 import type { AgentActivity } from "@tangent/shared/contracts";
+import type { UICommand } from "@tangent/ui-extensions-sdk/types";
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
 import { Paragraph } from "@tangent/ui-primitives/typography";
@@ -31,6 +32,8 @@ interface ChatMessageListProps {
   pinnedPaths?: Set<string>;
   /** Toggles an artifact's pinned state from its chip. */
   onTogglePinArtifact?: (path: string, title: string) => void;
+  /** Opens a full-screen in-app tab requested by a `tangent-ui:` component. */
+  onOpenTab?: (command: Extract<UICommand, { type: "openTab" }>) => void;
   /** Whether a given message id is still receiving streamed deltas. */
   isMessageStreaming: (messageId: string) => boolean;
 }
@@ -54,6 +57,7 @@ interface RowContentProps {
   onOpenArtifact?: (url: string, title: string) => void;
   pinnedPaths?: Set<string>;
   onTogglePinArtifact?: (path: string, title: string) => void;
+  onOpenTab?: (command: Extract<UICommand, { type: "openTab" }>) => void;
   isMessageStreaming: (messageId: string) => boolean;
   onCollapse: (id: string) => void;
   onExpand: (ids: string[]) => void;
@@ -68,6 +72,7 @@ function RowContent({
   onOpenArtifact,
   pinnedPaths,
   onTogglePinArtifact,
+  onOpenTab,
   isMessageStreaming,
   onCollapse,
   onExpand,
@@ -84,6 +89,7 @@ function RowContent({
           onOpenArtifact={onOpenArtifact}
           pinnedPaths={pinnedPaths}
           onTogglePinArtifact={onTogglePinArtifact}
+          onOpenTab={onOpenTab}
           isStreaming={isMessageStreaming(row.message.id)}
           onCollapse={() => onCollapse(row.message.id)}
         />
@@ -110,6 +116,7 @@ export function ChatMessageList({
   onOpenArtifact,
   pinnedPaths,
   onTogglePinArtifact,
+  onOpenTab,
   isMessageStreaming,
 }: ChatMessageListProps) {
   // Collapse state is ephemeral per view (not URL or server). Thinking-only
@@ -214,6 +221,7 @@ export function ChatMessageList({
                       onOpenArtifact={onOpenArtifact}
                       pinnedPaths={pinnedPaths}
                       onTogglePinArtifact={onTogglePinArtifact}
+                      onOpenTab={onOpenTab}
                       isMessageStreaming={isMessageStreaming}
                       onCollapse={collapse}
                       onExpand={expand}

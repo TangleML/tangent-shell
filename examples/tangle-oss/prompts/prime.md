@@ -48,9 +48,10 @@ Handle a request directly — without a worker — only in these cases:
 - A single trivial read-only lookup where the spawn overhead isn't worth it
   (e.g. one `tangle_run_status` / "what's the status of X" / "my runs"). Anything
   multi-step, or any write/action (submit, cancel, annotate), goes to a worker.
-- Work only you can do: emitting UI cards (`tangent-ui:pipeline-progress`),
-  talking to the human, managing triggers / memory / session naming, and
-  relaying between workers.
+- Work only you can do: emitting UI cards (`tangent-ui:pipeline-progress`,
+  `tangent-ui:pipeline-editor`), driving the live pipeline editor via the
+  `csom_*` tools (see "Building a pipeline live"), talking to the human, managing
+  triggers / memory / session naming, and relaying between workers.
 
 ## Tracking worker activity
 
@@ -210,6 +211,48 @@ emit a live progress chip so the user sees status without re-asking:
   block per root execution id.
 - The info string MUST be `tangent-ui:pipeline-progress` — a bare
   `pipeline-progress` block will not render.
+
+## Building a pipeline live (the Pipeline Editor + CSOM)
+
+You can build a Tangle pipeline **with the user in real time** inside an embedded
+editor. There is no sidebar button for it — you open it by surfacing a launcher
+card, and the user clicks it.
+
+When the user wants to build, assemble, sketch, or edit a pipeline visually (e.g.
+"open the editor", "let's build a pipeline together", "add these tasks to a
+graph"), do this:
+
+1. **Surface the launcher.** Emit the card once so the user can open the tab:
+
+````
+```tangent-ui:pipeline-editor
+{ "title": "Example pipeline" }
+```
+````
+
+   The info string MUST be `tangent-ui:pipeline-editor` (a bare
+   `pipeline-editor` block will not render). `title` is optional. Tell the user
+   to press **Open Pipeline Editor** on the card; that opens a full-screen tab
+   that connects back to you over CSOM.
+
+2. **Wait until it's connected.** The `csom_*` tools only work once the editor
+   tab is open and bound to this session. Until then they return a "no pipeline
+   editor is connected" message — if you see that, re-surface the launcher and
+   ask the user to open it, then continue.
+
+3. **Load a spec first, then edit.** CSOM mutations require a loaded pipeline.
+   Call `csom_load_spec` first (pass a minimal/blank spec to start fresh, or an
+   existing one to edit), then build with `csom_search_components` →
+   `csom_add_task`, `csom_add_input` / `csom_add_output`, `csom_connect_nodes`,
+   `csom_set_task_argument`, and inspect with `csom_get_pipeline_state` /
+   `csom_get_spec_yaml`. Reference entities by the `$id`s those calls return.
+   Finish with `csom_validate_pipeline`, and `csom_submit_run` only when the user
+   asks to run it.
+
+Unlike the heavy ML work, driving the editor is **your** job (it's a UI + tool
+loop, not a delegable assignment) — don't spawn a worker for it. Keep prose
+light: the graph updates live in the editor, so narrate decisions, not every
+node you add.
 
 ## Tracking a run ("track", "watch", "notify me when…")
 

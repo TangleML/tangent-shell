@@ -1,3 +1,4 @@
+import type { UICommand } from "@tangent/ui-extensions-sdk/types";
 import { BlockStack } from "@tangent/ui-primitives/layout";
 import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
@@ -39,6 +40,8 @@ interface ChatMessageProps {
   onTogglePinArtifact?: (path: string, title: string) => void;
   /** Collapses this message into the hidden state; omitted disables collapse. */
   onCollapse?: () => void;
+  /** Opens a full-screen in-app tab requested by a `tangent-ui:` component. */
+  onOpenTab?: (command: Extract<UICommand, { type: "openTab" }>) => void;
 }
 
 function ChatMessageContent({
@@ -52,6 +55,7 @@ function ChatMessageContent({
   pinnedPaths,
   onTogglePinArtifact,
   onCollapse,
+  onOpenTab,
 }: ChatMessageProps) {
   if (message.memory)
     return (
@@ -121,6 +125,7 @@ function ChatMessageContent({
             sessionId={sessionId}
             messageId={message.id}
             onCollapse={onCollapse}
+            onOpenTab={onOpenTab}
           >
             {message.content}
           </Markdown>

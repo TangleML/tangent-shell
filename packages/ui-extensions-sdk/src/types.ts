@@ -48,13 +48,15 @@ export interface HostResponse {
  * Modeled as a discriminated union (rather than bespoke methods) so new actions
  * can be added — each carrying its own payload — without growing the bridge
  * surface. `collapse` collapses the chat message the component is rendered in,
- * and URL commands open either a supplied `https:` URL or a server-configured
- * target URL in a new browser tab.
+ * URL commands open either a supplied `https:` URL or a server-configured
+ * target URL in a new browser tab, and `openTab` opens a full-screen in-app tab
+ * hosted by the app (e.g. the embedded Tangle pipeline editor).
  */
 export type UICommand =
   | { type: "collapse" }
   | { type: "openUrl"; url: string }
-  | { type: "openTargetUrl"; target: "tangle"; path: string };
+  | { type: "openTargetUrl"; target: "tangle"; path: string }
+  | { type: "openTab"; tab: "pipeline-editor"; title?: string };
 
 /**
  * The only channel a sandboxed component has to the host. Exposed to the worker
@@ -75,6 +77,10 @@ export interface HostBridge {
   getState(key: string): Promise<unknown>;
   /** Persists a JSON-serializable `value` under `key` for this instance. */
   setState(key: string, value: unknown): Promise<void>;
-  /** Requests a host UI action (e.g. collapsing the component's message). */
+  /**
+   * Requests a host UI action: collapse the component's message, open a URL /
+   * server-resolved target in a new browser tab, or open a full-screen in-app
+   * tab (`openTab`) such as the embedded Tangle pipeline editor.
+   */
   execUICommand(command: UICommand): Promise<void>;
 }

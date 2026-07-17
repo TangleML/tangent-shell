@@ -43,8 +43,12 @@ export type Asset =
       trigger: Trigger;
     };
 
-/** Discriminant union of every asset kind, including reserved future kinds. */
-export type AssetKind = Asset["kind"] | "app";
+/**
+ * Discriminant union of every tab-icon kind. Beyond the sidebar {@link Asset}
+ * kinds it includes the reserved `app` kind and `pipeline-editor` (a
+ * non-sidebar, full-screen tab opened via `execUICommand`).
+ */
+export type AssetKind = Asset["kind"] | "app" | "pipeline-editor";
 
 /** Leading icon per asset kind. `app` is reserved for a future asset type. */
 export const ASSET_ICON: Record<AssetKind, IconName> = {
@@ -52,6 +56,7 @@ export const ASSET_ICON: Record<AssetKind, IconName> = {
   file: "Paperclip",
   trigger: "Zap",
   app: "AppWindow",
+  "pipeline-editor": "Workflow",
 };
 
 /** Short, human-readable subtitle describing a trigger's signal source. */

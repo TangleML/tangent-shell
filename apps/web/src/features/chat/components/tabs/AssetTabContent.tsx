@@ -11,6 +11,7 @@ import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { ArtifactTabView } from "./ArtifactTabView";
+import { PipelineEditorTabView } from "./PipelineEditorTabView";
 import { SubagentTabView } from "./SubagentTabView";
 import { TriggerTabPanel } from "./TriggerTabPanel";
 
@@ -118,6 +119,8 @@ export function AssetTabContent({
           onClose={() => closeAsset(tab.id)}
         />
       );
+    case "pipeline-editor":
+      return <PipelineEditorTabView sessionId={sessionId} title={tab.title} />;
     default:
       return (
         <ArtifactTabView

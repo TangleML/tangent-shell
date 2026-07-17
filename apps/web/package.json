@@ -21,6 +21,7 @@
     "@remote-dom/core": "^1.11.1",
     "@remote-dom/polyfill": "^1.5.1",
     "@remote-dom/react": "^1.2.2",
+    "@tangent/remote-subagent": "workspace:*",
     "@tangent/shared": "workspace:*",
     "@tangent/ui-extensions-sdk": "workspace:*",
     "@tangent/ui-primitives": "workspace:*",

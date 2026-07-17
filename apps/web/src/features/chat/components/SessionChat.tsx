@@ -70,8 +70,15 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
   // Opened tabs (assets and sub-agent threads), each shown beside the chat in
   // its own closeable tab.
-  const { tabs, activeTab, setActiveTab, openAsset, openAgent, closeAsset } =
-    useAssetTabs();
+  const {
+    tabs,
+    activeTab,
+    setActiveTab,
+    openAsset,
+    openAgent,
+    openPipelineEditor,
+    closeAsset,
+  } = useAssetTabs();
 
   // The session's pages, files, and triggers as one uniform list of cards.
   const assets = buildAssets({ sessionId, artifacts, triggers });
@@ -115,6 +122,16 @@ export function SessionChat({ sessionId }: SessionChatProps) {
       url,
       path: url,
     });
+  };
+
+  // A bundle message/panel component can ask the host to open a full-screen
+  // in-app tab via `host.execUICommand({ type: "openTab" })`. Only the
+  // pipeline-editor tab exists today.
+  const handleOpenTab = (command: {
+    tab: "pipeline-editor";
+    title?: string;
+  }) => {
+    if (command.tab === "pipeline-editor") openPipelineEditor(command.title);
   };
 
   // Pin an artifact if it isn't already pinned, else unpin it. The chip's
@@ -227,6 +244,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                   openArtifactTab={openArtifactTab}
                   pinnedPaths={pinnedPaths}
                   togglePinArtifact={togglePinArtifact}
+                  onOpenTab={handleOpenTab}
                 />
               </TabsContent>
 

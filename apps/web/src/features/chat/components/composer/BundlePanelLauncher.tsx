@@ -1,3 +1,4 @@
+import type { UICommand } from "@tangent/ui-extensions-sdk/types";
 import { Box } from "@tangent/ui-primitives/box";
 import { Button } from "@tangent/ui-primitives/button";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
@@ -14,6 +15,8 @@ interface BundlePanelLauncherProps {
   bundleId: string;
   /** Composes the panel's prompt and sends it to Prime. */
   onSendPrompt: (text: string) => void;
+  /** Opens a full-screen in-app tab requested by a panel via `execUICommand`. */
+  onOpenTab?: (command: Extract<UICommand, { type: "openTab" }>) => void;
 }
 
 /**
@@ -24,6 +27,7 @@ interface BundlePanelLauncherProps {
 export function BundlePanelLauncher({
   bundleId,
   onSendPrompt,
+  onOpenTab,
 }: BundlePanelLauncherProps) {
   const { data: bundle } = useAgentBundle(bundleId);
   const [selected, setSelected] = useState<string | null>(null);
@@ -81,6 +85,7 @@ export function BundlePanelLauncher({
                   onSendPrompt(text);
                   setSelected(null);
                 }}
+                onOpenTab={onOpenTab}
               />
             </BlockStack>
           </Box>

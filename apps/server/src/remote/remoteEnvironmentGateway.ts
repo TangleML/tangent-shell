@@ -11,6 +11,8 @@ import {
   type RemoteAgentEvent,
   type RemoteAgentEventPayload,
   type RemoteAgentMessagePayload,
+  type RemoteCsomCallRequest,
+  type RemoteCsomCallResponse,
   RemoteEnvEvents,
   type RemoteEnvHandshake,
   type RemoteKillCommand,
@@ -35,6 +37,9 @@ import type { SessionStore } from "../store/sessionStore.ts";
 const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
 
+/** How long a CSOM invocation waits for the environment's ack before failing. */
+const CSOM_CALL_TIMEOUT_MS = 20_000;
+
 /**
  * Relays a remote sub-agent's reply/report into the session's Prime process.
  * Wired in `index.ts` to `pi.sendToAgent(sessionId, PRIME_AGENT_ID, text)`, so
@@ -46,6 +51,8 @@ export type DeliverToPrime = (sessionId: string, text: string) => void;
 interface RemoteEnvConnection {
   environmentId: string;
   socket: Socket;
+  /** Session this environment is bound to as the CSOM executor, if any. */
+  sessionId?: string;
 }
 
 /** A sub-agent hosted in a remote environment, tracked in the gateway roster. */
@@ -107,6 +114,8 @@ export class RemoteEnvironmentGateway {
   private readonly environments = new Map<string, RemoteEnvConnection>();
   /** Per-session remote sub-agent rosters, keyed by sessionId then agentId. */
   private readonly sessions = new Map<string, Map<string, RemoteSubagent>>();
+  /** CSOM executor binding: sessionId -> environmentId (e.g. a browser tab). */
+  private readonly csomBindings = new Map<string, string>();
 
   constructor(
     io: SocketIOServer,
@@ -136,6 +145,54 @@ export class RemoteEnvironmentGateway {
     const roster = this.sessions.get(sessionId);
     if (!roster) return [];
     return [...roster.values()].map(toInfo);
+  }
+
+  /** True when a session has a connected CSOM executor (pipeline editor). */
+  hasCsomEditor(sessionId: string): boolean {
+    const environmentId = this.csomBindings.get(sessionId);
+    return environmentId !== undefined && this.environments.has(environmentId);
+  }
+
+  /**
+   * Invokes a CSOM editing method on the session's bound editor environment and
+   * resolves with its ack. Returns a structured `{ ok: false, error }` when no
+   * editor is connected or the environment times out, so callers (Prime's CSOM
+   * tools) can surface a helpful message rather than throw.
+   */
+  invokeCsom(
+    sessionId: string,
+    method: string,
+    args: unknown[],
+  ): Promise<RemoteCsomCallResponse> {
+    const environmentId = this.csomBindings.get(sessionId);
+    const environment = environmentId
+      ? this.environments.get(environmentId)
+      : undefined;
+    if (!environment) {
+      return Promise.resolve({
+        ok: false,
+        error:
+          "No pipeline editor is connected for this session. Ask the user to " +
+          "open the Pipeline Editor tab first.",
+      });
+    }
+
+    const request: RemoteCsomCallRequest = { sessionId, method, args };
+    return new Promise<RemoteCsomCallResponse>((resolve) => {
+      environment.socket
+        .timeout(CSOM_CALL_TIMEOUT_MS)
+        .emit(
+          RemoteEnvEvents.CsomCall,
+          request,
+          (err: Error | null, response: RemoteCsomCallResponse) => {
+            if (err) {
+              resolve({ ok: false, error: `CSOM call timed out: ${method}` });
+              return;
+            }
+            resolve(response);
+          },
+        );
+    });
   }
 
   /**
@@ -300,8 +357,10 @@ export class RemoteEnvironmentGateway {
 
   /** Registers a connected environment and wires its inbound listeners. */
   private onConnection(_namespace: Namespace, socket: Socket): void {
-    const { environmentId } = socket.handshake.auth as RemoteEnvHandshake;
-    this.environments.set(environmentId, { environmentId, socket });
+    const { environmentId, sessionId } = socket.handshake
+      .auth as RemoteEnvHandshake;
+    this.environments.set(environmentId, { environmentId, socket, sessionId });
+    if (sessionId) this.csomBindings.set(sessionId, environmentId);
     console.log(`[remote-env] connected: ${environmentId}`);
 
     socket.on(RemoteEnvEvents.AgentEvent, (payload: RemoteAgentEventPayload) =>
@@ -398,6 +457,9 @@ export class RemoteEnvironmentGateway {
   /** Drops a disconnected environment and fails its still-live sub-agents. */
   private onDisconnect(environmentId: string): void {
     this.environments.delete(environmentId);
+    for (const [sessionId, boundId] of this.csomBindings) {
+      if (boundId === environmentId) this.csomBindings.delete(sessionId);
+    }
     for (const [sessionId, roster] of this.sessions) {
       this.failEnvironmentAgents(sessionId, roster, environmentId);
     }

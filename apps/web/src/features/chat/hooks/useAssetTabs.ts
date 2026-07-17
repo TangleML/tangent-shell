@@ -14,10 +14,17 @@ import type { Asset } from "@/features/chat/model/assets";
 export type AssetTab =
   | { id: string; kind: "page" | "file"; title: string; url: string }
   | { id: string; kind: "trigger"; title: string; triggerId: string }
-  | { id: string; kind: "agent"; title: string; agentId: string };
+  | { id: string; kind: "agent"; title: string; agentId: string }
+  | { id: string; kind: "pipeline-editor"; title: string };
 
 /** The fixed, non-closeable chat tab's value (Prime's main thread). */
 export const CHAT_TAB_VALUE = "chat";
+
+/**
+ * Fixed id for the singleton pipeline-editor tab. One editor tab is shared per
+ * session, so opening it again just focuses the existing tab.
+ */
+export const PIPELINE_EDITOR_TAB_ID = "pipeline-editor";
 
 /** Maps an {@link Asset} to the tab payload SessionChat keeps open for it. */
 function toTab(asset: Asset): AssetTab {
@@ -66,10 +73,30 @@ export function useAssetTabs() {
     });
   }
 
+  /**
+   * Opens (or focuses) the session's singleton pipeline-editor tab — a
+   * full-screen surface embedding the Tangle editor that Prime drives over CSOM.
+   */
+  function openPipelineEditor(title?: string) {
+    openTab({
+      id: PIPELINE_EDITOR_TAB_ID,
+      kind: "pipeline-editor",
+      title: title?.trim() || "Pipeline Editor",
+    });
+  }
+
   function closeAsset(id: string) {
     setTabs((prev) => prev.filter((tab) => tab.id !== id));
     setActiveTab((prev) => (prev === id ? CHAT_TAB_VALUE : prev));
   }
 
-  return { tabs, activeTab, setActiveTab, openAsset, openAgent, closeAsset };
+  return {
+    tabs,
+    activeTab,
+    setActiveTab,
+    openAsset,
+    openAgent,
+    openPipelineEditor,
+    closeAsset,
+  };
 }

@@ -18,6 +18,8 @@ import {
   type RemoteAgentEvent,
   type RemoteAgentEventPayload,
   type RemoteAgentMessagePayload,
+  type RemoteCsomCallRequest,
+  type RemoteCsomCallResponse,
   RemoteEnvEvents,
   type RemoteEnvHandshake,
   type RemoteKillCommand,
@@ -44,6 +46,13 @@ export interface RemoteEnvironmentHandlers {
   onMessage(command: RemoteMessageCommand): void | Promise<void>;
   /** Terminate a sub-agent. */
   onKill(command: RemoteKillCommand): void | Promise<void>;
+  /**
+   * Execute a CSOM editing method against the environment's embedded pipeline
+   * editor and return its result. Optional: environments that don't host an
+   * editor can omit it (incoming CSOM calls are then rejected). Return the
+   * method's raw value; the connector wraps thrown errors into an error ack.
+   */
+  onCsomCall?(request: RemoteCsomCallRequest): unknown | Promise<unknown>;
 }
 
 /** Options for {@link connectRemoteEnvironment}. */
@@ -54,6 +63,11 @@ export interface ConnectRemoteEnvironmentOptions {
   token: string;
   /** Stable id identifying this environment when several are connected. */
   environmentId: string;
+  /**
+   * When set, binds this connection as the CSOM executor for `sessionId` so the
+   * server can route that session's `onCsomCall` invocations here.
+   */
+  sessionId?: string;
   /** Command handlers; any omitted handler throws when its command arrives. */
   handlers?: Partial<RemoteEnvironmentHandlers>;
 }
@@ -98,6 +112,7 @@ function withDefaultHandlers(
     onSpawn: handlers.onSpawn ?? (() => notImplemented("onSpawn")),
     onMessage: handlers.onMessage ?? (() => notImplemented("onMessage")),
     onKill: handlers.onKill ?? (() => notImplemented("onKill")),
+    onCsomCall: handlers.onCsomCall,
   };
 }
 
@@ -132,6 +147,31 @@ function registerCommandHandlers(
   socket.on(RemoteEnvEvents.Kill, (command: RemoteKillCommand) => {
     void runHandler("onKill", () => handlers.onKill(command));
   });
+  socket.on(
+    RemoteEnvEvents.CsomCall,
+    (
+      request: RemoteCsomCallRequest,
+      ack: (response: RemoteCsomCallResponse) => void,
+    ) => void respondToCsomCall(handlers, request, ack),
+  );
+}
+
+/** Runs the CSOM handler and answers the server's ack with a typed response. */
+async function respondToCsomCall(
+  handlers: RemoteEnvironmentHandlers,
+  request: RemoteCsomCallRequest,
+  ack: (response: RemoteCsomCallResponse) => void,
+): Promise<void> {
+  if (!handlers.onCsomCall) {
+    ack({ ok: false, error: "This environment does not host a CSOM editor." });
+    return;
+  }
+  try {
+    const value = await handlers.onCsomCall(request);
+    ack({ ok: true, value });
+  } catch (err) {
+    ack({ ok: false, error: (err as Error).message });
+  }
 }
 
 /**
@@ -147,6 +187,7 @@ export function connectRemoteEnvironment(
   const auth: RemoteEnvHandshake = {
     token: options.token,
     environmentId: options.environmentId,
+    sessionId: options.sessionId,
   };
   const socket = io(`${normalizeUrl(options.url)}${REMOTE_ENV_NAMESPACE}`, {
     auth,
@@ -199,6 +240,8 @@ export function connectRemoteEnvironment(
 
 export type {
   RemoteAgentEvent,
+  RemoteCsomCallRequest,
+  RemoteCsomCallResponse,
   RemoteKillCommand,
   RemoteMessageCommand,
   RemoteSpawnCommand,

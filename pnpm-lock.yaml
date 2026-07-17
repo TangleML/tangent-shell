@@ -136,6 +136,9 @@ importers:
       '@remote-dom/react':
         specifier: ^1.2.2
         version: 1.2.2(@preact/signals-core@1.14.2)(react@19.2.6)
+      '@tangent/remote-subagent':
+        specifier: workspace:*
+        version: link:../../packages/remote-subagent
       '@tangent/shared':
         specifier: workspace:*
         version: link:../../packages/shared

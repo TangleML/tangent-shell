@@ -12,6 +12,10 @@ const apiTarget = process.env.API_TARGET ?? "http://localhost:8787";
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Load env from the monorepo root so a single top-level `.env` (also read by
+  // the server via loadEnv.ts) feeds the client's `VITE_*` vars — otherwise Vite
+  // would only look in `apps/web`.
+  envDir: path.resolve(__dirname, "../.."),
   // Relative asset base so the built index.html references assets as
   // "./assets/..." rather than "/assets/...". Behind the tangle pod-proxy the
   // Kubernetes apiserver rewrites same-host absolute-path URLs in HTML to its

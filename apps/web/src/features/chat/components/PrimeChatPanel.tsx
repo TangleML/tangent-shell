@@ -7,6 +7,7 @@ import {
   type SubagentInfo,
   type Trigger,
 } from "@tangent/shared/contracts";
+import type { UICommand } from "@tangent/ui-extensions-sdk/types";
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
@@ -55,6 +56,7 @@ interface PrimeChatPanelProps {
   openArtifactTab: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
   togglePinArtifact: (path: string, title: string) => void;
+  onOpenTab: (command: Extract<UICommand, { type: "openTab" }>) => void;
 }
 
 export function PrimeChatPanel({
@@ -82,6 +84,7 @@ export function PrimeChatPanel({
   openArtifactTab,
   pinnedPaths,
   togglePinArtifact,
+  onOpenTab,
 }: PrimeChatPanelProps) {
   return (
     <BlockStack grow>
@@ -95,6 +98,7 @@ export function PrimeChatPanel({
         onOpenArtifact={openArtifactTab}
         pinnedPaths={pinnedPaths}
         onTogglePinArtifact={togglePinArtifact}
+        onOpenTab={onOpenTab}
         isMessageStreaming={isMessageStreaming}
       />
       {memorySuggestions.length > 0 && (
@@ -112,7 +116,11 @@ export function PrimeChatPanel({
         </Box>
       )}
       {bundleId && (
-        <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
+        <BundlePanelLauncher
+          bundleId={bundleId}
+          onSendPrompt={send}
+          onOpenTab={onOpenTab}
+        />
       )}
       <PrimeComposerFooter
         sessionId={sessionId}
