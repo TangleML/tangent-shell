@@ -1631,3 +1631,75 @@ test("maintenance is only claimed while idle, and a waiting ensure resumes after
   await pending;
   assert.equal(spawnedDuring, true);
 });
+
+const CREDENTIAL_ENV_KEYS = [
+  "PI_PROXY_URL",
+  "PI_PROXY_API_KEY",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "GROQ_API_KEY",
+  "XAI_API_KEY",
+];
+
+/** Runs `fn` with only the given credential env vars set, restoring the rest. */
+async function withCredentialEnv(
+  overrides: Record<string, string>,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const saved = new Map(
+    CREDENTIAL_ENV_KEYS.map((key) => [key, process.env[key]]),
+  );
+  for (const key of CREDENTIAL_ENV_KEYS) delete process.env[key];
+  Object.assign(process.env, overrides);
+  try {
+    await fn();
+  } finally {
+    for (const key of CREDENTIAL_ENV_KEYS) {
+      const value = saved.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+function warnedAboutCredentials(warn: ReturnType<typeof mock.method>): boolean {
+  return warn.mock.calls.some((call) => {
+    const message = String(call.arguments[0] ?? "");
+    return (
+      message.includes("No LLM credentials found") ||
+      message.includes("PI_PROXY_URL is not set")
+    );
+  });
+}
+
+test("a Groq-only install spawns Prime without a missing-credentials warning", async () => {
+  await withCredentialEnv({ GROQ_API_KEY: "groq-key" }, async () => {
+    const warn = mock.method(console, "warn", () => {});
+    const { pi, spawns } = makeManager();
+    await pi.ensure("s1", "/tmp/s1");
+
+    assert.equal(spawns.length, 1, "Prime still spawns");
+    assert.equal(
+      warnedAboutCredentials(warn),
+      false,
+      "direct Groq access is not treated as missing credentials",
+    );
+  });
+});
+
+test("an xAI-only install spawns Prime without a missing-credentials warning", async () => {
+  await withCredentialEnv({ XAI_API_KEY: "xai-key" }, async () => {
+    const warn = mock.method(console, "warn", () => {});
+    const { pi, spawns } = makeManager();
+    await pi.ensure("s1", "/tmp/s1");
+
+    assert.equal(spawns.length, 1, "Prime still spawns");
+    assert.equal(
+      warnedAboutCredentials(warn),
+      false,
+      "direct xAI access is not treated as missing credentials",
+    );
+  });
+});
