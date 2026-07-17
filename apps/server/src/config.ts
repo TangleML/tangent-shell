@@ -139,6 +139,14 @@ export const INTERNAL_TOKEN =
   process.env.TANGENT_INTERNAL_TOKEN ?? randomUUID();
 
 /**
+ * Shared secret a remote environment must present (in the Socket.IO handshake
+ * `auth`) to connect to the remote sub-agent gateway. Empty by default, which
+ * disables remote sub-agent hosting until an environment supplies a token so a
+ * stray connection can never drive a session's agents.
+ */
+export const REMOTE_ENV_TOKEN = process.env.REMOTE_ENV_TOKEN ?? "";
+
+/**
  * Name of the cookie holding the Oktasso JWT that `GET /api/me` reads to resolve
  * the current user. Empty by default so the route is effectively disabled until
  * an environment supplies the cookie name (the local `dev` script sets it).

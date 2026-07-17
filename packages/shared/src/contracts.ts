@@ -347,12 +347,22 @@ export interface UpdateTriggerRequest {
 /** Lifecycle status of a sub-agent, surfaced in the session's agent roster. */
 export type SubagentStatus = "active" | "completed" | "killed" | "error";
 
+/**
+ * Which host runs a sub-agent: `local` (a `pi` child process managed by the
+ * server) or `remote` (a sub-agent hosted inside a connected remote
+ * environment over the remote sub-agent transport). Absent on older roster
+ * rows, which are treated as `local`.
+ */
+export type SubagentHost = "local" | "remote";
+
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
   id: string;
   name: string;
   status: SubagentStatus;
+  /** Which host runs the sub-agent. Defaults to `local` when omitted. */
+  host?: SubagentHost;
   /** Template the sub-agent was spawned from, if any. */
   template?: string;
   /** The `provider/model` id this sub-agent runs, when set (else server default). */

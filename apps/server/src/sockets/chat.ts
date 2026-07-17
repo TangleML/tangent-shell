@@ -25,6 +25,7 @@ import {
   type MemoryScope,
   type MemorySuggestionPayload,
   PI_AGENT,
+  type Session,
   type SessionStatusPayload,
   type SessionStatusSnapshotPayload,
   SocketEvents,
@@ -50,6 +51,7 @@ import {
 } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStatusHandler } from "../pi/types.ts";
+import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type {
   SessionAgentStatus,
   SessionStore,
@@ -510,6 +512,7 @@ export function registerChatHandlers(
   io: Server,
   store: SessionStore,
   pi: PiAgentManager,
+  remoteGateway: RemoteEnvironmentGateway,
   memory: MemoryManager,
   onRemembered: MemoryRememberedHandler,
   triggerEngine: TriggerEngine,
@@ -517,7 +520,7 @@ export function registerChatHandlers(
 ): void {
   io.on("connection", (socket: Socket) => {
     socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
-      handleChatJoin(socket, store, pi, triggerEngine, payload),
+      handleChatJoin(socket, store, pi, remoteGateway, triggerEngine, payload),
     );
 
     socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
@@ -627,11 +630,47 @@ async function handleSessionStatusSubscribe(
   socket.emit(SocketEvents.SessionStatusSnapshot, payload);
 }
 
+/**
+ * (Re)spawns the session's Prime — restoring any persisted model/thinking
+ * selection — and revives previously-active local sub-agents from the persisted
+ * roster, so a restart restores the full agent set (not just Prime). Idempotent:
+ * agents already live are skipped.
+ */
+async function ensureSessionAgents(
+  store: SessionStore,
+  pi: PiAgentManager,
+  session: Session,
+): Promise<void> {
+  const primeOverride = await loadPrimeOverride(store, session.id);
+  pi.ensure(
+    session.id,
+    session.rootPath,
+    undefined,
+    primeOverride,
+    session.user,
+  );
+  const persistedAgents = await store.listAgents(session.id);
+  pi.reviveSubagents(session.id, persistedAgents);
+}
+
+/** Merges a session's local and remote sub-agent rosters for the UI. */
+function mergedSubagents(
+  pi: PiAgentManager,
+  remoteGateway: RemoteEnvironmentGateway,
+  sessionId: string,
+) {
+  return [
+    ...pi.listSubagents(sessionId),
+    ...remoteGateway.listSubagents(sessionId),
+  ];
+}
+
 /** Joins the session room, then replays history and the sub-agent roster. */
 async function handleChatJoin(
   socket: Socket,
   store: SessionStore,
   pi: PiAgentManager,
+  remoteGateway: RemoteEnvironmentGateway,
   triggerEngine: TriggerEngine,
   payload: ChatJoinPayload,
 ): Promise<void> {
@@ -644,23 +683,9 @@ async function handleChatJoin(
   const room = roomFor(session.id);
   await socket.join(room);
 
-  // Lazily (re)spawn the agent in case the server restarted or the session was
-  // created before the process manager existed, restoring any persisted Prime
-  // model/thinking selection so a respawn keeps the human's prior choice.
-  const primeOverride = await loadPrimeOverride(store, session.id);
-  pi.ensure(
-    session.id,
-    session.rootPath,
-    undefined,
-    primeOverride,
-    session.user,
-  );
-
-  // Re-spawn any previously-active sub-agents from the persisted roster so a
-  // restart restores the full agent set (Prime + sub-agents), not just Prime.
-  // Idempotent: agents already live are skipped.
-  const persistedAgents = await store.listAgents(session.id);
-  pi.reviveSubagents(session.id, persistedAgents);
+  // Lazily (re)spawn Prime and revive previously-active local sub-agents in
+  // case the server restarted or the session predates the process manager.
+  await ensureSessionAgents(store, pi, session);
 
   // Re-arm the session's schedule triggers (idempotent) and surface the roster.
   triggerEngine.sync(session.id, session.rootPath);
@@ -670,7 +695,7 @@ async function handleChatJoin(
 
   const roster: SubagentRosterPayload = {
     sessionId: session.id,
-    subagents: pi.listSubagents(session.id),
+    subagents: mergedSubagents(pi, remoteGateway, session.id),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
 

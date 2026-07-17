@@ -105,6 +105,12 @@ export const sessionAgents = sqliteTable(
     autoRelayToPrime: integer("auto_relay_to_prime", { mode: "boolean" })
       .notNull()
       .default(true),
+    /**
+     * Which host runs the agent: `local` (a `pi` child) or `remote` (a
+     * connected remote environment). Defaults to `local`; only `local`
+     * sub-agents are revived after a restart.
+     */
+    host: text("host").notNull().default("local"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [

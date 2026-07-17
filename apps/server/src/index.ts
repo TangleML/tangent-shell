@@ -8,9 +8,14 @@ import { Server as SocketIOServer } from "socket.io";
 import { PORT } from "./config.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
 import { MemoryManager } from "./pi/memory.ts";
-import { PiAgentManager } from "./pi/piAgentManager.ts";
+import {
+  type PiAgentHandlers,
+  PiAgentManager,
+  PRIME_AGENT_ID,
+} from "./pi/piAgentManager.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
+import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
 import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
@@ -63,17 +68,29 @@ const onMemorySuggestion = createMemorySuggestionHandler(io);
 // Pushes generic agent->UI directives (e.g. session rename) to the room.
 const emitUiCommand = createUiCommandEmitter(io);
 
+// Shared relay handlers: a sub-agent's streaming events and roster changes are
+// fanned to the matching Socket.IO room and persisted the same way, whether the
+// sub-agent runs locally (PiAgentManager) or in a remote environment.
+const agentHandlers: PiAgentHandlers = {
+  onAgentEvent: createAgentEventHandler(io, store),
+  onSubagentUpdate: createSubagentUpdateHandler(io, store),
+  onAgentMessage: createAgentMessageHandler(io, store),
+  onSessionStatus: createSessionStatusHandler(io),
+};
+
 // The manager runs a roster of Pi processes per session (Prime + sub-agents);
 // their streaming events and roster changes are relayed to the matching
 // Socket.IO room by the chat handlers.
-const pi = new PiAgentManager(
-  {
-    onAgentEvent: createAgentEventHandler(io, store),
-    onSubagentUpdate: createSubagentUpdateHandler(io, store),
-    onAgentMessage: createAgentMessageHandler(io, store),
-    onSessionStatus: createSessionStatusHandler(io),
-  },
-  memory,
+const pi = new PiAgentManager(agentHandlers, memory);
+
+// Hosts sub-agents inside a connected remote environment over the `/remote-env`
+// namespace. Remote sub-agents share the same relay handlers as local ones, and
+// their finalized replies/reports are fed into the session's Prime process.
+const remoteGateway = new RemoteEnvironmentGateway(
+  io,
+  agentHandlers,
+  store,
+  (sessionId, text) => pi.sendToAgent(sessionId, PRIME_AGENT_ID, text),
 );
 
 // Drives schedule timers and callback firings, delivering prompts to Prime.
@@ -104,7 +121,10 @@ app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
-app.use("/internal/agents", createInternalAgentsRouter(store, pi));
+app.use(
+  "/internal/agents",
+  createInternalAgentsRouter(store, pi, remoteGateway),
+);
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
 app.use("/internal/egress", createInternalEgressRouter());
 // Internal API for the triggers extension running inside each Pi process.
@@ -133,6 +153,7 @@ registerChatHandlers(
   io,
   store,
   pi,
+  remoteGateway,
   memory,
   onMemoryRemembered,
   triggerEngine,

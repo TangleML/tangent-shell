@@ -8,11 +8,12 @@ Agent communication in this system is deliberately **server-mediated**. Agents
 never talk to each other directly. There are exactly three transports, each with
 a distinct job:
 
-| Layer                                                | Direction                          | Who uses it                                               |
-| ---------------------------------------------------- | ---------------------------------- | --------------------------------------------------------- |
-| **Pi-RPC** (JSONL over stdin/stdout)                 | server ↔ a single Pi child process | `PiAgentManager` ↔ each `pi --mode rpc` subprocess        |
-| **Internal HTTP API** (`/internal/*` + bearer token) | Pi child → server                  | extension tools (orchestrator, memory, triggers, session) |
-| **WebSockets** (Socket.IO rooms)                     | server → browser                   | the UI                                                    |
+| Layer                                                               | Direction                                | Who uses it                                                     |
+| ------------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
+| **Pi-RPC** (JSONL over stdin/stdout)                                | server ↔ a single Pi child process       | `PiAgentManager` ↔ each `pi --mode rpc` subprocess              |
+| **Internal HTTP API** (`/internal/*` + bearer token)               | Pi child → server                        | extension tools (orchestrator, memory, triggers, session)       |
+| **WebSockets** (Socket.IO rooms)                                    | server → browser                         | the UI                                                          |
+| **Remote sub-agent transport** (Socket.IO `/remote-env` namespace)  | server ↔ a connected remote environment  | `RemoteEnvironmentGateway` ↔ the `@tangent/remote-subagent` SDK |
 
 The `PiAgentManager` (`apps/server/src/pi/piAgentManager.ts`) is the single hub.
 Every "A talks to B" path actually goes A → server → B.
@@ -255,3 +256,39 @@ Pi-RPC stdin; the reply is Pi-RPC stdout → manager handler → WS out.
 > Trigger-fired sub-agents (see `pi/triggers/`) are spawned with
 > `autoRelayToPrime: false`, so they react in isolation and only reach Prime when
 > they explicitly call `message_prime`.
+
+## 5. Remote sub-agents (an alternative host)
+
+A sub-agent does not have to be a local `pi` child. A **remote environment**
+can connect over a dedicated Socket.IO namespace (`/remote-env`) and host
+sub-agents instead. It receives the same orchestration commands (`spawn`,
+`message`, `kill`, read transcript) and streams the same events back, so a
+remote sub-agent renders and persists exactly like a local one.
+
+The host is chosen **per spawn**: `spawn_subagent`'s `environment` param
+(`local` default, or `remote`) flows through `POST /internal/agents/spawn`
+(`environment` field). `createInternalAgentsRouter` dispatches to either
+`PiAgentManager` (local) or `RemoteEnvironmentGateway` (remote), and resolves
+the host of a later `message`/`kill` by checking which one owns the agent id.
+
+- **Server side:** `RemoteEnvironmentGateway`
+  (`apps/server/src/remote/remoteEnvironmentGateway.ts`) owns the `/remote-env`
+  namespace (bearer-authenticated with `REMOTE_ENV_TOKEN`), tracks connected
+  environments and a per-session roster of remote sub-agents, and exposes the
+  same `spawnSubagent`/`sendToAgent`/`killAgent`/`listSubagents`/`hasAgent`
+  surface as the manager. Inbound events are relayed through the **same**
+  `PiAgentHandlers` a local sub-agent uses; finalized auto-relay replies and
+  `message_prime`-style reports are fed into Prime via a `deliverToPrime`
+  callback wired to `pi.sendToAgent(sessionId, PRIME_AGENT_ID, ...)`. A room
+  read is answered (Socket.IO ack) from `store.getMessages`.
+- **Remote side:** `@tangent/remote-subagent` (`packages/remote-subagent`) is a
+  thin connector SDK: it manages the connection, dispatches `spawn`/`message`/
+  `kill` to user-supplied handlers, and exposes helpers to stream events,
+  push roster updates, report to Prime, and read the transcript. It ships **no
+  agent runtime** — the actual sub-agent implementation is provided later on
+  another agent SDK.
+
+The wire shapes live in `@tangent/shared/remoteSubagent.ts`, shared by both
+sides so the protocol cannot drift. Remote sub-agents are **not** revived after
+a server restart (`reviveSubagents` skips `host: "remote"` rows); they
+re-establish when their environment reconnects.
