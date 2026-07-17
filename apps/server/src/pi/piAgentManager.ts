@@ -270,18 +270,37 @@ function buildPiArgs(
   return args;
 }
 
-/** Warns once-per-spawn when the LLM proxy env vars are unset. */
+/**
+ * Whether a native provider key is set, meaning the proxy-provider extension
+ * runs in direct mode and targets a provider's public API rather than a gateway.
+ */
+function hasDirectProviderKey(): boolean {
+  return Boolean(
+    process.env.OPENAI_API_KEY ||
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY,
+  );
+}
+
+/**
+ * Warns once-per-spawn when Pi has no usable LLM credentials. In direct mode the
+ * gateway env vars are irrelevant, so their absence is not worth warning about.
+ */
 function warnMissingProxyEnv(): void {
+  if (hasDirectProviderKey()) return;
+
   if (!process.env.PI_PROXY_API_KEY) {
     console.warn(
-      "[pi] PI_PROXY_API_KEY is not set; Pi will fail to reach the LLM gateway. " +
-        "Run `export PI_PROXY_API_KEY=$(devx llm-gateway print-token --key)` before starting the server.",
+      "[pi] No LLM credentials found: set a provider key (e.g. OPENAI_API_KEY or " +
+        "ANTHROPIC_API_KEY) to use a provider directly, or PI_PROXY_API_KEY to use " +
+        "an LLM gateway. Without one, Pi cannot reach a model.",
     );
   }
   if (!process.env.PI_PROXY_URL) {
     console.warn(
       `[pi] PI_PROXY_URL is not set; the proxy-provider extension will default to ${PI_PROXY_URL}. ` +
-        "Set PI_PROXY_URL to point Pi at a different LLM proxy.",
+        "Set PI_PROXY_URL to point Pi at an LLM gateway, or set a provider key for direct access.",
     );
   }
 }
