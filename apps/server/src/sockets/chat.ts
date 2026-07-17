@@ -25,6 +25,7 @@ import {
   type MemoryScope,
   type MemorySuggestionPayload,
   PI_AGENT,
+  type Session,
   type SessionStatusPayload,
   type SessionStatusSnapshotPayload,
   SocketEvents,
@@ -37,6 +38,7 @@ import {
 } from "@tangent/shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
+import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import {
@@ -50,6 +52,7 @@ import {
 } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStatusHandler } from "../pi/types.ts";
+import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type {
   SessionAgentStatus,
   SessionStore,
@@ -506,60 +509,100 @@ function handleMemoryDismiss(
  * messages are broadcast to the room and relayed into the session's Pi
  * process, whose reply is streamed back via the agent:* events.
  */
+/** Shared dependencies wired into every connected socket's chat handlers. */
+interface ChatHandlerDeps {
+  io: Server;
+  store: SessionStore;
+  pi: PiAgentManager;
+  remoteGateway: RemoteEnvironmentGateway;
+  externalGateway: ExternalSubagentGateway;
+  memory: MemoryManager;
+  onRemembered: MemoryRememberedHandler;
+  triggerEngine: TriggerEngine;
+  emitUiCommand: UiCommandEmitter;
+}
+
+/** Wires one connected socket's chat/agent/memory/artifact listeners. */
+function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
+  const { io, store, pi, remoteGateway, externalGateway, memory } = deps;
+  const { onRemembered, triggerEngine, emitUiCommand } = deps;
+
+  socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
+    handleChatJoin(
+      socket,
+      store,
+      pi,
+      remoteGateway,
+      externalGateway,
+      triggerEngine,
+      payload,
+    ),
+  );
+
+  socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
+    handleChatMessage(io, socket, store, pi, payload),
+  );
+
+  socket.on(SocketEvents.AgentAbort, (payload: AgentAbortPayload) =>
+    pi.abort(payload?.sessionId, payload?.conversationId),
+  );
+
+  socket.on(SocketEvents.AgentSetModel, (payload: AgentSetModelPayload) =>
+    handleAgentSetModel(io, store, pi, payload),
+  );
+
+  socket.on(SocketEvents.MemoryConfirm, (payload: MemoryConfirmPayload) =>
+    handleMemoryConfirm(store, pi, memory, onRemembered, payload),
+  );
+
+  socket.on(SocketEvents.MemoryDismiss, (payload: MemoryDismissPayload) =>
+    handleMemoryDismiss(pi, memory, payload),
+  );
+
+  socket.on(SocketEvents.ArtifactPin, (payload: ArtifactPinPayload) =>
+    handleArtifactPin(store, emitUiCommand, payload),
+  );
+
+  socket.on(SocketEvents.ArtifactUnpin, (payload: ArtifactUnpinPayload) =>
+    handleArtifactUnpin(store, emitUiCommand, payload),
+  );
+
+  // Subscribe to the sessions lobby: join the shared room (so future status
+  // changes broadcast here) and seed the socket with the current snapshot.
+  socket.on(SocketEvents.SessionStatusSubscribe, () =>
+    handleSessionStatusSubscribe(socket, pi),
+  );
+
+  // Terminal streaming channel is reserved for a later phase. Registered
+  // here so the protocol is stable; it currently emits nothing.
+  socket.on(SocketEvents.TerminalData, () => {
+    // no-op stub
+  });
+}
+
 export function registerChatHandlers(
   io: Server,
   store: SessionStore,
   pi: PiAgentManager,
+  remoteGateway: RemoteEnvironmentGateway,
+  externalGateway: ExternalSubagentGateway,
   memory: MemoryManager,
   onRemembered: MemoryRememberedHandler,
   triggerEngine: TriggerEngine,
   emitUiCommand: UiCommandEmitter,
 ): void {
-  io.on("connection", (socket: Socket) => {
-    socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
-      handleChatJoin(socket, store, pi, triggerEngine, payload),
-    );
-
-    socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
-      handleChatMessage(io, socket, store, pi, payload),
-    );
-
-    socket.on(SocketEvents.AgentAbort, (payload: AgentAbortPayload) =>
-      pi.abort(payload?.sessionId, payload?.conversationId),
-    );
-
-    socket.on(SocketEvents.AgentSetModel, (payload: AgentSetModelPayload) =>
-      handleAgentSetModel(io, store, pi, payload),
-    );
-
-    socket.on(SocketEvents.MemoryConfirm, (payload: MemoryConfirmPayload) =>
-      handleMemoryConfirm(store, pi, memory, onRemembered, payload),
-    );
-
-    socket.on(SocketEvents.MemoryDismiss, (payload: MemoryDismissPayload) =>
-      handleMemoryDismiss(pi, memory, payload),
-    );
-
-    socket.on(SocketEvents.ArtifactPin, (payload: ArtifactPinPayload) =>
-      handleArtifactPin(store, emitUiCommand, payload),
-    );
-
-    socket.on(SocketEvents.ArtifactUnpin, (payload: ArtifactUnpinPayload) =>
-      handleArtifactUnpin(store, emitUiCommand, payload),
-    );
-
-    // Subscribe to the sessions lobby: join the shared room (so future status
-    // changes broadcast here) and seed the socket with the current snapshot.
-    socket.on(SocketEvents.SessionStatusSubscribe, () =>
-      handleSessionStatusSubscribe(socket, pi),
-    );
-
-    // Terminal streaming channel is reserved for a later phase. Registered
-    // here so the protocol is stable; it currently emits nothing.
-    socket.on(SocketEvents.TerminalData, () => {
-      // no-op stub
-    });
-  });
+  const deps: ChatHandlerDeps = {
+    io,
+    store,
+    pi,
+    remoteGateway,
+    externalGateway,
+    memory,
+    onRemembered,
+    triggerEngine,
+    emitUiCommand,
+  };
+  io.on("connection", (socket: Socket) => wireSocket(socket, deps));
 }
 
 /** Reads Prime's persisted model/thinking selection, parsing the stored depth. */
@@ -627,11 +670,50 @@ async function handleSessionStatusSubscribe(
   socket.emit(SocketEvents.SessionStatusSnapshot, payload);
 }
 
+/**
+ * (Re)spawns the session's Prime — restoring any persisted model/thinking
+ * selection — and revives previously-active local sub-agents from the persisted
+ * roster, so a restart restores the full agent set (not just Prime). Idempotent:
+ * agents already live are skipped.
+ */
+async function ensureSessionAgents(
+  store: SessionStore,
+  pi: PiAgentManager,
+  session: Session,
+): Promise<void> {
+  const primeOverride = await loadPrimeOverride(store, session.id);
+  pi.ensure(
+    session.id,
+    session.rootPath,
+    undefined,
+    primeOverride,
+    session.user,
+  );
+  const persistedAgents = await store.listAgents(session.id);
+  pi.reviveSubagents(session.id, persistedAgents);
+}
+
+/** Merges a session's local, remote, and external sub-agent rosters for the UI. */
+function mergedSubagents(
+  pi: PiAgentManager,
+  remoteGateway: RemoteEnvironmentGateway,
+  externalGateway: ExternalSubagentGateway,
+  sessionId: string,
+) {
+  return [
+    ...pi.listSubagents(sessionId),
+    ...remoteGateway.listSubagents(sessionId),
+    ...externalGateway.listSubagents(sessionId),
+  ];
+}
+
 /** Joins the session room, then replays history and the sub-agent roster. */
 async function handleChatJoin(
   socket: Socket,
   store: SessionStore,
   pi: PiAgentManager,
+  remoteGateway: RemoteEnvironmentGateway,
+  externalGateway: ExternalSubagentGateway,
   triggerEngine: TriggerEngine,
   payload: ChatJoinPayload,
 ): Promise<void> {
@@ -644,23 +726,9 @@ async function handleChatJoin(
   const room = roomFor(session.id);
   await socket.join(room);
 
-  // Lazily (re)spawn the agent in case the server restarted or the session was
-  // created before the process manager existed, restoring any persisted Prime
-  // model/thinking selection so a respawn keeps the human's prior choice.
-  const primeOverride = await loadPrimeOverride(store, session.id);
-  pi.ensure(
-    session.id,
-    session.rootPath,
-    undefined,
-    primeOverride,
-    session.user,
-  );
-
-  // Re-spawn any previously-active sub-agents from the persisted roster so a
-  // restart restores the full agent set (Prime + sub-agents), not just Prime.
-  // Idempotent: agents already live are skipped.
-  const persistedAgents = await store.listAgents(session.id);
-  pi.reviveSubagents(session.id, persistedAgents);
+  // Lazily (re)spawn Prime and revive previously-active local sub-agents in
+  // case the server restarted or the session predates the process manager.
+  await ensureSessionAgents(store, pi, session);
 
   // Re-arm the session's schedule triggers (idempotent) and surface the roster.
   triggerEngine.sync(session.id, session.rootPath);
@@ -670,7 +738,7 @@ async function handleChatJoin(
 
   const roster: SubagentRosterPayload = {
     sessionId: session.id,
-    subagents: pi.listSubagents(session.id),
+    subagents: mergedSubagents(pi, remoteGateway, externalGateway, session.id),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
 

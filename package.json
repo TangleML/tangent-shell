@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "SESSIONS_ROOT=\"$PWD/.sessions\" SESSIONS_DB=\"$PWD/.sessions/tangent.db\" AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" GLOBAL_MEMORY_DIR=\"$PWD/.memory\" turbo run dev",
     "tangle:token": "tsx scripts/print-tangle-token.ts",
+    "minerva:token": "tsx scripts/print-minerva-token.ts",
+    "aquifer:example": "tsx scripts/aquifer/example.ts",
     "seed": "node scripts/pack-bundle.mjs && AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" SEED_BUNDLES_DIR=\"$PWD/examples\" pnpm --filter @tangent/server seed",
     "build": "turbo run build",
     "lint": "turbo run lint",

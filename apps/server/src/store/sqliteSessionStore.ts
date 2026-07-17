@@ -8,6 +8,7 @@ import type {
   PinnedArtifact,
   Session,
   SessionConfigMeta,
+  SubagentHost,
   UpdateSessionRequest,
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
@@ -72,6 +73,7 @@ function toAgent(row: SessionAgentRow): SessionAgent {
     tools: parseTools(row.tools),
     systemPrompt: row.systemPrompt ?? undefined,
     autoRelayToPrime: row.autoRelayToPrime,
+    host: row.host as SubagentHost,
     createdAt: row.createdAt,
   };
 }
@@ -309,6 +311,7 @@ export class SqliteSessionStore implements SessionStore {
         tools,
         systemPrompt: agent.systemPrompt,
         autoRelayToPrime: agent.autoRelayToPrime,
+        host: agent.host,
         createdAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
@@ -324,6 +327,7 @@ export class SqliteSessionStore implements SessionStore {
           tools,
           systemPrompt: agent.systemPrompt,
           autoRelayToPrime: agent.autoRelayToPrime,
+          host: agent.host,
         },
       })
       .run();
