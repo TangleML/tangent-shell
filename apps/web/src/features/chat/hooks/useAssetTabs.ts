@@ -38,9 +38,19 @@ function toTab(asset: Asset): AssetTab {
  * SessionChat). Opening an already-open asset just focuses its tab; closing the
  * active tab falls back to chat.
  */
-export function useAssetTabs() {
+export function useAssetTabs(sessionId: string) {
   const [tabs, setTabs] = useState<AssetTab[]>([]);
   const [activeTab, setActiveTab] = useState<string>(CHAT_TAB_VALUE);
+  const [seenSessionId, setSeenSessionId] = useState(sessionId);
+
+  // Switching sessions reuses this hook instance, so drop the previous
+  // session's tabs (their assets/sub-agents don't exist here) and fall back to
+  // the chat tab.
+  if (seenSessionId !== sessionId) {
+    setSeenSessionId(sessionId);
+    setTabs([]);
+    setActiveTab(CHAT_TAB_VALUE);
+  }
 
   function openTab(tab: AssetTab) {
     setTabs((prev) =>

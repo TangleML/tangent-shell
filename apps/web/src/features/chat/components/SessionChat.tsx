@@ -71,7 +71,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   // Opened tabs (assets and sub-agent threads), each shown beside the chat in
   // its own closeable tab.
   const { tabs, activeTab, setActiveTab, openAsset, openAgent, closeAsset } =
-    useAssetTabs();
+    useAssetTabs(sessionId);
 
   // The session's pages, files, and triggers as one uniform list of cards.
   const assets = buildAssets({ sessionId, artifacts, triggers });
