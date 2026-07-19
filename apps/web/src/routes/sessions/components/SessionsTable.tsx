@@ -1,4 +1,4 @@
-import type { Session } from "@tangent/shared/contracts";
+import type { Session, UserIdentity } from "@tangent/shared/contracts";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 
@@ -15,6 +15,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/patterns/table";
+
+function getOwnerLabel(user: UserIdentity): string {
+  const fullName = `${user.first_name} ${user.last_name}`.trim();
+  return fullName || user.email;
+}
 
 interface SessionsTableProps {
   sessions: Session[];
@@ -35,6 +40,7 @@ export function SessionsTable({ sessions, onOpen }: SessionsTableProps) {
           <TableHead>Status</TableHead>
           <TableHead>Activity</TableHead>
           <TableHead>Bundle</TableHead>
+          <TableHead>Owner</TableHead>
           <TableHead>Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -78,6 +84,17 @@ function SessionRow({ session, onOpen }: SessionRowProps) {
         {session.config ? (
           <Text size="sm" tone="subdued">
             {session.config.name} v{session.config.version}
+          </Text>
+        ) : (
+          <Text size="sm" tone="subdued">
+            &mdash;
+          </Text>
+        )}
+      </TableCell>
+      <TableCell>
+        {session.user ? (
+          <Text size="sm" tone="subdued">
+            {getOwnerLabel(session.user)}
           </Text>
         ) : (
           <Text size="sm" tone="subdued">
