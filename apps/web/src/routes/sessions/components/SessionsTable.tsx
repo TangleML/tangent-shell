@@ -23,6 +23,10 @@ interface SessionsTableProps {
 
 /** Tabular list of sessions; each row opens its session. */
 export function SessionsTable({ sessions, onOpen }: SessionsTableProps) {
+  const sortedSessions = [...sessions].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  );
+
   return (
     <Table>
       <TableHeader>
@@ -35,7 +39,7 @@ export function SessionsTable({ sessions, onOpen }: SessionsTableProps) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sessions.map((session) => (
+        {sortedSessions.map((session) => (
           <SessionRow key={session.id} session={session} onOpen={onOpen} />
         ))}
       </TableBody>
