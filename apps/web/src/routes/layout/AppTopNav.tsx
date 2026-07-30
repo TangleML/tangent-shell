@@ -1,3 +1,4 @@
+import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 import { Link } from "@tanstack/react-router";
 
@@ -5,6 +6,7 @@ import { UserAvatar } from "@/features/user/components/UserAvatar";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
 
+import { TangleLogo } from "./TangleLogo";
 import { ThemeMenu } from "./ThemeMenu";
 
 /**
@@ -19,9 +21,12 @@ export function AppTopNav() {
     <TopNav
       brand={
         <Link to="/sessions">
-          <Text size="lg" weight="bold">
-            Tangent Shell
-          </Text>
+          <InlineStack gap="2" blockAlign="center">
+            <TangleLogo />
+            <Text size="lg" weight="bold">
+              Tangent Shell
+            </Text>
+          </InlineStack>
         </Link>
       }
       links={

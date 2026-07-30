@@ -98,6 +98,7 @@ export function useSessionChat(sessionId: string) {
   // the room via the `artifacts.update` UI directive.
   const [artifacts, setArtifacts] = useState<PinnedArtifact[]>([]);
   const [connected, setConnected] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   // Pending agent-initiated memory suggestions awaiting the user's confirmation.
   const [memorySuggestions, setMemorySuggestions] = useState<
     MemorySuggestionPayload[]
@@ -178,6 +179,7 @@ export function useSessionChat(sessionId: string) {
       // don't trigger cascading renders; history and roster repopulate via the
       // ChatHistory and SubagentRoster events the server sends on join.
       setMessages([]);
+      setHistoryLoaded(false);
       setSubagents([]);
       setModelByAgent(new Map());
       setTriggers([]);
@@ -213,6 +215,7 @@ export function useSessionChat(sessionId: string) {
 
     socket.on(SocketEvents.ChatHistory, (history: ChatMessage[]) => {
       setMessages(history);
+      setHistoryLoaded(true);
     });
     socket.on(SocketEvents.ChatMessage, (message: ChatMessage) => {
       setMessages((prev) => [...prev, message]);
@@ -573,6 +576,7 @@ export function useSessionChat(sessionId: string) {
     pinArtifact,
     unpinArtifact,
     connected,
+    historyLoaded,
     memorySuggestions,
     confirmMemory,
     dismissMemory,

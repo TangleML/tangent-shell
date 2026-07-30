@@ -48,6 +48,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     memorySuggestions,
     confirmMemory,
     dismissMemory,
+    historyLoaded,
     agentBusy,
     isConversationBusy,
     getActivity,
@@ -138,6 +139,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     currentAuthorId,
     bundleId,
     connected,
+    historyLoaded,
     pinnedPaths,
     getActivity,
     isConversationBusy,
@@ -208,6 +210,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                   currentAuthorId={currentAuthorId}
                   bundleId={bundleId}
                   connected={connected}
+                  historyLoaded={historyLoaded}
                   agentBusy={agentBusy}
                   activity={getActivity(PI_AGENT.id)}
                   isMessageStreaming={isMessageStreaming}

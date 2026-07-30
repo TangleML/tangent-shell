@@ -29,12 +29,12 @@ interface UseChatScroll {
   jumpToBottom: () => void;
 }
 
-// Scroll the last virtualized row to the bottom using virtua's measured sizes.
-// Kept module-level so callers (and effects) reference a stable function.
 function scrollToLastRow(handle: VirtualizerHandle | null, rowCount: number) {
-  if (handle && rowCount > 0) {
-    handle.scrollToIndex(rowCount - 1, { align: "end" });
-  }
+  if (!handle || rowCount === 0) return;
+  const lastIndex = rowCount - 1;
+  const align =
+    handle.getItemSize(lastIndex) > handle.viewportSize ? "start" : "end";
+  handle.scrollToIndex(lastIndex, { align });
 }
 
 /**

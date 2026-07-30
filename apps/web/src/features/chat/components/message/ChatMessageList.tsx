@@ -1,6 +1,7 @@
 import type { AgentActivity } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
+import { Spinner } from "@tangent/ui-primitives/spinner";
 import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 import { Virtualizer } from "virtua";
@@ -21,6 +22,8 @@ interface ChatMessageListProps {
   currentAuthorId: string;
   /** Ephemeral agent activity for this thread, or null when idle/streaming. */
   activity?: AgentActivity | null;
+  /** Whether the room's history snapshot has arrived; gates loader vs empty. */
+  historyLoaded: boolean;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
   bundleId?: string;
   /** Forwards a prompt composed by an interactive `tangent-ui:` component. */
@@ -100,11 +103,31 @@ function RowContent({
   }
 }
 
+// Shown in place of the list when there are no rows: a loader until the room's
+// history snapshot arrives, then the true empty-thread prompt.
+function EmptyThread({ historyLoaded }: { historyLoaded: boolean }) {
+  if (!historyLoaded) {
+    return (
+      <BlockStack fill>
+        <Spinner size={20} />
+      </BlockStack>
+    );
+  }
+  return (
+    <Box paddingBlock="base">
+      <Paragraph size="sm" tone="subdued">
+        No messages yet. Say hello to start the session.
+      </Paragraph>
+    </Box>
+  );
+}
+
 export function ChatMessageList({
   sessionId,
   messages,
   currentAuthorId,
   activity,
+  historyLoaded,
   bundleId,
   onSendPrompt,
   onOpenArtifact,
@@ -190,11 +213,7 @@ export function ChatMessageList({
           className="min-h-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-3 [overflow-anchor:none]"
         >
           {rows.length === 0 ? (
-            <Box paddingBlock="base">
-              <Paragraph size="sm" tone="subdued">
-                No messages yet. Say hello to start the session.
-              </Paragraph>
-            </Box>
+            <EmptyThread historyLoaded={historyLoaded} />
           ) : (
             <Virtualizer ref={virtualizerRef} onScroll={onScroll}>
               {rows.map((row, index) => {

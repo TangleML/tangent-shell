@@ -62,7 +62,7 @@ export function SessionSwitcherList({
               alt={`${session.config.name} icon`}
             />
           ) : (
-            <Icon name="Package" size="lg" tone="subdued" />
+            <Icon name="MessageSquare" size="lg" tone="subdued" />
           )}
           <BlockStack grow align="stretch">
             <Truncating>
