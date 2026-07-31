@@ -1,10 +1,10 @@
+import { Spinner } from "@tangent/ui-primitives/spinner";
 import { useQuery } from "@tanstack/react-query";
 import { cva } from "class-variance-authority";
 import type { ReactNode } from "react";
 
 import { resolveGravatarUrl } from "@/features/user/model/gravatar";
 import { UserQueryKeys } from "@/features/user/model/userQueryKeys";
-import { Spinner } from "@tangent/ui-primitives/spinner";
 
 type AvatarSize = "sm" | "md";
 
@@ -14,9 +14,14 @@ const avatarImageVariants = cva("shrink-0 rounded-full object-cover", {
       sm: "size-6",
       md: "size-8",
     },
+    grayscale: {
+      true: "opacity-70 grayscale",
+      false: "",
+    },
   },
   defaultVariants: {
     size: "md",
+    grayscale: false,
   },
 });
 
@@ -33,6 +38,8 @@ interface UserAvatarProps {
   /** Badge shown when the email has no Gravatar or the lookup hasn't resolved. */
   fallback: ReactNode;
   size?: AvatarSize;
+  /** Desaturate the image, e.g. to mark an inactive participant. */
+  grayscale?: boolean;
 }
 
 /**
@@ -49,6 +56,7 @@ export function UserAvatar({
   name,
   fallback,
   size = "md",
+  grayscale = false,
 }: UserAvatarProps) {
   const { data: src, isLoading } = useQuery({
     queryKey: UserQueryKeys.Gravatar(email, AVATAR_SIZE_PX[size]),
@@ -66,7 +74,7 @@ export function UserAvatar({
       src={src}
       title={name}
       alt={name}
-      className={avatarImageVariants({ size })}
+      className={avatarImageVariants({ size, grayscale })}
     />
   );
 }

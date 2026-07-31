@@ -39,6 +39,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const {
     messages,
     subagents,
+    participants,
     triggers,
     artifacts,
     pinnedPaths,
@@ -207,6 +208,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 <PrimeChatPanel
                   sessionId={sessionId}
                   messages={primeMessages}
+                  participants={participants}
                   currentAuthorId={currentAuthorId}
                   bundleId={bundleId}
                   connected={connected}

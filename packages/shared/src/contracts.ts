@@ -474,6 +474,35 @@ export interface UpdateGlobalMemoryResponse {
 /** Payload sent by the client when joining a session's chat room. */
 export interface ChatJoinPayload {
   sessionId: string;
+  /**
+   * The joining human's chat identity, used to attribute live presence to the
+   * same author id (their email) that their messages carry.
+   */
+  author: ChatAuthor;
+}
+
+/**
+ * A human taking part in a session, surfaced as an avatar in the participant
+ * bar. `active` is true while the user is connected to the session over a
+ * socket; an inactive participant authored at least one message but is not
+ * currently connected.
+ */
+export interface SessionParticipant {
+  /** Human author id (their email); also resolves the Gravatar. */
+  id: string;
+  /** Display name, e.g. "John S." */
+  name: string;
+  /** True while connected to the session via a socket. */
+  active: boolean;
+}
+
+/**
+ * The session's current participant roster, emitted to the room on join and
+ * whenever presence changes (a user connects or disconnects).
+ */
+export interface ParticipantsPayload {
+  sessionId: string;
+  participants: SessionParticipant[];
 }
 
 /**
@@ -740,6 +769,7 @@ export const SocketEvents = {
   ChatJoin: "chat:join",
   ChatHistory: "chat:history",
   ChatMessage: "chat:message",
+  Participants: "session:participants",
   TerminalData: "terminal:data",
   AgentStart: "agent:start",
   AgentDelta: "agent:delta",

@@ -24,7 +24,9 @@ import {
   type MemoryDismissPayload,
   type MemoryScope,
   type MemorySuggestionPayload,
+  type ParticipantsPayload,
   PI_AGENT,
+  type SessionParticipant,
   type SessionStatusPayload,
   type SessionStatusSnapshotPayload,
   SocketEvents,
@@ -57,6 +59,121 @@ import type {
 
 function roomFor(sessionId: string): string {
   return `session:${sessionId}`;
+}
+
+/** A user currently connected to a session, keyed by their author id (email). */
+interface ActiveUser {
+  id: string;
+  name: string;
+}
+
+/**
+ * Tracks which humans are currently connected to each session's room. A user
+ * may have several sockets open (multiple tabs), so presence is ref-counted per
+ * author id and only drops once the last of their sockets leaves.
+ */
+class SessionPresence {
+  private readonly bySession = new Map<
+    string,
+    Map<string, { name: string; count: number }>
+  >();
+  private readonly bySocket = new Map<
+    string,
+    { sessionId: string; id: string }
+  >();
+
+  /** Records a socket as present for a session under the given human identity. */
+  join(socketId: string, sessionId: string, author: ChatAuthor): void {
+    if (author.kind !== "human") return;
+    this.bySocket.set(socketId, { sessionId, id: author.id });
+    const users = this.bySession.get(sessionId) ?? new Map();
+    const existing = users.get(author.id);
+    users.set(author.id, {
+      name: author.name,
+      count: (existing?.count ?? 0) + 1,
+    });
+    this.bySession.set(sessionId, users);
+  }
+
+  /** Drops a socket's presence, returning the session it affected (if any). */
+  leave(socketId: string): string | null {
+    const entry = this.bySocket.get(socketId);
+    if (!entry) return null;
+    this.bySocket.delete(socketId);
+    const users = this.bySession.get(entry.sessionId);
+    const existing = users?.get(entry.id);
+    if (!users || !existing) return entry.sessionId;
+    if (existing.count <= 1) {
+      users.delete(entry.id);
+    } else {
+      users.set(entry.id, { name: existing.name, count: existing.count - 1 });
+    }
+    return entry.sessionId;
+  }
+
+  /** The distinct humans currently connected to a session. */
+  activeUsers(sessionId: string): ActiveUser[] {
+    const users = this.bySession.get(sessionId);
+    if (!users) return [];
+    return Array.from(users, ([id, { name }]) => ({ id, name }));
+  }
+}
+
+/**
+ * Builds the session's participant roster: every human who authored a message
+ * (inactive by default) merged with the currently-connected users (active,
+ * whose name wins). Active participants sort first, then alphabetically.
+ */
+function buildParticipants(
+  messages: ChatMessage[],
+  active: ActiveUser[],
+): SessionParticipant[] {
+  const byId = new Map<string, SessionParticipant>();
+  for (const { author } of messages) {
+    if (author.kind !== "human" || byId.has(author.id)) continue;
+    byId.set(author.id, { id: author.id, name: author.name, active: false });
+  }
+  for (const user of active) {
+    byId.set(user.id, { id: user.id, name: user.name, active: true });
+  }
+  return Array.from(byId.values()).sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** Emits the session's current participant roster to everyone in its room. */
+async function emitParticipants(
+  io: Server,
+  store: SessionStore,
+  presence: SessionPresence,
+  sessionId: string,
+): Promise<void> {
+  const messages = await store.getMessages(sessionId);
+  const payload: ParticipantsPayload = {
+    sessionId,
+    participants: buildParticipants(messages, presence.activeUsers(sessionId)),
+  };
+  io.to(roomFor(sessionId)).emit(SocketEvents.Participants, payload);
+}
+
+/**
+ * Emits the participant roster on join to both the joining socket and the rest
+ * of the room, reusing the message history already read during the join.
+ */
+function emitJoinParticipants(
+  socket: Socket,
+  room: string,
+  presence: SessionPresence,
+  sessionId: string,
+  history: ChatMessage[],
+): void {
+  const payload: ParticipantsPayload = {
+    sessionId,
+    participants: buildParticipants(history, presence.activeUsers(sessionId)),
+  };
+  socket.emit(SocketEvents.Participants, payload);
+  socket.to(room).emit(SocketEvents.Participants, payload);
 }
 
 /**
@@ -515,11 +632,16 @@ export function registerChatHandlers(
   triggerEngine: TriggerEngine,
   emitUiCommand: UiCommandEmitter,
 ): void {
+  const presence = new SessionPresence();
+
   io.on("connection", (socket: Socket) => {
     socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
-      handleChatJoin(socket, store, pi, triggerEngine, payload),
+      handleChatJoin(socket, store, pi, triggerEngine, presence, payload),
     );
 
+    socket.on("disconnect", () =>
+      handleDisconnect(io, store, presence, socket),
+    );
     socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
       handleChatMessage(io, socket, store, pi, payload),
     );
@@ -560,6 +682,17 @@ export function registerChatHandlers(
       // no-op stub
     });
   });
+}
+
+/** Drops a socket's presence on disconnect and refreshes its session's roster. */
+function handleDisconnect(
+  io: Server,
+  store: SessionStore,
+  presence: SessionPresence,
+  socket: Socket,
+): void {
+  const sessionId = presence.leave(socket.id);
+  if (sessionId) void emitParticipants(io, store, presence, sessionId);
 }
 
 /** Reads Prime's persisted model/thinking selection, parsing the stored depth. */
@@ -633,6 +766,7 @@ async function handleChatJoin(
   store: SessionStore,
   pi: PiAgentManager,
   triggerEngine: TriggerEngine,
+  presence: SessionPresence,
   payload: ChatJoinPayload,
 ): Promise<void> {
   const session = await store.getSession(payload?.sessionId);
@@ -643,6 +777,10 @@ async function handleChatJoin(
 
   const room = roomFor(session.id);
   await socket.join(room);
+
+  // Record this socket's live presence so the participant bar shows the user as
+  // active, then broadcast the refreshed roster to everyone in the room.
+  if (payload.author) presence.join(socket.id, session.id, payload.author);
 
   // Lazily (re)spawn the agent in case the server restarted or the session was
   // created before the process manager existed, restoring any persisted Prime
@@ -668,25 +806,56 @@ async function handleChatJoin(
   const history = await store.getMessages(session.id);
   socket.emit(SocketEvents.ChatHistory, history);
 
+  await replayJoinSnapshot(
+    socket,
+    store,
+    pi,
+    triggerEngine,
+    presence,
+    session.id,
+    history,
+  );
+}
+
+/**
+ * Replays a session's current state to a freshly-joined socket: the participant
+ * roster (broadcast to the whole room), the sub-agent roster, each live agent's
+ * run-level activity, Prime's model/thinking selection, the trigger roster, and
+ * the pinned artifacts.
+ */
+async function replayJoinSnapshot(
+  socket: Socket,
+  store: SessionStore,
+  pi: PiAgentManager,
+  triggerEngine: TriggerEngine,
+  presence: SessionPresence,
+  sessionId: string,
+  history: ChatMessage[],
+): Promise<void> {
+  emitJoinParticipants(
+    socket,
+    roomFor(sessionId),
+    presence,
+    sessionId,
+    history,
+  );
+
   const roster: SubagentRosterPayload = {
-    sessionId: session.id,
-    subagents: pi.listSubagents(session.id),
+    sessionId,
+    subagents: pi.listSubagents(sessionId),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
 
-  // Replay each live agent's current run-level activity for the joining client.
-  replayAgentActivities(socket, pi, session.id);
-
-  // Surface Prime's current model/thinking (the roster only tracks sub-agents).
-  emitPrimeSelection(socket, pi, session.id);
+  replayAgentActivities(socket, pi, sessionId);
+  emitPrimeSelection(socket, pi, sessionId);
 
   const triggerRoster: TriggerRosterPayload = {
-    sessionId: session.id,
-    triggers: triggerEngine.list(session.id),
+    sessionId,
+    triggers: triggerEngine.list(sessionId),
   };
   socket.emit(SocketEvents.TriggerRoster, triggerRoster);
 
-  await replayArtifacts(socket, store, session.id);
+  await replayArtifacts(socket, store, sessionId);
 }
 
 /**

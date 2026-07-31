@@ -91,7 +91,9 @@ function ChatMessageContent({
           kind={message.author.kind}
           name={message.author.name}
           agentRole={message.author.agentRole}
-          email={message.author.kind === "human" ? message.author.id : undefined}
+          email={
+            message.author.kind === "human" ? message.author.id : undefined
+          }
         />
       }
       header={
