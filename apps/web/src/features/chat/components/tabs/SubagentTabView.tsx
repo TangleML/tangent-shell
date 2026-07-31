@@ -28,6 +28,8 @@ interface SubagentTabViewProps {
   currentAuthorId: string;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
   bundleId?: string;
+  /** Whether the room's history snapshot has arrived; gates loader vs empty. */
+  historyLoaded: boolean;
   activity: AgentActivity | null;
   /** This sub-agent's lifecycle status; a `"killed"` agent hides its composer. */
   status: SubagentStatus;
@@ -68,6 +70,7 @@ export function SubagentTabView({
   messages,
   currentAuthorId,
   bundleId,
+  historyLoaded,
   activity,
   status,
   busy,
@@ -92,6 +95,7 @@ export function SubagentTabView({
         messages={visibleMessages}
         currentAuthorId={currentAuthorId}
         activity={activity}
+        historyLoaded={historyLoaded}
         bundleId={bundleId}
         onOpenArtifact={onOpenArtifact}
         pinnedPaths={pinnedPaths}

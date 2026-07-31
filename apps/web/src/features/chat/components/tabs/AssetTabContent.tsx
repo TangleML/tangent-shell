@@ -23,6 +23,7 @@ interface AssetTabContentProps {
   currentAuthorId: string;
   bundleId?: string;
   connected: boolean;
+  historyLoaded: boolean;
   pinnedPaths: Set<string>;
   getActivity: (conversationId: string) => AgentActivity | null;
   isConversationBusy: (conversationId: string) => boolean;
@@ -58,6 +59,7 @@ export function AssetTabContent({
   currentAuthorId,
   bundleId,
   connected,
+  historyLoaded,
   pinnedPaths,
   getActivity,
   isConversationBusy,
@@ -83,6 +85,7 @@ export function AssetTabContent({
           messages={messages}
           currentAuthorId={currentAuthorId}
           bundleId={bundleId}
+          historyLoaded={historyLoaded}
           activity={getActivity(tab.agentId)}
           status={info?.status ?? "completed"}
           busy={isConversationBusy(tab.agentId)}

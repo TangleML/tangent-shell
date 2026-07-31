@@ -36,6 +36,7 @@ interface PrimeChatPanelProps {
   currentAuthorId: string;
   bundleId?: string;
   connected: boolean;
+  historyLoaded: boolean;
   agentBusy: boolean;
   activity: AgentActivity | null;
   isMessageStreaming: (messageId: string) => boolean;
@@ -63,6 +64,7 @@ export function PrimeChatPanel({
   currentAuthorId,
   bundleId,
   connected,
+  historyLoaded,
   agentBusy,
   activity,
   isMessageStreaming,
@@ -90,6 +92,7 @@ export function PrimeChatPanel({
         messages={messages}
         currentAuthorId={currentAuthorId}
         activity={activity}
+        historyLoaded={historyLoaded}
         bundleId={bundleId}
         onSendPrompt={send}
         onOpenArtifact={openArtifactTab}
