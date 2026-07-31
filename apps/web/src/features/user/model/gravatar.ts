@@ -4,7 +4,10 @@
  * which work in the browser). `d=404` makes Gravatar 404 when no avatar exists.
  * Returns `null` for an empty email.
  */
-async function gravatarUrl(email: string, size: number): Promise<string | null> {
+async function gravatarUrl(
+  email: string,
+  size: number,
+): Promise<string | null> {
   const normalized = email.trim().toLowerCase();
   if (!normalized) return null;
 

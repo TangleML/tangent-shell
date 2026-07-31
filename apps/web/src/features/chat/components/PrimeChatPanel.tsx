@@ -4,6 +4,7 @@ import {
   type MemorySuggestionPayload,
   type MessageDelivery,
   PI_AGENT,
+  type SessionParticipant,
   type SubagentInfo,
   type Trigger,
 } from "@tangent/shared/contracts";
@@ -20,6 +21,7 @@ import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
 import { ChatInput } from "./composer/ChatInput";
 import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
 import { ChatMessageList } from "./message/ChatMessageList";
+import { SessionParticipants } from "./SessionParticipants";
 
 type SendFn = (
   content: string,
@@ -33,6 +35,7 @@ type SendFn = (
 interface PrimeChatPanelProps {
   sessionId: string;
   messages: ChatMessage[];
+  participants: SessionParticipant[];
   currentAuthorId: string;
   bundleId?: string;
   connected: boolean;
@@ -61,6 +64,7 @@ interface PrimeChatPanelProps {
 export function PrimeChatPanel({
   sessionId,
   messages,
+  participants,
   currentAuthorId,
   bundleId,
   connected,
@@ -87,6 +91,11 @@ export function PrimeChatPanel({
 }: PrimeChatPanelProps) {
   return (
     <BlockStack grow>
+      {participants.length > 0 && (
+        <Box paddingInline="base" paddingBlock="sm" borderBlockEnd="sm">
+          <SessionParticipants participants={participants} />
+        </Box>
+      )}
       <ChatMessageList
         sessionId={sessionId}
         messages={messages}

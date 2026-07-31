@@ -19,9 +19,11 @@ import {
   type MemoryDismissPayload,
   type MemorySuggestionPayload,
   type MessageDelivery,
+  type ParticipantsPayload,
   PI_AGENT,
   type PinnedArtifact,
   type Session,
+  type SessionParticipant,
   SocketEvents,
   type SubagentInfo,
   type SubagentRosterPayload,
@@ -87,6 +89,9 @@ export interface AgentModelSelection {
 export function useSessionChat(sessionId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
+  // Humans taking part in this session: message authors plus currently-connected
+  // users, kept in sync with the room via the `session:participants` event.
+  const [participants, setParticipants] = useState<SessionParticipant[]>([]);
   // Per-agent model/thinking selection, keyed by agent id (`"prime"` or a
   // sub-agent id). Seeded from the roster (sub-agents) and the `agent:model`
   // event (Prime), and updated as either changes.
@@ -131,6 +136,12 @@ export function useSessionChat(sessionId: string) {
     kind: "human",
     name: userShortName(user),
   };
+  // Mirror the author in a ref so the `sessionId`-keyed connection effect can
+  // send an up-to-date identity on join without re-subscribing when it changes.
+  const authorRef = useRef(author);
+  useEffect(() => {
+    authorRef.current = author;
+  });
 
   useEffect(() => {
     if (!sessionId) return;
@@ -181,6 +192,7 @@ export function useSessionChat(sessionId: string) {
       setMessages([]);
       setHistoryLoaded(false);
       setSubagents([]);
+      setParticipants([]);
       setModelByAgent(new Map());
       setTriggers([]);
       setArtifacts([]);
@@ -196,11 +208,15 @@ export function useSessionChat(sessionId: string) {
       activities.clear();
       statuses.clear();
       publish(PI_AGENT.id);
-      socket.emit(SocketEvents.ChatJoin, { sessionId });
+      socket.emit(SocketEvents.ChatJoin, {
+        sessionId,
+        author: authorRef.current,
+      });
     });
     socket.on("disconnect", () => {
       setConnected(false);
       setArtifacts([]);
+      setParticipants([]);
       setStreamingConversations(new Set());
       setStreamingMessageIds(new Set());
       setActivityByConversation(new Map());
@@ -220,6 +236,15 @@ export function useSessionChat(sessionId: string) {
     socket.on(SocketEvents.ChatMessage, (message: ChatMessage) => {
       setMessages((prev) => [...prev, message]);
     });
+
+    // Participant roster (sent on join and whenever presence changes): replace
+    // local state so the avatar bar reflects who is active vs. inactive.
+    socket.on(
+      SocketEvents.Participants,
+      ({ participants: roster }: ParticipantsPayload) => {
+        setParticipants(roster);
+      },
+    );
 
     // An agent begins a (new) message: append an empty placeholder we fill via
     // deltas and mark that conversation's message stream in flight.
@@ -570,6 +595,7 @@ export function useSessionChat(sessionId: string) {
   return {
     messages,
     subagents,
+    participants,
     triggers,
     artifacts,
     pinnedPaths,
