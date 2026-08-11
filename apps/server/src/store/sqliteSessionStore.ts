@@ -2,15 +2,19 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  AgentRole,
-  ChatMessage,
-  PinnedArtifact,
-  Session,
-  SessionConfigMeta,
-  SubagentHost,
-  UpdateSessionRequest,
-  UserIdentity,
+import {
+  type AgentRole,
+  type ChatMessage,
+  type ConnectorDescriptor,
+  connectorFor,
+  type ConnectorKind,
+  type ConnectorLifecycle,
+  type PinnedArtifact,
+  type Session,
+  type SessionConfigMeta,
+  type SubagentHost,
+  type UpdateSessionRequest,
+  type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 import { and, asc, count, eq } from "drizzle-orm";
 
@@ -28,12 +32,13 @@ import {
   sessions,
   sessionViews,
 } from "./db/schema.ts";
-import type {
-  CreateSessionParams,
-  RecordAgentInput,
-  SessionAgent,
-  SessionAgentStatus,
-  SessionStore,
+import {
+  connectorFromHost,
+  type CreateSessionParams,
+  type RecordAgentInput,
+  type SessionAgent,
+  type SessionAgentStatus,
+  type SessionStore,
 } from "./sessionStore.ts";
 
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
@@ -58,6 +63,32 @@ function toSession(row: SessionRow): Session {
   };
 }
 
+/**
+ * Reads a row's connector facets, falling back to the legacy `host` label for
+ * rows written before the connector columns existed.
+ */
+function toConnector(row: SessionAgentRow): ConnectorDescriptor {
+  if (!row.connectorKind) return connectorFromHost(row.host as SubagentHost);
+  return {
+    ...connectorFor(row.connectorKind as ConnectorKind),
+    ...(row.connectorLifecycle
+      ? { lifecycle: row.connectorLifecycle as ConnectorLifecycle }
+      : {}),
+    ...(row.connectorEnvironmentId
+      ? { environmentId: row.connectorEnvironmentId }
+      : {}),
+  };
+}
+
+/** The connector columns a record-agent input writes; omitted leaves them as is. */
+function connectorColumns(connector: ConnectorDescriptor | undefined) {
+  return {
+    connectorKind: connector?.kind,
+    connectorLifecycle: connector?.lifecycle,
+    connectorEnvironmentId: connector?.environmentId,
+  };
+}
+
 /** Maps a session_agents row onto the {@link SessionAgent} domain type. */
 function toAgent(row: SessionAgentRow): SessionAgent {
   return {
@@ -74,6 +105,7 @@ function toAgent(row: SessionAgentRow): SessionAgent {
     systemPrompt: row.systemPrompt ?? undefined,
     autoRelayToPrime: row.autoRelayToPrime,
     host: row.host as SubagentHost,
+    connector: toConnector(row),
     createdAt: row.createdAt,
   };
 }
@@ -312,6 +344,7 @@ export class SqliteSessionStore implements SessionStore {
         systemPrompt: agent.systemPrompt,
         autoRelayToPrime: agent.autoRelayToPrime,
         host: agent.host,
+        ...connectorColumns(agent.connector),
         createdAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
@@ -328,6 +361,7 @@ export class SqliteSessionStore implements SessionStore {
           systemPrompt: agent.systemPrompt,
           autoRelayToPrime: agent.autoRelayToPrime,
           host: agent.host,
+          ...connectorColumns(agent.connector),
         },
       })
       .run();

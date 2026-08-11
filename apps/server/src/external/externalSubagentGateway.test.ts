@@ -38,6 +38,19 @@ test("register records a roster entry and surfaces it as active", () => {
   assert.equal(info?.status, "active");
 });
 
+test("the roster describes an external sub-agent as owned by its bundle tool", () => {
+  const h = makeHarness();
+  h.gateway.register("s1", { name: "worker" });
+
+  // Tangent creates the far side in `world_spawn` and destroys it in
+  // `world_terminate`, so the participant is owned, not attached.
+  assert.deepEqual(h.gateway.listSubagents("s1")[0].connector, {
+    kind: "external-inbound",
+    lifecycle: "owned",
+    spawnAuthority: "bundle-tool",
+  });
+});
+
 test("pushEvent relays a streamed event into the tab", () => {
   const h = makeHarness();
   const { id } = h.gateway.register("s1", { name: "worker" });

@@ -112,6 +112,15 @@ export const sessionAgents = sqliteTable(
      * restart.
      */
     host: text("host").notNull().default("local"),
+    /**
+     * The agent's connector facets (`ConnectorDescriptor`), backfilled from
+     * `host`. Null on rows written before they existed, which the store reads
+     * back through `host`. `spawnAuthority` is not stored: it follows from the
+     * kind, and persisting it would let the two disagree.
+     */
+    connectorKind: text("connector_kind"),
+    connectorLifecycle: text("connector_lifecycle"),
+    connectorEnvironmentId: text("connector_environment_id"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [

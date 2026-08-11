@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  SubagentInfo,
-  SubagentStatus,
-  ThinkingLevel,
+import {
+  connectorFields,
+  type SubagentInfo,
+  type SubagentStatus,
+  type ThinkingLevel,
 } from "@tangent/shared/contracts.ts";
 import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
 
@@ -34,7 +35,7 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
     id: subagent.agentId,
     name: subagent.name,
     status: subagent.status,
-    host: "external",
+    ...connectorFields("external-inbound"),
     template: subagent.template,
     model: subagent.model,
     thinkingDepth: subagent.thinkingDepth,
@@ -51,9 +52,11 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
  *
  * The gateway is transport-agnostic and carries no knowledge of what runtime
  * backs a tab — a caller `register`s a tab, `pushEvent`s streamed output into
- * it, and `setStatus` marks its lifecycle. Reserved for the `external` host
- * alongside {@link import("../remote/remoteEnvironmentGateway.ts").RemoteEnvironmentGateway}
- * and {@link import("../pi/piAgentManager.ts").PiAgentManager}.
+ * it, and `setStatus` marks its lifecycle. Its connector is `external-inbound`:
+ * the far side is created and destroyed by the bundle tool driving it, so the
+ * participant is owned rather than attached. Sits alongside {@link
+ * import("../remote/remoteEnvironmentGateway.ts").RemoteEnvironmentGateway} and
+ * {@link import("../pi/piAgentManager.ts").PiAgentManager}.
  */
 export class ExternalSubagentGateway {
   private readonly handlers: PiAgentHandlers;

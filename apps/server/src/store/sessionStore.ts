@@ -1,12 +1,15 @@
-import type {
-  AgentRole,
-  ChatMessage,
-  PinnedArtifact,
-  Session,
-  SessionConfigMeta,
-  SubagentHost,
-  UpdateSessionRequest,
-  UserIdentity,
+import {
+  type AgentRole,
+  type ChatMessage,
+  type ConnectorDescriptor,
+  connectorFor,
+  type ConnectorKind,
+  type PinnedArtifact,
+  type Session,
+  type SessionConfigMeta,
+  type SubagentHost,
+  type UpdateSessionRequest,
+  type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
 /**
@@ -15,6 +18,24 @@ import type {
  * to `killed`, and only `active` agents are revived on restart.
  */
 export type SessionAgentStatus = "active" | "killed" | "error";
+
+/** The connector kind each legacy `host` label stood for. */
+const CONNECTOR_KIND_BY_HOST: Record<SubagentHost, ConnectorKind> = {
+  local: "pi-stdio",
+  remote: "remote-env",
+  external: "external-inbound",
+};
+
+/**
+ * The connector a roster row's legacy `host` label describes. Used for rows
+ * written before the connector columns existed, and as the default for a row
+ * recorded without a descriptor.
+ */
+export function connectorFromHost(
+  host: SubagentHost | undefined,
+): ConnectorDescriptor {
+  return connectorFor(host ? CONNECTOR_KIND_BY_HOST[host] : "pi-stdio");
+}
 
 /**
  * Input accepted by {@link SessionStore.createSession}: the public wire request
@@ -55,8 +76,12 @@ export interface SessionAgent {
    * connected remote environment), or `external` (a tab driven by a bundle
    * tool). Defaults to `local` on legacy rows; only `local` sub-agents are
    * revived after a restart.
+   *
+   * @deprecated Read {@link SessionAgent.connector} instead.
    */
   host?: SubagentHost;
+  /** The connector that runs the agent; derived from `host` on legacy rows. */
+  connector: ConnectorDescriptor;
   createdAt: string;
 }
 
@@ -79,6 +104,8 @@ export interface RecordAgentInput {
   autoRelayToPrime?: boolean;
   /** Which host runs the sub-agent (`local` default, `remote`, or `external`). */
   host?: SubagentHost;
+  /** The connector running the agent; omitted leaves the stored one in place. */
+  connector?: ConnectorDescriptor;
 }
 
 /**
