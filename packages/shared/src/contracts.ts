@@ -204,6 +204,18 @@ export const TRIGGER_AUTHOR: ChatAuthor = {
   agentRole: "prime",
 };
 
+/**
+ * Author attributed to messages the server itself emits into a conversation,
+ * such as a message that could not be delivered to its participant. Surfaced in
+ * the conversation it concerns so the failure is visible where it happened.
+ */
+export const SYSTEM_AUTHOR: ChatAuthor = {
+  id: "system",
+  kind: "agent",
+  name: "System",
+  agentRole: "prime",
+};
+
 /** Which external signal drives a trigger. */
 export type TriggerKind = "schedule" | "callback";
 
@@ -365,12 +377,17 @@ export type SubagentHost = "local" | "remote" | "external";
  * remote environment), `external-inbound` (a runtime outside Tangent that
  * streams in over the internal HTTP/SSE API), or `a2a` (an agent reached over
  * the A2A protocol).
+ *
+ * `unresolved` is the kind of a participant no connector claims. It exists so
+ * resolution is total — the server answers with a connector that refuses rather
+ * than with `undefined` — and is never persisted or spawned.
  */
 export type ConnectorKind =
   | "pi-stdio"
   | "remote-env"
   | "external-inbound"
-  | "a2a";
+  | "a2a"
+  | "unresolved";
 
 /**
  * Whether Tangent created the participant and is responsible for destroying it
@@ -421,6 +438,11 @@ export const CONNECTOR_FACETS: Record<
     spawnAuthority: "bundle-tool",
   },
   a2a: { kind: "a2a", lifecycle: "attached", spawnAuthority: "none" },
+  unresolved: {
+    kind: "unresolved",
+    lifecycle: "attached",
+    spawnAuthority: "none",
+  },
 };
 
 /** The legacy {@link SubagentHost} label each kind collapsed to. */
@@ -429,6 +451,7 @@ const LEGACY_HOST: Record<ConnectorKind, SubagentHost | undefined> = {
   "remote-env": "remote",
   "external-inbound": "external",
   a2a: undefined,
+  unresolved: undefined,
 };
 
 /** Builds a connector descriptor, optionally bound to a remote environment. */

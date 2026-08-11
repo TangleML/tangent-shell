@@ -38,7 +38,7 @@ import {
 } from "@tangent/shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
-import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
+import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import {
@@ -52,7 +52,6 @@ import {
 } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStatusHandler } from "../pi/types.ts";
-import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type {
   SessionAgentStatus,
   SessionStore,
@@ -514,8 +513,7 @@ interface ChatHandlerDeps {
   io: Server;
   store: SessionStore;
   pi: PiAgentManager;
-  remoteGateway: RemoteEnvironmentGateway;
-  externalGateway: ExternalSubagentGateway;
+  connectors: ConnectorRegistry;
   memory: MemoryManager;
   onRemembered: MemoryRememberedHandler;
   triggerEngine: TriggerEngine;
@@ -524,23 +522,15 @@ interface ChatHandlerDeps {
 
 /** Wires one connected socket's chat/agent/memory/artifact listeners. */
 function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
-  const { io, store, pi, remoteGateway, externalGateway, memory } = deps;
+  const { io, store, pi, connectors, memory } = deps;
   const { onRemembered, triggerEngine, emitUiCommand } = deps;
 
   socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
-    handleChatJoin(
-      socket,
-      store,
-      pi,
-      remoteGateway,
-      externalGateway,
-      triggerEngine,
-      payload,
-    ),
+    handleChatJoin(socket, store, pi, connectors, triggerEngine, payload),
   );
 
   socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
-    handleChatMessage(io, socket, store, pi, payload),
+    handleChatMessage(io, socket, store, pi, connectors, payload),
   );
 
   socket.on(SocketEvents.AgentAbort, (payload: AgentAbortPayload) =>
@@ -584,8 +574,7 @@ export function registerChatHandlers(
   io: Server,
   store: SessionStore,
   pi: PiAgentManager,
-  remoteGateway: RemoteEnvironmentGateway,
-  externalGateway: ExternalSubagentGateway,
+  connectors: ConnectorRegistry,
   memory: MemoryManager,
   onRemembered: MemoryRememberedHandler,
   triggerEngine: TriggerEngine,
@@ -595,8 +584,7 @@ export function registerChatHandlers(
     io,
     store,
     pi,
-    remoteGateway,
-    externalGateway,
+    connectors,
     memory,
     onRemembered,
     triggerEngine,
@@ -693,27 +681,12 @@ async function ensureSessionAgents(
   pi.reviveSubagents(session.id, persistedAgents);
 }
 
-/** Merges a session's local, remote, and external sub-agent rosters for the UI. */
-function mergedSubagents(
-  pi: PiAgentManager,
-  remoteGateway: RemoteEnvironmentGateway,
-  externalGateway: ExternalSubagentGateway,
-  sessionId: string,
-) {
-  return [
-    ...pi.listSubagents(sessionId),
-    ...remoteGateway.listSubagents(sessionId),
-    ...externalGateway.listSubagents(sessionId),
-  ];
-}
-
 /** Joins the session room, then replays history and the sub-agent roster. */
 async function handleChatJoin(
   socket: Socket,
   store: SessionStore,
   pi: PiAgentManager,
-  remoteGateway: RemoteEnvironmentGateway,
-  externalGateway: ExternalSubagentGateway,
+  connectors: ConnectorRegistry,
   triggerEngine: TriggerEngine,
   payload: ChatJoinPayload,
 ): Promise<void> {
@@ -738,7 +711,7 @@ async function handleChatJoin(
 
   const roster: SubagentRosterPayload = {
     sessionId: session.id,
-    subagents: mergedSubagents(pi, remoteGateway, externalGateway, session.id),
+    subagents: connectors.list(session.id),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
 
@@ -831,6 +804,7 @@ async function handleChatMessage(
   socket: Socket,
   store: SessionStore,
   pi: PiAgentManager,
+  connectors: ConnectorRegistry,
   payload: ChatMessagePayload,
 ): Promise<void> {
   const session = await store.getSession(payload?.sessionId);
@@ -860,7 +834,7 @@ async function handleChatMessage(
   await store.appendMessage(userMessage);
   io.to(room).emit(SocketEvents.ChatMessage, userMessage);
 
-  // Relay the message into the session's Pi process, surfacing any attached
+  // Relay the message to the conversation's participant, surfacing any attached
   // files by their workspace-relative path so the agent knows to read them. The
   // reply streams back asynchronously through the agent event handler.
   // `delivery` controls whether a mid-run message steers (before the next LLM
@@ -871,5 +845,10 @@ async function handleChatMessage(
     pi.prompt(session.id, session.rootPath, text, delivery);
     return;
   }
-  pi.sendToAgent(session.id, conversationId, text, undefined, delivery);
+  connectors.resolve(session.id, conversationId).deliver({
+    sessionId: session.id,
+    participantId: conversationId,
+    text,
+    delivery,
+  });
 }
