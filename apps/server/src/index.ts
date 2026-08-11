@@ -6,6 +6,7 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { PORT } from "./config.ts";
+import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
@@ -108,6 +109,16 @@ const remoteGateway = new RemoteEnvironmentGateway(
 // tab via the same relay handlers a local sub-agent uses.
 const externalGateway = new ExternalSubagentGateway(agentHandlers);
 
+// The single lookup from a participant to the connector that reaches it. Every
+// spawn/message/kill/list route goes through it, so an id no connector holds is
+// refused in its own conversation instead of falling through to the local Pi.
+const connectors = createConnectorRegistry(
+  pi,
+  remoteGateway,
+  externalGateway,
+  agentHandlers,
+);
+
 // Generic MCP relay: bridges an external MCP client (dialed by a gateway) to a
 // session's Prime. Bundles open channels over the internal API; the peer's tool
 // calls arrive on the public /api/mcp route and are relayed to Prime.
@@ -143,10 +154,7 @@ app.use("/api/mcp", createMcpRelayRouter(mcpRelay, deliverToPrime));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
-app.use(
-  "/internal/agents",
-  createInternalAgentsRouter(store, pi, remoteGateway, externalGateway),
-);
+app.use("/internal/agents", createInternalAgentsRouter(store, pi, connectors));
 // Internal API a bundle tool uses to drive external sub-agent tabs: register a
 // tab, stream the external runtime's output into it, and mark its lifecycle.
 app.use(
@@ -184,8 +192,7 @@ registerChatHandlers(
   io,
   store,
   pi,
-  remoteGateway,
-  externalGateway,
+  connectors,
   memory,
   onMemoryRemembered,
   triggerEngine,
