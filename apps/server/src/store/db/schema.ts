@@ -166,6 +166,32 @@ export const runs = sqliteTable(
   ],
 );
 
+/**
+ * Per-conversation `seq` counter: the write authority that gives a Conversation
+ * an order rather than a race. Rows are created on first allocation, seeded
+ * above whatever the conversation's existing JSONL log already occupies, so
+ * numbering never collides with messages persisted before `seq` existed.
+ *
+ * The embryo of a full Conversation entity — it holds only the counter today.
+ */
+export const conversations = sqliteTable(
+  "conversations",
+  {
+    /** Conversation id: an agent id today (`prime` or a sub-agent uuid). */
+    id: text("id").notNull(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** The next `seq` to hand out; incremented as each is allocated. */
+    nextSeq: integer("next_seq").notNull().default(1),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    unique("conversations_session_id").on(table.sessionId, table.id),
+    index("conversations_session_idx").on(table.sessionId),
+  ],
+);
+
 /** When each user last opened a session. `user_key` is the email, or `local`. */
 export const sessionViews = sqliteTable(
   "session_views",
@@ -186,3 +212,4 @@ export type SessionRow = typeof sessions.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type SessionAgentRow = typeof sessionAgents.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
+export type ConversationRow = typeof conversations.$inferSelect;

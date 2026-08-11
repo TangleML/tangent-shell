@@ -21,10 +21,12 @@ import { and, asc, count, eq } from "drizzle-orm";
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
 import {
   appendMessage as appendChatMessage,
+  highestSeq,
   readAllMessages,
 } from "./chatLog.ts";
 import type { Db } from "./db/client.ts";
 import {
+  conversations,
   type SessionAgentRow,
   sessionAgents,
   sessionAssets,
@@ -276,6 +278,72 @@ export class SqliteSessionStore implements SessionStore {
       return;
     }
     await appendChatMessage(rootPath, message);
+  }
+
+  async nextSeq(sessionId: string, conversationId: string): Promise<number> {
+    await this.seedConversation(sessionId, conversationId);
+    // better-sqlite3 is synchronous, so read-then-increment inside one
+    // transaction is genuinely atomic: two concurrent writers get an order
+    // rather than the same number.
+    return this.db.transaction((tx) => {
+      const row = tx
+        .select({ nextSeq: conversations.nextSeq })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.sessionId, sessionId),
+            eq(conversations.id, conversationId),
+          ),
+        )
+        .get();
+      const allocated = row?.nextSeq ?? 1;
+      tx.update(conversations)
+        .set({ nextSeq: allocated + 1 })
+        .where(
+          and(
+            eq(conversations.sessionId, sessionId),
+            eq(conversations.id, conversationId),
+          ),
+        )
+        .run();
+      return allocated;
+    });
+  }
+
+  /**
+   * Creates a conversation's counter row on first use, starting above whatever
+   * its existing JSONL log occupies. Messages written before `seq` existed are
+   * numbered from their position on read, so seeding at 1 would hand out
+   * numbers a legacy transcript already uses.
+   */
+  private async seedConversation(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<void> {
+    const existing = this.db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.sessionId, sessionId),
+          eq(conversations.id, conversationId),
+        ),
+      )
+      .get();
+    if (existing) return;
+
+    const rootPath = await this.rootPathFor(sessionId);
+    const occupied = rootPath ? await highestSeq(rootPath, conversationId) : 0;
+    this.db
+      .insert(conversations)
+      .values({
+        id: conversationId,
+        sessionId,
+        nextSeq: occupied + 1,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .run();
   }
 
   async getArtifacts(sessionId: string): Promise<PinnedArtifact[]> {

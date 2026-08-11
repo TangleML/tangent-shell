@@ -1,8 +1,7 @@
-import type { UserIdentity } from "@tangent/shared/contracts";
+import { DEFAULT_USER, type UserIdentity } from "@tangent/shared/contracts";
 import { useQuery } from "@tanstack/react-query";
 
 import { getMe } from "@/features/user/api/userApi";
-import { DEFAULT_USER } from "@/features/user/model/userDisplay";
 import { UserQueryKeys } from "@/features/user/model/userQueryKeys";
 
 /**

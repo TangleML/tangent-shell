@@ -134,6 +134,14 @@ export interface SessionStore {
 
   getMessages(sessionId: string): Promise<ChatMessage[]>;
   appendMessage(message: ChatMessage): Promise<void>;
+  /**
+   * Allocates the next `seq` in a Conversation. The single allocator: {@link
+   * appendMessage} persists whatever it is handed, and `ChatMessage.seq` is
+   * required, so no writer can skip this. Monotonic but not gap-free — a
+   * streamed turn reserves its `seq` before its content exists, and a stream
+   * that fails leaves the number spent.
+   */
+  nextSeq(sessionId: string, conversationId: string): Promise<number>;
 
   /** Returns the session's pinned artifacts, oldest first. */
   getArtifacts(sessionId: string): Promise<PinnedArtifact[]>;

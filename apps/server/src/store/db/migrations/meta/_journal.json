@@ -57,6 +57,13 @@
       "when": 1786472001817,
       "tag": "0007_complex_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786481948836,
+      "tag": "0008_special_quasimodo",
+      "breakpoints": true
     }
   ]
 }

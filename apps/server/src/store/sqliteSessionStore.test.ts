@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -190,6 +190,60 @@ test("listAgentsForEnvironment finds one environment's sub-agents across session
       ["mine-b", b.id],
     ].sort(),
   );
+});
+
+test("nextSeq is monotonic within a conversation", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+
+  const allocated = [
+    await store.nextSeq(session.id, "prime"),
+    await store.nextSeq(session.id, "prime"),
+    await store.nextSeq(session.id, "prime"),
+  ];
+
+  assert.deepEqual(allocated, [1, 2, 3]);
+});
+
+test("each conversation gets its own sequence", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+
+  await store.nextSeq(session.id, "prime");
+  await store.nextSeq(session.id, "prime");
+
+  assert.equal(
+    await store.nextSeq(session.id, "sub-1"),
+    1,
+    "a sub-agent's thread starts at 1 regardless of Prime's",
+  );
+  assert.equal(await store.nextSeq(session.id, "prime"), 3);
+});
+
+test("nextSeq seeds above a transcript written before seq existed", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+
+  // Two lines carrying no envelope, exactly as an older build would have left
+  // them. They read back as seq 1 and 2, so allocation must start at 3.
+  const dir = path.join(session.rootPath, ".tangent", "chats");
+  mkdirSync(dir, { recursive: true });
+  const legacy = (id: string) =>
+    `${JSON.stringify({
+      id,
+      sessionId: session.id,
+      conversationId: "prime",
+      author: { id: "u", kind: "human", name: "You" },
+      content: id,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    })}\n`;
+  writeFileSync(
+    path.join(dir, "prime.jsonl"),
+    `${legacy("old-1")}${legacy("old-2")}`,
+  );
+
+  assert.equal(await store.nextSeq(session.id, "prime"), 3);
+  assert.equal(await store.nextSeq(session.id, "prime"), 4);
 });
 
 test("deleting a session cascades its read state", async () => {
