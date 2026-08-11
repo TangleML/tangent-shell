@@ -1,7 +1,11 @@
 import { appendFile, mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { type ChatMessage, PI_AGENT } from "@tangent/shared/contracts.ts";
+import {
+  type ChatMessage,
+  PI_AGENT,
+  sourceFromAuthor,
+} from "@tangent/shared/contracts.ts";
 
 /** Per-session subdirectory (under `.tangent/`) holding chat JSONL files. */
 const CHATS_DIR = path.join(".tangent", "chats");
@@ -34,8 +38,25 @@ function logFile(rootPath: string, conversationId: string): string {
 }
 
 /**
+ * Fills in the envelope fields a line written before they existed has no way to
+ * carry. `position` is the line's 1-based place in the log, which is what a
+ * legacy message's `seq` is: the conversation counter is seeded above this same
+ * high-water mark, so old and new numbering form one sequence. The file itself
+ * is never rewritten — this adapter runs on every read instead.
+ */
+function normalizeMessage(parsed: ChatMessage, position: number): ChatMessage {
+  return {
+    ...parsed,
+    seq: parsed.seq ?? position,
+    mentions: parsed.mentions ?? [],
+    source: parsed.source ?? sourceFromAuthor(parsed.author),
+  };
+}
+
+/**
  * Parses a JSONL file's contents into messages, tolerating a torn or blank
- * trailing line (e.g. a crash mid-append). Unparseable lines are skipped.
+ * trailing line (e.g. a crash mid-append). Unparseable lines are skipped, so a
+ * corrupt line shifts the positions the messages after it are numbered from.
  */
 function parseLines(raw: string): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -43,7 +64,8 @@ function parseLines(raw: string): ChatMessage[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      messages.push(JSON.parse(trimmed) as ChatMessage);
+      const parsed = JSON.parse(trimmed) as ChatMessage;
+      messages.push(normalizeMessage(parsed, messages.length + 1));
     } catch {
       // Skip a partial/corrupt line rather than failing the whole read.
     }
@@ -52,10 +74,19 @@ function parseLines(raw: string): ChatMessage[] {
 }
 
 /**
- * Stable global ordering for a session's merged transcript. Within one
- * conversation file append order already matches id order; across files we sort
- * by `createdAt` then `id` so consumers that rely on global order (history
- * replay, `slice(-limit)`) see a deterministic sequence.
+ * Ordering within one Conversation: its `seq`, which is exactly what the
+ * per-conversation counter exists to provide. Ties fall back to `id` so a
+ * hand-edited or duplicated seq still sorts deterministically.
+ */
+function bySeq(a: ChatMessage, b: ChatMessage): number {
+  return a.seq - b.seq || a.id.localeCompare(b.id);
+}
+
+/**
+ * Stable global ordering for a session's merged transcript. `seq` is
+ * per-conversation and says nothing across them, so the merge sorts by
+ * `createdAt` then `id` — consumers that rely on global order (history replay,
+ * `slice(-limit)`) still see a deterministic sequence.
  */
 function byCreatedThenId(a: ChatMessage, b: ChatMessage): number {
   return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
@@ -80,8 +111,8 @@ export async function appendMessage(
 }
 
 /**
- * Reads a single conversation's messages in append (id) order, or `[]` when the
- * log doesn't exist yet.
+ * Reads a single conversation's messages in `seq` order, or `[]` when the log
+ * doesn't exist yet.
  */
 export async function readMessages(
   rootPath: string,
@@ -89,12 +120,24 @@ export async function readMessages(
 ): Promise<ChatMessage[]> {
   if (isUnsafeConversationId(conversationId)) return [];
   try {
-    return parseLines(
-      await readFile(logFile(rootPath, conversationId), "utf8"),
-    );
+    const raw = await readFile(logFile(rootPath, conversationId), "utf8");
+    return parseLines(raw).sort(bySeq);
   } catch {
     return [];
   }
+}
+
+/**
+ * The highest `seq` a conversation's log already occupies, or `0` when it has
+ * none. Seeds the counter so allocation starts above every message persisted
+ * before `seq` existed.
+ */
+export async function highestSeq(
+  rootPath: string,
+  conversationId: string,
+): Promise<number> {
+  const messages = await readMessages(rootPath, conversationId);
+  return messages.at(-1)?.seq ?? 0;
 }
 
 export interface ChatActivity {

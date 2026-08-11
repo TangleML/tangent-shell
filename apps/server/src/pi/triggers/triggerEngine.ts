@@ -10,7 +10,11 @@ import type {
   TriggerTarget,
   TriggerUpdatePayload,
 } from "@tangent/shared/contracts.ts";
-import { SocketEvents, TRIGGER_AUTHOR } from "@tangent/shared/contracts.ts";
+import {
+  SocketEvents,
+  sourceFromAuthor,
+  TRIGGER_AUTHOR,
+} from "@tangent/shared/contracts.ts";
 import { Cron } from "croner";
 import type { Server } from "socket.io";
 
@@ -242,11 +246,15 @@ export class TriggerEngine {
     stored: StoredTrigger,
     prompt: string,
   ): Promise<void> {
+    const author = triggerAuthor(stored);
     const message: ChatMessage = {
       id: randomUUID(),
       sessionId,
       conversationId: PRIME_AGENT_ID,
-      author: triggerAuthor(stored),
+      seq: await this.store.nextSeq(sessionId, PRIME_AGENT_ID),
+      author,
+      mentions: [],
+      source: sourceFromAuthor(author),
       content: prompt,
       createdAt: new Date().toISOString(),
     };

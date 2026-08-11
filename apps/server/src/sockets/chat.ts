@@ -19,6 +19,8 @@ import {
   type ChatJoinPayload,
   type ChatMessage,
   type ChatMessagePayload,
+  DEFAULT_USER,
+  humanAuthor,
   MEMORY_AUTHOR,
   type MemoryConfirmPayload,
   type MemoryDismissPayload,
@@ -30,6 +32,7 @@ import {
   type SessionStatusPayload,
   type SessionStatusSnapshotPayload,
   SocketEvents,
+  sourceFromAuthor,
   type SubagentRosterPayload,
   type SubagentUpdatePayload,
   type ThinkingLevel,
@@ -39,6 +42,7 @@ import {
 } from "@tangent/shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
+import { resolveUserIdentity } from "../auth/identity.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { MemoryManager } from "../pi/memory.ts";
@@ -54,6 +58,7 @@ import {
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStatusHandler } from "../pi/types.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import { type MentionCandidate, resolveMentions } from "./mentions.ts";
 
 function roomFor(sessionId: string): string {
   return `session:${sessionId}`;
@@ -77,23 +82,36 @@ export function createSessionStatusHandler(io: Server): SessionStatusHandler {
   };
 }
 
-function buildMessage(
-  id: string,
-  sessionId: string,
-  conversationId: string,
-  author: ChatAuthor,
-  content: string,
-  thinking?: string,
-  attachments?: Attachment[],
-): ChatMessage {
+/**
+ * Everything a Message needs beyond its envelope defaults. `seq` comes from the
+ * store's allocator rather than being derivable here, which is what stops a
+ * writer inventing one.
+ */
+interface MessageInput {
+  id: string;
+  sessionId: string;
+  conversationId: string;
+  seq: number;
+  author: ChatAuthor;
+  content: string;
+  mentions?: string[];
+  thinking?: string;
+  attachments?: Attachment[];
+  runId?: RunId;
+  endsRun?: boolean;
+}
+
+function buildMessage(input: MessageInput): ChatMessage {
+  // `runId` and `endsRun` ride the rest spread: an absent one is `undefined`,
+  // which JSON drops on both the wire and the way to the log. `thinking` and
+  // `attachments` are guarded because an empty string or array is not absent.
+  const { thinking, attachments, mentions, ...rest } = input;
   return {
-    id,
-    sessionId,
-    conversationId,
-    author,
-    content,
+    ...rest,
+    mentions: mentions ?? [],
+    source: sourceFromAuthor(input.author),
     ...(thinking ? { thinking } : {}),
-    ...(attachments && attachments.length ? { attachments } : {}),
+    ...(attachments?.length ? { attachments } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -136,16 +154,46 @@ interface EmitContext {
   runId?: RunId;
 }
 
-function emitStart(io: Server, ctx: EmitContext, messageId: string): void {
-  const message = buildMessage(
-    messageId,
-    ctx.sessionId,
-    ctx.conversationId,
-    ctx.author,
-    "",
-  );
-  const payload: AgentStartPayload = { message, runId: ctx.runId };
-  io.to(ctx.room).emit(SocketEvents.AgentStart, payload);
+/**
+ * The `seq` reserved for each streaming message, held from `start` until the
+ * turn finalizes so the placeholder and the Message that replaces it share one
+ * ordinal.
+ *
+ * It doubles as the ordering gate. Reserving is asynchronous, and the client
+ * drops a delta for a message id it has not seen, so every subsequent event for
+ * that message chains off this promise: callbacks on one promise run in
+ * registration order, which makes `start` before `delta` structural rather than
+ * a matter of timing.
+ */
+const reservedSeqs = new Map<string, Promise<number>>();
+
+/** The reservation to emit behind, or an immediate one when there was no start. */
+function seqGate(messageId: string | undefined): Promise<number> {
+  const reserved = messageId ? reservedSeqs.get(messageId) : undefined;
+  return reserved ?? Promise.resolve(0);
+}
+
+function emitStart(
+  io: Server,
+  store: SessionStore,
+  ctx: EmitContext,
+  messageId: string,
+): void {
+  const reservation = store.nextSeq(ctx.sessionId, ctx.conversationId);
+  reservedSeqs.set(messageId, reservation);
+  void reservation.then((seq) => {
+    const message = buildMessage({
+      id: messageId,
+      sessionId: ctx.sessionId,
+      conversationId: ctx.conversationId,
+      seq,
+      author: ctx.author,
+      content: "",
+      runId: ctx.runId,
+    });
+    const payload: AgentStartPayload = { message, runId: ctx.runId };
+    io.to(ctx.room).emit(SocketEvents.AgentStart, payload);
+  });
 }
 
 function emitDelta(
@@ -159,7 +207,9 @@ function emitDelta(
     delta: event.delta,
     runId: ctx.runId,
   };
-  io.to(ctx.room).emit(SocketEvents.AgentDelta, payload);
+  void seqGate(event.messageId).then(() => {
+    io.to(ctx.room).emit(SocketEvents.AgentDelta, payload);
+  });
 }
 
 function emitThinking(
@@ -173,7 +223,9 @@ function emitThinking(
     delta: event.delta,
     runId: ctx.runId,
   };
-  io.to(ctx.room).emit(SocketEvents.AgentThinking, payload);
+  void seqGate(event.messageId).then(() => {
+    io.to(ctx.room).emit(SocketEvents.AgentThinking, payload);
+  });
 }
 
 function emitEnd(
@@ -182,17 +234,27 @@ function emitEnd(
   ctx: EmitContext,
   event: { messageId: string; content: string; thinking: string },
 ): void {
-  const message = buildMessage(
-    event.messageId,
-    ctx.sessionId,
-    ctx.conversationId,
-    ctx.author,
-    event.content,
-    event.thinking,
-  );
-  // Persist before broadcasting so reconnecting clients see it in history. The
-  // run id rides the payload, not the message: what is persisted is unchanged.
-  void store.appendMessage(message).then(() => {
+  // Take the seq this turn reserved at `start`; a finalized message that never
+  // streamed (no reservation) allocates one now.
+  const reserved = reservedSeqs.get(event.messageId);
+  reservedSeqs.delete(event.messageId);
+  const allocation =
+    reserved ?? store.nextSeq(ctx.sessionId, ctx.conversationId);
+
+  void allocation.then(async (seq) => {
+    const message = buildMessage({
+      id: event.messageId,
+      sessionId: ctx.sessionId,
+      conversationId: ctx.conversationId,
+      seq,
+      author: ctx.author,
+      content: event.content,
+      thinking: event.thinking,
+      runId: ctx.runId,
+      ...(ctx.runId ? { endsRun: true } : {}),
+    });
+    // Persist before broadcasting so reconnecting clients see it in history.
+    await store.appendMessage(message);
     const payload: AgentEndPayload = { message, runId: ctx.runId };
     io.to(ctx.room).emit(SocketEvents.AgentEnd, payload);
   });
@@ -209,7 +271,13 @@ function emitError(
     message: event.message,
     runId: ctx.runId,
   };
-  io.to(ctx.room).emit(SocketEvents.AgentError, payload);
+  // A failed turn spends its reserved seq without persisting anything, leaving a
+  // gap. Emitted behind the reservation so the error still lands after `start`.
+  const gate = seqGate(event.messageId);
+  if (event.messageId) reservedSeqs.delete(event.messageId);
+  void gate.then(() => {
+    io.to(ctx.room).emit(SocketEvents.AgentError, payload);
+  });
 }
 
 function emitActivity(
@@ -261,7 +329,7 @@ export function createAgentEventHandler(
       author: authorFor(agent),
       runId: event.runId,
     };
-    relayStreamingEvent(io, ctx, event);
+    relayStreamingEvent(io, store, ctx, event);
     relayTerminalEvent(io, store, ctx, event);
   };
 }
@@ -269,12 +337,13 @@ export function createAgentEventHandler(
 /** Relays the streaming variants (placeholder + incremental tokens). */
 function relayStreamingEvent(
   io: Server,
+  store: SessionStore,
   ctx: EmitContext,
   event: AgentEvent,
 ): void {
   switch (event.type) {
     case "start":
-      return emitStart(io, ctx, event.messageId);
+      return emitStart(io, store, ctx, event.messageId);
     case "delta":
       return emitDelta(io, ctx, event);
     case "thinking":
@@ -343,16 +412,18 @@ export function createAgentMessageHandler(
   store: SessionStore,
 ): AgentMessageHandler {
   return (sessionId, conversationId, author, content) => {
-    const message = buildMessage(
-      randomUUID(),
-      sessionId,
-      conversationId,
-      author,
-      content,
-    );
-    void store.appendMessage(message).then(() => {
+    void (async () => {
+      const message = buildMessage({
+        id: randomUUID(),
+        sessionId,
+        conversationId,
+        seq: await store.nextSeq(sessionId, conversationId),
+        author,
+        content,
+      });
+      await store.appendMessage(message);
       io.to(roomFor(sessionId)).emit(SocketEvents.ChatMessage, message);
-    });
+    })();
   };
 }
 
@@ -374,13 +445,14 @@ export function createMemoryRememberedHandler(
 ): MemoryRememberedHandler {
   return async (sessionId, scope, text) => {
     const message: ChatMessage = {
-      ...buildMessage(
-        randomUUID(),
+      ...buildMessage({
+        id: randomUUID(),
         sessionId,
-        PRIME_AGENT_ID,
-        MEMORY_AUTHOR,
-        text,
-      ),
+        conversationId: PRIME_AGENT_ID,
+        seq: await store.nextSeq(sessionId, PRIME_AGENT_ID),
+        author: MEMORY_AUTHOR,
+        content: text,
+      }),
       memory: { scope },
     };
     await store.appendMessage(message);
@@ -553,12 +625,16 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   const { io, store, pi, connectors, memory } = deps;
   const { onRemembered, triggerEngine, emitUiCommand } = deps;
 
+  // Resolved once per connection: the identity is the connection's, and the
+  // client never gets a say in who its messages are attributed to.
+  const author = resolveSocketAuthor(socket.handshake.headers.cookie);
+
   socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
     handleChatJoin(socket, store, pi, connectors, triggerEngine, payload),
   );
 
   socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
-    handleChatMessage(io, socket, store, pi, connectors, payload),
+    handleChatMessage(io, socket, store, pi, connectors, author, payload),
   );
 
   socket.on(SocketEvents.AgentAbort, (payload: AgentAbortPayload) =>
@@ -827,6 +903,34 @@ async function handleArtifactUnpin(
   emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
 }
 
+/**
+ * Who a message in this session can address: Prime plus every sub-agent any
+ * connector holds. Names come from the live roster, so a mention resolves
+ * against what the sender currently sees in the sidebar.
+ */
+function mentionCandidates(
+  connectors: ConnectorRegistry,
+  sessionId: string,
+): MentionCandidate[] {
+  return [
+    { id: PI_AGENT.id, name: PI_AGENT.name },
+    ...connectors
+      .list(sessionId)
+      .map((subagent) => ({ id: subagent.id, name: subagent.name })),
+  ];
+}
+
+/**
+ * The chat identity of whoever is on the other end of a socket, read from the
+ * connection's own cookie rather than from anything the client sends. Falls back
+ * to {@link DEFAULT_USER} when no JWT is configured or the cookie is absent —
+ * the same fallback the UI uses, so both sides agree on the id and a message
+ * still renders as your own.
+ */
+export function resolveSocketAuthor(cookieHeader: string | undefined) {
+  return humanAuthor(resolveUserIdentity(cookieHeader) ?? DEFAULT_USER);
+}
+
 /** Persists + broadcasts a human message and relays it into the Pi process. */
 async function handleChatMessage(
   io: Server,
@@ -834,6 +938,7 @@ async function handleChatMessage(
   store: SessionStore,
   pi: PiAgentManager,
   connectors: ConnectorRegistry,
+  author: ChatAuthor,
   payload: ChatMessagePayload,
 ): Promise<void> {
   const session = await store.getSession(payload?.sessionId);
@@ -850,16 +955,21 @@ async function handleChatMessage(
 
   // Broadcast the user's own message to the room (including the sender, so it
   // renders without optimistic updates and other participants see it). Tagged
-  // with the target conversation so it lands in the right thread.
-  const userMessage = buildMessage(
-    randomUUID(),
-    session.id,
+  // with the target conversation so it lands in the right thread. The author is
+  // the socket's resolved identity, never the payload's claim.
+  const userMessage = buildMessage({
+    id: randomUUID(),
+    sessionId: session.id,
     conversationId,
-    payload.author,
-    payload.content,
-    undefined,
-    payload.attachments,
-  );
+    seq: await store.nextSeq(session.id, conversationId),
+    author,
+    content: payload.content,
+    mentions: resolveMentions(
+      payload.content,
+      mentionCandidates(connectors, session.id),
+    ),
+    attachments: payload.attachments,
+  });
   await store.appendMessage(userMessage);
   io.to(room).emit(SocketEvents.ChatMessage, userMessage);
 

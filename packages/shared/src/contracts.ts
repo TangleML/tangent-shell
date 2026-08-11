@@ -23,6 +23,31 @@ export interface UserIdentity {
 }
 
 /**
+ * Safety-net identity used when the Oktasso JWT is unavailable (e.g. local
+ * development without `AUTH_JWT_TOKEN_COOKIE_NAME` configured). Shared so the
+ * server's socket-resolved authorship and the UI's own view of "who am I" land
+ * on the same id — a disagreement would render your own messages as somebody
+ * else's.
+ */
+export const DEFAULT_USER: UserIdentity = {
+  email: "maxim.ezhov@shopify.com",
+  first_name: "John",
+  last_name: "Smith",
+};
+
+/**
+ * The user's short display name: first name plus last-name initial (e.g.
+ * `John Smith` -> `John S.`). Falls back to the first name alone, then the
+ * email, when name parts are missing.
+ */
+export function userShortName(user: UserIdentity): string {
+  const first = user.first_name.trim();
+  const lastInitial = user.last_name.trim().charAt(0).toUpperCase();
+  if (first && lastInitial) return `${first} ${lastInitial}.`;
+  return first || user.email;
+}
+
+/**
  * Live run status of a session, derived from its Pi process roster on the
  * server and pushed to clients over the socket:
  * - `idle` — no Pi process is running for the session.
@@ -160,6 +185,21 @@ export interface ChatAuthor {
   name: string;
   /** Only set when `kind` is `"agent"`. */
   agentRole?: AgentRole;
+}
+
+/**
+ * The chat identity of a human, derived from their resolved {@link
+ * UserIdentity}. The email is the author id so "is this my message?" stays
+ * stable across reloads. Shared between the server (which resolves authorship
+ * from the request's own cookie) and the UI, so there is one definition rather
+ * than two that can drift.
+ */
+export function humanAuthor(user: UserIdentity): ChatAuthor {
+  return {
+    id: user.email || "local-user",
+    kind: "human",
+    name: userShortName(user),
+  };
 }
 
 /**
@@ -599,6 +639,36 @@ export interface Attachment {
   size: number;
 }
 
+/**
+ * Where a Message came from, as opposed to who wrote it:
+ * - `human` — typed by a person.
+ * - `agent` — produced by an agent's run.
+ * - `system` — emitted by the server itself (an undeliverable message, a
+ *   structured cause).
+ * - `relay` — forwarded from another Conversation on a participant's behalf. No
+ *   producer yet; the auto-relay paths become this rather than mangling content.
+ */
+export type MessageSourceKind = "human" | "agent" | "system" | "relay";
+
+/** Provenance of a Message, independent of its {@link ChatAuthor}. */
+export interface MessageSource {
+  kind: MessageSourceKind;
+  /** The participant it originated from, when distinct from the author. */
+  from?: string;
+  /** The Conversation it was posted from, when it arrived from another. */
+  fromConversation?: string;
+}
+
+/**
+ * Derives a Message's provenance from its author. The write path and the
+ * legacy-line adapter in `chatLog.ts` share this, so a message persisted before
+ * the envelope existed reads back with the same `source` a new one would get.
+ */
+export function sourceFromAuthor(author: ChatAuthor): MessageSource {
+  if (author.id === SYSTEM_AUTHOR.id) return { kind: "system" };
+  return { kind: author.kind };
+}
+
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
@@ -609,7 +679,22 @@ export interface ChatMessage {
    * which transcript the client buckets the message into.
    */
   conversationId: string;
+  /**
+   * Position in its Conversation, monotonic from 1 and assigned server-side.
+   * Not gap-free: a stream that reserves a `seq` and then fails leaves a hole.
+   * Messages persisted before this field existed are numbered from their
+   * position in the log on read.
+   */
+  seq: number;
   author: ChatAuthor;
+  /**
+   * Participant ids this Message expects to act, resolved from `@name` at write
+   * time so nothing downstream has to regex the body. Empty means "posted to
+   * the Conversation, addressed to no one in particular".
+   */
+  mentions: string[];
+  /** How the Message came to exist, as opposed to who authored it. */
+  source: MessageSource;
   content: string;
   /**
    * The agent's reasoning (markdown), streamed before/alongside `content`.
@@ -623,6 +708,14 @@ export interface ChatMessage {
    * memory bubble (icon + tonal background) and records which store changed.
    */
   memory?: { scope: MemoryScope };
+  /** The {@link Run} that produced this Message, when one is attributable. */
+  runId?: RunId;
+  /** Whether this Message is the last of its Run. */
+  endsRun?: boolean;
+  /** Groups a request with its answers. Semantics arrive with the Reactor. */
+  correlationId?: string;
+  /** The Message this one answers, when it answers one. */
+  inReplyTo?: string;
   /** ISO-8601 timestamp. */
   createdAt: string;
 }
@@ -706,10 +799,13 @@ export interface ChatJoinPayload {
  */
 export type MessageDelivery = "auto" | "steer" | "followUp";
 
-/** Payload sent by the client to post a new chat message. */
+/**
+ * Payload sent by the client to post a new chat message. Carries no author: the
+ * server resolves the sender from the socket's own identity, so a client cannot
+ * claim to be someone else.
+ */
 export interface ChatMessagePayload {
   sessionId: string;
-  author: ChatAuthor;
   content: string;
   /**
    * Target agent's id (`"prime"` or a sub-agent id). Defaults to `"prime"` when
@@ -730,9 +826,10 @@ export interface TerminalDataPayload {
 
 /**
  * Emitted when the Pi agent begins a reply. Carries an empty-content
- * `ChatMessage` that the client appends and then fills in via deltas. `runId`
- * sits beside the message rather than on it: a Message gains its own envelope
- * fields in a later change, while the stream is a Run event.
+ * `ChatMessage` that the client appends and then fills in via deltas. Its `seq`
+ * is already reserved, so the placeholder and the finalized Message that
+ * replaces it share one ordinal. `runId` stays beside the message as well,
+ * because the delta and error payloads have no message to carry it.
  */
 export interface AgentStartPayload {
   message: ChatMessage;

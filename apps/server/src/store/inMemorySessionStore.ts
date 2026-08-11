@@ -74,6 +74,8 @@ export class InMemorySessionStore implements SessionStore {
   private readonly artifacts = new Map<string, PinnedArtifact[]>();
   private readonly agents = new Map<string, SessionAgent[]>();
   private readonly views = new Map<string, Map<string, string>>();
+  /** Per-conversation `seq` counters, keyed `sessionId/conversationId`. */
+  private readonly seqs = new Map<string, number>();
 
   async listSessions(): Promise<Session[]> {
     return [...this.sessions.values()].sort((a, b) =>
@@ -152,6 +154,9 @@ export class InMemorySessionStore implements SessionStore {
 
   async deleteSession(id: string): Promise<boolean> {
     this.messages.delete(id);
+    for (const key of this.seqs.keys()) {
+      if (key.startsWith(`${id}/`)) this.seqs.delete(key);
+    }
     this.artifacts.delete(id);
     this.agents.delete(id);
     return this.sessions.delete(id);
@@ -168,6 +173,22 @@ export class InMemorySessionStore implements SessionStore {
     } else {
       this.messages.set(message.sessionId, [message]);
     }
+  }
+
+  async nextSeq(sessionId: string, conversationId: string): Promise<number> {
+    const key = `${sessionId}/${conversationId}`;
+    const allocated = this.seqs.get(key) ?? this.seedSeq(sessionId, key);
+    this.seqs.set(key, allocated + 1);
+    return allocated;
+  }
+
+  /** Seeds a counter above whatever the in-memory transcript already holds. */
+  private seedSeq(sessionId: string, key: string): number {
+    const conversationId = key.slice(sessionId.length + 1);
+    const held = (this.messages.get(sessionId) ?? []).filter(
+      (message) => message.conversationId === conversationId,
+    );
+    return Math.max(0, ...held.map((message) => message.seq)) + 1;
   }
 
   async getArtifacts(sessionId: string): Promise<PinnedArtifact[]> {

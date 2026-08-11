@@ -10,7 +10,7 @@ import type {
   UploadFilesResponse,
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
-import { PI_AGENT } from "@tangent/shared/contracts.ts";
+import { PI_AGENT, sourceFromAuthor } from "@tangent/shared/contracts.ts";
 import type { Request, Response } from "express";
 import multer from "multer";
 
@@ -168,7 +168,10 @@ async function createSessionFromBundle(
         id: randomUUID(),
         sessionId,
         conversationId: PRIME_AGENT_ID,
+        seq: await store.nextSeq(sessionId, PRIME_AGENT_ID),
         author: PI_AGENT,
+        mentions: [],
+        source: sourceFromAuthor(PI_AGENT),
         content: config.welcomeMessage,
         createdAt: new Date().toISOString(),
       });

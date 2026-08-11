@@ -12,9 +12,9 @@ import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
   type Attachment,
-  type ChatAuthor,
   type ChatMessage,
   type ChatMessagePayload,
+  humanAuthor,
   type MemoryConfirmPayload,
   type MemoryDismissPayload,
   type MemorySuggestionPayload,
@@ -44,7 +44,6 @@ import {
 } from "@/features/chat/model/agentStatusQueryKeys";
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
-import { userShortName } from "@/features/user/model/userDisplay";
 import { queryClient } from "@/shared/api/queryClient";
 import { BASE_PREFIX } from "@/shared/lib/basePath";
 
@@ -131,15 +130,11 @@ export function useSessionChat(sessionId: string) {
   // event" from "the spinner cleared because text started arriving".
   const streamingRuns = useRef<Set<RunId>>(new Set());
 
-  // The current human's chat identity, derived from `GET /api/me`. Using the
-  // email as the author id keeps "is this my message?" detection stable across
-  // reloads, and the short name (`John S.`) is what other participants see.
+  // The current human's chat identity. Only used to recognise our own messages
+  // in the transcript — the server authors what it persists, from the socket's
+  // own cookie, so this shares `humanAuthor` with it rather than guessing.
   const user = useCurrentUser();
-  const author: ChatAuthor = {
-    id: user.email || "local-user",
-    kind: "human",
-    name: userShortName(user),
-  };
+  const author = humanAuthor(user);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -497,7 +492,6 @@ export function useSessionChat(sessionId: string) {
 
     const payload: ChatMessagePayload = {
       sessionId,
-      author,
       content: trimmed,
       conversationId: options?.conversationId ?? PI_AGENT.id,
       delivery: options?.delivery ?? "auto",
