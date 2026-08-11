@@ -51,4 +51,9 @@ export class NullConnector implements Connector {
   }
 
   kill(): void {}
+
+  revive(): void {
+    // Reachable only for a row whose connector kind the server no longer runs.
+    // There is nothing to restore it onto, so it keeps whatever status it has.
+  }
 }

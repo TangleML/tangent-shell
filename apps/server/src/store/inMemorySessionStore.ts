@@ -235,6 +235,29 @@ export class InMemorySessionStore implements SessionStore {
     return this.agents.get(sessionId) ?? [];
   }
 
+  async detachActiveSubagents(): Promise<number> {
+    let detached = 0;
+    for (const [sessionId, agents] of this.agents) {
+      const next = agents.map((agent) => {
+        if (agent.role !== "subagent" || agent.status !== "active")
+          return agent;
+        detached += 1;
+        return { ...agent, status: "detached" as const };
+      });
+      this.agents.set(sessionId, next);
+    }
+    return detached;
+  }
+
+  async listAgentsForEnvironment(
+    environmentId: string,
+  ): Promise<SessionAgent[]> {
+    return [...this.agents.values()]
+      .flat()
+      .filter((agent) => agent.role === "subagent")
+      .filter((agent) => agent.connector.environmentId === environmentId);
+  }
+
   async markViewed(
     sessionId: string,
     userKey: string,

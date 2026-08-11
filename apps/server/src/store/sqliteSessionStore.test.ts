@@ -104,6 +104,94 @@ test("a row recorded without a connector reads back from its host", async () => 
   assert.equal(prime?.connector.kind, "pi-stdio");
 });
 
+test("a completed sub-agent stays completed, rather than collapsing to killed", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+  });
+
+  await store.setAgentStatus(session.id, "sub-1", "completed");
+
+  const agents = await store.listAgents(session.id);
+  assert.equal(agents.find((a) => a.id === "sub-1")?.status, "completed");
+});
+
+test("detachActiveSubagents marks live sub-agents detached and leaves the rest", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+  for (const [id, status] of [
+    ["live", "active"],
+    ["already", "detached"],
+    ["done", "completed"],
+    ["gone", "killed"],
+    ["broken", "error"],
+  ] as const) {
+    await store.recordAgent(session.id, {
+      id,
+      role: "subagent",
+      name: id,
+      status,
+    });
+  }
+
+  const detached = await store.detachActiveSubagents();
+
+  // Only the row claiming to be live changes; the terminal ones are history and
+  // the already-detached one needs nothing done to it.
+  assert.equal(detached, 1);
+  const byId = new Map(
+    (await store.listAgents(session.id)).map((a) => [a.id, a.status]),
+  );
+  assert.equal(byId.get("live"), "detached");
+  assert.equal(byId.get("already"), "detached");
+  assert.equal(byId.get("done"), "completed");
+  assert.equal(byId.get("gone"), "killed");
+  assert.equal(byId.get("broken"), "error");
+  // Prime is the process manager's to ensure, not this reconciliation's.
+  assert.equal(byId.get("prime"), "active");
+});
+
+test("listAgentsForEnvironment finds one environment's sub-agents across sessions", async () => {
+  const store = newStore();
+  const a = await store.createSession({ name: "A" });
+  const b = await store.createSession({ name: "B" });
+  const remote = (id: string, environmentId: string) => ({
+    id,
+    role: "subagent" as const,
+    name: id,
+    host: "remote" as const,
+    connector: {
+      kind: "remote-env" as const,
+      lifecycle: "owned" as const,
+      spawnAuthority: "remote-env" as const,
+      environmentId,
+    },
+  });
+  await store.recordAgent(a.id, remote("mine-a", "env-1"));
+  await store.recordAgent(b.id, remote("mine-b", "env-1"));
+  await store.recordAgent(a.id, remote("theirs", "env-2"));
+  // A row written before the connector columns existed records no environment.
+  await store.recordAgent(a.id, {
+    id: "legacy",
+    role: "subagent",
+    name: "legacy",
+    host: "remote",
+  });
+
+  const found = await store.listAgentsForEnvironment("env-1");
+
+  assert.deepEqual(
+    found.map((agent) => [agent.id, agent.sessionId]).sort(),
+    [
+      ["mine-a", a.id],
+      ["mine-b", b.id],
+    ].sort(),
+  );
+});
+
 test("deleting a session cascades its read state", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });

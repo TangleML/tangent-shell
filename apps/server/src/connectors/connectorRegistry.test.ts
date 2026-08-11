@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  type ConnectorDescriptor,
   connectorFields,
+  connectorFor,
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
 
@@ -12,6 +14,8 @@ import type { PiAgentHandlers } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
+import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
+import type { SessionAgent } from "../store/sessionStore.ts";
 import { createConnectorRegistry } from "./connectorRegistry.ts";
 
 /** A message a fake gateway was asked to deliver. */
@@ -41,6 +45,65 @@ function rosterEntry(
   };
 }
 
+/** A persisted roster row, as a revive reads one. */
+function agentRow(
+  id: string,
+  connector: ConnectorDescriptor,
+  overrides: Partial<SessionAgent> = {},
+): SessionAgent {
+  return {
+    id,
+    sessionId: "s1",
+    role: "subagent",
+    name: id,
+    status: "detached",
+    connector,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A fake Pi manager recording what it was asked to do with `local-1`. */
+function fakePi() {
+  const deliveries: Delivery[] = [];
+  const kills: string[] = [];
+  const aborts: string[] = [];
+  const revives: string[] = [];
+  const pi = {
+    hasAgent: (_sessionId: string, agentId: string) => agentId === "local-1",
+    listSubagents: () => [rosterEntry("local-1", "pi-stdio")],
+    sendToAgent: (sessionId: string, agentId: string, text: string) =>
+      deliveries.push({ sessionId, agentId, text }),
+    killAgent: (_sessionId: string, agentId: string) => kills.push(agentId),
+    // Mirrors the real manager: only a busy agent has anything to cancel.
+    abort: (_sessionId: string, agentId: string) => {
+      aborts.push(agentId);
+      return agentId === "local-1";
+    },
+    reviveSubagent: (_sessionId: string, agent: SessionAgent) =>
+      revives.push(agent.id),
+  } as unknown as PiAgentManager;
+  return { pi, deliveries, kills, aborts, revives };
+}
+
+/** A fake remote gateway recording what it was asked to do with `remote-1`. */
+function fakeRemote() {
+  const deliveries: Delivery[] = [];
+  const reattaches: string[] = [];
+  const gateway = {
+    hasAgent: (_sessionId: string, agentId: string) => agentId === "remote-1",
+    listSubagents: () => [rosterEntry("remote-1", "remote-env")],
+    sendToAgent: (sessionId: string, agentId: string, text: string) => {
+      deliveries.push({ sessionId, agentId, text });
+      return true;
+    },
+    killAgent: () => {},
+    reattach: (_sessionId: string, agent: SessionAgent) =>
+      reattaches.push(agent.id),
+  } as unknown as RemoteEnvironmentGateway;
+  return { gateway, deliveries, reattaches };
+}
+
 /**
  * A registry over the real external gateway plus fakes for the local and remote
  * transports, so a delivery can be traced to exactly one of them.
@@ -55,38 +118,16 @@ function makeHarness() {
     onSessionStatus: () => {},
   };
 
-  const piDeliveries: Delivery[] = [];
-  const piKills: string[] = [];
-  const piAborts: string[] = [];
-  const pi = {
-    hasAgent: (_sessionId: string, agentId: string) => agentId === "local-1",
-    listSubagents: () => [rosterEntry("local-1", "pi-stdio")],
-    sendToAgent: (sessionId: string, agentId: string, text: string) =>
-      piDeliveries.push({ sessionId, agentId, text }),
-    killAgent: (_sessionId: string, agentId: string) => piKills.push(agentId),
-    // Mirrors the real manager: only a busy agent has anything to cancel.
-    abort: (_sessionId: string, agentId: string) => {
-      piAborts.push(agentId);
-      return agentId === "local-1";
-    },
-  } as unknown as PiAgentManager;
-
-  const remoteDeliveries: Delivery[] = [];
-  const remoteGateway = {
-    hasAgent: (_sessionId: string, agentId: string) => agentId === "remote-1",
-    listSubagents: () => [rosterEntry("remote-1", "remote-env")],
-    sendToAgent: (sessionId: string, agentId: string, text: string) =>
-      remoteDeliveries.push({ sessionId, agentId, text }),
-    killAgent: () => {},
-  } as unknown as RemoteEnvironmentGateway;
-
+  const local = fakePi();
+  const remote = fakeRemote();
   const externalGateway = new ExternalSubagentGateway(
     handlers,
     new RunRegistry(new InMemoryRunStore()),
+    new InMemorySessionStore(),
   );
   const connectors = createConnectorRegistry(
-    pi,
-    remoteGateway,
+    local.pi,
+    remote.gateway,
     externalGateway,
     handlers,
   );
@@ -95,10 +136,12 @@ function makeHarness() {
     connectors,
     externalGateway,
     surfaced,
-    piDeliveries,
-    piKills,
-    piAborts,
-    remoteDeliveries,
+    piDeliveries: local.deliveries,
+    piKills: local.kills,
+    piAborts: local.aborts,
+    piRevives: local.revives,
+    remoteDeliveries: remote.deliveries,
+    remoteReattaches: remote.reattaches,
   };
 }
 
@@ -230,6 +273,51 @@ test("list walks every connector's roster", () => {
     h.connectors.list("s1").map((s) => s.id),
     ["local-1", "remote-1", id],
   );
+});
+
+test("revive routes each persisted row to the connector that recorded it", () => {
+  const h = makeHarness();
+
+  h.connectors.revive("s1", [
+    agentRow("local-1", connectorFor("pi-stdio")),
+    agentRow("remote-1", connectorFor("remote-env", "env-1")),
+    agentRow("ext-1", connectorFor("external-inbound")),
+  ]);
+
+  assert.deepEqual(h.piRevives, ["local-1"]);
+  assert.deepEqual(h.remoteReattaches, ["remote-1"]);
+  // The external gateway is real, so its reattach is visible in the roster —
+  // restored as `detached`, since nothing here creates the far side.
+  assert.deepEqual(h.externalGateway.listSubagents("s1"), [
+    {
+      id: "ext-1",
+      name: "ext-1",
+      status: "detached",
+      ...connectorFields("external-inbound"),
+      template: undefined,
+      model: undefined,
+      thinkingDepth: undefined,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ]);
+});
+
+test("revive skips Prime, terminal rows and attached participants", () => {
+  const h = makeHarness();
+
+  h.connectors.revive("s1", [
+    agentRow("prime", connectorFor("pi-stdio"), { role: "prime" }),
+    agentRow("killed-1", connectorFor("pi-stdio"), { status: "killed" }),
+    // An attached connector's far end exists independently of Tangent, so it
+    // waits to be reattached rather than being brought back from a row.
+    agentRow("attached-1", {
+      kind: "pi-stdio",
+      lifecycle: "attached",
+      spawnAuthority: "server",
+    }),
+  ]);
+
+  assert.deepEqual(h.piRevives, []);
 });
 
 test("only connectors the spawn API may act on are spawners", () => {

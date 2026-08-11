@@ -1,13 +1,15 @@
-import type {
-  ConnectorKind,
-  SpawnAuthority,
-  SubagentInfo,
+import {
+  type ConnectorKind,
+  isTerminalStatus,
+  type SpawnAuthority,
+  type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
 
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { PiAgentHandlers } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
+import type { SessionAgent } from "../store/sessionStore.ts";
 import { ExternalConnector } from "./externalConnector.ts";
 import { NullConnector } from "./nullConnector.ts";
 import { PiConnector } from "./piConnector.ts";
@@ -76,9 +78,34 @@ export class ConnectorRegistry {
 
   /** The connector that spawns `kind` on the server's behalf, if any may. */
   spawner(kind: ConnectorKind): SpawningConnector | undefined {
-    const connector = this.connectors.find((c) => c.descriptor.kind === kind);
+    const connector = this.forKind(kind);
     if (!connector || !canSpawn(connector)) return undefined;
     return connector;
+  }
+
+  /**
+   * Restores a session's persisted sub-agents through whichever connector each
+   * one belongs to. Resolution is by recorded kind rather than by {@link
+   * ConnectorRegistry.resolve}, because nothing holds a participant yet — that
+   * is the whole point of a revive.
+   *
+   * Terminal rows are skipped, so nothing resurrects a participant that finished
+   * or was killed. So are `attached` ones: that connector's far end exists
+   * independently of Tangent and waits to be reattached rather than being brought
+   * back from a row.
+   */
+  revive(sessionId: string, persisted: SessionAgent[]): void {
+    for (const agent of persisted) {
+      if (agent.role !== "subagent") continue;
+      if (isTerminalStatus(agent.status)) continue;
+      if (agent.connector.lifecycle !== "owned") continue;
+      this.forKind(agent.connector.kind)?.revive(sessionId, agent);
+    }
+  }
+
+  /** The connector registered for a kind, if the server runs one. */
+  private forKind(kind: ConnectorKind): Connector | undefined {
+    return this.connectors.find((c) => c.descriptor.kind === kind);
   }
 }
 
@@ -92,7 +119,7 @@ export function createConnectorRegistry(
   return new ConnectorRegistry(
     [
       new PiConnector(pi),
-      new RemoteEnvConnector(remoteGateway),
+      new RemoteEnvConnector(remoteGateway, handlers),
       new ExternalConnector(externalGateway, handlers),
     ],
     new NullConnector(handlers),

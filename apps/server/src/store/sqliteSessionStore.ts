@@ -407,6 +407,38 @@ export class SqliteSessionStore implements SessionStore {
     return rows.map(toAgent);
   }
 
+  async detachActiveSubagents(): Promise<number> {
+    const rows = this.db
+      .update(sessionAgents)
+      .set({ status: "detached" })
+      .where(
+        and(
+          eq(sessionAgents.role, "subagent"),
+          eq(sessionAgents.status, "active"),
+        ),
+      )
+      .returning({ id: sessionAgents.id })
+      .all();
+    return rows.length;
+  }
+
+  async listAgentsForEnvironment(
+    environmentId: string,
+  ): Promise<SessionAgent[]> {
+    const rows = this.db
+      .select()
+      .from(sessionAgents)
+      .where(
+        and(
+          eq(sessionAgents.role, "subagent"),
+          eq(sessionAgents.connectorEnvironmentId, environmentId),
+        ),
+      )
+      .orderBy(asc(sessionAgents.createdAt))
+      .all();
+    return rows.map(toAgent);
+  }
+
   async markViewed(
     sessionId: string,
     userKey: string,

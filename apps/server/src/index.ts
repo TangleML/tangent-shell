@@ -96,6 +96,13 @@ void runs.failStaleRuns().then((failed) => {
   if (failed > 0) console.log(`[runs] settled ${failed} stale run(s)`);
 });
 
+// No participant outlives the server, so every sub-agent row still claiming to
+// be live is stale. Marking them `detached` here is what keeps the sessions list
+// from counting agents that no longer exist; a revive moves them back.
+void store.detachActiveSubagents().then((detached) => {
+  if (detached > 0) console.log(`[agents] detached ${detached} stale row(s)`);
+});
+
 // The manager runs a roster of Pi processes per session (Prime + sub-agents);
 // their streaming events and roster changes are relayed to the matching
 // Socket.IO room by the chat handlers.
@@ -120,7 +127,7 @@ const remoteGateway = new RemoteEnvironmentGateway(
 // Registry of external sub-agent tabs: work runs outside Tangent (e.g. driven
 // by a bundle tool over the internal external-agents API) and streams into a
 // tab via the same relay handlers a local sub-agent uses.
-const externalGateway = new ExternalSubagentGateway(agentHandlers, runs);
+const externalGateway = new ExternalSubagentGateway(agentHandlers, runs, store);
 
 // The single lookup from a participant to the connector that reaches it. Every
 // spawn/message/kill/list route goes through it, so an id no connector holds is

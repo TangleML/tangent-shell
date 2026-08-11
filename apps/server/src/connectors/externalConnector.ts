@@ -2,6 +2,7 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { PiAgentHandlers } from "../pi/types.ts";
+import type { SessionAgent } from "../store/sessionStore.ts";
 import { refuseDelivery } from "./refusal.ts";
 import type {
   CancelResult,
@@ -62,5 +63,11 @@ export class ExternalConnector implements Connector {
       participantId,
       completed ? "completed" : "killed",
     );
+  }
+
+  revive(sessionId: string, agent: SessionAgent): void {
+    // Nothing here creates the far side — the bundle tool driving it does — so
+    // the tab comes back `detached` and the next turn pushed into it reattaches.
+    this.gateway.reattach(sessionId, agent);
   }
 }

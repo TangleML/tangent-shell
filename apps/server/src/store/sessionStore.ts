@@ -8,16 +8,19 @@ import {
   type Session,
   type SessionConfigMeta,
   type SubagentHost,
+  type SubagentStatus,
   type UpdateSessionRequest,
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
 /**
- * Persisted lifecycle status of a session agent. `error` is distinct so the
- * sessions list can flag "needs attention"; completions and kills both collapse
- * to `killed`, and only `active` agents are revived on restart.
+ * Persisted lifecycle status of a session agent — the same set as the wire
+ * {@link SubagentStatus}, deliberately. Nothing is collapsed on the way to the
+ * database any more: "finished its task" and "was terminated" are different
+ * facts, and discarding one of them at every restart is what made a
+ * participant's lifecycle unreadable as history.
  */
-export type SessionAgentStatus = "active" | "killed" | "error";
+export type SessionAgentStatus = SubagentStatus;
 
 /** The connector kind each legacy `host` label stood for. */
 const CONNECTOR_KIND_BY_HOST: Record<SubagentHost, ConnectorKind> = {
@@ -72,10 +75,8 @@ export interface SessionAgent {
   /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
   autoRelayToPrime?: boolean;
   /**
-   * Which host runs the sub-agent: `local` (a `pi` child), `remote` (a
-   * connected remote environment), or `external` (a tab driven by a bundle
-   * tool). Defaults to `local` on legacy rows; only `local` sub-agents are
-   * revived after a restart.
+   * Which host runs the sub-agent: `local` (a `pi` child) or `remote` (a
+   * connected remote environment). Defaults to `local` on legacy rows.
    *
    * @deprecated Read {@link SessionAgent.connector} instead.
    */
@@ -163,6 +164,21 @@ export interface SessionStore {
   ): Promise<void>;
   /** Lists a session's agents (Prime first), oldest first. */
   listAgents(sessionId: string): Promise<SessionAgent[]>;
+  /**
+   * Marks every `active` sub-agent row `detached`, returning how many changed.
+   * Run once at boot: no process outlives the server, so such a row is a claim
+   * about a participant that no longer exists. Terminal rows are history and
+   * Prime rows belong to {@link
+   * import("../pi/piAgentManager.ts").PiAgentManager.ensure}, so both are left
+   * alone.
+   */
+  detachActiveSubagents(): Promise<number>;
+  /**
+   * Every sub-agent row hosted by one remote environment, across sessions, so a
+   * reconnecting environment can have its roster replayed. Rows written before
+   * the connector columns existed carry no environment id and never match.
+   */
+  listAgentsForEnvironment(environmentId: string): Promise<SessionAgent[]>;
 
   /** Records that `userKey` viewed `sessionId` at `at` (ISO-8601), upserting. */
   markViewed(sessionId: string, userKey: string, at: string): Promise<void>;
