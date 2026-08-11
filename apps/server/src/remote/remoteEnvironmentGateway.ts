@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  ChatAuthor,
-  MessageDelivery,
-  SubagentInfo,
-  SubagentStatus,
+import {
+  type ChatAuthor,
+  connectorFields,
+  type MessageDelivery,
+  type SubagentInfo,
+  type SubagentStatus,
 } from "@tangent/shared/contracts.ts";
 import {
   REMOTE_ENV_NAMESPACE,
@@ -77,7 +78,7 @@ function toInfo(subagent: RemoteSubagent): SubagentInfo {
     id: subagent.agentId,
     name: subagent.name,
     status: subagent.status,
-    host: "remote",
+    ...connectorFields("remote-env", subagent.environmentId),
     template: subagent.template,
     model: subagent.model,
     thinkingDepth: subagent.thinkingDepth,

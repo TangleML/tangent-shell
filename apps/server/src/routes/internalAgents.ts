@@ -134,6 +134,7 @@ function handleSpawn(
       systemPrompt,
       autoRelayToPrime,
       host,
+      connector: info.connector,
     });
     res.json({ subagent: info });
   } catch (err) {

@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
 
+import { connectorFor } from "@tangent/shared/contracts.ts";
+
 import type { SessionAgent } from "../store/sessionStore.ts";
 import type { MemoryManager } from "./memory.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
@@ -93,6 +95,7 @@ function agentRow(overrides: Partial<SessionAgent>): SessionAgent {
     name: "Worker",
     status: "active",
     autoRelayToPrime: true,
+    connector: connectorFor("pi-stdio"),
     createdAt: new Date().toISOString(),
     ...overrides,
   };
@@ -217,6 +220,21 @@ test("supervisor auto-respawns a crashed agent with backoff, then gives up", () 
   mock.timers.tick(10_000);
   assert.equal(spawns.length, 4, "supervisor gives up after the retry budget");
   assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
+});
+
+test("the local roster describes its connector", () => {
+  const { pi } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+  const { info } = pi.spawnSubagent("s1", { name: "Worker" });
+
+  const expected = {
+    kind: "pi-stdio",
+    lifecycle: "owned",
+    spawnAuthority: "server",
+  };
+  assert.deepEqual(info.connector, expected);
+  assert.equal(info.host, "local");
+  assert.deepEqual(pi.listSubagents("s1")[0].connector, expected);
 });
 
 test("an intentional kill is not auto-respawned", () => {

@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type {
   ChatMessage,
+  ConnectorDescriptor,
   PinnedArtifact,
   Session,
   SessionConfigMeta,
@@ -11,12 +12,13 @@ import type {
 } from "@tangent/shared/contracts.ts";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
-import type {
-  CreateSessionParams,
-  RecordAgentInput,
-  SessionAgent,
-  SessionAgentStatus,
-  SessionStore,
+import {
+  connectorFromHost,
+  type CreateSessionParams,
+  type RecordAgentInput,
+  type SessionAgent,
+  type SessionAgentStatus,
+  type SessionStore,
 } from "./sessionStore.ts";
 
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
@@ -33,6 +35,14 @@ function definedAgentFields(
     }
   }
   return out;
+}
+
+/** The connector to store: explicit, else the prior one, else derived from `host`. */
+function mergeConnector(
+  agent: RecordAgentInput,
+  prior: SessionAgent | undefined,
+): ConnectorDescriptor {
+  return agent.connector ?? prior?.connector ?? connectorFromHost(agent.host);
 }
 
 /**
@@ -53,6 +63,7 @@ function mergeAgent(
     role: agent.role,
     name: agent.name,
     status: agent.status ?? prior?.status ?? "active",
+    connector: mergeConnector(agent, prior),
     createdAt: prior?.createdAt ?? new Date().toISOString(),
   };
 }

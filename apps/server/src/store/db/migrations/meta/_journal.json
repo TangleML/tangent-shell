@@ -43,6 +43,13 @@
       "when": 1782973126871,
       "tag": "0005_quick_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786467242333,
+      "tag": "0006_fresh_nico_minoru",
+      "breakpoints": true
     }
   ]
 }

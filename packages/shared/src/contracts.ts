@@ -350,12 +350,112 @@ export type SubagentStatus = "active" | "completed" | "killed" | "error";
 /**
  * Which host runs a sub-agent: `local` (a `pi` child process managed by the
  * server), `remote` (a sub-agent hosted inside a connected remote environment
- * over the remote sub-agent transport), or `external` (a display-only tab
- * whose runtime lives outside Tangent, driven by a bundle tool over the
- * `/internal/external-agents` API). Absent on older roster rows, which are
- * treated as `local`.
+ * over the Socket.IO remote sub-agent transport), or `external` (a sub-agent
+ * driven by a connected standalone bridge over the internal HTTP/SSE external
+ * transport). Absent on older roster rows, which are treated as `local`.
+ *
+ * @deprecated Superseded by {@link ConnectorDescriptor}, which keeps the
+ * decisions this label bundles apart. Retained until the `host` column is gone.
  */
 export type SubagentHost = "local" | "remote" | "external";
+
+/**
+ * Which transport a connector drives its participant over: `pi-stdio` (a `pi`
+ * child process the server owns), `remote-env` (a sub-agent inside a connected
+ * remote environment), `external-inbound` (a runtime outside Tangent that
+ * streams in over the internal HTTP/SSE API), or `a2a` (an agent reached over
+ * the A2A protocol).
+ */
+export type ConnectorKind =
+  | "pi-stdio"
+  | "remote-env"
+  | "external-inbound"
+  | "a2a";
+
+/**
+ * Whether Tangent created the participant and is responsible for destroying it
+ * (`owned`) or joined one that already existed and outlives the attachment
+ * (`attached`).
+ */
+export type ConnectorLifecycle = "owned" | "attached";
+
+/** Who may create a participant on a connector, if anyone. */
+export type SpawnAuthority = "server" | "remote-env" | "bundle-tool" | "none";
+
+/**
+ * The independent facets of the connector behind a participant. These are
+ * separate fields rather than one label because they vary independently — the
+ * three combinations in the tree today are a coincidence of having only three
+ * connectors.
+ */
+export interface ConnectorDescriptor {
+  kind: ConnectorKind;
+  lifecycle: ConnectorLifecycle;
+  spawnAuthority: SpawnAuthority;
+  /** The remote environment this participant is bound to, when it has one. */
+  environmentId?: string;
+}
+
+/**
+ * The facets each connector kind runs with today. Adding a connector adds a row
+ * here; the facets stay independent fields on {@link ConnectorDescriptor}, so a
+ * combination this table does not list is still expressible.
+ */
+export const CONNECTOR_FACETS: Record<
+  ConnectorKind,
+  Omit<ConnectorDescriptor, "environmentId">
+> = {
+  "pi-stdio": {
+    kind: "pi-stdio",
+    lifecycle: "owned",
+    spawnAuthority: "server",
+  },
+  "remote-env": {
+    kind: "remote-env",
+    lifecycle: "owned",
+    spawnAuthority: "remote-env",
+  },
+  "external-inbound": {
+    kind: "external-inbound",
+    lifecycle: "owned",
+    spawnAuthority: "bundle-tool",
+  },
+  a2a: { kind: "a2a", lifecycle: "attached", spawnAuthority: "none" },
+};
+
+/** The legacy {@link SubagentHost} label each kind collapsed to. */
+const LEGACY_HOST: Record<ConnectorKind, SubagentHost | undefined> = {
+  "pi-stdio": "local",
+  "remote-env": "remote",
+  "external-inbound": "external",
+  a2a: undefined,
+};
+
+/** Builds a connector descriptor, optionally bound to a remote environment. */
+export function connectorFor(
+  kind: ConnectorKind,
+  environmentId?: string,
+): ConnectorDescriptor {
+  return {
+    ...CONNECTOR_FACETS[kind],
+    ...(environmentId ? { environmentId } : {}),
+  };
+}
+
+/**
+ * Builds the connector fields of a roster entry: the descriptor plus the
+ * deprecated `host` label derived from it.
+ */
+export function connectorFields(
+  kind: ConnectorKind,
+  environmentId?: string,
+): Pick<SubagentInfo, "connector" | "host"> {
+  const host = LEGACY_HOST[kind];
+  return {
+    connector: connectorFor(kind, environmentId),
+    ...(host ? { host } : {}),
+  };
+}
 
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
@@ -363,7 +463,12 @@ export interface SubagentInfo {
   id: string;
   name: string;
   status: SubagentStatus;
-  /** Which host runs the sub-agent. Defaults to `local` when omitted. */
+  /** The connector that runs the sub-agent. */
+  connector: ConnectorDescriptor;
+  /**
+   * @deprecated Derived from {@link SubagentInfo.connector}; kept so clients
+   * still reading the coarse host label keep working.
+   */
   host?: SubagentHost;
   /** Template the sub-agent was spawned from, if any. */
   template?: string;
