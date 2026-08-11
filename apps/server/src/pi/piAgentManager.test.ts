@@ -136,13 +136,13 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-test("reviveSubagents re-spawns active sub-agents from persisted config", () => {
+test("reviveSubagent re-spawns a sub-agent from its persisted config", () => {
   const { pi, spawns } = makeManager();
   pi.ensure("s1", "/tmp/s1");
   assert.equal(spawns.length, 1, "ensure spawns Prime");
 
-  const persisted: SessionAgent[] = [
-    agentRow({ id: PRIME_AGENT_ID, role: "prime", name: "Prime" }),
+  pi.reviveSubagent(
+    "s1",
     agentRow({
       id: "sub-active",
       name: "Scout",
@@ -150,12 +150,9 @@ test("reviveSubagents re-spawns active sub-agents from persisted config", () => 
       tools: ["read", "grep"],
       systemPrompt: "You are Scout.",
     }),
-    agentRow({ id: "sub-killed", name: "Old", status: "killed" }),
-  ];
-  pi.reviveSubagents("s1", persisted);
+  );
 
-  // Only the active sub-agent is revived (Prime is already live, killed skipped).
-  assert.equal(spawns.length, 2, "one active sub-agent revived");
+  assert.equal(spawns.length, 2, "the sub-agent is revived");
   const revived = spawns[1];
   assert.equal(revived.agentId, "sub-active");
   assert.ok(
@@ -175,20 +172,39 @@ test("reviveSubagents re-spawns active sub-agents from persisted config", () => 
   );
 });
 
-test("reviveSubagents is idempotent and skips already-live agents", () => {
+test("reviveSubagent restores a detached row, and refuses Prime and terminal ones", () => {
   const { pi, spawns } = makeManager();
   pi.ensure("s1", "/tmp/s1");
 
-  const persisted: SessionAgent[] = [
-    agentRow({
-      id: "sub-active",
-      status: "active",
-      tools: ["read"],
-      systemPrompt: "prompt",
-    }),
-  ];
-  pi.reviveSubagents("s1", persisted);
-  pi.reviveSubagents("s1", persisted);
+  // `detached` is the ordinary pre-revive state: the boot reconciliation puts
+  // every stale row there, so revive has to accept it.
+  pi.reviveSubagent("s1", agentRow({ id: "sub-detached", status: "detached" }));
+  pi.reviveSubagent("s1", agentRow({ id: "sub-killed", status: "killed" }));
+  pi.reviveSubagent("s1", agentRow({ id: "sub-done", status: "completed" }));
+  pi.reviveSubagent(
+    "s1",
+    agentRow({ id: PRIME_AGENT_ID, role: "prime", name: "Prime" }),
+  );
+
+  assert.equal(spawns.length, 2, "only the detached row is revived");
+  assert.deepEqual(
+    pi.listSubagents("s1").map((s) => s.id),
+    ["sub-detached"],
+  );
+});
+
+test("reviveSubagent is idempotent and skips an already-live agent", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+
+  const persisted = agentRow({
+    id: "sub-active",
+    status: "active",
+    tools: ["read"],
+    systemPrompt: "prompt",
+  });
+  pi.reviveSubagent("s1", persisted);
+  pi.reviveSubagent("s1", persisted);
 
   assert.equal(spawns.length, 2, "second revive does not double-spawn");
 });

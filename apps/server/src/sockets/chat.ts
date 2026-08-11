@@ -53,10 +53,7 @@ import {
 } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStatusHandler } from "../pi/types.ts";
-import type {
-  SessionAgentStatus,
-  SessionStore,
-} from "../store/sessionStore.ts";
+import type { SessionStore } from "../store/sessionStore.ts";
 
 function roomFor(sessionId: string): string {
   return `session:${sessionId}`;
@@ -313,13 +310,9 @@ export function createSubagentUpdateHandler(
     const payload: SubagentUpdatePayload = { sessionId, subagent };
     io.to(roomFor(sessionId)).emit(SocketEvents.SubagentUpdate, payload);
 
-    // Persist so a restart's revive sees the current status (only `active` is
-    // re-spawned); `error` stays distinct, completions and kills collapse.
-    const status: SessionAgentStatus =
-      subagent.status === "active" || subagent.status === "error"
-        ? subagent.status
-        : "killed";
-    void store.setAgentStatus(sessionId, subagent.id, status);
+    // Persisted as-is: a participant's lifecycle is transcript-visible history,
+    // so nothing is collapsed on the way to the row.
+    void store.setAgentStatus(sessionId, subagent.id, subagent.status);
   };
 }
 
@@ -695,13 +688,14 @@ async function handleSessionStatusSubscribe(
 
 /**
  * (Re)spawns the session's Prime — restoring any persisted model/thinking
- * selection — and revives previously-active local sub-agents from the persisted
- * roster, so a restart restores the full agent set (not just Prime). Idempotent:
- * agents already live are skipped.
+ * selection — and revives its persisted sub-agents through their own connectors,
+ * so a restart restores the full agent set (not just Prime). Idempotent: agents
+ * already live are skipped.
  */
 async function ensureSessionAgents(
   store: SessionStore,
   pi: PiAgentManager,
+  connectors: ConnectorRegistry,
   session: Session,
 ): Promise<void> {
   const primeOverride = await loadPrimeOverride(store, session.id);
@@ -713,7 +707,7 @@ async function ensureSessionAgents(
     session.user,
   );
   const persistedAgents = await store.listAgents(session.id);
-  pi.reviveSubagents(session.id, persistedAgents);
+  connectors.revive(session.id, persistedAgents);
 }
 
 /** Joins the session room, then replays history and the sub-agent roster. */
@@ -734,9 +728,9 @@ async function handleChatJoin(
   const room = roomFor(session.id);
   await socket.join(room);
 
-  // Lazily (re)spawn Prime and revive previously-active local sub-agents in
-  // case the server restarted or the session predates the process manager.
-  await ensureSessionAgents(store, pi, session);
+  // Lazily (re)spawn Prime and revive the session's sub-agents in case the
+  // server restarted or the session predates the process manager.
+  await ensureSessionAgents(store, pi, connectors, session);
 
   // Re-arm the session's schedule triggers (idempotent) and surface the roster.
   triggerEngine.sync(session.id, session.rootPath);

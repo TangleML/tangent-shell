@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import {
   connectorFields,
+  connectorFor,
+  isTerminalStatus,
   type Run,
   type RunId,
   type SubagentInfo,
@@ -10,8 +12,10 @@ import {
 } from "@tangent/shared/contracts.ts";
 import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
 
+import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { AgentDescriptor, PiAgentHandlers } from "../pi/types.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
+import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
 /** Display metadata a caller supplies when registering an external sub-agent. */
 export interface RegisterExternalSubagent {
@@ -65,8 +69,9 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
 }
 
 /**
- * In-memory registry of **external sub-agent** tabs. An external sub-agent is
- * one whose work runs outside Tangent (e.g. driven by a bundle tool over the
+ * Registry of **external sub-agent** tabs, held in memory and persisted as
+ * roster rows so a restart has something to reattach to. An external sub-agent
+ * is one whose work runs outside Tangent (e.g. driven by a bundle tool over the
  * `/internal/external-agents` API); the gateway only owns the sidebar tab and
  * relays streamed events into it via the shared {@link PiAgentHandlers}, so an
  * external sub-agent renders and persists like a local one.
@@ -82,13 +87,19 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
 export class ExternalSubagentGateway {
   private readonly handlers: PiAgentHandlers;
   private readonly runs: RunRegistry;
+  private readonly store: SessionStore;
 
   /** Per-session external sub-agent rosters, keyed by sessionId then agentId. */
   private readonly sessions = new Map<string, Map<string, ExternalSubagent>>();
 
-  constructor(handlers: PiAgentHandlers, runs: RunRegistry) {
+  constructor(
+    handlers: PiAgentHandlers,
+    runs: RunRegistry,
+    store: SessionStore,
+  ) {
     this.handlers = handlers;
     this.runs = runs;
+    this.store = store;
   }
 
   /** True when `agentId` is an external sub-agent of `sessionId`. */
@@ -107,6 +118,10 @@ export class ExternalSubagentGateway {
    * Registers a new external sub-agent tab, assigns it a UUID, records the
    * roster entry, and surfaces it to the session's chat layer. Returns the
    * assigned id the caller uses on subsequent `pushEvent`/`setStatus` calls.
+   *
+   * The tab is persisted as a roster row, so a restart has something to reattach
+   * to. Best-effort: `sessionId` comes from an external caller, and a bogus one
+   * must fail the row rather than the process.
    */
   register(sessionId: string, spec: RegisterExternalSubagent): { id: string } {
     const agentId = randomUUID();
@@ -120,8 +135,50 @@ export class ExternalSubagentGateway {
       createdAt: new Date().toISOString(),
     };
     this.rosterFor(sessionId).set(agentId, subagent);
+    void this.store
+      .recordAgent(sessionId, {
+        id: agentId,
+        role: "subagent",
+        name: subagent.name,
+        status: subagent.status,
+        model: subagent.model,
+        thinkingDepth: subagent.thinkingDepth,
+        template: subagent.template,
+        host: "external",
+        connector: connectorFor("external-inbound"),
+      })
+      .catch((err: unknown) => {
+        console.error(
+          `[external] failed to persist sub-agent "${subagent.name}" in session ${sessionId}:`,
+          err,
+        );
+      });
     this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
     return { id: agentId };
+  }
+
+  /**
+   * Restores a persisted tab as `detached`. Nothing here creates the far side —
+   * the bundle tool driving it does — so the tab comes back as a place for its
+   * next turn to land rather than as something claiming to be live.
+   *
+   * Idempotent, and never downgrades a live tab.
+   */
+  reattach(sessionId: string, agent: SessionAgent): void {
+    const roster = this.rosterFor(sessionId);
+    if (roster.get(agent.id)?.status === "active") return;
+
+    const subagent: ExternalSubagent = {
+      agentId: agent.id,
+      name: agent.name,
+      status: "detached",
+      template: agent.template,
+      model: agent.model,
+      thinkingDepth: parseThinkingLevel(agent.thinkingDepth),
+      createdAt: agent.createdAt,
+    };
+    roster.set(agent.id, subagent);
+    this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
   }
 
   /**
@@ -139,6 +196,7 @@ export class ExternalSubagentGateway {
   ): RunId | undefined {
     const subagent = this.sessions.get(sessionId)?.get(agentId);
     if (!subagent) return undefined;
+    this.markAttached(sessionId, subagent);
     return this.runs.open({
       sessionId,
       participantId: agentId,
@@ -178,10 +236,21 @@ export class ExternalSubagentGateway {
   ): void {
     const subagent = this.sessions.get(sessionId)?.get(agentId);
     if (!subagent) return;
+    this.markAttached(sessionId, subagent);
     this.handlers.onAgentEvent(sessionId, this.descriptorFor(subagent), {
       ...event,
       runId: this.attributeTo(sessionId, agentId, runId),
     });
+  }
+
+  /**
+   * Completes the reattach: a detached tab receiving a turn or streaming output
+   * is the far side coming back. No-op — and no roster churn — for a live tab.
+   */
+  private markAttached(sessionId: string, subagent: ExternalSubagent): void {
+    if (subagent.status !== "detached") return;
+    subagent.status = "active";
+    this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
   }
 
   /**
@@ -201,9 +270,10 @@ export class ExternalSubagentGateway {
   }
 
   /**
-   * Applies a lifecycle status change to a sub-agent tab. Terminal statuses
-   * (anything other than `active`) drop the roster entry and settle whatever
-   * Run the tab still had open. No-op for an unknown id.
+   * Applies a lifecycle status change to a sub-agent tab. A terminal status drops
+   * the roster entry and settles whatever Run the tab still had open; `detached`
+   * keeps it, because the point of that state is having something to come back
+   * to. No-op for an unknown id.
    */
   setStatus(sessionId: string, agentId: string, status: SubagentStatus): void {
     const roster = this.sessions.get(sessionId);
@@ -211,7 +281,7 @@ export class ExternalSubagentGateway {
     if (!roster || !subagent) return;
 
     subagent.status = status;
-    if (status !== "active") {
+    if (isTerminalStatus(status)) {
       roster.delete(agentId);
       this.runs.settleOpenFor(
         sessionId,

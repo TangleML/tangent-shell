@@ -2,6 +2,7 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { PiAgentManager, SpawnedSubagent } from "../pi/piAgentManager.ts";
+import type { SessionAgent } from "../store/sessionStore.ts";
 import type {
   CancelResult,
   Connector,
@@ -62,5 +63,11 @@ export class PiConnector implements Connector {
 
   kill(sessionId: string, participantId: string, completed: boolean): void {
     this.pi.killAgent(sessionId, participantId, completed);
+  }
+
+  revive(sessionId: string, agent: SessionAgent): void {
+    // The server owns the process, so restoring the participant is re-spawning
+    // it from the config the row kept.
+    this.pi.reviveSubagent(sessionId, agent);
   }
 }

@@ -80,7 +80,7 @@ export const sessionAgents = sqliteTable(
     name: text("name").notNull(),
     /** The agent's task/description, when known. */
     purpose: text("purpose"),
-    /** `active` | `killed`. */
+    /** `active` | `detached` | `completed` | `killed` | `error`. */
     status: text("status").notNull().default("active"),
     model: text("model"),
     thinkingDepth: text("thinking_depth"),
@@ -106,10 +106,8 @@ export const sessionAgents = sqliteTable(
       .notNull()
       .default(true),
     /**
-     * Which host runs the agent: `local` (a `pi` child), `remote` (a
-     * connected remote environment), or `external` (a tab driven by a bundle
-     * tool). Defaults to `local`; only `local` sub-agents are revived after a
-     * restart.
+     * Which host runs the agent: `local` (a `pi` child) or `remote` (a
+     * connected remote environment). Defaults to `local`.
      */
     host: text("host").notNull().default("local"),
     /**

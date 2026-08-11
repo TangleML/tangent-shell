@@ -9,6 +9,7 @@ import type {
 
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
+import type { SessionAgent } from "../store/sessionStore.ts";
 
 /** A message addressed to one participant, as a connector receives it. */
 export interface DeliveryRequest {
@@ -61,8 +62,9 @@ export interface CancelResult {
  * `deliver` is required of every connector. One that cannot accept a message
  * declares {@link Connector.acceptsDelivery} false and refuses, because an
  * absent method is a compile-time refusal while an untaken branch is a runtime
- * mis-delivery — and the tree has had both. `cancelRun` follows the same rule:
- * a transport with no cancel protocol refuses by declaration.
+ * mis-delivery — and the tree has had both. `cancelRun` and `revive` follow the
+ * same rule: a transport with no cancel protocol, or no way to bring a
+ * participant back, says so by declaration.
  */
 export interface Connector {
   readonly descriptor: ConnectorDescriptor;
@@ -76,6 +78,10 @@ export interface Connector {
   /** Present only where {@link ConnectorDescriptor.spawnAuthority} allows it. */
   spawn?(sessionId: string, request: SubagentSpawnRequest): SpawnedSubagent;
   kill(sessionId: string, participantId: string, completed: boolean): void;
-  /** Restores a participant after a restart. PR 1.4 fills this in. */
-  revive?(sessionId: string, participantId: string): void;
+  /**
+   * Restores one persisted participant after a restart. What that means is the
+   * connector's to decide: re-spawning the process it owns, or restoring the
+   * roster entry as `detached` and waiting for the far end to come back.
+   */
+  revive(sessionId: string, agent: SessionAgent): void;
 }

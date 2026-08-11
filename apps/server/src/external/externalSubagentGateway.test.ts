@@ -6,6 +6,8 @@ import type { SubagentInfo } from "@tangent/shared/contracts.ts";
 import type { PiAgentHandlers } from "../pi/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
+import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
+import type { SessionAgent } from "../store/sessionStore.ts";
 import { ExternalSubagentGateway } from "./externalSubagentGateway.ts";
 
 /** Captures every handler call so tests can assert on them. */
@@ -27,8 +29,27 @@ function makeHarness() {
 
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
-  const gateway = new ExternalSubagentGateway(handlers, runs);
-  return { gateway, rosterUpdates, events, runs, runStore };
+  const store = new InMemorySessionStore();
+  const gateway = new ExternalSubagentGateway(handlers, runs, store);
+  return { gateway, rosterUpdates, events, runs, runStore, store };
+}
+
+/** A persisted roster row, as a reattach reads one. */
+function agentRow(id: string, overrides: Partial<SessionAgent> = {}) {
+  return {
+    id,
+    sessionId: "s1",
+    role: "subagent",
+    name: "worker",
+    status: "detached",
+    connector: {
+      kind: "external-inbound",
+      lifecycle: "owned",
+      spawnAuthority: "bundle-tool",
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  } satisfies SessionAgent;
 }
 
 test("register records a roster entry and surfaces it as active", () => {
@@ -44,6 +65,71 @@ test("register records a roster entry and surfaces it as active", () => {
   const info = h.rosterUpdates.at(-1);
   assert.equal(info?.host, "external");
   assert.equal(info?.status, "active");
+});
+
+test("register persists a roster row so a restart has something to reattach to", async () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", {
+    name: "worker",
+    model: "claude",
+    template: "researcher",
+  });
+
+  const persisted = (await h.store.listAgents("s1")).find((a) => a.id === id);
+  assert.ok(persisted);
+  assert.equal(persisted.role, "subagent");
+  assert.equal(persisted.name, "worker");
+  assert.equal(persisted.status, "active");
+  assert.equal(persisted.model, "claude");
+  assert.equal(persisted.template, "researcher");
+  assert.equal(persisted.connector.kind, "external-inbound");
+});
+
+test("reattach restores a persisted tab as detached", () => {
+  const h = makeHarness();
+
+  h.gateway.reattach("s1", agentRow("ext-1", { model: "claude" }));
+
+  assert.equal(h.gateway.hasAgent("s1", "ext-1"), true);
+  const info = h.gateway.listSubagents("s1")[0];
+  assert.equal(info.status, "detached");
+  assert.equal(info.model, "claude");
+  assert.equal(info.createdAt, "2026-01-01T00:00:00.000Z");
+  assert.equal(h.rosterUpdates.at(-1)?.status, "detached");
+});
+
+test("a detached tab reattaches when the far side pushes its next turn", () => {
+  const h = makeHarness();
+  h.gateway.reattach("s1", agentRow("ext-1"));
+
+  h.gateway.pushEvent("s1", "ext-1", { type: "start", messageId: "m1" });
+
+  assert.equal(h.gateway.listSubagents("s1")[0].status, "active");
+  assert.deepEqual(
+    h.events.map((e) => e.type),
+    ["start"],
+  );
+});
+
+test("reattach never downgrades a live tab", () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+  const updatesBefore = h.rosterUpdates.length;
+
+  h.gateway.reattach("s1", agentRow(id, { status: "active" }));
+
+  assert.equal(h.gateway.listSubagents("s1")[0].status, "active");
+  assert.equal(h.rosterUpdates.length, updatesBefore, "no roster churn");
+});
+
+test("setStatus to detached keeps the entry, unlike a terminal status", () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+
+  h.gateway.setStatus("s1", id, "detached");
+
+  assert.equal(h.gateway.hasAgent("s1", id), true);
+  assert.equal(h.rosterUpdates.at(-1)?.status, "detached");
 });
 
 test("the roster describes an external sub-agent as owned by its bundle tool", () => {

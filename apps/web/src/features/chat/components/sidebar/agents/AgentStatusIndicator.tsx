@@ -14,7 +14,7 @@ interface AgentStatusProps {
 
 /**
  * Status-tinted indicator mirroring an agent's lifecycle. A busy run pulses; an
- * idle agent shows its terminal/active state. Reads the agent's live status from
+ * idle agent shows its detached/terminal/active state. Reads its live status from
  * the shared cache, so the sidebar agent card and the opened agent tab trigger
  * always agree and the state survives a page reload.
  */
@@ -28,6 +28,8 @@ export function AgentStatusIndicator({ sessionId, agentId }: AgentStatusProps) {
   switch (status) {
     case "active":
       return <StatusDot variant="active" />;
+    case "detached":
+      return <Icon name="Unplug" size="xs" tone="subdued" />;
     case "completed":
       return <Icon name="Check" size="xs" tone="subdued" />;
     case "killed":

@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import {
   type ChatAuthor,
   connectorFields,
+  isTerminalStatus,
   type MessageDelivery,
+  RESTORABLE_STATUSES,
   type RunId,
   type RunIngress,
   type SubagentInfo,
@@ -27,13 +29,14 @@ import type { Namespace, Server as SocketIOServer, Socket } from "socket.io";
 
 import { REMOTE_ENV_TOKEN } from "../config.ts";
 import {
+  parseThinkingLevel,
   resolveSubagentConfig,
   type SubagentSpawnRequest,
 } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, PiAgentHandlers } from "../pi/types.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
-import type { SessionStore } from "../store/sessionStore.ts";
+import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
 /** Default and maximum number of transcript messages a room read returns. */
 const DEFAULT_ROOM_LIMIT = 30;
@@ -219,10 +222,14 @@ export class RemoteEnvironmentGateway {
    * Delivers a directed message/task to a remote sub-agent. When
    * `surfaceAuthor` is given, the message is also surfaced into the sub-agent's
    * transcript (matching the local manager), so directed tasks read as a real
-   * conversation. No-op for an unknown agent or a disconnected environment.
+   * conversation.
    *
    * Opens a Run for the message and puts its id on the command, so the
    * environment can echo it back on the events it streams.
+   *
+   * Returns whether the message reached an environment: a detached participant
+   * stays in the roster, so its connector needs to hear that nothing was sent
+   * rather than assume a silent success.
    */
   sendToAgent(
     sessionId: string,
@@ -231,9 +238,9 @@ export class RemoteEnvironmentGateway {
     surfaceAuthor?: ChatAuthor,
     delivery: MessageDelivery = "auto",
     ingress: RunIngress = "reaction",
-  ): void {
+  ): boolean {
     const environment = this.environmentFor(sessionId, agentId);
-    if (!environment) return;
+    if (!environment) return false;
 
     if (surfaceAuthor) {
       this.handlers.onAgentMessage(sessionId, agentId, surfaceAuthor, text);
@@ -248,6 +255,40 @@ export class RemoteEnvironmentGateway {
       runId: run.id,
     };
     environment.socket.emit(RemoteEnvEvents.Message, command);
+    return true;
+  }
+
+  /**
+   * Restores a persisted sub-agent's roster entry as `detached`. The protocol
+   * has no way to ask an environment what it still runs, so the entry exists to
+   * be reattached to rather than claiming to be live: the far end reattaches by
+   * sending a `subagent-update` marking the participant `active` again.
+   *
+   * Idempotent, and never downgrades a live entry — a reconnect that races a
+   * join must not detach something the environment has already re-declared.
+   */
+  reattach(sessionId: string, agent: SessionAgent): void {
+    const environmentId = agent.connector.environmentId;
+    // Rows written before the connector columns existed never recorded which
+    // environment hosted them, so there is nothing to reattach them to.
+    if (!environmentId) return;
+
+    const roster = this.rosterFor(sessionId);
+    if (roster.get(agent.id)?.status === "active") return;
+
+    const subagent: RemoteSubagent = {
+      agentId: agent.id,
+      name: agent.name,
+      status: "detached",
+      template: agent.template,
+      model: agent.model,
+      thinkingDepth: parseThinkingLevel(agent.thinkingDepth),
+      createdAt: agent.createdAt,
+      environmentId,
+      autoRelayToPrime: agent.autoRelayToPrime ?? true,
+    };
+    roster.set(agent.id, subagent);
+    this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
   }
 
   /** The connected environment hosting a sub-agent, if both are still live. */
@@ -363,18 +404,46 @@ export class RemoteEnvironmentGateway {
       ) => void this.handleRoomRead(request, callback),
     );
     socket.on("disconnect", () => this.onDisconnect(environmentId));
+
+    void this.replayRoster(environmentId);
+  }
+
+  /**
+   * Rebuilds the roster this environment's persisted sub-agents belong to, so a
+   * reconnect after a server restart has tabs to reattach to instead of an empty
+   * roster. Each comes back `detached`; the environment moves whichever it still
+   * runs back to `active`.
+   */
+  private async replayRoster(environmentId: string): Promise<void> {
+    const agents = await this.store.listAgentsForEnvironment(environmentId);
+    for (const agent of agents) {
+      if (!RESTORABLE_STATUSES.includes(agent.status)) continue;
+      this.reattach(agent.sessionId, agent);
+    }
   }
 
   /** Relays a streamed event to the chat layer, relaying finalized replies. */
   private handleAgentEvent(payload: RemoteAgentEventPayload): void {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
     if (!subagent) return;
+    this.markAttached(payload.sessionId, subagent);
     this.handlers.onAgentEvent(
       payload.sessionId,
       this.descriptorFor(subagent),
       { ...payload.event, runId: this.runIdFor(payload) },
     );
     this.relayEndToPrime(payload.sessionId, subagent, payload.event);
+  }
+
+  /**
+   * Completes the reattach: a detached participant producing output is the far
+   * end declaring itself live again, which is the only evidence this protocol
+   * offers. No-op — and no roster churn — for one that was already live.
+   */
+  private markAttached(sessionId: string, subagent: RemoteSubagent): void {
+    if (subagent.status !== "detached") return;
+    subagent.status = "active";
+    this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
   }
 
   /**
@@ -409,10 +478,10 @@ export class RemoteEnvironmentGateway {
     if (!roster || !subagent) return;
 
     subagent.status = payload.status;
-    if (payload.status !== "active") {
+    if (isTerminalStatus(payload.status)) {
       roster.delete(payload.agentId);
-      // The agent leaving `active` is the closest thing the protocol has to a
-      // run-end marker: whatever it was working on is over either way.
+      // The agent reaching a terminal status is the closest thing the protocol
+      // has to a run-end marker: whatever it was working on is over either way.
       this.runs.settleOpenFor(
         payload.sessionId,
         payload.agentId,
@@ -426,6 +495,7 @@ export class RemoteEnvironmentGateway {
   private handleAgentMessage(payload: RemoteAgentMessagePayload): void {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
     if (!subagent) return;
+    this.markAttached(payload.sessionId, subagent);
 
     const author: ChatAuthor = {
       id: subagent.agentId,
@@ -454,25 +524,29 @@ export class RemoteEnvironmentGateway {
     callback({ messages: all.slice(-clampLimit(request.limit)) });
   }
 
-  /** Drops a disconnected environment and fails its still-live sub-agents. */
+  /** Drops a disconnected environment and detaches its sub-agents. */
   private onDisconnect(environmentId: string): void {
     this.environments.delete(environmentId);
     for (const [sessionId, roster] of this.sessions) {
-      this.failEnvironmentAgents(sessionId, roster, environmentId);
+      this.detachEnvironmentAgents(sessionId, roster, environmentId);
     }
     console.log(`[remote-env] disconnected: ${environmentId}`);
   }
 
-  /** Marks every sub-agent owned by `environmentId` in a roster as errored. */
-  private failEnvironmentAgents(
+  /**
+   * Marks every sub-agent hosted by `environmentId` as `detached`, keeping its
+   * roster entry. "The far end is gone" is not an error and not a kill, and the
+   * entry has to survive for the environment to reattach to when it comes back.
+   */
+  private detachEnvironmentAgents(
     sessionId: string,
     roster: Map<string, RemoteSubagent>,
     environmentId: string,
   ): void {
-    for (const subagent of [...roster.values()]) {
+    for (const subagent of roster.values()) {
       if (subagent.environmentId !== environmentId) continue;
-      subagent.status = "error";
-      roster.delete(subagent.agentId);
+      if (isTerminalStatus(subagent.status)) continue;
+      subagent.status = "detached";
       // The far side is gone mid-work: the Run stopped without finishing.
       this.runs.settleOpenFor(sessionId, subagent.agentId, "failed");
       this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));

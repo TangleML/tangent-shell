@@ -6,6 +6,7 @@ import {
   type ChatAuthor,
   type MessageDelivery,
   PI_AGENT,
+  RESTORABLE_STATUSES,
   type RunIngress,
   type SessionRunStatus,
   type SessionStatusPayload,
@@ -315,19 +316,22 @@ function resolveEffectiveConfig(
 }
 
 /**
- * A persisted roster row is eligible for revive when it is an `active`,
- * locally-hosted sub-agent (Prime is handled by {@link PiAgentManager.ensure})
- * that isn't already live in the in-memory roster (so a reconnect won't
- * double-spawn it). Remote- and external-hosted sub-agents are never revived
- * here — they re-establish when their environment/bridge reconnects.
+ * A persisted roster row is eligible for revive when it is a sub-agent (Prime is
+ * handled by {@link PiAgentManager.ensure}) that is not terminal and isn't
+ * already live in the in-memory roster, so a reconnect won't double-spawn it.
+ * `detached` is the ordinary pre-revive state — the boot reconciliation puts
+ * every stale row there — so excluding it would stop revive working at all.
+ *
+ * Which transport a row belongs to is not asked here: {@link
+ * import("../connectors/connectorRegistry.ts").ConnectorRegistry.revive} routes
+ * each row to its own connector, so only rows this manager owns arrive.
  */
 function canReviveSubagent(
   session: SessionAgents,
   agent: SessionAgent,
 ): boolean {
   if (agent.role !== "subagent") return false;
-  if (agent.status !== "active") return false;
-  if (agent.host === "remote" || agent.host === "external") return false;
+  if (!RESTORABLE_STATUSES.includes(agent.status)) return false;
   return !session.agents.has(agent.id);
 }
 
@@ -564,37 +568,34 @@ export class PiAgentManager {
   }
 
   /**
-   * Re-spawns the session's previously-active sub-agents from their persisted
-   * roster after a full restart (when the in-memory roster holds only Prime).
-   * Each process comes back with the exact config it was spawned with (tools,
-   * appended system prompt, model/thinking, template, auto-relay), but its
-   * original task is deliberately NOT re-delivered: Pi is ephemeral
-   * (`--no-session`), so the revived process starts idle and Prime decides — from
-   * the transcript and session memory — whether to re-task it.
+   * Re-spawns one persisted sub-agent after a restart (when the in-memory roster
+   * holds only Prime). The process comes back with the exact config it was
+   * spawned with (tools, appended system prompt, model/thinking, template,
+   * auto-relay), but its original task is deliberately NOT re-delivered: Pi is
+   * ephemeral (`--no-session`), so the revived process starts idle and Prime
+   * decides — from the transcript and session memory — whether to re-task it.
    *
-   * No-op for a session whose Prime isn't ensured yet, and skips any agent that
-   * is already live (so a reconnect doesn't double-spawn) or not `active`.
+   * No-op for a session whose Prime isn't ensured yet, for an agent that is
+   * already live (so a reconnect doesn't double-spawn), and for a terminal row.
    */
-  reviveSubagents(sessionId: string, persisted: SessionAgent[]): void {
+  reviveSubagent(sessionId: string, agent: SessionAgent): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    if (!canReviveSubagent(session, agent)) return;
 
-    for (const agent of persisted) {
-      if (!canReviveSubagent(session, agent)) continue;
-      const revived = this.spawnAgent(
-        sessionId,
-        session,
-        {
-          agentId: agent.id,
-          role: "subagent",
-          name: agent.name,
-          template: agent.template,
-          autoRelayToPrime: agent.autoRelayToPrime ?? true,
-        },
-        this.reconstructSubagentConfig(session, agent),
-      );
-      this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(revived));
-    }
+    const revived = this.spawnAgent(
+      sessionId,
+      session,
+      {
+        agentId: agent.id,
+        role: "subagent",
+        name: agent.name,
+        template: agent.template,
+        autoRelayToPrime: agent.autoRelayToPrime ?? true,
+      },
+      this.reconstructSubagentConfig(session, agent),
+    );
+    this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(revived));
   }
 
   /**

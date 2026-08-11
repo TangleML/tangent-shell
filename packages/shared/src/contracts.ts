@@ -356,8 +356,33 @@ export interface UpdateTriggerRequest {
   schedule?: TriggerSchedule;
 }
 
-/** Lifecycle status of a sub-agent, surfaced in the session's agent roster. */
-export type SubagentStatus = "active" | "completed" | "killed" | "error";
+/**
+ * Lifecycle status of a sub-agent, surfaced in the session's agent roster.
+ *
+ * `detached` is the state of a participant that has a place in the roster with
+ * nothing behind it — the far end dropped, or the server restarted and has not
+ * restored it yet. Distinct from `error` (something went wrong) and from the
+ * terminal `completed` / `killed`, and the only non-terminal status a revive or
+ * a reattach can move a participant out of.
+ */
+export type SubagentStatus =
+  | "active"
+  | "detached"
+  | "completed"
+  | "killed"
+  | "error";
+
+/**
+ * The statuses a participant can still be restored from. Everything else is
+ * terminal: a `completed`, `killed` or `error`ed participant stays that way, and
+ * only these two describe one that ought to have something behind it.
+ */
+export const RESTORABLE_STATUSES: SubagentStatus[] = ["active", "detached"];
+
+/** Whether a status is one nothing moves a participant out of. */
+export function isTerminalStatus(status: SubagentStatus): boolean {
+  return !RESTORABLE_STATUSES.includes(status);
+}
 
 /**
  * Which host runs a sub-agent: `local` (a `pi` child process managed by the
