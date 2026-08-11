@@ -2,12 +2,21 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { PiAgentManager, SpawnedSubagent } from "../pi/piAgentManager.ts";
-import type { Connector, DeliveryRequest, DeliveryResult } from "./types.ts";
+import type {
+  CancelResult,
+  Connector,
+  DeliveryRequest,
+  DeliveryResult,
+  RunCancellation,
+} from "./types.ts";
+
+/** Why a cancellation was refused when the participant was already idle. */
+const NOTHING_RUNNING = "That agent isn't running anything right now.";
 
 /**
  * The connector for agents running as `pi` child processes the server owns —
  * every session's Prime and its local sub-agents. A thin adapter over {@link
- * PiAgentManager}, which is unchanged.
+ * PiAgentManager}, which owns its own run boundaries.
  */
 export class PiConnector implements Connector {
   readonly descriptor = connectorFor("pi-stdio");
@@ -34,8 +43,17 @@ export class PiConnector implements Connector {
       request.text,
       request.surfaceAuthor,
       request.delivery,
+      request.ingress,
     );
     return { delivered: true };
+  }
+
+  cancelRun(request: RunCancellation): CancelResult {
+    // Pi's abort RPC targets the process, not a run id: the participant has at
+    // most one Run open, so cancelling it is cancelling that Run.
+    const cancelled = this.pi.abort(request.sessionId, request.participantId);
+    if (cancelled) return { cancelled: true };
+    return { cancelled: false, reason: NOTHING_RUNNING };
   }
 
   spawn(sessionId: string, request: SubagentSpawnRequest): SpawnedSubagent {

@@ -21,6 +21,7 @@ import {
   type MessageDelivery,
   PI_AGENT,
   type PinnedArtifact,
+  type RunId,
   type Session,
   SocketEvents,
   type SubagentInfo,
@@ -121,6 +122,14 @@ export function useSessionChat(sessionId: string) {
   // Maps an in-flight message id to its conversation so `agent:error` (which
   // only carries a messageId) can clear the right thread's streaming state.
   const conversationByMessageId = useRef<Map<string, string>>(new Map());
+  // The run each conversation is currently working under, so `abort` can name
+  // the run it means. Refs, not state: nothing renders from either, and the
+  // conversation-keyed state above already drives every visual.
+  const runIdByConversation = useRef<Map<string, RunId>>(new Map());
+  // Runs with a message mid-stream. `agent:activity` going null also happens
+  // between messages within a run, so this is what distinguishes "the run's last
+  // event" from "the spinner cleared because text started arriving".
+  const streamingRuns = useRef<Set<RunId>>(new Set());
 
   // The current human's chat identity, derived from `GET /api/me`. Using the
   // email as the author id keeps "is this my message?" detection stable across
@@ -174,6 +183,23 @@ export function useSessionChat(sessionId: string) {
       for (const id of statuses.keys()) publish(id);
     };
 
+    // Follows a conversation's run through the activity indicator: a non-null
+    // activity records which run is working, and a null one with nothing
+    // streaming is the run's last event, so the conversation has no run again.
+    const trackRunActivity = (
+      conversationId: string,
+      activity: AgentActivity | null,
+      runId: RunId | undefined,
+    ) => {
+      if (activity) {
+        if (runId) runIdByConversation.current.set(conversationId, runId);
+        return;
+      }
+      const current = runId ?? runIdByConversation.current.get(conversationId);
+      if (!current || streamingRuns.current.has(current)) return;
+      runIdByConversation.current.delete(conversationId);
+    };
+
     socket.on("connect", () => {
       // Reset on (re)connect rather than synchronously in the effect body so we
       // don't trigger cascading renders; history and roster repopulate via the
@@ -190,6 +216,8 @@ export function useSessionChat(sessionId: string) {
       setActivityByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
+      runIdByConversation.current.clear();
+      streamingRuns.current.clear();
       // Reset the published statuses; the join snapshot (roster + replayed
       // activity) republishes them. Prime is present immediately.
       streaming.clear();
@@ -206,6 +234,8 @@ export function useSessionChat(sessionId: string) {
       setActivityByConversation(new Map());
       setMemorySuggestions([]);
       conversationByMessageId.current.clear();
+      runIdByConversation.current.clear();
+      streamingRuns.current.clear();
       // Nothing is running while disconnected; clear the busy inputs and
       // republish every known agent as idle (keeping their lifecycle status).
       streaming.clear();
@@ -223,22 +253,29 @@ export function useSessionChat(sessionId: string) {
 
     // An agent begins a (new) message: append an empty placeholder we fill via
     // deltas and mark that conversation's message stream in flight.
-    socket.on(SocketEvents.AgentStart, ({ message }: AgentStartPayload) => {
-      conversationByMessageId.current.set(message.id, message.conversationId);
-      setStreamingConversations((prev) => {
-        const next = new Set(prev);
-        next.add(message.conversationId);
-        return next;
-      });
-      setStreamingMessageIds((prev) => {
-        const next = new Set(prev);
-        next.add(message.id);
-        return next;
-      });
-      setMessages((prev) => [...prev, message]);
-      streaming.add(message.conversationId);
-      publish(message.conversationId);
-    });
+    socket.on(
+      SocketEvents.AgentStart,
+      ({ message, runId }: AgentStartPayload) => {
+        conversationByMessageId.current.set(message.id, message.conversationId);
+        if (runId) {
+          runIdByConversation.current.set(message.conversationId, runId);
+          streamingRuns.current.add(runId);
+        }
+        setStreamingConversations((prev) => {
+          const next = new Set(prev);
+          next.add(message.conversationId);
+          return next;
+        });
+        setStreamingMessageIds((prev) => {
+          const next = new Set(prev);
+          next.add(message.id);
+          return next;
+        });
+        setMessages((prev) => [...prev, message]);
+        streaming.add(message.conversationId);
+        publish(message.conversationId);
+      },
+    );
     // Streamed token: append it to the matching in-flight message.
     socket.on(
       SocketEvents.AgentDelta,
@@ -266,8 +303,9 @@ export function useSessionChat(sessionId: string) {
     // A single message finished: replace its placeholder with the final
     // message and end that message's stream. The run may still be busy (the
     // activity indicator drives that); message streaming is cleared here.
-    socket.on(SocketEvents.AgentEnd, ({ message }: AgentEndPayload) => {
+    socket.on(SocketEvents.AgentEnd, ({ message, runId }: AgentEndPayload) => {
       conversationByMessageId.current.delete(message.id);
+      if (runId) streamingRuns.current.delete(runId);
       setStreamingConversations((prev) => {
         if (!prev.has(message.conversationId)) return prev;
         const next = new Set(prev);
@@ -290,7 +328,8 @@ export function useSessionChat(sessionId: string) {
     // ephemeral spinner bubble; null clears it (message streaming / run idle).
     socket.on(
       SocketEvents.AgentActivity,
-      ({ conversationId, activity }: AgentActivityPayload) => {
+      ({ conversationId, activity, runId }: AgentActivityPayload) => {
+        trackRunActivity(conversationId, activity, runId);
         setActivityByConversation((prev) => {
           const next = new Map(prev);
           if (activity) {
@@ -310,11 +349,13 @@ export function useSessionChat(sessionId: string) {
     );
     socket.on(
       SocketEvents.AgentError,
-      ({ messageId, message }: AgentErrorPayload) => {
+      ({ messageId, message, runId }: AgentErrorPayload) => {
         const conversationId = messageId
           ? conversationByMessageId.current.get(messageId)
           : undefined;
         if (messageId) conversationByMessageId.current.delete(messageId);
+        if (runId) streamingRuns.current.delete(runId);
+        if (conversationId) runIdByConversation.current.delete(conversationId);
         if (messageId) {
           setStreamingMessageIds((prev) => {
             if (!prev.has(messageId)) return prev;
@@ -465,12 +506,17 @@ export function useSessionChat(sessionId: string) {
     socket.emit(SocketEvents.ChatMessage, payload);
   }
 
-  // Aborts an agent's in-progress run by id (`"prime"` or a sub-agent id). The
-  // server resets the run's state and the UI clears via the usual agent events.
+  // Cancels the run an agent (`"prime"` or a sub-agent id) is working under,
+  // naming the run when we know it so a run that has since been replaced isn't
+  // the one cancelled. The UI clears via the usual agent events.
   function abort(conversationId: string) {
     const socket = socketRef.current;
     if (!socket) return;
-    const payload: AgentAbortPayload = { sessionId, conversationId };
+    const payload: AgentAbortPayload = {
+      sessionId,
+      conversationId,
+      runId: runIdByConversation.current.get(conversationId),
+    };
     socket.emit(SocketEvents.AgentAbort, payload);
   }
 

@@ -130,13 +130,15 @@ function handleMessage(
   body: MessageInput,
   res: Response,
 ): void {
-  // Attributed to Prime (message_subagent is always a Prime-issued directive).
+  // Attributed to Prime (message_subagent is always a Prime-issued directive),
+  // and a tool call is what creates the work.
   const { sessionId, agentId, text } = body;
   const { delivered, reason } = connectors.resolve(sessionId, agentId).deliver({
     sessionId,
     participantId: agentId,
     text,
     surfaceAuthor: PI_AGENT,
+    ingress: "tool",
   });
   res.json({ ok: delivered, ...(reason ? { error: reason } : {}) });
 }

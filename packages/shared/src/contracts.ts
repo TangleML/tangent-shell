@@ -480,6 +480,61 @@ export function connectorFields(
   };
 }
 
+/** Identifies a single {@link Run}. */
+export type RunId = string;
+
+/**
+ * Lifecycle of a {@link Run}: `running` while the participant works, then one
+ * of three terminal states — it finished (`completed`), it was cancelled by a
+ * human or a supervisor (`cancelled`), or it stopped without finishing
+ * (`failed`). "Finished its task" and "was stopped" are different facts, so a
+ * settled Run keeps which one happened.
+ */
+export type RunStatus = "running" | "completed" | "cancelled" | "failed";
+
+/**
+ * What started a {@link Run}: the participant reacting to a message
+ * (`reaction`), a schedule firing (`schedule`), an inbound callback
+ * (`webhook`), or a tool call creating work (`tool`). A reaction vocabulary
+ * alone cannot describe a schedule or a tool, which is why ingress is its own
+ * field.
+ */
+export type RunIngress = "reaction" | "schedule" | "webhook" | "tool";
+
+/**
+ * One unit of work by one participant: what a stream of agent events is
+ * attributable to, and what cancellation acts on. Runs are serial per
+ * participant — opening one settles whichever Run that participant still had
+ * open.
+ */
+export interface Run {
+  id: RunId;
+  sessionId: string;
+  /** The participant doing the work. */
+  participantId: string;
+  /** The conversation this Run's messages land in by default. */
+  homeConversationId: string;
+  status: RunStatus;
+  ingress: RunIngress;
+  /**
+   * The far side's own id for this work, when a connector has one: an Aquifer
+   * World session id today, an A2A `Task.id` later.
+   */
+  externalId?: string;
+  /**
+   * Connector-private resume cursor for this Run (the Aquifer drain's
+   * `lastSeq`), so a far end that streams by cursor has somewhere durable to
+   * keep its position.
+   */
+  cursor?: string;
+  /** ISO-8601 timestamp. */
+  createdAt: string;
+  /** ISO-8601 timestamp. */
+  updatedAt: string;
+  /** ISO-8601 timestamp the Run settled; absent while it is `running`. */
+  endedAt?: string;
+}
+
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
@@ -650,10 +705,14 @@ export interface TerminalDataPayload {
 
 /**
  * Emitted when the Pi agent begins a reply. Carries an empty-content
- * `ChatMessage` that the client appends and then fills in via deltas.
+ * `ChatMessage` that the client appends and then fills in via deltas. `runId`
+ * sits beside the message rather than on it: a Message gains its own envelope
+ * fields in a later change, while the stream is a Run event.
  */
 export interface AgentStartPayload {
   message: ChatMessage;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** A streamed chunk of the agent's reply, keyed by the message it extends. */
@@ -661,6 +720,8 @@ export interface AgentDeltaPayload {
   sessionId: string;
   messageId: string;
   delta: string;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** A streamed chunk of the agent's reasoning, keyed by the message it extends. */
@@ -668,11 +729,15 @@ export interface AgentThinkingPayload {
   sessionId: string;
   messageId: string;
   delta: string;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** Emitted when the agent finishes; carries the final, complete message. */
 export interface AgentEndPayload {
   message: ChatMessage;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** Emitted when the agent fails to produce (or finish) a reply. */
@@ -680,6 +745,8 @@ export interface AgentErrorPayload {
   sessionId: string;
   messageId?: string;
   message: string;
+  /** The {@link Run} that failed, when one is attributable. */
+  runId?: RunId;
 }
 
 /** The kind of work an agent is currently doing, for the ephemeral indicator. */
@@ -707,6 +774,8 @@ export interface AgentActivityPayload {
   sessionId: string;
   conversationId: string;
   activity: AgentActivity | null;
+  /** The {@link Run} this activity belongs to, when one is attributable. */
+  runId?: RunId;
 }
 
 /**
@@ -722,6 +791,8 @@ export interface AgentQueuePayload {
   steering: string[];
   /** Follow-up messages waiting until the run fully stops. */
   followUp: string[];
+  /** The {@link Run} these messages are queued behind, when attributable. */
+  runId?: RunId;
 }
 
 /** Full sub-agent roster for a session, emitted on join and on reset. */
@@ -797,13 +868,16 @@ export interface ArtifactUnpinPayload {
 }
 
 /**
- * Sent (client -> server) to abort an agent's in-progress run. `conversationId`
- * is the target agent's id (`"prime"` or a sub-agent id), matching how messages
- * are tagged, so any agent's current work can be cancelled.
+ * Sent (client -> server) to cancel a {@link Run}. `conversationId` is the
+ * target agent's id (`"prime"` or a sub-agent id), matching how messages are
+ * tagged; `runId` names the Run when the client is tracking it, and the server
+ * resolves the participant's open Run when it is absent.
  */
 export interface AgentAbortPayload {
   sessionId: string;
   conversationId: string;
+  /** The {@link Run} to cancel; the server resolves it when omitted. */
+  runId?: RunId;
 }
 
 /**

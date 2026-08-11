@@ -15,6 +15,7 @@ import type {
   AgentActivity,
   ChatMessage,
   MessageDelivery,
+  RunId,
   SubagentStatus,
   ThinkingLevel,
 } from "./contracts.ts";
@@ -86,6 +87,11 @@ export interface RemoteSpawnCommand {
   task?: string;
   /** Whether finalized replies are auto-relayed back to Prime. */
   autoRelayToPrime: boolean;
+  /**
+   * The Run the initial `task` is work for, to echo back on its events. Absent
+   * when no task is sent, or when the server predates run attribution.
+   */
+  runId?: RunId;
 }
 
 /** server -> remote: deliver a directed message/task to a remote sub-agent. */
@@ -94,6 +100,8 @@ export interface RemoteMessageCommand {
   agentId: string;
   text: string;
   delivery: MessageDelivery;
+  /** The Run this message is work for, to echo back on its events. */
+  runId?: RunId;
 }
 
 /** server -> remote: terminate a remote sub-agent. */
@@ -124,6 +132,13 @@ export interface RemoteAgentEventPayload {
   sessionId: string;
   agentId: string;
   event: RemoteAgentEvent;
+  /**
+   * The Run this event belongs to, echoed from the command that started the
+   * work. Optional: an environment that doesn't echo it (or predates run
+   * attribution) still streams, and the server attributes the event to whatever
+   * Run that participant has open.
+   */
+  runId?: RunId;
 }
 
 /** remote -> server: a remote sub-agent's lifecycle status change. */

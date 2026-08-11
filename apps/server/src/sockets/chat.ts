@@ -25,6 +25,7 @@ import {
   type MemoryScope,
   type MemorySuggestionPayload,
   PI_AGENT,
+  type RunId,
   type Session,
   type SessionStatusPayload,
   type SessionStatusSnapshotPayload,
@@ -134,6 +135,8 @@ interface EmitContext {
   sessionId: string;
   conversationId: string;
   author: ChatAuthor;
+  /** The Run that produced the event, when the connector attributed one. */
+  runId?: RunId;
 }
 
 function emitStart(io: Server, ctx: EmitContext, messageId: string): void {
@@ -144,7 +147,7 @@ function emitStart(io: Server, ctx: EmitContext, messageId: string): void {
     ctx.author,
     "",
   );
-  const payload: AgentStartPayload = { message };
+  const payload: AgentStartPayload = { message, runId: ctx.runId };
   io.to(ctx.room).emit(SocketEvents.AgentStart, payload);
 }
 
@@ -157,6 +160,7 @@ function emitDelta(
     sessionId: ctx.sessionId,
     messageId: event.messageId,
     delta: event.delta,
+    runId: ctx.runId,
   };
   io.to(ctx.room).emit(SocketEvents.AgentDelta, payload);
 }
@@ -170,6 +174,7 @@ function emitThinking(
     sessionId: ctx.sessionId,
     messageId: event.messageId,
     delta: event.delta,
+    runId: ctx.runId,
   };
   io.to(ctx.room).emit(SocketEvents.AgentThinking, payload);
 }
@@ -188,9 +193,10 @@ function emitEnd(
     event.content,
     event.thinking,
   );
-  // Persist before broadcasting so reconnecting clients see it in history.
+  // Persist before broadcasting so reconnecting clients see it in history. The
+  // run id rides the payload, not the message: what is persisted is unchanged.
   void store.appendMessage(message).then(() => {
-    const payload: AgentEndPayload = { message };
+    const payload: AgentEndPayload = { message, runId: ctx.runId };
     io.to(ctx.room).emit(SocketEvents.AgentEnd, payload);
   });
 }
@@ -204,6 +210,7 @@ function emitError(
     sessionId: ctx.sessionId,
     messageId: event.messageId,
     message: event.message,
+    runId: ctx.runId,
   };
   io.to(ctx.room).emit(SocketEvents.AgentError, payload);
 }
@@ -217,6 +224,7 @@ function emitActivity(
     sessionId: ctx.sessionId,
     conversationId: ctx.conversationId,
     activity,
+    runId: ctx.runId,
   };
   io.to(ctx.room).emit(SocketEvents.AgentActivity, payload);
 }
@@ -231,6 +239,7 @@ function emitQueue(
     conversationId: ctx.conversationId,
     steering: event.steering,
     followUp: event.followUp,
+    runId: ctx.runId,
   };
   io.to(ctx.room).emit(SocketEvents.AgentQueue, payload);
 }
@@ -253,6 +262,7 @@ export function createAgentEventHandler(
       sessionId,
       conversationId: agent.agentId,
       author: authorFor(agent),
+      runId: event.runId,
     };
     relayStreamingEvent(io, ctx, event);
     relayTerminalEvent(io, store, ctx, event);
@@ -501,6 +511,31 @@ function handleMemoryDismiss(
 }
 
 /**
+ * Cancels a participant's Run through whichever connector holds it. The client
+ * names the Run when it is tracking one; otherwise the connector cancels
+ * whatever that participant has open. A refusal (a transport with no cancel
+ * protocol, or nothing running) is logged rather than surfaced: the user asked
+ * to stop something that isn't stoppable, and a system message in the thread
+ * would be noise.
+ */
+function handleAgentAbort(
+  connectors: ConnectorRegistry,
+  payload: AgentAbortPayload,
+): void {
+  const sessionId = payload?.sessionId;
+  const participantId = payload?.conversationId;
+  if (!sessionId || !participantId) return;
+
+  const { cancelled, reason } = connectors.cancelRun({
+    sessionId,
+    participantId,
+    runId: payload.runId,
+  });
+  if (cancelled) return;
+  console.log(`[runs] cancel refused for ${participantId}: ${reason}`);
+}
+
+/**
  * Registers chat (and a reserved terminal) handlers on the Socket.IO server.
  *
  * Phase 2 behaviour: clients join one room per session and receive history on
@@ -534,7 +569,7 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   );
 
   socket.on(SocketEvents.AgentAbort, (payload: AgentAbortPayload) =>
-    pi.abort(payload?.sessionId, payload?.conversationId),
+    handleAgentAbort(connectors, payload),
   );
 
   socket.on(SocketEvents.AgentSetModel, (payload: AgentSetModelPayload) =>

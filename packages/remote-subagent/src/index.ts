@@ -12,7 +12,11 @@
  * obvious.
  */
 
-import type { ChatMessage, SubagentStatus } from "@tangent/shared/contracts.ts";
+import type {
+  ChatMessage,
+  RunId,
+  SubagentStatus,
+} from "@tangent/shared/contracts.ts";
 import {
   REMOTE_ENV_NAMESPACE,
   type RemoteAgentEvent,
@@ -66,8 +70,18 @@ export interface ConnectRemoteEnvironmentOptions {
 export interface RemoteEnvironmentClient {
   /** The underlying Socket.IO connection (for connection-state listeners). */
   readonly socket: Socket;
-  /** Stream a single agent event (start/delta/thinking/end/...) to the server. */
-  agentEvent(sessionId: string, agentId: string, event: RemoteAgentEvent): void;
+  /**
+   * Stream a single agent event (start/delta/thinking/end/...) to the server.
+   * Pass the `runId` from the command that asked for this work to attribute the
+   * event to it; without one the server attributes it to whatever that
+   * sub-agent has open.
+   */
+  agentEvent(
+    sessionId: string,
+    agentId: string,
+    event: RemoteAgentEvent,
+    runId?: RunId,
+  ): void;
   /** Push a sub-agent's lifecycle status change to the server. */
   subagentUpdate(
     sessionId: string,
@@ -157,8 +171,13 @@ export function connectRemoteEnvironment(
 
   return {
     socket,
-    agentEvent(sessionId, agentId, event) {
-      const payload: RemoteAgentEventPayload = { sessionId, agentId, event };
+    agentEvent(sessionId, agentId, event, runId) {
+      const payload: RemoteAgentEventPayload = {
+        sessionId,
+        agentId,
+        event,
+        runId,
+      };
       socket.emit(RemoteEnvEvents.AgentEvent, payload);
     },
     subagentUpdate(sessionId, agentId, status) {

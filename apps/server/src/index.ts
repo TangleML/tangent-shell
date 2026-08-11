@@ -31,6 +31,7 @@ import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createMcpRelayRouter } from "./routes/mcp.ts";
 import { createMeRouter } from "./routes/me.ts";
 import { createSessionsRouter } from "./routes/sessions/index.ts";
+import { RunRegistry } from "./runs/runRegistry.ts";
 import {
   createAgentEventHandler,
   createAgentMessageHandler,
@@ -43,11 +44,14 @@ import {
 } from "./sockets/chat.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
+import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 
-// Single shared store instance backs both REST routes and socket handlers.
-// Opening the DB applies pending drizzle-kit migrations on startup.
-const store = new SqliteSessionStore(openDb());
+// Opening the DB applies pending drizzle-kit migrations on startup. The single
+// shared connection backs both stores: session metadata for the REST routes and
+// socket handlers, runs for the run registry.
+const db = openDb();
+const store = new SqliteSessionStore(db);
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
 
@@ -84,10 +88,18 @@ const agentHandlers: PiAgentHandlers = {
   onSessionStatus: createSessionStatusHandler(io),
 };
 
+// Tracks which participant is working under which run id, so every stream is
+// attributable and cancellation has a run to act on. Rows left `running` by a
+// previous process are settled once here: nothing can run before we start.
+const runs = new RunRegistry(new SqliteRunStore(db));
+void runs.failStaleRuns().then((failed) => {
+  if (failed > 0) console.log(`[runs] settled ${failed} stale run(s)`);
+});
+
 // The manager runs a roster of Pi processes per session (Prime + sub-agents);
 // their streaming events and roster changes are relayed to the matching
 // Socket.IO room by the chat handlers.
-const pi = new PiAgentManager(agentHandlers, memory);
+const pi = new PiAgentManager(agentHandlers, memory, runs);
 
 // Relays a message into a session's Prime process. Shared by the remote-env
 // gateway and the generic MCP relay so both feed Prime the same way.
@@ -102,12 +114,13 @@ const remoteGateway = new RemoteEnvironmentGateway(
   agentHandlers,
   store,
   deliverToPrime,
+  runs,
 );
 
 // Registry of external sub-agent tabs: work runs outside Tangent (e.g. driven
 // by a bundle tool over the internal external-agents API) and streams into a
 // tab via the same relay handlers a local sub-agent uses.
-const externalGateway = new ExternalSubagentGateway(agentHandlers);
+const externalGateway = new ExternalSubagentGateway(agentHandlers, runs);
 
 // The single lookup from a participant to the connector that reaches it. Every
 // spawn/message/kill/list route goes through it, so an id no connector holds is

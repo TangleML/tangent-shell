@@ -3,7 +3,19 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
-import type { Connector, DeliveryRequest, DeliveryResult } from "./types.ts";
+import type {
+  CancelResult,
+  Connector,
+  DeliveryRequest,
+  DeliveryResult,
+} from "./types.ts";
+
+/**
+ * Why a cancellation is refused: the remote protocol carries commands to spawn,
+ * message and kill an agent, but nothing to interrupt a turn in progress.
+ */
+const NO_CANCEL_PROTOCOL =
+  "Remote sub-agents can't be interrupted mid-turn; kill it instead.";
 
 /**
  * The connector for sub-agents hosted inside a connected remote environment. A
@@ -36,8 +48,13 @@ export class RemoteEnvConnector implements Connector {
       request.text,
       request.surfaceAuthor,
       request.delivery,
+      request.ingress,
     );
     return { delivered: true };
+  }
+
+  cancelRun(): CancelResult {
+    return { cancelled: false, reason: NO_CANCEL_PROTOCOL };
   }
 
   spawn(sessionId: string, request: SubagentSpawnRequest): SpawnedSubagent {

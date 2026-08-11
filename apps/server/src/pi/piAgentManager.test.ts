@@ -8,6 +8,8 @@ import { afterEach, mock, test } from "node:test";
 
 import { connectorFor } from "@tangent/shared/contracts.ts";
 
+import { RunRegistry } from "../runs/runRegistry.ts";
+import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import type { MemoryManager } from "./memory.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
@@ -46,14 +48,25 @@ interface SpawnRecord {
   child: FakeChild;
 }
 
+/** One relayed agent event, reduced to what the run tests assert on. */
+interface RelayedEvent {
+  agentId: string;
+  type: string;
+  runId?: string;
+}
+
 /** Builds a manager wired to a fake launcher; returns it plus the spawn log. */
 function makeManager(): {
   pi: PiAgentManager;
   spawns: SpawnRecord[];
   rosterUpdates: { id: string; status: string }[];
+  events: RelayedEvent[];
+  runs: RunRegistry;
+  runStore: InMemoryRunStore;
 } {
   const spawns: SpawnRecord[] = [];
   const rosterUpdates: { id: string; status: string }[] = [];
+  const events: RelayedEvent[] = [];
 
   const fakeSpawn = ((
     _command: string,
@@ -70,7 +83,12 @@ function makeManager(): {
   }) as unknown as typeof spawn;
 
   const handlers: PiAgentHandlers = {
-    onAgentEvent: () => {},
+    onAgentEvent: (_sessionId, agent, event) =>
+      events.push({
+        agentId: agent.agentId,
+        type: event.type,
+        runId: event.runId,
+      }),
     onSubagentUpdate: (_sessionId, subagent) =>
       rosterUpdates.push({ id: subagent.id, status: subagent.status }),
     onAgentMessage: () => {},
@@ -82,8 +100,10 @@ function makeManager(): {
     buildPreamble: () => "## Memory\n\n(empty)",
   } as unknown as MemoryManager;
 
-  const pi = new PiAgentManager(handlers, memory, fakeSpawn);
-  return { pi, spawns, rosterUpdates };
+  const runStore = new InMemoryRunStore();
+  const runs = new RunRegistry(runStore);
+  const pi = new PiAgentManager(handlers, memory, runs, fakeSpawn);
+  return { pi, spawns, rosterUpdates, events, runs, runStore };
 }
 
 /** A persisted roster row with sane defaults, overridable per field. */
@@ -235,6 +255,136 @@ test("the local roster describes its connector", () => {
   assert.deepEqual(info.connector, expected);
   assert.equal(info.host, "local");
   assert.deepEqual(pi.listSubagents("s1")[0].connector, expected);
+});
+
+/** Feeds one Pi stdout event into an agent's reader. */
+function emitPi(child: FakeChild, event: Record<string, unknown>): void {
+  child.stdout.emit("data", Buffer.from(`${JSON.stringify(event)}\n`));
+}
+
+/** Drives a full Pi turn: one assistant message from `agent_start` to `agent_end`. */
+function runTurn(child: FakeChild, text: string): void {
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, { type: "message_start", message: { role: "assistant" } });
+  emitPi(child, {
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: text },
+  });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: text },
+  });
+  emitPi(child, { type: "agent_end" });
+}
+
+/** Yields to the microtask queue so write-through persistence has landed. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+test("a prompt opens one run and every event in the turn carries its id", async () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.prompt("s1", "/tmp/s1", "hello");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId, "prompting an idle agent opens a run");
+
+  runTurn(h.spawns[0].child, "hi there");
+  await flush();
+
+  const relayed = h.events.filter((e) => e.agentId === PRIME_AGENT_ID);
+  assert.deepEqual(
+    relayed.map((e) => e.type),
+    ["activity", "start", "activity", "delta", "end", "activity", "activity"],
+  );
+  assert.ok(
+    relayed.every((e) => e.runId === runId),
+    "every event of the turn is attributed to the one run",
+  );
+  assert.equal((await h.runStore.getRun(runId))?.status, "completed");
+});
+
+test("a message delivered mid-run joins the run in flight", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.prompt("s1", "/tmp/s1", "first");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  h.pi.prompt("s1", "/tmp/s1", "and also this");
+
+  assert.equal(
+    h.runs.current("s1", PRIME_AGENT_ID)?.id,
+    runId,
+    "a steer/follow-up is part of the turn Pi is already taking",
+  );
+});
+
+test("aborting a run settles it as cancelled, not completed", async () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  h.pi.prompt("s1", "/tmp/s1", "long job");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), true);
+  emitPi(h.spawns[0].child, { type: "agent_end" });
+  await flush();
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
+});
+
+test("aborting an idle agent refuses instead of cancelling nothing", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false);
+  assert.equal(h.pi.abort("s1", "ghost"), false);
+});
+
+test("a turn Pi starts on its own still gets a run", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  emitPi(h.spawns[0].child, { type: "agent_start" });
+
+  assert.ok(h.runs.current("s1", PRIME_AGENT_ID));
+});
+
+test("a crash fails the run that was in flight", async () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  h.pi.prompt("s1", "/tmp/s1", "work");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+
+  h.spawns[0].child.crash();
+  await flush();
+
+  assert.equal((await h.runStore.getRun(runId))?.status, "failed");
+});
+
+test("a sub-agent's initial task is a tool-driven run", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  const { info } = h.pi.spawnSubagent("s1", { name: "Worker", task: "go" });
+
+  assert.equal(h.runs.current("s1", info.id)?.ingress, "tool");
+});
+
+test("killing a sub-agent mid-run cancels its run", async () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const { info } = h.pi.spawnSubagent("s1", { name: "Worker", task: "go" });
+  const runId = h.runs.current("s1", info.id)?.id;
+  assert.ok(runId);
+
+  h.pi.killAgent("s1", info.id);
+  await flush();
+
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
 });
 
 test("an intentional kill is not auto-respawned", () => {

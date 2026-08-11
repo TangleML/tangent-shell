@@ -2,11 +2,19 @@ import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
 
 import type { PiAgentHandlers } from "../pi/types.ts";
 import { refuseDelivery } from "./refusal.ts";
-import type { Connector, DeliveryRequest, DeliveryResult } from "./types.ts";
+import type {
+  CancelResult,
+  Connector,
+  DeliveryRequest,
+  DeliveryResult,
+} from "./types.ts";
 
 /** Shown in the addressed conversation when no connector holds the participant. */
 const NOT_AVAILABLE =
   "This agent is no longer available, so the message wasn't delivered.";
+
+/** Why a cancellation is refused: there is no participant to cancel anything on. */
+const NOT_AVAILABLE_TO_CANCEL = "This agent is no longer available.";
 
 /**
  * The connector a registry answers with when no other one holds the
@@ -34,6 +42,12 @@ export class NullConnector implements Connector {
 
   deliver(request: DeliveryRequest): DeliveryResult {
     return refuseDelivery(this.handlers, request, NOT_AVAILABLE);
+  }
+
+  cancelRun(): CancelResult {
+    // Silent, unlike a refused delivery: nothing was said, so nothing needs
+    // answering in the transcript.
+    return { cancelled: false, reason: NOT_AVAILABLE_TO_CANCEL };
   }
 
   kill(): void {}

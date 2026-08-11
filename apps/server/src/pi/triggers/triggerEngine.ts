@@ -4,6 +4,7 @@ import type { BundleTrigger } from "@tangent/shared/configBundle.ts";
 import type {
   ChatAuthor,
   ChatMessage,
+  RunIngress,
   Trigger,
   TriggerRosterPayload,
   TriggerTarget,
@@ -34,6 +35,11 @@ function roomFor(sessionId: string): string {
 /** Author attributed to a trigger's delivered prompt (labelled by the trigger). */
 function triggerAuthor(stored: StoredTrigger): ChatAuthor {
   return { ...TRIGGER_AUTHOR, name: stored.title ?? stored.name };
+}
+
+/** What a firing counts as when it opens a Run: the trigger's own signal. */
+function ingressFor(stored: StoredTrigger): RunIngress {
+  return stored.kind === "schedule" ? "schedule" : "webhook";
 }
 
 /** Builds the spawn request that revives a `subagent`-target trigger's sub-agent. */
@@ -246,7 +252,7 @@ export class TriggerEngine {
     };
     await this.store.appendMessage(message);
     this.io.to(roomFor(sessionId)).emit(SocketEvents.ChatMessage, message);
-    this.pi.prompt(sessionId, rootPath, prompt);
+    this.pi.prompt(sessionId, rootPath, prompt, "auto", ingressFor(stored));
   }
 
   /**
@@ -262,7 +268,14 @@ export class TriggerEngine {
     prompt: string,
   ): void {
     const { agentId } = this.ensureSubagent(sessionId, rootPath, stored);
-    this.pi.sendToAgent(sessionId, agentId, prompt, triggerAuthor(stored));
+    this.pi.sendToAgent(
+      sessionId,
+      agentId,
+      prompt,
+      triggerAuthor(stored),
+      "auto",
+      ingressFor(stored),
+    );
   }
 
   /**
