@@ -5,26 +5,15 @@ import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
-import { useCreateSession } from "@/features/sessions/hooks/useCreateSession";
 import { useSessions } from "@/features/sessions/hooks/useSessions";
-import { env } from "@/shared/config/env";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
 
-import { NewSessionButton } from "./components/NewSessionButton";
 import { SessionsTable } from "./components/SessionsTable";
 
 export function SessionsPage() {
   const { data: sessions, isLoading, error } = useSessions();
-  const { data: bundles } = useAgentBundles();
-  const {
-    mutate: createSession,
-    isPending: isCreating,
-    isError: isCreateError,
-    error: createError,
-  } = useCreateSession();
   const navigate = useNavigate();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -32,34 +21,12 @@ export function SessionsPage() {
   const visibleSessions = showArchived
     ? sessions
     : sessions?.filter((session) => !session.archived);
-  const defaultBundle = bundles?.find(
-    (bundle) => bundle.id === env.defaultSessionBundleId,
-  );
-  const defaultBundleName = defaultBundle?.name ?? env.defaultSessionBundleId;
 
   const openSession = (session: Session) =>
     void navigate({
       to: "/sessions/$sessionId",
       params: { sessionId: session.id },
     });
-
-  const startDefaultBundle = () =>
-    createSession(
-      { bundleId: env.defaultSessionBundleId, name: defaultBundleName },
-      { onSuccess: openSession },
-    );
-
-  const startFromBundle = (bundleId: string, name: string) =>
-    createSession({ bundleId, name }, { onSuccess: openSession });
-
-  const newSessionButton = (
-    <NewSessionButton
-      bundles={bundles}
-      creating={isCreating}
-      onStartDefaultBundle={startDefaultBundle}
-      onStartFromBundle={startFromBundle}
-    />
-  );
 
   return (
     <WorkArea>
@@ -75,12 +42,6 @@ export function SessionsPage() {
           </Paragraph>
         ) : null}
 
-        {isCreateError ? (
-          <Paragraph size="sm" tone="critical">
-            Failed to create session: {createError.message}
-          </Paragraph>
-        ) : null}
-
         {isLoading ? (
           <Paragraph size="sm" tone="subdued">
             Loading sessions...
@@ -92,7 +53,6 @@ export function SessionsPage() {
             icon="FolderOpen"
             title="No sessions yet"
             description="Start with the default bundle or choose another agent bundle to get started."
-            action={newSessionButton}
           />
         ) : null}
 
@@ -109,7 +69,6 @@ export function SessionsPage() {
               sessions={visibleSessions ?? []}
               onOpen={openSession}
             />
-            {newSessionButton}
           </BlockStack>
         ) : null}
       </BlockStack>

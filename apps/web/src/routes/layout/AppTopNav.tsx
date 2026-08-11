@@ -6,6 +6,7 @@ import { UserAvatar } from "@/features/user/components/UserAvatar";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
 
+import { NewSessionTopNavAction } from "./NewSessionTopNavAction";
 import { TangleLogo } from "./TangleLogo";
 import { ThemeMenu } from "./ThemeMenu";
 
@@ -38,6 +39,7 @@ export function AppTopNav() {
       }
       actions={
         <>
+          <NewSessionTopNavAction />
           <ThemeMenu />
           <UserAvatar user={user} />
         </>
