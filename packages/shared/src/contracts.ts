@@ -446,6 +446,17 @@ export interface CreateSessionRequest {
   bundleId: string;
 }
 
+/** Request accepted by the externally callable session-launch API. */
+export interface LaunchSessionRequest {
+  bundleId: string;
+  prompt: string;
+}
+
+/** Response from an external session launch. */
+export interface LaunchSessionResponse {
+  sessionId: string;
+}
+
 export interface UpdateSessionRequest {
   name?: string;
   archived?: boolean;

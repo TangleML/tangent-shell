@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { Request, Response } from "express";
-
-import type { PiAgentManager } from "../../pi/piAgentManager.ts";
-import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
-import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
-import type { SessionStore } from "../../store/sessionStore.ts";
 import { handleCreateSession } from "./handlers.ts";
 import { createSessionSchema } from "./schemas.ts";
+import {
+  AgentBundleNotFoundError,
+  InvalidAgentBundleError,
+  type SessionProvisioner,
+} from "./sessionProvisioner.ts";
 
 class TestResponse {
   statusCode = 200;
@@ -25,6 +24,14 @@ class TestResponse {
   }
 }
 
+function rejectingProvisioner(error: Error): SessionProvisioner {
+  return {
+    create: async () => {
+      throw error;
+    },
+  };
+}
+
 test("createSessionSchema rejects blank create requests", () => {
   assert.equal(createSessionSchema.safeParse({}).success, false);
   assert.equal(createSessionSchema.safeParse({ bundleId: "" }).success, false);
@@ -35,34 +42,31 @@ test("createSessionSchema rejects blank create requests", () => {
 });
 
 test("handleCreateSession returns 404 for unknown bundle ids", async () => {
-  let createSessionCalled = false;
-  let requestedBundleId: string | undefined;
-  const store = {
-    createSession: async () => {
-      createSessionCalled = true;
-      throw new Error("createSession should not be called");
-    },
-  } as unknown as SessionStore;
-  const agentBundleStore = {
-    readBundle: async (id: string) => {
-      requestedBundleId = id;
-      return undefined;
-    },
-  } as AgentBundleStore;
   const response = new TestResponse();
 
   await handleCreateSession(
-    store,
-    {} as PiAgentManager,
-    {} as TriggerEngine,
-    agentBundleStore,
-    { headers: {} } as Request,
+    rejectingProvisioner(
+      new AgentBundleNotFoundError("Agent bundle not found"),
+    ),
+    { headers: {} },
     { bundleId: "missing-bundle" },
-    response as unknown as Response,
+    response,
   );
 
-  assert.equal(requestedBundleId, "missing-bundle");
-  assert.equal(createSessionCalled, false);
   assert.equal(response.statusCode, 404);
   assert.deepEqual(response.body, { error: "Agent bundle not found" });
+});
+
+test("handleCreateSession returns 400 for invalid bundles", async () => {
+  const response = new TestResponse();
+
+  await handleCreateSession(
+    rejectingProvisioner(new InvalidAgentBundleError("Invalid manifest")),
+    { headers: {} },
+    { bundleId: "broken-bundle" },
+    response,
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.body, { error: "Invalid manifest" });
 });

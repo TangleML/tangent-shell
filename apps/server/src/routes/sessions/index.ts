@@ -4,7 +4,6 @@ import { getValidated, validate } from "../../middleware/validate.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
-import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import {
   createArtifactFileHandler,
@@ -27,15 +26,14 @@ import {
   sessionParamsSchema,
   updateSessionSchema,
 } from "./schemas.ts";
+import type { SessionProvisioner } from "./sessionProvisioner.ts";
 import { registerTriggerRoutes } from "./triggers.ts";
 
 /** Registers the session collection routes (`GET /` list, `POST /` create). */
 function registerSessionCollectionRoutes(
   router: Router,
   store: SessionStore,
-  pi: PiAgentManager,
-  triggerEngine: TriggerEngine,
-  agentBundleStore: AgentBundleStore,
+  provisioner: SessionProvisioner,
 ): void {
   router.get("/", (req: Request, res: Response) =>
     handleListSessions(store, req, res),
@@ -46,10 +44,7 @@ function registerSessionCollectionRoutes(
     validate({ body: createSessionSchema }),
     (req: Request, res: Response) =>
       handleCreateSession(
-        store,
-        pi,
-        triggerEngine,
-        agentBundleStore,
+        provisioner,
         req,
         getValidated<CreateSessionInput>(req).body,
         res,
@@ -133,17 +128,11 @@ export function createSessionsRouter(
   pi: PiAgentManager,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
-  agentBundleStore: AgentBundleStore,
+  provisioner: SessionProvisioner,
 ): Router {
   const router = Router();
 
-  registerSessionCollectionRoutes(
-    router,
-    store,
-    pi,
-    triggerEngine,
-    agentBundleStore,
-  );
+  registerSessionCollectionRoutes(router, store, provisioner);
   registerSessionItemRoutes(router, store, pi, triggerEngine);
   registerSessionActivityRoutes(router, store);
   registerTriggerRoutes(router, store, triggers, triggerEngine);

@@ -19,7 +19,9 @@ import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
 import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createMeRouter } from "./routes/me.ts";
+import { createSessionLaunchesRouter } from "./routes/sessionLaunches.ts";
 import { createSessionsRouter } from "./routes/sessions/index.ts";
+import { DefaultSessionProvisioner } from "./routes/sessions/sessionProvisioner.ts";
 import {
   createAgentEventHandler,
   createAgentMessageHandler,
@@ -78,6 +80,12 @@ const pi = new PiAgentManager(
 
 // Drives schedule timers and callback firings, delivering prompts to Prime.
 const triggerEngine = new TriggerEngine(io, store, pi, triggers);
+const sessionProvisioner = new DefaultSessionProvisioner(
+  store,
+  pi,
+  triggerEngine,
+  agentBundleStore,
+);
 
 app.get("/api/health", (req, res) => {
   const cookies = Object.fromEntries(
@@ -97,7 +105,13 @@ app.get("/api/health", (req, res) => {
 
 app.use(
   "/api/sessions",
-  createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore),
+  createSessionsRouter(store, pi, triggers, triggerEngine, sessionProvisioner),
+);
+// External automation entry point. Deployments authenticate this path at their
+// ingress or service proxy before forwarding requests to Tangent Shell.
+app.use(
+  "/api/session-launches",
+  createSessionLaunchesRouter(sessionProvisioner),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));

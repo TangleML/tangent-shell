@@ -100,6 +100,23 @@ Socket.IO rooms.
 - **WebSocket events** — streaming assistant deltas, tool/thinking activity, sub-agent roster
   updates, memory suggestions, trigger updates, and chat messages.
 
+### External session creation
+
+External tools can create a bundle-backed session and immediately send its first message to
+Prime through the dedicated `POST /api/session-launches` endpoint.
+
+```bash
+curl -X POST https://tangent.example.com/api/session-launches \
+  -u "$TANGENT_USERNAME:$TANGENT_PASSWORD" \
+  -H 'content-type: application/json' \
+  -d '{"bundleId":"tangle-oss","prompt":"Investigate the latest failed run"}'
+```
+
+The endpoint returns `201 Created` with the new session. Basic Auth is configured at the
+deployment ingress, not inside Express. See
+[`docs/server/external-session-launches.md`](docs/server/external-session-launches.md) for the
+full contract and deployment requirements.
+
 State lives in two places: session **metadata** in SQLite (`sessions`, `sessionAssets`,
 `sessionAgents` tables), and per-session **data** on disk — artifacts, uploads, memory files,
 and append-only JSONL chat logs under each session's folder. Schema changes are managed with
