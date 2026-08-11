@@ -129,6 +129,45 @@ export const sessionAgents = sqliteTable(
   ],
 );
 
+/**
+ * One unit of work by one participant: what a stream of agent events is
+ * attributable to, and what cancellation acts on. Runs are serial per
+ * participant, so `(session_id, participant_id)` with `status = 'running'`
+ * identifies at most one row.
+ */
+export const runs = sqliteTable(
+  "runs",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** The participant doing the work (an agent id today). */
+    participantId: text("participant_id").notNull(),
+    /** The conversation this run's messages land in by default. */
+    homeConversationId: text("home_conversation_id").notNull(),
+    /** `running` | `completed` | `cancelled` | `failed`. */
+    status: text("status").notNull().default("running"),
+    /** `reaction` | `schedule` | `webhook` | `tool`. */
+    ingress: text("ingress").notNull(),
+    /** The far side's own id for this work (an Aquifer World session id). */
+    externalId: text("external_id"),
+    /** Connector-private resume cursor (the Aquifer drain's `lastSeq`). */
+    cursor: text("cursor"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    /** Set when the run settled; null while it is `running`. */
+    endedAt: text("ended_at"),
+  },
+  (table) => [
+    index("runs_session_idx").on(table.sessionId),
+    index("runs_session_participant_idx").on(
+      table.sessionId,
+      table.participantId,
+    ),
+  ],
+);
+
 /** When each user last opened a session. `user_key` is the email, or `local`. */
 export const sessionViews = sqliteTable(
   "session_views",
@@ -148,3 +187,4 @@ export const sessionViews = sqliteTable(
 export type SessionRow = typeof sessions.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type SessionAgentRow = typeof sessionAgents.$inferSelect;
+export type RunRow = typeof runs.$inferSelect;

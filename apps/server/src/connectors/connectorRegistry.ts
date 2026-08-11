@@ -12,7 +12,7 @@ import { ExternalConnector } from "./externalConnector.ts";
 import { NullConnector } from "./nullConnector.ts";
 import { PiConnector } from "./piConnector.ts";
 import { RemoteEnvConnector } from "./remoteEnvConnector.ts";
-import type { Connector } from "./types.ts";
+import type { CancelResult, Connector, RunCancellation } from "./types.ts";
 
 /**
  * The spawn authorities the server may act on for a caller. `bundle-tool` and
@@ -61,6 +61,17 @@ export class ConnectorRegistry {
   /** Every connector's roster for the session, in registration order. */
   list(sessionId: string): SubagentInfo[] {
     return this.connectors.flatMap((connector) => connector.list(sessionId));
+  }
+
+  /**
+   * Stops a participant's in-progress Run through whichever connector holds it.
+   * Cancellation is a connector capability, not something a caller decides by
+   * inspecting the transport.
+   */
+  cancelRun(request: RunCancellation): CancelResult {
+    return this.resolve(request.sessionId, request.participantId).cancelRun(
+      request,
+    );
   }
 
   /** The connector that spawns `kind` on the server's behalf, if any may. */

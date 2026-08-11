@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import {
   connectorFields,
+  type Run,
+  type RunId,
   type SubagentInfo,
   type SubagentStatus,
   type ThinkingLevel,
@@ -9,6 +11,7 @@ import {
 import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
 
 import type { AgentDescriptor, PiAgentHandlers } from "../pi/types.ts";
+import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 
 /** Display metadata a caller supplies when registering an external sub-agent. */
 export interface RegisterExternalSubagent {
@@ -16,6 +19,14 @@ export interface RegisterExternalSubagent {
   template?: string;
   model?: string;
   thinkingDepth?: ThinkingLevel;
+}
+
+/** What a caller supplies to open a Run for an external sub-agent's turn. */
+export interface OpenExternalRun {
+  /** The far side's own id for this work (an Aquifer World session id). */
+  externalId?: string;
+  /** Where the far side's stream is being read from, to resume by. */
+  cursor?: string;
 }
 
 /** An external sub-agent tab, tracked in the gateway roster (display only). */
@@ -27,6 +38,16 @@ interface ExternalSubagent {
   model?: string;
   thinkingDepth?: ThinkingLevel;
   createdAt: string;
+}
+
+/** Whether a Run is this participant's, or another's (or none at all). */
+function belongsTo(
+  run: Run | undefined,
+  sessionId: string,
+  agentId: string,
+): boolean {
+  if (!run) return false;
+  return run.sessionId === sessionId && run.participantId === agentId;
 }
 
 /** Projects a roster entry onto the wire {@link SubagentInfo}. */
@@ -60,12 +81,14 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
  */
 export class ExternalSubagentGateway {
   private readonly handlers: PiAgentHandlers;
+  private readonly runs: RunRegistry;
 
   /** Per-session external sub-agent rosters, keyed by sessionId then agentId. */
   private readonly sessions = new Map<string, Map<string, ExternalSubagent>>();
 
-  constructor(handlers: PiAgentHandlers) {
+  constructor(handlers: PiAgentHandlers, runs: RunRegistry) {
     this.handlers = handlers;
+    this.runs = runs;
   }
 
   /** True when `agentId` is an external sub-agent of `sessionId`. */
@@ -101,17 +124,86 @@ export class ExternalSubagentGateway {
     return { id: agentId };
   }
 
-  /** Relays a streamed event into the sub-agent's tab. No-op for an unknown id. */
-  pushEvent(sessionId: string, agentId: string, event: RemoteAgentEvent): void {
+  /**
+   * Opens a Run for a turn of external work, carrying the far side's own id for
+   * it and where its stream is being read from. Returns the Run's id, which the
+   * caller passes back on `pushEvent` and `endRun`. Undefined for an unknown id.
+   *
+   * The driving tool knows the turn's boundaries — the server cannot see them —
+   * so it declares them rather than having them guessed from the event stream.
+   */
+  openRun(
+    sessionId: string,
+    agentId: string,
+    input: OpenExternalRun = {},
+  ): RunId | undefined {
+    const subagent = this.sessions.get(sessionId)?.get(agentId);
+    if (!subagent) return undefined;
+    return this.runs.open({
+      sessionId,
+      participantId: agentId,
+      ingress: "tool",
+      externalId: input.externalId,
+      cursor: input.cursor,
+    }).id;
+  }
+
+  /**
+   * Settles a turn's Run, recording how far its stream was read. Names the Run
+   * explicitly or settles whatever the tab has open; a cursor with no Run to
+   * record it against is dropped.
+   */
+  endRun(
+    sessionId: string,
+    agentId: string,
+    status: SettledStatus,
+    input: { runId?: RunId; cursor?: string } = {},
+  ): void {
+    const runId = this.attributeTo(sessionId, agentId, input.runId);
+    if (!runId) return;
+    if (input.cursor) this.runs.setCursor(runId, input.cursor);
+    this.runs.settle(runId, status);
+  }
+
+  /**
+   * Relays a streamed event into the sub-agent's tab, attributed to the Run the
+   * caller opened for the turn (or to whatever that tab has open). No-op for an
+   * unknown id.
+   */
+  pushEvent(
+    sessionId: string,
+    agentId: string,
+    event: RemoteAgentEvent,
+    runId?: RunId,
+  ): void {
     const subagent = this.sessions.get(sessionId)?.get(agentId);
     if (!subagent) return;
-    this.handlers.onAgentEvent(sessionId, this.descriptorFor(subagent), event);
+    this.handlers.onAgentEvent(sessionId, this.descriptorFor(subagent), {
+      ...event,
+      runId: this.attributeTo(sessionId, agentId, runId),
+    });
+  }
+
+  /**
+   * Resolves which Run an inbound event is attributed to. A supplied id must
+   * name a Run of the addressed participant — the caller is an external tool, so
+   * one tab's stream must not be able to land under another's Run.
+   */
+  private attributeTo(
+    sessionId: string,
+    agentId: string,
+    runId: RunId | undefined,
+  ): RunId | undefined {
+    if (runId && belongsTo(this.runs.get(runId), sessionId, agentId)) {
+      return runId;
+    }
+    return this.runs.current(sessionId, agentId)?.id;
   }
 
   /**
    * Applies a lifecycle status change to a sub-agent tab. Terminal statuses
-   * (anything other than `active`) drop the roster entry. No-op for an unknown
-   * id.
+   * (anything other than `active`) drop the roster entry and settle whatever
+   * Run the tab still had open. No-op for an unknown id.
    */
   setStatus(sessionId: string, agentId: string, status: SubagentStatus): void {
     const roster = this.sessions.get(sessionId);
@@ -119,7 +211,14 @@ export class ExternalSubagentGateway {
     if (!roster || !subagent) return;
 
     subagent.status = status;
-    if (status !== "active") roster.delete(agentId);
+    if (status !== "active") {
+      roster.delete(agentId);
+      this.runs.settleOpenFor(
+        sessionId,
+        agentId,
+        status === "completed" ? "completed" : "failed",
+      );
+    }
     this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
   }
 

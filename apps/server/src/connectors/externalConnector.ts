@@ -3,11 +3,20 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { PiAgentHandlers } from "../pi/types.ts";
 import { refuseDelivery } from "./refusal.ts";
-import type { Connector, DeliveryRequest, DeliveryResult } from "./types.ts";
+import type {
+  CancelResult,
+  Connector,
+  DeliveryRequest,
+  DeliveryResult,
+} from "./types.ts";
 
 /** Shown in the sub-agent's own thread when a message cannot reach it. */
 const NO_INBOUND_CHANNEL =
   "This sub-agent runs outside Tangent, so it can't receive messages here.";
+
+/** Why a cancellation is refused: the same missing channel, stated for runs. */
+const NO_CANCEL_CHANNEL =
+  "This sub-agent runs outside Tangent, so its work can't be stopped from here.";
 
 /**
  * The connector for external sub-agent tabs, whose work runs outside Tangent
@@ -41,6 +50,10 @@ export class ExternalConnector implements Connector {
 
   deliver(request: DeliveryRequest): DeliveryResult {
     return refuseDelivery(this.handlers, request, NO_INBOUND_CHANNEL);
+  }
+
+  cancelRun(): CancelResult {
+    return { cancelled: false, reason: NO_CANCEL_CHANNEL };
   }
 
   kill(sessionId: string, participantId: string, completed: boolean): void {

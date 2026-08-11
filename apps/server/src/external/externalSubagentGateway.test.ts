@@ -4,23 +4,31 @@ import { test } from "node:test";
 import type { SubagentInfo } from "@tangent/shared/contracts.ts";
 
 import type { PiAgentHandlers } from "../pi/types.ts";
+import { RunRegistry } from "../runs/runRegistry.ts";
+import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { ExternalSubagentGateway } from "./externalSubagentGateway.ts";
 
 /** Captures every handler call so tests can assert on them. */
 function makeHarness() {
   const rosterUpdates: SubagentInfo[] = [];
-  const events: Array<{ agentId: string; type: string }> = [];
+  const events: Array<{ agentId: string; type: string; runId?: string }> = [];
 
   const handlers: PiAgentHandlers = {
     onAgentEvent: (_sessionId, agent, event) =>
-      events.push({ agentId: agent.agentId, type: event.type }),
+      events.push({
+        agentId: agent.agentId,
+        type: event.type,
+        runId: event.runId,
+      }),
     onSubagentUpdate: (_sessionId, info) => rosterUpdates.push(info),
     onAgentMessage: () => {},
     onSessionStatus: () => {},
   };
 
-  const gateway = new ExternalSubagentGateway(handlers);
-  return { gateway, rosterUpdates, events };
+  const runStore = new InMemoryRunStore();
+  const runs = new RunRegistry(runStore);
+  const gateway = new ExternalSubagentGateway(handlers, runs);
+  return { gateway, rosterUpdates, events, runs, runStore };
 }
 
 test("register records a roster entry and surfaces it as active", () => {
@@ -95,6 +103,70 @@ test("setStatus to active keeps the entry in the roster", () => {
 
   assert.equal(h.gateway.hasAgent("s1", id), true);
   assert.equal(h.rosterUpdates.at(-1)?.status, "active");
+});
+
+test("a turn's run carries the far side's session id and drain cursor", async () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+
+  const runId = h.gateway.openRun("s1", id, {
+    externalId: "aquifer-1",
+    cursor: "7",
+  });
+  assert.ok(runId);
+  h.gateway.pushEvent("s1", id, { type: "start", messageId: "m1" });
+  h.gateway.endRun("s1", id, "completed", { runId, cursor: "31" });
+
+  assert.equal(h.events.at(-1)?.runId, runId);
+  const stored = await h.runStore.getRun(runId);
+  assert.equal(stored?.externalId, "aquifer-1");
+  assert.equal(stored?.cursor, "31");
+  assert.equal(stored?.status, "completed");
+  assert.equal(stored?.ingress, "tool");
+});
+
+test("an event with no run id is attributed to the tab's open run", () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+  const runId = h.gateway.openRun("s1", id);
+
+  h.gateway.pushEvent("s1", id, { type: "activity", activity: null });
+
+  assert.equal(h.events.at(-1)?.runId, runId);
+});
+
+test("a run id belonging to another tab is not honored", () => {
+  const h = makeHarness();
+  const mine = h.gateway.register("s1", { name: "mine" });
+  const theirs = h.gateway.register("s1", { name: "theirs" });
+  const theirRun = h.gateway.openRun("s1", theirs.id);
+  const myRun = h.gateway.openRun("s1", mine.id);
+
+  h.gateway.pushEvent(
+    "s1",
+    mine.id,
+    { type: "start", messageId: "m1" },
+    theirRun,
+  );
+
+  assert.equal(h.events.at(-1)?.runId, myRun);
+});
+
+test("a tab going terminal settles the run it was working under", async () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+  const runId = h.gateway.openRun("s1", id);
+  assert.ok(runId);
+
+  h.gateway.setStatus("s1", id, "error");
+
+  assert.equal(h.runs.current("s1", id), undefined);
+  assert.equal((await h.runStore.getRun(runId))?.status, "failed");
+});
+
+test("openRun refuses an unknown agent", () => {
+  const h = makeHarness();
+  assert.equal(h.gateway.openRun("s1", "nope"), undefined);
 });
 
 test("listSubagents is scoped per session", () => {

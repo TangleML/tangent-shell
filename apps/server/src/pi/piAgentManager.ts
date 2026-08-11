@@ -6,6 +6,7 @@ import {
   type ChatAuthor,
   type MessageDelivery,
   PI_AGENT,
+  type RunIngress,
   type SessionRunStatus,
   type SessionStatusPayload,
   type SubagentInfo,
@@ -24,6 +25,7 @@ import {
   PI_PROXY_URL,
   PI_THINKING,
 } from "../config.ts";
+import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
   type AgentConfig,
@@ -37,6 +39,7 @@ import { loadInstalledConfig } from "./config/bundleLoader.ts";
 import type { MemoryManager } from "./memory.ts";
 import {
   type AgentDescriptor,
+  type AgentEvent,
   type AgentProcess,
   type AssistantDelta,
   type PiAgentHandlers,
@@ -399,6 +402,14 @@ function toStringArray(value: unknown): string[] {
 }
 
 /**
+ * How a Run settles when its participant is killed: a graceful, Prime-initiated
+ * finish completed the work; anything else stopped it short.
+ */
+function settledForKill(completed: boolean): SettledStatus {
+  return completed ? "completed" : "cancelled";
+}
+
+/**
  * Maps a delivery mode to Pi's `streamingBehavior` for a mid-run message: only
  * an explicit steer nudges before the next LLM call; everything else (including
  * `"auto"`) queues as a follow-up so nothing is dropped.
@@ -425,6 +436,12 @@ export class PiAgentManager {
   private readonly handlers: PiAgentHandlers;
   private readonly memory: MemoryManager;
   /**
+   * The Runs this manager's agents work under. Pi is the authority on its own
+   * run boundaries (`agent_start` opens, `agent_end` settles), so it opens and
+   * settles them rather than having them inferred from the event stream.
+   */
+  private readonly runs: RunRegistry;
+  /**
    * Process launcher, injectable so tests can supply a fake child without
    * spawning a real `pi` binary. Defaults to Node's {@link spawn}.
    */
@@ -438,11 +455,26 @@ export class PiAgentManager {
   constructor(
     handlers: PiAgentHandlers,
     memory: MemoryManager,
+    runs: RunRegistry,
     spawnProcess: typeof spawn = spawn,
   ) {
     this.spawnProcess = spawnProcess;
     this.handlers = handlers;
     this.memory = memory;
+    this.runs = runs;
+  }
+
+  /**
+   * Relays an agent event, attributed to the Run its participant is working
+   * under. The single stamping point, so no emit site can forget attribution.
+   */
+  private emit(
+    sessionId: string,
+    descriptor: AgentDescriptor,
+    event: AgentEvent,
+  ): void {
+    const runId = this.runs.current(sessionId, descriptor.agentId)?.id;
+    this.handlers.onAgentEvent(sessionId, descriptor, { ...event, runId });
   }
 
   /**
@@ -662,6 +694,9 @@ export class PiAgentManager {
     existing.aborted = true;
     existing.intentionalKill = true;
     existing.child.kill();
+    // The killed process will never emit `agent_end`, so settle here: the turn
+    // we cut was stopped, not finished.
+    this.runs.settleOpenFor(sessionId, agentId, "cancelled");
 
     const agent = this.spawnAgent(sessionId, session, descriptor, nextConfig);
     const info = toSubagentInfo(agent);
@@ -681,9 +716,17 @@ export class PiAgentManager {
     rootPath: string,
     text: string,
     delivery: MessageDelivery = "auto",
+    ingress: RunIngress = "reaction",
   ): void {
     this.ensure(sessionId, rootPath);
-    this.sendToAgent(sessionId, PRIME_AGENT_ID, text, undefined, delivery);
+    this.sendToAgent(
+      sessionId,
+      PRIME_AGENT_ID,
+      text,
+      undefined,
+      delivery,
+      ingress,
+    );
   }
 
   /**
@@ -742,7 +785,7 @@ export class PiAgentManager {
     task: string | undefined,
   ): void {
     if (task && task.trim()) {
-      this.sendToAgent(sessionId, agentId, task, PI_AGENT);
+      this.sendToAgent(sessionId, agentId, task, PI_AGENT, "auto", "tool");
     }
   }
 
@@ -757,6 +800,10 @@ export class PiAgentManager {
    * is also surfaced into that sub-agent's transcript (attributed to
    * `surfaceAuthor`), so directed tasks read as a real conversation. Internal
    * relays (e.g. feeding a sub-agent's reply back to Prime) omit it.
+   *
+   * A message that finds the agent idle opens a Run with `ingress`; one that
+   * finds it mid-run joins the Run in flight, because Pi folds a steer or
+   * follow-up into the turn it is already taking.
    */
   sendToAgent(
     sessionId: string,
@@ -764,9 +811,11 @@ export class PiAgentManager {
     text: string,
     surfaceAuthor?: ChatAuthor,
     delivery: MessageDelivery = "auto",
+    ingress: RunIngress = "reaction",
   ): void {
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
     if (!agent) {
+      // No participant, so no Run: this error belongs to no unit of work.
       this.handlers.onAgentEvent(
         sessionId,
         { agentId, role: "prime", name: "Prime" },
@@ -775,24 +824,41 @@ export class PiAgentManager {
       return;
     }
 
-    this.surfaceDirectedMessage(sessionId, agent, text, surfaceAuthor);
+    if (!agent.busy) {
+      this.runs.open({ sessionId, participantId: agentId, ingress });
+    }
 
+    this.surfaceDirectedMessage(sessionId, agent, text, surfaceAuthor);
+    this.writePrompt(sessionId, agent, text, delivery);
+    this.notifyStatus(sessionId);
+  }
+
+  /**
+   * Writes a prompt to an agent's stdin, marking it busy. A prompt that arrives
+   * mid-stream carries a `streamingBehavior` (steer / follow-up); that field is
+   * only valid while streaming, so an idle agent gets a plain prompt.
+   */
+  private writePrompt(
+    sessionId: string,
+    agent: AgentProcess,
+    text: string,
+    delivery: MessageDelivery,
+  ): void {
+    const wasBusy = agent.busy;
     const command: Record<string, unknown> = {
       id: randomUUID(),
       type: "prompt",
       message: text,
+      ...(wasBusy
+        ? { streamingBehavior: busyStreamingBehavior(delivery) }
+        : {}),
     };
-    // `streamingBehavior` is only valid while the agent is streaming; when idle,
-    // send a plain prompt.
-    if (agent.busy) {
-      command.streamingBehavior = busyStreamingBehavior(delivery);
-    }
 
     console.log(
-      `[pi:${sessionId}:${agentId}] prompt`,
+      `[pi:${sessionId}:${agent.agentId}] prompt`,
       JSON.stringify({
         role: agent.role,
-        wasBusy: agent.busy,
+        wasBusy,
         delivery,
         textLength: text.length,
       }),
@@ -800,7 +866,6 @@ export class PiAgentManager {
 
     agent.busy = true;
     agent.child.stdin.write(`${JSON.stringify(command)}\n`);
-    this.notifyStatus(sessionId);
   }
 
   /**
@@ -840,19 +905,23 @@ export class PiAgentManager {
       sessionId,
       PRIME_AGENT_ID,
       `Sub-agent "${agent.name}" reported:\n\n${text}`,
+      undefined,
+      "auto",
+      "tool",
     );
   }
 
   /**
-   * Aborts an agent's in-progress run (Prime or a sub-agent) by sending Pi's
-   * `abort` RPC command on stdin. The process stays alive and emits `agent_end`,
-   * which resets its state through the normal event flow. No-op when the agent
-   * is unknown or idle. `aborted` is flagged so a half-finished sub-agent reply
-   * is not relayed back to Prime.
+   * Cancels a participant's in-progress Run by sending Pi's `abort` RPC command
+   * on stdin. The process stays alive and emits `agent_end`, which settles the
+   * Run as `cancelled` and resets state through the normal event flow. Returns
+   * false when there is nothing to cancel (unknown or idle agent), so the caller
+   * can tell a refusal from a cancellation. `aborted` is flagged so a
+   * half-finished sub-agent reply is not relayed back to Prime.
    */
-  abort(sessionId: string, agentId: string): void {
+  abort(sessionId: string, agentId: string): boolean {
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
-    if (!agent || !agent.busy) return;
+    if (!agent || !agent.busy) return false;
 
     agent.aborted = true;
     console.log(
@@ -862,6 +931,7 @@ export class PiAgentManager {
     agent.child.stdin.write(
       `${JSON.stringify({ id: randomUUID(), type: "abort" })}\n`,
     );
+    return true;
   }
 
   /**
@@ -879,6 +949,7 @@ export class PiAgentManager {
     agent.intentionalKill = true;
     session.agents.delete(agentId);
     agent.child.kill();
+    this.runs.settleOpenFor(sessionId, agentId, settledForKill(completed));
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     this.notifyStatus(sessionId);
   }
@@ -1161,6 +1232,15 @@ export class PiAgentManager {
 
   /** Begins a run: marks the agent busy and shows the "thinking" indicator. */
   private onAgentStart(sessionId: string, agent: AgentProcess): void {
+    // A turn we did not initiate (Pi starting work off its own queue) still gets
+    // a Run, so no stream is unattributable.
+    if (!this.runs.current(sessionId, agent.agentId)) {
+      this.runs.open({
+        sessionId,
+        participantId: agent.agentId,
+        ingress: "reaction",
+      });
+    }
     agent.busy = true;
     agent.aborted = false;
     agent.currentMessageId = null;
@@ -1204,7 +1284,7 @@ export class PiAgentManager {
 
     if (!agent.startEmitted) {
       agent.startEmitted = true;
-      this.handlers.onAgentEvent(sessionId, descriptor, {
+      this.emit(sessionId, descriptor, {
         type: "start",
         messageId: agent.currentMessageId,
       });
@@ -1217,7 +1297,7 @@ export class PiAgentManager {
       agent.thinkingAccum += delta.text;
     }
 
-    this.handlers.onAgentEvent(sessionId, descriptor, {
+    this.emit(sessionId, descriptor, {
       type: delta.kind,
       messageId: agent.currentMessageId,
       delta: delta.text,
@@ -1267,7 +1347,7 @@ export class PiAgentManager {
       assistantTextFromMessage(event.message) || agent.accum || "";
     if (content.trim()) agent.lastFinalContent = content;
 
-    this.handlers.onAgentEvent(sessionId, descriptor, {
+    this.emit(sessionId, descriptor, {
       type: "end",
       messageId: agent.currentMessageId as string,
       content,
@@ -1312,7 +1392,7 @@ export class PiAgentManager {
     descriptor: AgentDescriptor,
     event: PiStdoutEvent,
   ): void {
-    this.handlers.onAgentEvent(sessionId, descriptor, {
+    this.emit(sessionId, descriptor, {
       type: "queue",
       steering: toStringArray(event.steering),
       followUp: toStringArray(event.followUp),
@@ -1334,6 +1414,7 @@ export class PiAgentManager {
       }),
     );
 
+    const cancelled = agent.aborted;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -1343,7 +1424,14 @@ export class PiAgentManager {
     agent.aborted = false;
 
     this.notifyStatus(sessionId);
+    // Emitted before the Run settles, so the run's last event still carries its
+    // id. An aborted run was cut short: that is a cancellation, not a finish.
     this.emitActivity(sessionId, agent, null);
+    this.runs.settleOpenFor(
+      sessionId,
+      agent.agentId,
+      cancelled ? "cancelled" : "completed",
+    );
   }
 
   /**
@@ -1357,10 +1445,7 @@ export class PiAgentManager {
     activity: AgentActivity | null,
   ): void {
     agent.lastActivity = activity;
-    this.handlers.onAgentEvent(sessionId, toDescriptor(agent), {
-      type: "activity",
-      activity,
-    });
+    this.emit(sessionId, toDescriptor(agent), { type: "activity", activity });
   }
 
   /**
@@ -1427,13 +1512,10 @@ export class PiAgentManager {
       role: agent.role,
       name: agent.name,
     };
-    this.handlers.onAgentEvent(sessionId, descriptor, {
-      type: "error",
-      messageId,
-      message,
-    });
+    this.emit(sessionId, descriptor, { type: "error", messageId, message });
     this.notifyStatus(sessionId);
     this.emitActivity(sessionId, agent, null);
+    this.runs.settleOpenFor(sessionId, agent.agentId, "failed");
   }
 
   /**

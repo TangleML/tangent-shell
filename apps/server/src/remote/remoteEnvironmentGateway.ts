@@ -4,6 +4,8 @@ import {
   type ChatAuthor,
   connectorFields,
   type MessageDelivery,
+  type RunId,
+  type RunIngress,
   type SubagentInfo,
   type SubagentStatus,
 } from "@tangent/shared/contracts.ts";
@@ -30,6 +32,7 @@ import {
 } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, PiAgentHandlers } from "../pi/types.ts";
+import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 /** Default and maximum number of transcript messages a room read returns. */
@@ -97,12 +100,18 @@ function toInfo(subagent: RemoteSubagent): SubagentInfo {
  * a local sub-agent uses, so a remote sub-agent renders and persists
  * identically; finalized replies and reports are relayed into Prime via
  * {@link DeliverToPrime}.
+ *
+ * The protocol has no run-end marker: an environment reports its events and its
+ * agent's lifecycle, not run boundaries. So the gateway opens a Run when it
+ * sends work and settles it from what the protocol does say — the next piece of
+ * work for that participant, a status change, or the environment dropping.
  */
 export class RemoteEnvironmentGateway {
   private readonly io: SocketIOServer;
   private readonly handlers: PiAgentHandlers;
   private readonly store: SessionStore;
   private readonly deliverToPrime: DeliverToPrime;
+  private readonly runs: RunRegistry;
 
   /** Connected environments, keyed by their handshake `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
@@ -114,11 +123,13 @@ export class RemoteEnvironmentGateway {
     handlers: PiAgentHandlers,
     store: SessionStore,
     deliverToPrime: DeliverToPrime,
+    runs: RunRegistry,
   ) {
     this.io = io;
     this.handlers = handlers;
     this.store = store;
     this.deliverToPrime = deliverToPrime;
+    this.runs = runs;
     this.setupNamespace();
   }
 
@@ -172,6 +183,13 @@ export class RemoteEnvironmentGateway {
     };
     this.rosterFor(sessionId).set(agentId, subagent);
 
+    // An initial task is work, so it gets a Run; a sub-agent spawned idle does
+    // not until something asks it for something.
+    const runId = request.task?.trim()
+      ? this.runs.open({ sessionId, participantId: agentId, ingress: "tool" })
+          .id
+      : undefined;
+
     const command: RemoteSpawnCommand = {
       sessionId,
       agentId,
@@ -183,6 +201,7 @@ export class RemoteEnvironmentGateway {
       template: request.template,
       task: request.task,
       autoRelayToPrime,
+      runId,
     };
     environment.socket.emit(RemoteEnvEvents.Spawn, command);
 
@@ -201,6 +220,9 @@ export class RemoteEnvironmentGateway {
    * `surfaceAuthor` is given, the message is also surfaced into the sub-agent's
    * transcript (matching the local manager), so directed tasks read as a real
    * conversation. No-op for an unknown agent or a disconnected environment.
+   *
+   * Opens a Run for the message and puts its id on the command, so the
+   * environment can echo it back on the events it streams.
    */
   sendToAgent(
     sessionId: string,
@@ -208,23 +230,34 @@ export class RemoteEnvironmentGateway {
     text: string,
     surfaceAuthor?: ChatAuthor,
     delivery: MessageDelivery = "auto",
+    ingress: RunIngress = "reaction",
   ): void {
-    const subagent = this.sessions.get(sessionId)?.get(agentId);
-    if (!subagent) return;
-    const environment = this.environments.get(subagent.environmentId);
+    const environment = this.environmentFor(sessionId, agentId);
     if (!environment) return;
 
     if (surfaceAuthor) {
       this.handlers.onAgentMessage(sessionId, agentId, surfaceAuthor, text);
     }
 
+    const run = this.runs.open({ sessionId, participantId: agentId, ingress });
     const command: RemoteMessageCommand = {
       sessionId,
       agentId,
       text,
       delivery,
+      runId: run.id,
     };
     environment.socket.emit(RemoteEnvEvents.Message, command);
+  }
+
+  /** The connected environment hosting a sub-agent, if both are still live. */
+  private environmentFor(
+    sessionId: string,
+    agentId: string,
+  ): RemoteEnvConnection | undefined {
+    const subagent = this.sessions.get(sessionId)?.get(agentId);
+    if (!subagent) return undefined;
+    return this.environments.get(subagent.environmentId);
   }
 
   /**
@@ -239,6 +272,11 @@ export class RemoteEnvironmentGateway {
 
     subagent.status = completed ? "completed" : "killed";
     roster.delete(agentId);
+    this.runs.settleOpenFor(
+      sessionId,
+      agentId,
+      completed ? "completed" : "cancelled",
+    );
     this.emitToEnvironment(subagent.environmentId, RemoteEnvEvents.Kill, {
       sessionId,
       agentId,
@@ -334,9 +372,20 @@ export class RemoteEnvironmentGateway {
     this.handlers.onAgentEvent(
       payload.sessionId,
       this.descriptorFor(subagent),
-      payload.event,
+      { ...payload.event, runId: this.runIdFor(payload) },
     );
     this.relayEndToPrime(payload.sessionId, subagent, payload.event);
+  }
+
+  /**
+   * The Run an inbound event belongs to: the id the environment echoed, or the
+   * one that participant currently has open. An environment that echoes nothing
+   * still gets attribution, and an echoed id the server no longer holds open is
+   * still trusted — it names the work, and the store has the rest.
+   */
+  private runIdFor(payload: RemoteAgentEventPayload): RunId | undefined {
+    if (payload.runId) return payload.runId;
+    return this.runs.current(payload.sessionId, payload.agentId)?.id;
   }
 
   /** Feeds a finalized auto-relay reply into Prime as it lands. */
@@ -360,7 +409,16 @@ export class RemoteEnvironmentGateway {
     if (!roster || !subagent) return;
 
     subagent.status = payload.status;
-    if (payload.status !== "active") roster.delete(payload.agentId);
+    if (payload.status !== "active") {
+      roster.delete(payload.agentId);
+      // The agent leaving `active` is the closest thing the protocol has to a
+      // run-end marker: whatever it was working on is over either way.
+      this.runs.settleOpenFor(
+        payload.sessionId,
+        payload.agentId,
+        payload.status === "completed" ? "completed" : "failed",
+      );
+    }
     this.handlers.onSubagentUpdate(payload.sessionId, toInfo(subagent));
   }
 
@@ -415,6 +473,8 @@ export class RemoteEnvironmentGateway {
       if (subagent.environmentId !== environmentId) continue;
       subagent.status = "error";
       roster.delete(subagent.agentId);
+      // The far side is gone mid-work: the Run stopped without finishing.
+      this.runs.settleOpenFor(sessionId, subagent.agentId, "failed");
       this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
     }
   }

@@ -4,6 +4,7 @@ import type {
   AgentActivity,
   AgentRole,
   ChatAuthor,
+  RunId,
   SessionRunStatus,
   SubagentInfo,
   SubagentStatus,
@@ -16,11 +17,11 @@ import type { AgentConfig, ResolvedSessionConfig } from "./agentConfig.ts";
 export const PRIME_AGENT_ID = "prime";
 
 /**
- * Event surfaced to the chat layer as an agent streams a reply. `messageId`
- * correlates the `start`/`delta`/`end` of a single assistant message so the
- * client can build it up incrementally.
+ * The streamed body of an {@link AgentEvent}, before run attribution.
+ * `messageId` correlates the `start`/`delta`/`end` of a single assistant
+ * message so the client can build it up incrementally.
  */
-export type AgentEvent =
+type AgentEventBody =
   | { type: "start"; messageId: string }
   | { type: "delta"; messageId: string; delta: string }
   | { type: "thinking"; messageId: string; delta: string }
@@ -28,6 +29,17 @@ export type AgentEvent =
   | { type: "error"; messageId?: string; message: string }
   | { type: "activity"; activity: AgentActivity | null }
   | { type: "queue"; steering: string[]; followUp: string[] };
+
+/**
+ * Event surfaced to the chat layer as an agent streams a reply, attributed to
+ * the {@link Run} that produced it. Deltas and thinking stay Run events rather
+ * than Messages — only finalized content is persisted as a Message.
+ *
+ * `runId` is optional because a connector can relay a stream the server never
+ * opened a Run for (an event about a participant that no longer exists, or a
+ * far end that predates run attribution).
+ */
+export type AgentEvent = AgentEventBody & { runId?: RunId };
 
 /** Identifies which agent in a session produced an {@link AgentEvent}. */
 export interface AgentDescriptor {

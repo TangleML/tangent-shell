@@ -10,6 +10,8 @@ import { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts"
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { PiAgentHandlers } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
+import { RunRegistry } from "../runs/runRegistry.ts";
+import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { createConnectorRegistry } from "./connectorRegistry.ts";
 
 /** A message a fake gateway was asked to deliver. */
@@ -55,12 +57,18 @@ function makeHarness() {
 
   const piDeliveries: Delivery[] = [];
   const piKills: string[] = [];
+  const piAborts: string[] = [];
   const pi = {
     hasAgent: (_sessionId: string, agentId: string) => agentId === "local-1",
     listSubagents: () => [rosterEntry("local-1", "pi-stdio")],
     sendToAgent: (sessionId: string, agentId: string, text: string) =>
       piDeliveries.push({ sessionId, agentId, text }),
     killAgent: (_sessionId: string, agentId: string) => piKills.push(agentId),
+    // Mirrors the real manager: only a busy agent has anything to cancel.
+    abort: (_sessionId: string, agentId: string) => {
+      piAborts.push(agentId);
+      return agentId === "local-1";
+    },
   } as unknown as PiAgentManager;
 
   const remoteDeliveries: Delivery[] = [];
@@ -72,7 +80,10 @@ function makeHarness() {
     killAgent: () => {},
   } as unknown as RemoteEnvironmentGateway;
 
-  const externalGateway = new ExternalSubagentGateway(handlers);
+  const externalGateway = new ExternalSubagentGateway(
+    handlers,
+    new RunRegistry(new InMemoryRunStore()),
+  );
   const connectors = createConnectorRegistry(
     pi,
     remoteGateway,
@@ -86,6 +97,7 @@ function makeHarness() {
     surfaced,
     piDeliveries,
     piKills,
+    piAborts,
     remoteDeliveries,
   };
 }
@@ -159,6 +171,45 @@ test("a message aimed at a local participant reaches the Pi manager", () => {
   assert.deepEqual(h.piDeliveries, [
     { sessionId: "s1", agentId: "local-1", text: "do the thing" },
   ]);
+});
+
+test("cancelling a local participant's run reaches the Pi manager", () => {
+  const h = makeHarness();
+
+  const result = h.connectors.cancelRun({
+    sessionId: "s1",
+    participantId: "local-1",
+  });
+
+  assert.equal(result.cancelled, true);
+  assert.deepEqual(h.piAborts, ["local-1"]);
+});
+
+test("a transport with no cancel protocol refuses, and says why", () => {
+  const h = makeHarness();
+  const external = h.externalGateway.register("s1", { name: "worker" });
+
+  const remote = h.connectors.cancelRun({
+    sessionId: "s1",
+    participantId: "remote-1",
+  });
+  const ext = h.connectors.cancelRun({
+    sessionId: "s1",
+    participantId: external.id,
+  });
+  const unknown = h.connectors.cancelRun({
+    sessionId: "s1",
+    participantId: "ghost",
+  });
+
+  for (const result of [remote, ext, unknown]) {
+    assert.equal(result.cancelled, false);
+    assert.ok(result.reason);
+  }
+  // A refused cancellation stays out of the transcript, unlike a refused
+  // delivery: nothing was said, so nothing needs answering.
+  assert.deepEqual(h.surfaced, []);
+  assert.deepEqual(h.piAborts, []);
 });
 
 test("killing an external participant reaches its gateway", () => {

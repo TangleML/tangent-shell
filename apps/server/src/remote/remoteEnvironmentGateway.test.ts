@@ -4,6 +4,8 @@ import { test } from "node:test";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 
 import type { PiAgentHandlers } from "../pi/types.ts";
+import { RunRegistry } from "../runs/runRegistry.ts";
+import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { RemoteEnvironmentGateway } from "./remoteEnvironmentGateway.ts";
 
@@ -34,6 +36,7 @@ function makeHarness() {
     handlers,
     store,
     () => {},
+    new RunRegistry(new InMemoryRunStore()),
   );
 
   const connect = (environmentId: string): void => {
