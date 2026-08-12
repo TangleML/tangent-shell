@@ -13,11 +13,13 @@ import type { MembershipRegistry } from "./membershipRegistry.ts";
 import { type MessageFacts, messageFacts, parseReaction } from "./reaction.ts";
 
 /**
- * How many automatic reaction hops one chain may take. Deliberate work — a tool
- * call, a schedule, an inbound callback — starts a new chain, so this bounds
- * cascades rather than the length of an orchestration.
+ * How many hops one chain may take. Deliberate work — a tool call, a schedule,
+ * an inbound callback — starts a new chain, so this bounds cascades rather than
+ * the length of an orchestration. A cross-Conversation post is the exception:
+ * it stays in its author's chain however it was made, and each round trip
+ * between two participants spends two hops.
  */
-const MAX_WAVE_DEPTH = 8;
+const MAX_WAVE_DEPTH = 24;
 
 /** How many reactions one chain may dispatch into a single Conversation. */
 const MAX_CONVERSATION_REACTIONS = 24;
@@ -217,13 +219,21 @@ export class FanOutEngine {
    * The wave a Message belongs to. Work a participant deliberately created, or
    * an outside signal, starts a fresh one: only automatic reactions accumulate
    * depth, so a long orchestration driven by tool calls is never cut short.
+   *
+   * A post written from another Conversation is exempt. Its depth travels with
+   * it whatever created it, because otherwise two Conversations whose
+   * participants each wake the other launder an unbounded cycle by hopping
+   * rooms while each individual room stays under budget.
    */
   private waveFor(message: ChatMessage, ingress?: RunIngress): Wave {
-    if (ingress && ingress !== "reaction")
-      return { id: randomUUID(), depth: 0 };
     const inherited = this.waves.get(
       keyFor(message.sessionId, message.author.id),
     );
+    if (message.source.fromConversation) {
+      return inherited ?? { id: randomUUID(), depth: 0 };
+    }
+    if (ingress && ingress !== "reaction")
+      return { id: randomUUID(), depth: 0 };
     return inherited ?? { id: randomUUID(), depth: 0 };
   }
 

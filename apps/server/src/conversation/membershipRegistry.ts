@@ -100,6 +100,21 @@ export class MembershipRegistry {
     return derived;
   }
 
+  /**
+   * The standing one participant holds in a Conversation, or nothing when it
+   * holds none. This is the check delivery already makes, read in the other
+   * direction: what lets a participant be woken by a Conversation is what
+   * authorizes it to write into one.
+   */
+  async memberIn(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<Membership | undefined> {
+    const members = await this.membersOf(sessionId, conversationId);
+    return members.find((member) => member.participantId === participantId);
+  }
+
   /** The session's memberships, indexed by conversation on first use. */
   private async load(sessionId: string): Promise<Map<string, Membership[]>> {
     const cached = this.cache.get(sessionId);
