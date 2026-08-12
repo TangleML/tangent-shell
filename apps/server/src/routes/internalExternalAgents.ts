@@ -2,8 +2,9 @@ import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
 import { type Response, Router } from "express";
 import { z } from "zod";
 
+import { externalCredential } from "../connectors/credentials.ts";
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
-import { requireInternalToken } from "../middleware/requireInternalToken.ts";
+import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 
@@ -76,9 +77,9 @@ function handleOpenRun(
 /**
  * Internal API for driving **external sub-agent** tabs. A bundle tool extension
  * (running inside a session's Pi process) registers a tab, streams the external
- * runtime's output into it, and marks its lifecycle. Guarded by the same
- * {@link import("../middleware/requireInternalToken.ts").requireInternalToken}
- * bearer as the other internal APIs; the gateway stays transport-agnostic and
+ * runtime's output into it, and marks its lifecycle. Guarded by the external
+ * connector's own credential, which checks the same internal token the other
+ * internal APIs do; the gateway stays transport-agnostic and
  * proprietary-runtime specifics live entirely in the caller.
  */
 export function createInternalExternalAgentsRouter(
@@ -86,7 +87,7 @@ export function createInternalExternalAgentsRouter(
 ): Router {
   const router = Router();
 
-  router.use(requireInternalToken);
+  router.use(requireCredential(externalCredential));
 
   router.post("/register", validate({ body: registerSchema }), (req, res) => {
     const body = getValidated<RegisterBody>(req).body;

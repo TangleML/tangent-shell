@@ -46,6 +46,7 @@ function agentRow(id: string, overrides: Partial<SessionAgent> = {}) {
       kind: "external-inbound",
       lifecycle: "owned",
       spawnAuthority: "bundle-tool",
+      credentialScheme: "internal-bearer",
     },
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -142,6 +143,7 @@ test("the roster describes an external sub-agent as owned by its bundle tool", (
     kind: "external-inbound",
     lifecycle: "owned",
     spawnAuthority: "bundle-tool",
+    credentialScheme: "internal-bearer",
   });
 });
 

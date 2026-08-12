@@ -8,6 +8,7 @@ import {
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 
+import { HandshakeTokenCredential } from "../connectors/credentials.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
@@ -19,16 +20,38 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+/** The environment token this harness's gateway is configured with. */
+const ENV_TOKEN = "test-env-token";
+
+/** An environment's socket: what it was sent, and what it listens for. */
+function fakeSocket(auth: Record<string, unknown>) {
+  const listeners = new Map<string, (payload: unknown) => void>();
+  const sent: Array<{ event: string; payload: unknown }> = [];
+  const socket = {
+    handshake: { auth },
+    on: (event: string, handler: (payload: unknown) => void) =>
+      listeners.set(event, handler),
+    emit: (event: string, payload: unknown) => sent.push({ event, payload }),
+  } as unknown as Socket;
+  return { socket, listeners, sent };
+}
+
 /**
  * A gateway wired to a fake namespace, plus a `connect` that registers an
- * environment by driving the captured connection handler (bypassing the token
- * middleware, which is not what these tests are about). The returned handle
- * drives the environment's inbound events and its disconnect.
+ * environment by driving the captured middleware and then the captured
+ * connection handler — so every test goes through the real credential check,
+ * presenting the right token unless it asks not to. The returned handle drives
+ * the environment's inbound events and its disconnect.
  */
 function makeHarness() {
   let onConnection: ((socket: Socket) => void) | undefined;
+  let authenticate:
+    | ((socket: Socket, next: (err?: Error) => void) => void)
+    | undefined;
   const namespace = {
-    use: () => {},
+    use: (fn: (socket: Socket, next: (err?: Error) => void) => void) => {
+      authenticate = fn;
+    },
     on: (event: string, handler: (socket: Socket) => void) => {
       if (event === "connection") onConnection = handler;
     },
@@ -50,19 +73,21 @@ function makeHarness() {
     handlers,
     store,
     runs,
+    new HandshakeTokenCredential(ENV_TOKEN),
   );
 
-  const connect = (environmentId: string) => {
-    const listeners = new Map<string, (payload: unknown) => void>();
-    const sent: Array<{ event: string; payload: unknown }> = [];
-    const socket = {
-      handshake: { auth: { environmentId } },
-      on: (event: string, handler: (payload: unknown) => void) =>
-        listeners.set(event, handler),
-      emit: (event: string, payload: unknown) => sent.push({ event, payload }),
-    } as unknown as Socket;
-    onConnection?.(socket);
+  const connect = (
+    environmentId: string,
+    auth: { token?: string } = { token: ENV_TOKEN },
+  ) => {
+    const { socket, listeners, sent } = fakeSocket({ environmentId, ...auth });
+    let refused: Error | undefined;
+    authenticate?.(socket, (err) => {
+      refused = err;
+    });
+    if (!refused) onConnection?.(socket);
     return {
+      refused,
       sent,
       send: (event: string, payload: unknown) =>
         listeners.get(event)?.(payload),
@@ -91,6 +116,17 @@ async function seedAgent(
   });
 }
 
+test("only an environment presenting the connector's credential connects", () => {
+  const h = makeHarness();
+
+  assert.ok(h.connect("intruder", { token: "wrong-token" }).refused);
+  assert.ok(h.connect("silent", {}).refused);
+  assert.equal(h.gateway.hasConnectedEnvironment(), false);
+
+  assert.equal(h.connect("env-1").refused, undefined);
+  assert.equal(h.gateway.hasConnectedEnvironment(), true);
+});
+
 test("the remote roster describes its connector and environment", () => {
   const h = makeHarness();
   h.connect("env-1");
@@ -101,6 +137,7 @@ test("the remote roster describes its connector and environment", () => {
     kind: "remote-env",
     lifecycle: "owned",
     spawnAuthority: "remote-env",
+    credentialScheme: "shared-token",
     environmentId: "env-1",
   };
   assert.deepEqual(info.connector, expected);

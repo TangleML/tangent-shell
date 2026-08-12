@@ -3,6 +3,7 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { PiAgentManager, SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import { piCredential } from "./credentials.ts";
 import type {
   CancelResult,
   Connector,
@@ -22,6 +23,7 @@ const NOTHING_RUNNING = "That agent isn't running anything right now.";
 export class PiConnector implements Connector {
   readonly descriptor = connectorFor("pi-stdio");
   readonly acceptsDelivery = true;
+  readonly credential = piCredential;
 
   private readonly pi: PiAgentManager;
 

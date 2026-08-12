@@ -5,6 +5,7 @@ import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import { remoteEnvCredential } from "./credentials.ts";
 import { refuseDelivery } from "./refusal.ts";
 import type {
   CancelResult,
@@ -33,6 +34,7 @@ const ENVIRONMENT_DETACHED =
 export class RemoteEnvConnector implements Connector {
   readonly descriptor = connectorFor("remote-env");
   readonly acceptsDelivery = true;
+  readonly credential = remoteEnvCredential;
 
   private readonly gateway: RemoteEnvironmentGateway;
   private readonly handlers: ConversationEventSink;

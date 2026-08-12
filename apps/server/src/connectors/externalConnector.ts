@@ -3,6 +3,7 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import { externalCredential } from "./credentials.ts";
 import { refuseDelivery } from "./refusal.ts";
 import type {
   CancelResult,
@@ -32,6 +33,7 @@ const NO_CANCEL_CHANNEL =
 export class ExternalConnector implements Connector {
   readonly descriptor = connectorFor("external-inbound");
   readonly acceptsDelivery = false;
+  readonly credential = externalCredential;
 
   private readonly gateway: ExternalSubagentGateway;
   private readonly handlers: ConversationEventSink;

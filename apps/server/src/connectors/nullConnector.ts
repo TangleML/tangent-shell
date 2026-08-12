@@ -1,6 +1,7 @@
 import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
 
 import type { ConversationEventSink } from "../pi/types.ts";
+import { deniedCredential } from "./credentials.ts";
 import { refuseDelivery } from "./refusal.ts";
 import type {
   CancelResult,
@@ -25,6 +26,7 @@ const NOT_AVAILABLE_TO_CANCEL = "This agent is no longer available.";
 export class NullConnector implements Connector {
   readonly descriptor = connectorFor("unresolved");
   readonly acceptsDelivery = false;
+  readonly credential = deniedCredential;
 
   private readonly handlers: ConversationEventSink;
 

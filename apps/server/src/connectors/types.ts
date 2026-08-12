@@ -9,6 +9,7 @@ import type {
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import type { ConnectorCredential } from "./credentials.ts";
 
 /**
  * A message addressed to one participant, as a connector receives it. It carries
@@ -63,11 +64,21 @@ export interface CancelResult {
  * mis-delivery — and the tree has had both. `cancelRun` and `revive` follow the
  * same rule: a transport with no cancel protocol, or no way to bring a
  * participant back, says so by declaration.
+ *
+ * `credential` follows it too, and is why adding a connector cannot mean
+ * editing a shared auth path: a new one does not compile until it says how its
+ * far end proves who it is.
  */
 export interface Connector {
   readonly descriptor: ConnectorDescriptor;
   /** Whether this connector can carry a message to its participants at all. */
   readonly acceptsDelivery: boolean;
+  /**
+   * How this connector's far end authenticates. Its scheme is the descriptor's
+   * {@link ConnectorDescriptor.credentialScheme}; the secret is not on the
+   * descriptor, because the descriptor goes to clients.
+   */
+  readonly credential: ConnectorCredential;
   has(sessionId: string, participantId: string): boolean;
   list(sessionId: string): SubagentInfo[];
   deliver(request: DeliveryRequest): DeliveryResult;

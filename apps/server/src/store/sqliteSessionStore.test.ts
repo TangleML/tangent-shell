@@ -63,6 +63,7 @@ test("recordAgent round-trips a connector descriptor", async () => {
       kind: "remote-env",
       lifecycle: "owned",
       spawnAuthority: "remote-env",
+      credentialScheme: "shared-token",
       environmentId: "env-1",
     },
   });
@@ -71,6 +72,7 @@ test("recordAgent round-trips a connector descriptor", async () => {
     kind: "remote-env",
     lifecycle: "owned",
     spawnAuthority: "remote-env",
+    credentialScheme: "shared-token",
     environmentId: "env-1",
   };
   assert.deepEqual(recorded.connector, expected);
@@ -95,6 +97,7 @@ test("a row recorded without a connector reads back from its host", async () => 
     kind: "remote-env",
     lifecycle: "owned",
     spawnAuthority: "remote-env",
+    credentialScheme: "shared-token",
   });
 
   // Prime is recorded by `createSession` with no host at all.
@@ -167,6 +170,7 @@ test("listAgentsForEnvironment finds one environment's sub-agents across session
       kind: "remote-env" as const,
       lifecycle: "owned" as const,
       spawnAuthority: "remote-env" as const,
+      credentialScheme: "shared-token" as const,
       environmentId,
     },
   });

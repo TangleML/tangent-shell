@@ -1,4 +1,9 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+
+import {
+  type ConnectorCredential,
+  mintSecretCredential,
+} from "../connectors/credentials.ts";
 
 /**
  * A relay channel bridges an external MCP client (which the gateway dials) to a
@@ -12,8 +17,8 @@ export interface RelayChannel {
   sessionId: string;
   /** Human label used when relaying messages to Prime (e.g. the peer's name). */
   label: string;
-  /** Bearer secret the external MCP client must present on every call. */
-  secret: string;
+  /** The credential this channel — and only this channel — is opened by. */
+  credential: ConnectorCredential;
   /** Open questions awaiting an answer, keyed by request id. */
   pending: Map<string, { question: string; createdAt: number }>;
   /** Answers supplied for pending questions, keyed by request id. */
@@ -42,17 +47,17 @@ export class RelayRegistry {
   /** Opens a channel bound to `sessionId`, returning its id and bearer secret. */
   open(input: OpenChannelInput): { channelId: string; secret: string } {
     const channelId = randomUUID().replace(/-/g, "");
-    const secret = randomBytes(24).toString("hex");
+    const credential = mintSecretCredential();
     this.channels.set(channelId, {
       channelId,
       sessionId: input.sessionId,
       label: input.label?.trim() || "remote agent",
-      secret,
+      credential,
       pending: new Map(),
       answers: new Map(),
       createdAt: Date.now(),
     });
-    return { channelId, secret };
+    return { channelId, secret: credential.secret };
   }
 
   get(channelId: string): RelayChannel | undefined {

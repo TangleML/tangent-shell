@@ -25,7 +25,10 @@ import {
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Namespace, Server as SocketIOServer, Socket } from "socket.io";
 
-import { REMOTE_ENV_TOKEN } from "../config.ts";
+import {
+  type ConnectorCredential,
+  remoteEnvCredential,
+} from "../connectors/credentials.ts";
 import {
   parseThinkingLevel,
   resolveSubagentConfig,
@@ -121,6 +124,7 @@ export class RemoteEnvironmentGateway {
   private readonly handlers: ConversationEventSink;
   private readonly store: SessionStore;
   private readonly runs: RunRegistry;
+  private readonly credential: ConnectorCredential;
 
   /** Connected environments, keyed by their handshake `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
@@ -132,11 +136,13 @@ export class RemoteEnvironmentGateway {
     handlers: ConversationEventSink,
     store: SessionStore,
     runs: RunRegistry,
+    credential: ConnectorCredential = remoteEnvCredential,
   ) {
     this.io = io;
     this.handlers = handlers;
     this.store = store;
     this.runs = runs;
+    this.credential = credential;
     this.setupNamespace();
   }
 
@@ -355,7 +361,7 @@ export class RemoteEnvironmentGateway {
   /** Rejects connections lacking a valid token / environment id. */
   private authenticate(socket: Socket, next: (err?: Error) => void): void {
     const auth = socket.handshake.auth as Partial<RemoteEnvHandshake>;
-    if (!REMOTE_ENV_TOKEN || auth.token !== REMOTE_ENV_TOKEN) {
+    if (!this.credential.verify({ token: auth.token })) {
       next(new Error("Unauthorized"));
       return;
     }

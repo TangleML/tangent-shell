@@ -465,6 +465,23 @@ export type ConnectorLifecycle = "owned" | "attached";
 export type SpawnAuthority = "server" | "remote-env" | "bundle-tool" | "none";
 
 /**
+ * How a connector's far end proves who it is. Only the scheme is named here:
+ * the secret and the check live behind
+ * {@link import("../../../apps/server/src/connectors/credentials.ts").ConnectorCredential},
+ * server-side, because a credential is not something a client may be told.
+ *
+ * `inherited-token` and `internal-bearer` are the same server secret differing
+ * in issuance — one is handed to a process the server spawns, the other is
+ * presented back by a caller that already holds it.
+ */
+export type CredentialScheme =
+  | "inherited-token"
+  | "shared-token"
+  | "internal-bearer"
+  | "minted-secret"
+  | "none";
+
+/**
  * The independent facets of the connector behind a participant. These are
  * separate fields rather than one label because they vary independently — the
  * three combinations in the tree today are a coincidence of having only three
@@ -474,6 +491,7 @@ export interface ConnectorDescriptor {
   kind: ConnectorKind;
   lifecycle: ConnectorLifecycle;
   spawnAuthority: SpawnAuthority;
+  credentialScheme: CredentialScheme;
   /** The remote environment this participant is bound to, when it has one. */
   environmentId?: string;
 }
@@ -491,22 +509,31 @@ export const CONNECTOR_FACETS: Record<
     kind: "pi-stdio",
     lifecycle: "owned",
     spawnAuthority: "server",
+    credentialScheme: "inherited-token",
   },
   "remote-env": {
     kind: "remote-env",
     lifecycle: "owned",
     spawnAuthority: "remote-env",
+    credentialScheme: "shared-token",
   },
   "external-inbound": {
     kind: "external-inbound",
     lifecycle: "owned",
     spawnAuthority: "bundle-tool",
+    credentialScheme: "internal-bearer",
   },
-  a2a: { kind: "a2a", lifecycle: "attached", spawnAuthority: "none" },
+  a2a: {
+    kind: "a2a",
+    lifecycle: "attached",
+    spawnAuthority: "none",
+    credentialScheme: "none",
+  },
   unresolved: {
     kind: "unresolved",
     lifecycle: "attached",
     spawnAuthority: "none",
+    credentialScheme: "none",
   },
 };
 
