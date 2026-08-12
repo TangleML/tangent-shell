@@ -8,7 +8,7 @@ import {
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
@@ -35,7 +35,7 @@ function makeHarness() {
   };
 
   const rosterUpdates: SubagentInfo[] = [];
-  const handlers: PiAgentHandlers = {
+  const handlers: ConversationEventSink = {
     onAgentEvent: () => {},
     onSubagentUpdate: (_sessionId, info) => rosterUpdates.push(info),
     onAgentMessage: () => {},
@@ -49,7 +49,6 @@ function makeHarness() {
     { of: () => namespace } as unknown as SocketIOServer,
     handlers,
     store,
-    () => {},
     runs,
   );
 
@@ -112,9 +111,12 @@ test("the remote roster describes its connector and environment", () => {
 test("a disconnecting environment detaches its sub-agents and keeps their tabs", async () => {
   const h = makeHarness();
   const env = h.connect("env-1");
-  const { info } = h.gateway.spawnSubagent("s1", {
-    name: "Worker",
-    task: "go",
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+  h.gateway.sendToAgent({
+    sessionId: "s1",
+    agentId: info.id,
+    text: "go",
+    ingress: "tool",
   });
   const runId = h.runs.current("s1", info.id)?.id;
   assert.ok(runId);
@@ -134,10 +136,13 @@ test("a detached participant refuses delivery instead of dropping it silently", 
   const env = h.connect("env-1");
   const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
 
-  assert.equal(h.gateway.sendToAgent("s1", info.id, "hello"), true);
+  const send = (text: string) =>
+    h.gateway.sendToAgent({ sessionId: "s1", agentId: info.id, text });
+
+  assert.equal(send("hello"), true);
   env.disconnect();
 
-  assert.equal(h.gateway.sendToAgent("s1", info.id, "hello again"), false);
+  assert.equal(send("hello again"), false);
 });
 
 test("a reconnecting environment gets its persisted roster replayed as detached", async () => {

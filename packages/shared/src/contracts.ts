@@ -600,6 +600,35 @@ export interface Run {
   endedAt?: string;
 }
 
+/**
+ * A named reaction predicate a Membership can declare:
+ * - `always` — act on every Message in the Conversation (self excluded).
+ * - `fromHumans` — act only on what a person typed.
+ * - `mentionsMe` — act only when addressed. A directed message is one whose
+ *   `mentions` include you; `directed` is not a separate value.
+ * - `atRunEnd` — act only on a Message that ends its Run.
+ * - `never` — a member that declares it does not act.
+ */
+export type ReactionName =
+  | "always"
+  | "fromHumans"
+  | "mentionsMe"
+  | "atRunEnd"
+  | "never";
+
+/**
+ * A Membership's stored reaction: one or more {@link ReactionName}s joined by
+ * `+`, read as a disjunction (`fromHumans+mentionsMe`). Each preset stays
+ * atomic; composition lives in the stored value.
+ */
+export type ReactionSpec = string;
+
+/**
+ * How much of a Conversation a Membership may see. `summarized` is a declared
+ * label until the context-budget work makes it a mechanism.
+ */
+export type TranscriptVisibility = "shared" | "summarized" | "opaque";
+
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */

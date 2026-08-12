@@ -38,14 +38,13 @@ export class PiConnector implements Connector {
   }
 
   deliver(request: DeliveryRequest): DeliveryResult {
-    this.pi.sendToAgent(
-      request.sessionId,
-      request.participantId,
-      request.text,
-      request.surfaceAuthor,
-      request.delivery,
-      request.ingress,
-    );
+    this.pi.sendToAgent({
+      sessionId: request.sessionId,
+      agentId: request.participantId,
+      text: request.text,
+      delivery: request.delivery,
+      ingress: request.ingress,
+    });
     return { delivered: true };
   }
 

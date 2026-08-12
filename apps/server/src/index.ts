@@ -7,12 +7,14 @@ import { Server as SocketIOServer } from "socket.io";
 
 import { PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
+import { ConversationRouter } from "./conversation/conversationRouter.ts";
+import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
 import { MemoryManager } from "./pi/memory.ts";
 import {
-  type PiAgentHandlers,
+  type ConversationEventSink,
   PiAgentManager,
   PRIME_AGENT_ID,
 } from "./pi/piAgentManager.ts";
@@ -35,15 +37,18 @@ import { RunRegistry } from "./runs/runRegistry.ts";
 import {
   createAgentEventHandler,
   createAgentMessageHandler,
-  createMemoryRememberedHandler,
-  createMemorySuggestionHandler,
   createSessionStatusHandler,
   createSubagentUpdateHandler,
-  createUiCommandEmitter,
-  registerChatHandlers,
-} from "./sockets/chat.ts";
+} from "./sockets/agentEvents.ts";
+import { registerChatHandlers } from "./sockets/chat.ts";
+import {
+  createMemoryRememberedHandler,
+  createMemorySuggestionHandler,
+} from "./sockets/chatMemory.ts";
+import { createUiCommandEmitter } from "./sockets/sessionRoster.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
+import { SqliteMembershipStore } from "./store/sqliteMembershipStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 
@@ -71,20 +76,37 @@ const memory = new MemoryManager();
 // Owns each session's triggers (schedule + callback) and their persistence.
 const triggers = new TriggerManager();
 
-// Surfaces applied memory writes / pending suggestions to the session room.
-const onMemoryRemembered = createMemoryRememberedHandler(io, store);
+// Surfaces pending memory suggestions to the session room.
 const onMemorySuggestion = createMemorySuggestionHandler(io);
 
 // Pushes generic agent->UI directives (e.g. session rename) to the room.
 const emitUiCommand = createUiCommandEmitter(io);
 
-// Shared relay handlers: a sub-agent's streaming events and roster changes are
-// fanned to the matching Socket.IO room and persisted the same way, whether the
-// sub-agent runs locally (PiAgentManager) or in a remote environment.
-const agentHandlers: PiAgentHandlers = {
-  onAgentEvent: createAgentEventHandler(io, store),
+// Who is in each Conversation and what each of them reacts to. Rows are derived
+// from the agent roster on a cache miss, so a session the backfill never touched
+// still resolves; `acceptsDelivery` is read lazily because the registry it comes
+// from is built below.
+const memberships = new MembershipRegistry(
+  store,
+  new SqliteMembershipStore(db),
+  (kind) => connectors.acceptsDelivery(kind),
+);
+
+// The one way a Message enters a Conversation: persist, broadcast, then deliver
+// to whoever reacts. Every entry point — a human turn, a trigger firing, a tool
+// call, a finalized agent turn — goes through it.
+const conversations = new ConversationRouter(io, store, memberships);
+
+// Surfaces applied memory writes as a highlighted message in Prime's thread.
+const onMemoryRemembered = createMemoryRememberedHandler(conversations);
+
+// Shared event sink: a participant's streaming events, roster changes and posted
+// messages land the same way whether it runs locally (PiAgentManager), in a
+// remote environment, or entirely outside Tangent.
+const agentHandlers: ConversationEventSink = {
+  onAgentEvent: createAgentEventHandler(io, store, conversations),
   onSubagentUpdate: createSubagentUpdateHandler(io, store),
-  onAgentMessage: createAgentMessageHandler(io, store),
+  onAgentMessage: createAgentMessageHandler(conversations),
   onSessionStatus: createSessionStatusHandler(io),
 };
 
@@ -108,19 +130,13 @@ void store.detachActiveSubagents().then((detached) => {
 // Socket.IO room by the chat handlers.
 const pi = new PiAgentManager(agentHandlers, memory, runs);
 
-// Relays a message into a session's Prime process. Shared by the remote-env
-// gateway and the generic MCP relay so both feed Prime the same way.
-const deliverToPrime = (sessionId: string, text: string): void =>
-  pi.sendToAgent(sessionId, PRIME_AGENT_ID, text);
-
 // Hosts sub-agents inside a connected remote environment over the `/remote-env`
-// namespace. Remote sub-agents share the same relay handlers as local ones, and
-// their finalized replies/reports are fed into the session's Prime process.
+// namespace. Remote sub-agents share the same event sink as local ones, so what
+// they produce is persisted in their own Conversation and fanned out from there.
 const remoteGateway = new RemoteEnvironmentGateway(
   io,
   agentHandlers,
   store,
-  deliverToPrime,
   runs,
 );
 
@@ -139,13 +155,29 @@ const connectors = createConnectorRegistry(
   agentHandlers,
 );
 
+// Closes the loop: the router needs connectors to deliver a reaction, and the
+// connectors needed the sink that needs the router. The cycle is in the wiring,
+// not in the dependency, so it is broken here rather than by an indirection.
+conversations.useConnectors(connectors);
+
+// Relays a message into a session's Prime. The generic MCP relay's peer is not a
+// participant in any Conversation, so its text is delivered rather than posted.
+const deliverToPrime = (sessionId: string, text: string): void => {
+  connectors.resolve(sessionId, PRIME_AGENT_ID).deliver({
+    sessionId,
+    participantId: PRIME_AGENT_ID,
+    text,
+  });
+};
+
 // Generic MCP relay: bridges an external MCP client (dialed by a gateway) to a
 // session's Prime. Bundles open channels over the internal API; the peer's tool
 // calls arrive on the public /api/mcp route and are relayed to Prime.
 const mcpRelay = new RelayRegistry();
 
-// Drives schedule timers and callback firings, delivering prompts to Prime.
-const triggerEngine = new TriggerEngine(io, store, pi, triggers);
+// Drives schedule timers and callback firings, posting prompts into the target's
+// Conversation.
+const triggerEngine = new TriggerEngine(io, store, pi, triggers, conversations);
 
 app.get("/api/health", (req, res) => {
   const cookies = Object.fromEntries(
@@ -174,7 +206,10 @@ app.use("/api/mcp", createMcpRelayRouter(mcpRelay, deliverToPrime));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
-app.use("/internal/agents", createInternalAgentsRouter(store, pi, connectors));
+app.use(
+  "/internal/agents",
+  createInternalAgentsRouter(store, connectors, conversations),
+);
 // Internal API a bundle tool uses to drive external sub-agent tabs: register a
 // tab, stream the external runtime's output into it, and mark its lifecycle.
 app.use(
@@ -208,16 +243,17 @@ app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
 // consistent `{ error }` shape (Express 5 forwards rejected promises to it).
 app.use(errorHandler);
 
-registerChatHandlers(
+registerChatHandlers({
   io,
   store,
   pi,
   connectors,
+  conversations,
   memory,
-  onMemoryRemembered,
+  onRemembered: onMemoryRemembered,
   triggerEngine,
   emitUiCommand,
-);
+});
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);

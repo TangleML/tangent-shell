@@ -1,6 +1,6 @@
 import { SYSTEM_AUTHOR } from "@tangent/shared/contracts.ts";
 
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import type { DeliveryRequest, DeliveryResult } from "./types.ts";
 
 /**
@@ -9,15 +9,15 @@ import type { DeliveryRequest, DeliveryResult } from "./types.ts";
  * in the thread where the message was meant to land.
  */
 export function refuseDelivery(
-  handlers: PiAgentHandlers,
+  handlers: ConversationEventSink,
   request: DeliveryRequest,
   reason: string,
 ): DeliveryResult {
-  handlers.onAgentMessage(
-    request.sessionId,
-    request.participantId,
-    SYSTEM_AUTHOR,
-    reason,
-  );
+  handlers.onAgentMessage({
+    sessionId: request.sessionId,
+    conversationId: request.participantId,
+    author: SYSTEM_AUTHOR,
+    content: reason,
+  });
   return { delivered: false, reason };
 }

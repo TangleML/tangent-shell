@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  type ChatAuthor,
   connectorFields,
   isTerminalStatus,
   type MessageDelivery,
@@ -13,7 +12,6 @@ import {
 } from "@tangent/shared/contracts.ts";
 import {
   REMOTE_ENV_NAMESPACE,
-  type RemoteAgentEvent,
   type RemoteAgentEventPayload,
   type RemoteAgentMessagePayload,
   RemoteEnvEvents,
@@ -34,7 +32,11 @@ import {
   type SubagentSpawnRequest,
 } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
-import type { AgentDescriptor, PiAgentHandlers } from "../pi/types.ts";
+import {
+  type AgentDescriptor,
+  type ConversationEventSink,
+  PRIME_AGENT_ID,
+} from "../pi/types.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
@@ -42,12 +44,16 @@ import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
 
-/**
- * Relays a remote sub-agent's reply/report into the session's Prime process.
- * Wired in `index.ts` to `pi.sendToAgent(sessionId, PRIME_AGENT_ID, text)`, so
- * the gateway stays decoupled from {@link import("../pi/piAgentManager.ts").PiAgentManager}.
- */
-export type DeliverToPrime = (sessionId: string, text: string) => void;
+/** One message to deliver to one remote sub-agent. */
+export interface RemoteSendOptions {
+  sessionId: string;
+  agentId: string;
+  text: string;
+  /** Whether a mid-run message steers or queues. Defaults to `auto`. */
+  delivery?: MessageDelivery;
+  /** What the message counts as for the Run it opens. Defaults to `reaction`. */
+  ingress?: RunIngress;
+}
 
 /** A connected remote environment and its live Socket.IO connection. */
 interface RemoteEnvConnection {
@@ -99,10 +105,11 @@ function toInfo(subagent: RemoteSubagent): SubagentInfo {
  * import("../pi/piAgentManager.ts").PiAgentManager}, so the internal agents API
  * can route a sub-agent to either host transparently.
  *
- * Inbound streamed events are relayed through the same {@link PiAgentHandlers}
- * a local sub-agent uses, so a remote sub-agent renders and persists
- * identically; finalized replies and reports are relayed into Prime via
- * {@link DeliverToPrime}.
+ * Inbound streamed events are relayed through the same {@link
+ * ConversationEventSink} a local sub-agent uses, so a remote sub-agent renders
+ * and persists identically. Whether a finalized reply or a report wakes Prime is
+ * not this gateway's business: it posts what happened into the sub-agent's
+ * Conversation, and the Memberships there decide.
  *
  * The protocol has no run-end marker: an environment reports its events and its
  * agent's lifecycle, not run boundaries. So the gateway opens a Run when it
@@ -111,9 +118,8 @@ function toInfo(subagent: RemoteSubagent): SubagentInfo {
  */
 export class RemoteEnvironmentGateway {
   private readonly io: SocketIOServer;
-  private readonly handlers: PiAgentHandlers;
+  private readonly handlers: ConversationEventSink;
   private readonly store: SessionStore;
-  private readonly deliverToPrime: DeliverToPrime;
   private readonly runs: RunRegistry;
 
   /** Connected environments, keyed by their handshake `environmentId`. */
@@ -123,15 +129,13 @@ export class RemoteEnvironmentGateway {
 
   constructor(
     io: SocketIOServer,
-    handlers: PiAgentHandlers,
+    handlers: ConversationEventSink,
     store: SessionStore,
-    deliverToPrime: DeliverToPrime,
     runs: RunRegistry,
   ) {
     this.io = io;
     this.handlers = handlers;
     this.store = store;
-    this.deliverToPrime = deliverToPrime;
     this.runs = runs;
     this.setupNamespace();
   }
@@ -186,13 +190,9 @@ export class RemoteEnvironmentGateway {
     };
     this.rosterFor(sessionId).set(agentId, subagent);
 
-    // An initial task is work, so it gets a Run; a sub-agent spawned idle does
-    // not until something asks it for something.
-    const runId = request.task?.trim()
-      ? this.runs.open({ sessionId, participantId: agentId, ingress: "tool" })
-          .id
-      : undefined;
-
+    // No `task`: an initial task is a Message posted into the new sub-agent's
+    // Conversation, which arrives here as an ordinary delivery right after this
+    // command. So the environment always spawns idle.
     const command: RemoteSpawnCommand = {
       sessionId,
       agentId,
@@ -202,9 +202,7 @@ export class RemoteEnvironmentGateway {
       model: config.model,
       thinkingDepth: config.thinkingDepth,
       template: request.template,
-      task: request.task,
       autoRelayToPrime,
-      runId,
     };
     environment.socket.emit(RemoteEnvEvents.Spawn, command);
 
@@ -219,39 +217,29 @@ export class RemoteEnvironmentGateway {
   }
 
   /**
-   * Delivers a directed message/task to a remote sub-agent. When
-   * `surfaceAuthor` is given, the message is also surfaced into the sub-agent's
-   * transcript (matching the local manager), so directed tasks read as a real
-   * conversation.
-   *
-   * Opens a Run for the message and puts its id on the command, so the
-   * environment can echo it back on the events it streams.
+   * Delivers a directed message/task to a remote sub-agent. Opens a Run for the
+   * message and puts its id on the command, so the environment can echo it back
+   * on the events it streams.
    *
    * Returns whether the message reached an environment: a detached participant
    * stays in the roster, so its connector needs to hear that nothing was sent
    * rather than assume a silent success.
    */
-  sendToAgent(
-    sessionId: string,
-    agentId: string,
-    text: string,
-    surfaceAuthor?: ChatAuthor,
-    delivery: MessageDelivery = "auto",
-    ingress: RunIngress = "reaction",
-  ): boolean {
+  sendToAgent(options: RemoteSendOptions): boolean {
+    const { sessionId, agentId, text } = options;
     const environment = this.environmentFor(sessionId, agentId);
     if (!environment) return false;
 
-    if (surfaceAuthor) {
-      this.handlers.onAgentMessage(sessionId, agentId, surfaceAuthor, text);
-    }
-
-    const run = this.runs.open({ sessionId, participantId: agentId, ingress });
+    const run = this.runs.open({
+      sessionId,
+      participantId: agentId,
+      ingress: options.ingress ?? "reaction",
+    });
     const command: RemoteMessageCommand = {
       sessionId,
       agentId,
       text,
-      delivery,
+      delivery: options.delivery ?? "auto",
       runId: run.id,
     };
     environment.socket.emit(RemoteEnvEvents.Message, command);
@@ -422,7 +410,11 @@ export class RemoteEnvironmentGateway {
     }
   }
 
-  /** Relays a streamed event to the chat layer, relaying finalized replies. */
+  /**
+   * Relays a streamed event to the chat layer. A finalized one is persisted as a
+   * Message there and fanned out from the sub-agent's own Conversation, so this
+   * gateway no longer feeds Prime a second copy.
+   */
   private handleAgentEvent(payload: RemoteAgentEventPayload): void {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
     if (!subagent) return;
@@ -432,7 +424,6 @@ export class RemoteEnvironmentGateway {
       this.descriptorFor(subagent),
       { ...payload.event, runId: this.runIdFor(payload) },
     );
-    this.relayEndToPrime(payload.sessionId, subagent, payload.event);
   }
 
   /**
@@ -457,20 +448,6 @@ export class RemoteEnvironmentGateway {
     return this.runs.current(payload.sessionId, payload.agentId)?.id;
   }
 
-  /** Feeds a finalized auto-relay reply into Prime as it lands. */
-  private relayEndToPrime(
-    sessionId: string,
-    subagent: RemoteSubagent,
-    event: RemoteAgentEvent,
-  ): void {
-    if (event.type !== "end") return;
-    if (!subagent.autoRelayToPrime || !event.content.trim()) return;
-    this.deliverToPrime(
-      sessionId,
-      `Sub-agent "${subagent.name}" replied:\n\n${event.content}`,
-    );
-  }
-
   /** Applies a remote sub-agent's status change to the roster + chat layer. */
   private handleSubagentUpdate(payload: RemoteSubagentUpdatePayload): void {
     const roster = this.sessions.get(payload.sessionId);
@@ -491,28 +468,30 @@ export class RemoteEnvironmentGateway {
     this.handlers.onSubagentUpdate(payload.sessionId, toInfo(subagent));
   }
 
-  /** Surfaces a sub-agent's report in its thread and relays it into Prime. */
+  /**
+   * Posts a sub-agent's report in its own thread, addressed to Prime. Being
+   * addressed is what reaches Prime — the same mechanism a local sub-agent's
+   * `message_prime` uses, so neither transport carries its own copy of "and now
+   * tell Prime".
+   */
   private handleAgentMessage(payload: RemoteAgentMessagePayload): void {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
     if (!subagent) return;
     this.markAttached(payload.sessionId, subagent);
 
-    const author: ChatAuthor = {
-      id: subagent.agentId,
-      kind: "agent",
-      name: subagent.name,
-      agentRole: "subagent",
-    };
-    this.handlers.onAgentMessage(
-      payload.sessionId,
-      payload.agentId,
-      author,
-      payload.text,
-    );
-    this.deliverToPrime(
-      payload.sessionId,
-      `Sub-agent "${subagent.name}" reported:\n\n${payload.text}`,
-    );
+    this.handlers.onAgentMessage({
+      sessionId: payload.sessionId,
+      conversationId: payload.agentId,
+      author: {
+        id: subagent.agentId,
+        kind: "agent",
+        name: subagent.name,
+        agentRole: "subagent",
+      },
+      content: payload.text,
+      mentions: [PRIME_AGENT_ID],
+      ingress: "tool",
+    });
   }
 
   /** Answers a remote room-read with the tail of the shared transcript. */

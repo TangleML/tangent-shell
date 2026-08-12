@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import type { SubagentInfo } from "@tangent/shared/contracts.ts";
 
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
@@ -15,7 +15,7 @@ function makeHarness() {
   const rosterUpdates: SubagentInfo[] = [];
   const events: Array<{ agentId: string; type: string; runId?: string }> = [];
 
-  const handlers: PiAgentHandlers = {
+  const handlers: ConversationEventSink = {
     onAgentEvent: (_sessionId, agent, event) =>
       events.push({
         agentId: agent.agentId,

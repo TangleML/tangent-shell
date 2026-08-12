@@ -10,7 +10,7 @@ import {
 
 import { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
@@ -72,7 +72,7 @@ function fakePi() {
   const pi = {
     hasAgent: (_sessionId: string, agentId: string) => agentId === "local-1",
     listSubagents: () => [rosterEntry("local-1", "pi-stdio")],
-    sendToAgent: (sessionId: string, agentId: string, text: string) =>
+    sendToAgent: ({ sessionId, agentId, text }: Delivery) =>
       deliveries.push({ sessionId, agentId, text }),
     killAgent: (_sessionId: string, agentId: string) => kills.push(agentId),
     // Mirrors the real manager: only a busy agent has anything to cancel.
@@ -93,7 +93,7 @@ function fakeRemote() {
   const gateway = {
     hasAgent: (_sessionId: string, agentId: string) => agentId === "remote-1",
     listSubagents: () => [rosterEntry("remote-1", "remote-env")],
-    sendToAgent: (sessionId: string, agentId: string, text: string) => {
+    sendToAgent: ({ sessionId, agentId, text }: Delivery) => {
       deliveries.push({ sessionId, agentId, text });
       return true;
     },
@@ -110,10 +110,10 @@ function fakeRemote() {
  */
 function makeHarness() {
   const surfaced: Surfaced[] = [];
-  const handlers: PiAgentHandlers = {
+  const handlers: ConversationEventSink = {
     onAgentEvent: () => {},
     onSubagentUpdate: () => {},
-    onAgentMessage: (_sessionId, conversationId, author, content) =>
+    onAgentMessage: ({ conversationId, author, content }) =>
       surfaced.push({ conversationId, author: author.name, content }),
     onSessionStatus: () => {},
   };

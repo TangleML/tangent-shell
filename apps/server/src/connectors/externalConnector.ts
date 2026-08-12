@@ -1,7 +1,7 @@
 import { connectorFor } from "@tangent/shared/contracts.ts";
 
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import { refuseDelivery } from "./refusal.ts";
 import type {
@@ -34,9 +34,12 @@ export class ExternalConnector implements Connector {
   readonly acceptsDelivery = false;
 
   private readonly gateway: ExternalSubagentGateway;
-  private readonly handlers: PiAgentHandlers;
+  private readonly handlers: ConversationEventSink;
 
-  constructor(gateway: ExternalSubagentGateway, handlers: PiAgentHandlers) {
+  constructor(
+    gateway: ExternalSubagentGateway,
+    handlers: ConversationEventSink,
+  ) {
     this.gateway = gateway;
     this.handlers = handlers;
   }

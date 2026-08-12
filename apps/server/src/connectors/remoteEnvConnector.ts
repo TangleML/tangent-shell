@@ -2,7 +2,7 @@ import { connectorFor } from "@tangent/shared/contracts.ts";
 
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import { refuseDelivery } from "./refusal.ts";
@@ -35,9 +35,12 @@ export class RemoteEnvConnector implements Connector {
   readonly acceptsDelivery = true;
 
   private readonly gateway: RemoteEnvironmentGateway;
-  private readonly handlers: PiAgentHandlers;
+  private readonly handlers: ConversationEventSink;
 
-  constructor(gateway: RemoteEnvironmentGateway, handlers: PiAgentHandlers) {
+  constructor(
+    gateway: RemoteEnvironmentGateway,
+    handlers: ConversationEventSink,
+  ) {
     this.gateway = gateway;
     this.handlers = handlers;
   }
@@ -51,14 +54,13 @@ export class RemoteEnvConnector implements Connector {
   }
 
   deliver(request: DeliveryRequest): DeliveryResult {
-    const delivered = this.gateway.sendToAgent(
-      request.sessionId,
-      request.participantId,
-      request.text,
-      request.surfaceAuthor,
-      request.delivery,
-      request.ingress,
-    );
+    const delivered = this.gateway.sendToAgent({
+      sessionId: request.sessionId,
+      agentId: request.participantId,
+      text: request.text,
+      delivery: request.delivery,
+      ingress: request.ingress,
+    });
     if (delivered) return { delivered: true };
     // A detached participant stays in the roster, so this connector still holds
     // it and has to say why the message went nowhere.
