@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
+import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
 import { PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
@@ -145,6 +146,16 @@ const remoteGateway = new RemoteEnvironmentGateway(
 // tab via the same relay handlers a local sub-agent uses.
 const externalGateway = new ExternalSubagentGateway(agentHandlers, runs, store);
 
+// Registry of attached A2A agents: heterogeneous agents that already run as a
+// service elsewhere, which Tangent dials over the A2A protocol. Their Tasks
+// become Runs and their artifacts land in the session workspace.
+const a2aGateway = new A2aPeerGateway(
+  agentHandlers,
+  runs,
+  store,
+  emitUiCommand,
+);
+
 // The single lookup from a participant to the connector that reaches it. Every
 // spawn/message/kill/list route goes through it, so an id no connector holds is
 // refused in its own conversation instead of falling through to the local Pi.
@@ -152,6 +163,7 @@ const connectors = createConnectorRegistry(
   pi,
   remoteGateway,
   externalGateway,
+  a2aGateway,
   agentHandlers,
 );
 
@@ -208,7 +220,7 @@ app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use(
   "/internal/agents",
-  createInternalAgentsRouter(store, connectors, conversations),
+  createInternalAgentsRouter(store, connectors, conversations, a2aGateway),
 );
 // Internal API a bundle tool uses to drive external sub-agent tabs: register a
 // tab, stream the external runtime's output into it, and mark its lifecycle.

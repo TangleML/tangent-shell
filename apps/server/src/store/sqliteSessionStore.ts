@@ -79,6 +79,9 @@ function toConnector(row: SessionAgentRow): ConnectorDescriptor {
     ...(row.connectorEnvironmentId
       ? { environmentId: row.connectorEnvironmentId }
       : {}),
+    ...(row.connectorEndpointUrl
+      ? { endpointUrl: row.connectorEndpointUrl }
+      : {}),
   };
 }
 
@@ -88,6 +91,7 @@ function connectorColumns(connector: ConnectorDescriptor | undefined) {
     connectorKind: connector?.kind,
     connectorLifecycle: connector?.lifecycle,
     connectorEnvironmentId: connector?.environmentId,
+    connectorEndpointUrl: connector?.endpointUrl,
   };
 }
 

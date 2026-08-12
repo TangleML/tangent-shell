@@ -16,6 +16,7 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@a2a-js/sdk": "^1.0.1",
     "@tangent/shared": "workspace:*",
     "@tangent/ui-extensions-sdk": "workspace:*",
     "better-sqlite3": "^12.10.0",

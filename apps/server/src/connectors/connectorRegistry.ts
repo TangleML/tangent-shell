@@ -5,11 +5,13 @@ import {
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
 
+import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import { A2aConnector } from "./a2aConnector.ts";
 import { ExternalConnector } from "./externalConnector.ts";
 import { NullConnector } from "./nullConnector.ts";
 import { PiConnector } from "./piConnector.ts";
@@ -99,15 +101,15 @@ export class ConnectorRegistry {
    * is the whole point of a revive.
    *
    * Terminal rows are skipped, so nothing resurrects a participant that finished
-   * or was killed. So are `attached` ones: that connector's far end exists
-   * independently of Tangent and waits to be reattached rather than being brought
-   * back from a row.
+   * or was killed. Lifecycle is not consulted: what restoring means is the
+   * connector's to decide, and both answers are real — re-spawning a process the
+   * server owns, or restoring a `detached` tab for a far end that is still out
+   * there. A connector with nothing to restore says so in its own `revive`.
    */
   revive(sessionId: string, persisted: SessionAgent[]): void {
     for (const agent of persisted) {
       if (agent.role !== "subagent") continue;
       if (isTerminalStatus(agent.status)) continue;
-      if (agent.connector.lifecycle !== "owned") continue;
       this.forKind(agent.connector.kind)?.revive(sessionId, agent);
     }
   }
@@ -123,6 +125,7 @@ export function createConnectorRegistry(
   pi: PiAgentManager,
   remoteGateway: RemoteEnvironmentGateway,
   externalGateway: ExternalSubagentGateway,
+  a2aGateway: A2aPeerGateway,
   handlers: ConversationEventSink,
 ): ConnectorRegistry {
   return new ConnectorRegistry(
@@ -130,6 +133,7 @@ export function createConnectorRegistry(
       new PiConnector(pi),
       new RemoteEnvConnector(remoteGateway, handlers),
       new ExternalConnector(externalGateway, handlers),
+      new A2aConnector(a2aGateway, handlers),
     ],
     new NullConnector(handlers),
   );

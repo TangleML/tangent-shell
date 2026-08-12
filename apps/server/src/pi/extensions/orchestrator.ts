@@ -133,10 +133,10 @@ export default function (pi: ExtensionAPI) {
       "`thinking` depth (off/minimal/low/medium/high/xhigh); both default to " +
       "the session's settings when omitted. Optionally include a `task` to " +
       "start the sub-agent working immediately. Set `environment` to `remote` " +
-      "or `external` to host the sub-agent in a connected remote environment " +
-      "or external bridge instead of locally (defaults to `local`). Returns " +
-      "the sub-agent's id for later messaging. Sub-agents share this session's " +
-      "workspace and can read the room.",
+      "to host the sub-agent in a connected remote environment instead of " +
+      "locally (defaults to `local`). Returns the sub-agent's id for later " +
+      "messaging. Sub-agents share this session's workspace and can read the " +
+      "room.",
     promptSnippet:
       "Spawn a specialized sub-agent (by template or inline config)",
     parameters: Type.Object({
@@ -195,6 +195,43 @@ export default function (pi: ExtensionAPI) {
       return textResult(
         `Spawned sub-agent "${data.subagent.name}" (id: ${data.subagent.id}). ` +
           `Its replies will appear in the room; use message_subagent to direct it.`,
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "attach_a2a_agent",
+    label: "Attach A2A Agent",
+    description:
+      "Attach an agent that already runs elsewhere and speaks the A2A " +
+      "protocol, by the base URL its Agent Card is served from. Nothing is " +
+      "created: the agent exists independently of this session, so attaching " +
+      "only gives it a tab you can direct with message_subagent. Its name " +
+      "comes from its card unless you override it. Returns the id to message " +
+      "it by.",
+    promptSnippet: "Attach an external A2A agent by its endpoint URL",
+    parameters: Type.Object({
+      endpoint_url: Type.String({
+        description:
+          "Base URL the agent's card is served from (e.g. " +
+          "https://agent.example.com).",
+      }),
+      name: Type.Optional(
+        Type.String({
+          description: "Display name; defaults to the name on the card.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const data = (await callApi("POST", "attach", {
+        sessionId: SESSION_ID,
+        endpointUrl: params.endpoint_url,
+        name: params.name,
+      })) as { subagent: { id: string; name: string } };
+
+      return textResult(
+        `Attached A2A agent "${data.subagent.name}" (id: ${data.subagent.id}). ` +
+          `Use message_subagent to direct it; its replies appear in its own thread.`,
       );
     },
   });

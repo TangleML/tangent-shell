@@ -159,6 +159,13 @@ export const PUBLIC_URL = (process.env.TANGENT_PUBLIC_URL ?? "").replace(
 export const REMOTE_ENV_TOKEN = process.env.REMOTE_ENV_TOKEN ?? "";
 
 /**
+ * Secret Tangent presents (as a bearer token) to an attached A2A agent. Unlike
+ * the other connector secrets this one travels outbound, so an empty value is
+ * not a lockout: a peer that asks for no credential is still reachable.
+ */
+export const A2A_TOKEN = process.env.A2A_TOKEN ?? "";
+
+/**
  * Name of the cookie holding the Oktasso JWT that `GET /api/me` reads to resolve
  * the current user. Empty by default so the route is effectively disabled until
  * an environment supplies the cookie name (the local `dev` script sets it).

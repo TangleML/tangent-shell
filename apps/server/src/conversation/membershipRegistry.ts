@@ -1,7 +1,8 @@
-import type {
-  ConnectorKind,
-  ReactionSpec,
-  TranscriptVisibility,
+import {
+  type ConnectorKind,
+  DEFAULT_TRANSCRIPT_VISIBILITY,
+  type ReactionSpec,
+  type TranscriptVisibility,
 } from "@tangent/shared/contracts.ts";
 
 import { PRIME_AGENT_ID } from "../pi/types.ts";
@@ -162,22 +163,32 @@ export class MembershipRegistry {
    * The membership of the participant whose Conversation this is. One on a
    * transport nothing can deliver to declares that it never acts, rather than
    * accepting wakes that would be swallowed.
+   *
+   * How much of the thread it sees comes from its connector rather than from
+   * being reachable: a participant outside Tangent's trust domain is sent what
+   * addresses it, not the log, whether or not it can be delivered to.
    */
   private subject(
     sessionId: string,
     conversationId: string,
     agent: SessionAgent | undefined,
   ): Membership {
-    const reachable = !agent || this.acceptsDelivery(agent.connector.kind);
-    if (reachable) {
-      return membership(sessionId, conversationId, conversationId, ADDRESSABLE);
+    const kind = agent?.connector.kind;
+    if (kind && !this.acceptsDelivery(kind)) {
+      return membership(
+        sessionId,
+        conversationId,
+        conversationId,
+        INERT,
+        "opaque",
+      );
     }
     return membership(
       sessionId,
       conversationId,
       conversationId,
-      INERT,
-      "opaque",
+      ADDRESSABLE,
+      kind ? DEFAULT_TRANSCRIPT_VISIBILITY[kind] : "shared",
     );
   }
 }

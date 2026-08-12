@@ -90,6 +90,44 @@ test("a participant nothing can deliver to declares that it never reacts", async
   assert.equal(members[0].transcriptVisibility, "opaque");
 });
 
+test("an A2A peer is addressable but sees none of the transcript", async () => {
+  const h = makeRegistry();
+  await h.sessions.recordAgent("s1", {
+    id: "peer-1",
+    role: "subagent",
+    name: "Weather",
+    status: "active",
+    connector: connectorFor("a2a"),
+  });
+
+  const members = await h.registry.membersOf("s1", "peer-1");
+
+  // Reachable, so it reacts — but it sits outside Tangent's trust domain, so it
+  // is sent what addresses it rather than the log. Prime, being local, reads the
+  // thread in full.
+  assert.deepEqual(shape(members), [
+    ["peer-1", "fromHumans+mentionsMe"],
+    ["prime", "atRunEnd+mentionsMe"],
+  ]);
+  assert.equal(members[0].transcriptVisibility, "opaque");
+  assert.equal(members[1].transcriptVisibility, "shared");
+});
+
+test("a local sub-agent still sees the shared transcript", async () => {
+  const h = makeRegistry();
+  await h.sessions.recordAgent("s1", {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    status: "active",
+    connector: connectorFor("pi-stdio"),
+  });
+
+  const members = await h.registry.membersOf("s1", "sub-1");
+
+  assert.equal(members[0].transcriptVisibility, "shared");
+});
+
 test("a derived conversation is persisted, so it is derived once", async () => {
   const h = makeRegistry();
   await h.sessions.recordAgent("s1", {

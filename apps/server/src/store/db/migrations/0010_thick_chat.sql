@@ -1,0 +1,1 @@
+ALTER TABLE `session_agents` ADD `connector_endpoint_url` text;

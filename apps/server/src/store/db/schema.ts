@@ -120,6 +120,12 @@ export const sessionAgents = sqliteTable(
     connectorKind: text("connector_kind"),
     connectorLifecycle: text("connector_lifecycle"),
     connectorEnvironmentId: text("connector_environment_id"),
+    /**
+     * Where a dialling connector reaches this participant — an A2A peer's Agent
+     * Card base URL. Null for every participant that connects to Tangent rather
+     * than the other way round.
+     */
+    connectorEndpointUrl: text("connector_endpoint_url"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
