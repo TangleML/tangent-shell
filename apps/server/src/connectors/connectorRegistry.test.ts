@@ -10,6 +10,7 @@ import {
 
 import { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
+import { RelayRegistry } from "../mcp/relayRegistry.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
@@ -127,6 +128,7 @@ function makeHarness() {
     handlers,
     runs,
     new InMemorySessionStore(),
+    new RelayRegistry(),
   );
   // Real, like the external gateway, with only its discovery replaced: a peer
   // that answers nothing still holds a tab, which is all resolution needs.
@@ -239,7 +241,7 @@ test("a message to an unknown participant is refused in its own conversation", (
   assert.deepEqual(h.piDeliveries, []);
 });
 
-test("a message aimed at an external participant never reaches the local agents", () => {
+test("a message aimed at an external participant is queued for its driver", async () => {
   const h = makeHarness();
   const { id } = h.externalGateway.register("s1", { name: "worker" });
 
@@ -249,9 +251,29 @@ test("a message aimed at an external participant never reaches the local agents"
     text: "do the thing",
   });
 
+  assert.equal(result.delivered, true);
+  assert.deepEqual(await h.externalGateway.takeDeliveries("s1", 5), [
+    { agentId: id, text: "do the thing" },
+  ]);
+  assert.deepEqual(h.piDeliveries, [], "and never the local agent map");
+});
+
+test("a message aimed at a detached external participant is refused in its tab", () => {
+  const h = makeHarness();
+  const { id } = h.externalGateway.register("s1", { name: "worker" });
+  h.externalGateway.setStatus("s1", id, "detached");
+
+  const result = h.connectors.resolve("s1", id).deliver({
+    sessionId: "s1",
+    participantId: id,
+    text: "do the thing",
+  });
+
+  // Nothing is driving that far side, so queuing the wake would promise a
+  // delivery the transport cannot make.
   assert.equal(result.delivered, false);
   assert.equal(h.surfaced.at(-1)?.conversationId, id);
-  assert.deepEqual(h.piDeliveries, []);
+  assert.equal(h.surfaced.at(-1)?.author, "System");
 });
 
 test("a message aimed at a remote participant reaches the remote gateway", () => {
@@ -417,6 +439,21 @@ test("only connectors the spawn API may act on are spawners", () => {
 
   assert.ok(h.connectors.spawner("pi-stdio"));
   assert.ok(h.connectors.spawner("remote-env"));
+  // Creating an external participant stays the bundle tool's act (`world_spawn`),
+  // which is what `spawnAuthority: "bundle-tool"` means: reachable by message,
+  // never spawnable through the spawn API.
   assert.equal(h.connectors.spawner("external-inbound"), undefined);
   assert.equal(h.connectors.spawner("a2a"), undefined);
+});
+
+test("every transport but the unresolved one can be delivered to", () => {
+  const h = makeHarness();
+
+  // Read when deriving a Membership: an external participant now declares that
+  // messages reach it, so its reaction is derived like any other sub-agent's.
+  assert.equal(h.connectors.acceptsDelivery("pi-stdio"), true);
+  assert.equal(h.connectors.acceptsDelivery("remote-env"), true);
+  assert.equal(h.connectors.acceptsDelivery("external-inbound"), true);
+  assert.equal(h.connectors.acceptsDelivery("a2a"), true);
+  assert.equal(h.connectors.acceptsDelivery("unresolved"), false);
 });

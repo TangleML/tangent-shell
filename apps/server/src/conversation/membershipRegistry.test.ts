@@ -8,15 +8,15 @@ import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import { MembershipRegistry } from "./membershipRegistry.ts";
 
-/** A registry over in-memory stores; external tabs accept no delivery. */
-function makeRegistry() {
+/**
+ * A registry over in-memory stores. Every connector the server runs today can be
+ * delivered to, so the default matches reality; the tests that care about the
+ * refusing case say so themselves.
+ */
+function makeRegistry(acceptsDelivery: () => boolean = () => true) {
   const sessions = new InMemorySessionStore();
   const store = new InMemoryMembershipStore();
-  const registry = new MembershipRegistry(
-    sessions,
-    store,
-    (kind) => kind !== "external-inbound",
-  );
+  const registry = new MembershipRegistry(sessions, store, acceptsDelivery);
   return { sessions, store, registry };
 }
 
@@ -72,7 +72,7 @@ test("a sub-agent that does not auto-relay is reachable only by being addressed"
 });
 
 test("a participant nothing can deliver to declares that it never reacts", async () => {
-  const h = makeRegistry();
+  const h = makeRegistry(() => false);
   await h.sessions.recordAgent("s1", {
     id: "tab-1",
     role: "subagent",
@@ -85,6 +85,27 @@ test("a participant nothing can deliver to declares that it never reacts", async
 
   assert.deepEqual(shape(members), [
     ["tab-1", "never"],
+    ["prime", "atRunEnd+mentionsMe"],
+  ]);
+  assert.equal(members[0].transcriptVisibility, "opaque");
+});
+
+test("an external worker is addressable but sees none of the transcript", async () => {
+  const h = makeRegistry();
+  await h.sessions.recordAgent("s1", {
+    id: "tab-1",
+    role: "subagent",
+    name: "External",
+    status: "active",
+    connector: connectorFor("external-inbound"),
+  });
+
+  const members = await h.registry.membersOf("s1", "tab-1");
+
+  // Its driver collects what Tangent queues for it, so it reacts like any other
+  // sub-agent — while still being sent what addresses it rather than the log.
+  assert.deepEqual(shape(members), [
+    ["tab-1", "fromHumans+mentionsMe"],
     ["prime", "atRunEnd+mentionsMe"],
   ]);
   assert.equal(members[0].transcriptVisibility, "opaque");

@@ -12,10 +12,12 @@ import {
 } from "@tangent/shared/contracts.ts";
 import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
 
+import type { RelayRegistry } from "../mcp/relayRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
+import { DeliveryQueue, type PendingDelivery } from "./deliveryQueue.ts";
 
 /** Display metadata a caller supplies when registering an external sub-agent. */
 export interface RegisterExternalSubagent {
@@ -23,6 +25,18 @@ export interface RegisterExternalSubagent {
   template?: string;
   model?: string;
   thinkingDepth?: ThinkingLevel;
+}
+
+/** The callback channel a newly registered sub-agent's far end dials back on. */
+export interface RegisteredCallback {
+  channelId: string;
+  secret: string;
+}
+
+/** A registered sub-agent tab and the callback channel opened alongside it. */
+export interface RegisteredExternalSubagent {
+  id: string;
+  callback: RegisteredCallback;
 }
 
 /** What a caller supplies to open a Run for an external sub-agent's turn. */
@@ -41,6 +55,8 @@ interface ExternalSubagent {
   template?: string;
   model?: string;
   thinkingDepth?: ThinkingLevel;
+  /** The callback channel opened for this tab, closed when it goes terminal. */
+  channelId?: string;
   createdAt: string;
 }
 
@@ -72,15 +88,22 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
  * Registry of **external sub-agent** tabs, held in memory and persisted as
  * roster rows so a restart has something to reattach to. An external sub-agent
  * is one whose work runs outside Tangent (e.g. driven by a bundle tool over the
- * `/internal/external-agents` API); the gateway only owns the sidebar tab and
- * relays streamed events into it via the shared {@link ConversationEventSink}, so an
- * external sub-agent renders and persists like a local one.
+ * `/internal/external-agents` API); the gateway owns the sidebar tab, relays
+ * streamed events into it via the shared {@link ConversationEventSink}, and holds
+ * both directions of its transport, so an external sub-agent renders, persists
+ * and is addressed like a local one.
  *
- * The gateway is transport-agnostic and carries no knowledge of what runtime
- * backs a tab — a caller `register`s a tab, `pushEvent`s streamed output into
- * it, and `setStatus` marks its lifecycle. Its connector is `external-inbound`:
- * the far side is created and destroyed by the bundle tool driving it, so the
- * participant is owned rather than attached. Sits alongside {@link
+ * Both legs are this one gateway's business. Inbound is the event stream the
+ * driver pushes; outbound is a {@link DeliveryQueue} the driver drains, because
+ * only the driver holds a route to the runtime — the server hands the work over
+ * and the driver performs the last hop. The callback channel a far end dials
+ * back on is opened here too, bound to the participant, and closed when the tab
+ * goes terminal.
+ *
+ * The gateway stays transport-agnostic and carries no knowledge of what runtime
+ * backs a tab. Its connector is `external-inbound`: the far side is created and
+ * destroyed by the bundle tool driving it, so the participant is owned rather
+ * than attached. Sits alongside {@link
  * import("../remote/remoteEnvironmentGateway.ts").RemoteEnvironmentGateway} and
  * {@link import("../pi/piAgentManager.ts").PiAgentManager}.
  */
@@ -88,6 +111,8 @@ export class ExternalSubagentGateway {
   private readonly handlers: ConversationEventSink;
   private readonly runs: RunRegistry;
   private readonly store: SessionStore;
+  private readonly relay: RelayRegistry;
+  private readonly outbound = new DeliveryQueue();
 
   /** Per-session external sub-agent rosters, keyed by sessionId then agentId. */
   private readonly sessions = new Map<string, Map<string, ExternalSubagent>>();
@@ -96,10 +121,12 @@ export class ExternalSubagentGateway {
     handlers: ConversationEventSink,
     runs: RunRegistry,
     store: SessionStore,
+    relay: RelayRegistry,
   ) {
     this.handlers = handlers;
     this.runs = runs;
     this.store = store;
+    this.relay = relay;
   }
 
   /** True when `agentId` is an external sub-agent of `sessionId`. */
@@ -115,16 +142,30 @@ export class ExternalSubagentGateway {
   }
 
   /**
-   * Registers a new external sub-agent tab, assigns it a UUID, records the
-   * roster entry, and surfaces it to the session's chat layer. Returns the
-   * assigned id the caller uses on subsequent `pushEvent`/`setStatus` calls.
+   * Registers a new external sub-agent tab, assigns it a UUID, opens the
+   * callback channel its far end dials back on, records the roster entry, and
+   * surfaces it to the session's chat layer. Returns the assigned id the caller
+   * uses on subsequent `pushEvent`/`setStatus` calls, with the channel.
+   *
+   * The channel is opened here rather than by a separate call so that a tab and
+   * the way back to it are one act: nothing can hold a channel for a
+   * participant that was never registered, and nothing has to remember to close
+   * one when the tab ends.
    *
    * The tab is persisted as a roster row, so a restart has something to reattach
    * to. Best-effort: `sessionId` comes from an external caller, and a bogus one
    * must fail the row rather than the process.
    */
-  register(sessionId: string, spec: RegisterExternalSubagent): { id: string } {
+  register(
+    sessionId: string,
+    spec: RegisterExternalSubagent,
+  ): RegisteredExternalSubagent {
     const agentId = randomUUID();
+    const channel = this.relay.open({
+      sessionId,
+      label: spec.name,
+      participantId: agentId,
+    });
     const subagent: ExternalSubagent = {
       agentId,
       name: spec.name,
@@ -132,6 +173,7 @@ export class ExternalSubagentGateway {
       template: spec.template,
       model: spec.model,
       thinkingDepth: spec.thinkingDepth,
+      channelId: channel.channelId,
       createdAt: new Date().toISOString(),
     };
     this.rosterFor(sessionId).set(agentId, subagent);
@@ -154,7 +196,32 @@ export class ExternalSubagentGateway {
         );
       });
     this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
-    return { id: agentId };
+    return { id: agentId, callback: channel };
+  }
+
+  /**
+   * Queues a message for one external sub-agent, to be carried by the driver
+   * that next asks for it. False when there is no tab to carry it to, or when
+   * the tab is `detached` — nothing is driving that runtime, so a wake left in
+   * the queue would be a promise the transport cannot keep.
+   */
+  deliver(sessionId: string, agentId: string, text: string): boolean {
+    const subagent = this.sessions.get(sessionId)?.get(agentId);
+    if (!subagent || subagent.status === "detached") return false;
+    this.outbound.push(sessionId, { agentId, text });
+    return true;
+  }
+
+  /**
+   * Hands the session's queued messages to its driver, waiting up to
+   * `timeoutMs` for one to arrive. Empty when nothing is queued in that window,
+   * so the driver polls in a loop rather than holding one request forever.
+   */
+  takeDeliveries(
+    sessionId: string,
+    timeoutMs: number,
+  ): Promise<PendingDelivery[]> {
+    return this.outbound.take(sessionId, timeoutMs);
   }
 
   /**
@@ -270,10 +337,11 @@ export class ExternalSubagentGateway {
   }
 
   /**
-   * Applies a lifecycle status change to a sub-agent tab. A terminal status drops
-   * the roster entry and settles whatever Run the tab still had open; `detached`
-   * keeps it, because the point of that state is having something to come back
-   * to. No-op for an unknown id.
+   * Applies a lifecycle status change to a sub-agent tab. A terminal status
+   * drops the roster entry, closes the callback channel, discards whatever was
+   * still queued for it, and settles whatever Run the tab still had open;
+   * `detached` keeps it, because the point of that state is having something to
+   * come back to. No-op for an unknown id.
    */
   setStatus(sessionId: string, agentId: string, status: SubagentStatus): void {
     const roster = this.sessions.get(sessionId);
@@ -283,6 +351,7 @@ export class ExternalSubagentGateway {
     subagent.status = status;
     if (isTerminalStatus(status)) {
       roster.delete(agentId);
+      this.retire(sessionId, subagent);
       this.runs.settleOpenFor(
         sessionId,
         agentId,
@@ -290,6 +359,13 @@ export class ExternalSubagentGateway {
       );
     }
     this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
+  }
+
+  /** Releases everything a finished tab was holding open. */
+  private retire(sessionId: string, subagent: ExternalSubagent): void {
+    if (subagent.channelId) this.relay.close(subagent.channelId);
+    subagent.channelId = undefined;
+    this.outbound.drop(sessionId, subagent.agentId);
   }
 
   /** Returns (creating if needed) the session's external sub-agent roster. */

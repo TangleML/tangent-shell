@@ -12,27 +12,29 @@ import type {
   DeliveryResult,
 } from "./types.ts";
 
-/** Shown in the sub-agent's own thread when a message cannot reach it. */
-const NO_INBOUND_CHANNEL =
-  "This sub-agent runs outside Tangent, so it can't receive messages here.";
+/** Shown in the sub-agent's own thread when nothing is driving its far side. */
+const NOT_BEING_DRIVEN =
+  "This sub-agent's far side isn't being driven right now, so the message " +
+  "wasn't carried to it.";
 
-/** Why a cancellation is refused: the same missing channel, stated for runs. */
+/** Why a cancellation is refused: the driver owns the turn, not the server. */
 const NO_CANCEL_CHANNEL =
   "This sub-agent runs outside Tangent, so its work can't be stopped from here.";
 
 /**
  * The connector for external sub-agent tabs, whose work runs outside Tangent
  * and streams in over the internal external-agents API. A thin adapter over
- * {@link ExternalSubagentGateway}, which is unchanged.
+ * {@link ExternalSubagentGateway}, which holds both directions of the transport.
  *
- * Traffic is inbound only: the driving bundle tool owns the far side, so there
- * is no channel to deliver a message back over. That is declared rather than
- * left to a missing method, so a message aimed here is refused in this tab
- * instead of falling through to the local agent map.
+ * Delivery is accepted: a message is queued for the driver that owns the far
+ * side and carried on its next poll, so an external participant is reached by
+ * being addressed like any other. Whether that driver streams or polls is
+ * invisible from here. Cancellation is still refused — the driver, not the
+ * server, holds the turn.
  */
 export class ExternalConnector implements Connector {
   readonly descriptor = connectorFor("external-inbound");
-  readonly acceptsDelivery = false;
+  readonly acceptsDelivery = true;
   readonly credential = externalCredential;
 
   private readonly gateway: ExternalSubagentGateway;
@@ -55,7 +57,15 @@ export class ExternalConnector implements Connector {
   }
 
   deliver(request: DeliveryRequest): DeliveryResult {
-    return refuseDelivery(this.handlers, request, NO_INBOUND_CHANNEL);
+    const queued = this.gateway.deliver(
+      request.sessionId,
+      request.participantId,
+      request.text,
+    );
+    if (!queued) {
+      return refuseDelivery(this.handlers, request, NOT_BEING_DRIVEN);
+    }
+    return { delivered: true };
   }
 
   cancelRun(): CancelResult {
