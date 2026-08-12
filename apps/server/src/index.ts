@@ -12,12 +12,12 @@ import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
+import { createRelayReport } from "./mcp/relayReport.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
 import { MemoryManager } from "./pi/memory.ts";
 import {
   type ConversationEventSink,
   PiAgentManager,
-  PRIME_AGENT_ID,
 } from "./pi/piAgentManager.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
@@ -141,10 +141,22 @@ const remoteGateway = new RemoteEnvironmentGateway(
   runs,
 );
 
+// Generic MCP relay: bridges an external MCP client (dialed by a gateway) back
+// into a session. A connector opens a channel for the participant it registers;
+// the peer's tool calls arrive on the public /api/mcp route.
+const mcpRelay = new RelayRegistry();
+
 // Registry of external sub-agent tabs: work runs outside Tangent (e.g. driven
 // by a bundle tool over the internal external-agents API) and streams into a
-// tab via the same relay handlers a local sub-agent uses.
-const externalGateway = new ExternalSubagentGateway(agentHandlers, runs, store);
+// tab via the same relay handlers a local sub-agent uses. It holds both legs —
+// the inbound stream and the outbound queue its driver drains — plus the
+// callback channel each tab's far side dials back on.
+const externalGateway = new ExternalSubagentGateway(
+  agentHandlers,
+  runs,
+  store,
+  mcpRelay,
+);
 
 // Registry of attached A2A agents: heterogeneous agents that already run as a
 // service elsewhere, which Tangent dials over the A2A protocol. Their Tasks
@@ -172,20 +184,9 @@ const connectors = createConnectorRegistry(
 // not in the dependency, so it is broken here rather than by an indirection.
 conversations.useConnectors(connectors);
 
-// Relays a message into a session's Prime. The generic MCP relay's peer is not a
-// participant in any Conversation, so its text is delivered rather than posted.
-const deliverToPrime = (sessionId: string, text: string): void => {
-  connectors.resolve(sessionId, PRIME_AGENT_ID).deliver({
-    sessionId,
-    participantId: PRIME_AGENT_ID,
-    text,
-  });
-};
-
-// Generic MCP relay: bridges an external MCP client (dialed by a gateway) to a
-// session's Prime. Bundles open channels over the internal API; the peer's tool
-// calls arrive on the public /api/mcp route and are relayed to Prime.
-const mcpRelay = new RelayRegistry();
+// Where a relay peer's words land: posted as the participant its channel belongs
+// to, or delivered to Prime when no participant owns the channel.
+const relayReport = createRelayReport(connectors, conversations);
 
 // Drives schedule timers and callback firings, posting prompts into the target's
 // Conversation.
@@ -214,7 +215,7 @@ app.use(
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Public MCP relay dialed by an external client; per-channel bearer in the URL.
-app.use("/api/mcp", createMcpRelayRouter(mcpRelay, deliverToPrime));
+app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.

@@ -4,6 +4,17 @@ import { test } from "node:test";
 import { dispatchMcp } from "./mcpRelayServer.ts";
 import { RelayRegistry } from "./relayRegistry.ts";
 
+/** A report that records what it was handed instead of entering a session. */
+function captureReport() {
+  const reported: Array<{ channelId: string; text: string }> = [];
+  return {
+    reported,
+    report: async (channel: { channelId: string }, text: string) => {
+      reported.push({ channelId: channel.channelId, text });
+    },
+  };
+}
+
 test("open issues a distinct channel id and secret bound to the session", () => {
   const registry = new RelayRegistry();
   const a = registry.open({ sessionId: "s1", label: "explorer" });
@@ -14,6 +25,15 @@ test("open issues a distinct channel id and secret bound to the session", () => 
   assert.equal(registry.get(a.channelId)?.sessionId, "s1");
   assert.equal(registry.get(a.channelId)?.label, "explorer");
   assert.equal(registry.get(b.channelId)?.label, "remote agent");
+});
+
+test("a channel opened for a participant records whose it is", () => {
+  const registry = new RelayRegistry();
+  const owned = registry.open({ sessionId: "s1", participantId: "ext-1" });
+  const unowned = registry.open({ sessionId: "s1" });
+
+  assert.equal(registry.get(owned.channelId)?.participantId, "ext-1");
+  assert.equal(registry.get(unowned.channelId)?.participantId, undefined);
 });
 
 test("a channel's credential opens that channel and no other", () => {
@@ -62,7 +82,7 @@ test("tools/list advertises the two relay tools", async () => {
     registry,
     channel,
     { jsonrpc: "2.0", id: 1, method: "tools/list" },
-    () => {},
+    captureReport().report,
   );
 
   const tools = (res?.result as { tools: { name: string }[] }).tools;
@@ -72,12 +92,12 @@ test("tools/list advertises the two relay tools", async () => {
   ]);
 });
 
-test("send_to_prime relays labeled text to the session's Prime", async () => {
+test("send_to_prime reports the peer's own words, unwrapped", async () => {
   const registry = new RelayRegistry();
   const channel = registry.get(
     registry.open({ sessionId: "s1", label: "explorer" }).channelId,
   )!;
-  const delivered: Array<{ sessionId: string; text: string }> = [];
+  const capture = captureReport();
 
   const res = await dispatchMcp(
     registry,
@@ -88,15 +108,47 @@ test("send_to_prime relays labeled text to the session's Prime", async () => {
       method: "tools/call",
       params: { name: "send_to_prime", arguments: { text: "found it" } },
     },
-    (sessionId, text) => delivered.push({ sessionId, text }),
+    capture.report,
   );
 
-  assert.equal(delivered.length, 1);
-  assert.equal(delivered[0].sessionId, "s1");
-  assert.match(delivered[0].text, /explorer/);
-  assert.match(delivered[0].text, /found it/);
+  // Framing belongs to whoever lands the text, so what arrives here is exactly
+  // what the peer said — a bound channel posts it as the participant's own words.
+  assert.deepEqual(capture.reported, [
+    { channelId: channel.channelId, text: "found it" },
+  ]);
   const content = (res?.result as { content: { text: string }[] }).content;
   assert.match(content[0].text, /Delivered/);
+});
+
+test("ask_prime reports the question with the id an answer must name", async () => {
+  const registry = new RelayRegistry();
+  const { channelId } = registry.open({ sessionId: "s1" });
+  const channel = registry.get(channelId)!;
+  const capture = captureReport();
+
+  const call = dispatchMcp(
+    registry,
+    channel,
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "ask_prime", arguments: { question: "which zone?" } },
+    },
+    capture.report,
+  );
+
+  // The pending question is registered before the report is awaited, so the
+  // request id is answerable by the time anyone reads it.
+  const [pending] = registry.pending(channelId);
+  assert.equal(pending.question, "which zone?");
+  assert.match(capture.reported[0].text, /which zone\?/);
+  assert.match(capture.reported[0].text, new RegExp(pending.request_id));
+
+  registry.answer(channelId, pending.request_id, "zone-42");
+  const res = await call;
+  const content = (res?.result as { content: { text: string }[] }).content;
+  assert.equal(content[0].text, "zone-42");
 });
 
 test("notifications receive no response body", async () => {
@@ -106,7 +158,7 @@ test("notifications receive no response body", async () => {
     registry,
     channel,
     { jsonrpc: "2.0", method: "notifications/initialized" },
-    () => {},
+    captureReport().report,
   );
   assert.equal(res, null);
 });

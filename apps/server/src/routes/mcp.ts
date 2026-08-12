@@ -1,11 +1,12 @@
 import { type Request, type Response, Router } from "express";
 
-import { type DeliverToPrime, dispatchMcp } from "../mcp/mcpRelayServer.ts";
+import { dispatchMcp } from "../mcp/mcpRelayServer.ts";
 import type { RelayChannel, RelayRegistry } from "../mcp/relayRegistry.ts";
+import type { RelayReport } from "../mcp/relayReport.ts";
 
 /**
  * Public MCP endpoint an external client (dialed by the gateway) uses to relay
- * tool calls to a channel's session Prime. There is no global auth on `/api/*`;
+ * tool calls back into a channel's session. There is no global auth on `/api/*`;
  * each channel is gated by the per-channel bearer secret embedded in the URL it
  * was handed, mirroring the trigger-callback-secret pattern. Generic and
  * domain-agnostic — the bundle that opened the channel owns everything specific
@@ -13,14 +14,14 @@ import type { RelayChannel, RelayRegistry } from "../mcp/relayRegistry.ts";
  */
 export function createMcpRelayRouter(
   registry: RelayRegistry,
-  deliverToPrime: DeliverToPrime,
+  report: RelayReport,
 ): Router {
   const router = Router();
   // Some MCP clients probe with GET for a server-sent-events channel. This PoC
   // answers request/response over POST only, so GET is just a liveness probe.
   router.get("/:channelId", (req, res) => handleGet(registry, req, res));
   router.post("/:channelId", (req, res) =>
-    handlePost(registry, deliverToPrime, req, res),
+    handlePost(registry, report, req, res),
   );
   return router;
 }
@@ -41,7 +42,7 @@ function handleGet(registry: RelayRegistry, req: Request, res: Response): void {
 
 async function handlePost(
   registry: RelayRegistry,
-  deliverToPrime: DeliverToPrime,
+  report: RelayReport,
   req: Request,
   res: Response,
 ): Promise<void> {
@@ -66,12 +67,7 @@ async function handlePost(
     return;
   }
 
-  const response = await dispatchMcp(
-    registry,
-    channel,
-    req.body ?? {},
-    deliverToPrime,
-  );
+  const response = await dispatchMcp(registry, channel, req.body ?? {}, report);
   if (response === null) {
     console.error(`[mcp-relay] ${channelId} -> 202 (notification)`);
     res.status(202).end();

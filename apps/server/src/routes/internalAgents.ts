@@ -1,5 +1,4 @@
 import {
-  type ChatAuthor,
   connectorFields,
   type ConnectorKind,
   PI_AGENT,
@@ -10,6 +9,7 @@ import { z } from "zod";
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
+import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
@@ -247,24 +247,6 @@ async function handleReport(
     ingress: "tool",
   });
   res.json({ ok: true });
-}
-
-/** The chat author of a live sub-agent, read from the roster it appears in. */
-function subagentAuthor(
-  connectors: ConnectorRegistry,
-  sessionId: string,
-  agentId: string,
-): ChatAuthor | undefined {
-  const subagent = connectors
-    .list(sessionId)
-    .find((candidate) => candidate.id === agentId);
-  if (!subagent) return undefined;
-  return {
-    id: subagent.id,
-    kind: "agent",
-    name: subagent.name,
-    agentRole: "subagent",
-  };
 }
 
 /** Terminates a sub-agent, optionally marking its work completed. */

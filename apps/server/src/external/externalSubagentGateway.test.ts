@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { SubagentInfo } from "@tangent/shared/contracts.ts";
 
+import { RelayRegistry } from "../mcp/relayRegistry.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
@@ -30,8 +31,9 @@ function makeHarness() {
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
   const store = new InMemorySessionStore();
-  const gateway = new ExternalSubagentGateway(handlers, runs, store);
-  return { gateway, rosterUpdates, events, runs, runStore, store };
+  const relay = new RelayRegistry();
+  const gateway = new ExternalSubagentGateway(handlers, runs, store, relay);
+  return { gateway, rosterUpdates, events, runs, runStore, store, relay };
 }
 
 /** A persisted roster row, as a reattach reads one. */
@@ -255,6 +257,87 @@ test("a tab going terminal settles the run it was working under", async () => {
 test("openRun refuses an unknown agent", () => {
   const h = makeHarness();
   assert.equal(h.gateway.openRun("s1", "nope"), undefined);
+});
+
+test("register opens a callback channel bound to the new participant", () => {
+  const h = makeHarness();
+  const { id, callback } = h.gateway.register("s1", { name: "worker" });
+
+  const channel = h.relay.get(callback.channelId);
+  assert.equal(channel?.sessionId, "s1");
+  assert.equal(channel?.participantId, id, "the channel speaks for the tab");
+  assert.equal(channel?.label, "worker");
+  assert.equal(
+    channel?.credential.verify({ authorization: `Bearer ${callback.secret}` }),
+    true,
+  );
+});
+
+test("a terminal status closes the tab's callback channel", () => {
+  const h = makeHarness();
+  const { id, callback } = h.gateway.register("s1", { name: "worker" });
+
+  h.gateway.setStatus("s1", id, "completed");
+
+  assert.equal(h.relay.get(callback.channelId), undefined);
+});
+
+test("a detached tab keeps its channel, because it has something to come back to", () => {
+  const h = makeHarness();
+  const { id, callback } = h.gateway.register("s1", { name: "worker" });
+
+  h.gateway.setStatus("s1", id, "detached");
+
+  assert.ok(h.relay.get(callback.channelId));
+});
+
+test("a delivery is queued for the driver that next asks for it", async () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+
+  assert.equal(h.gateway.deliver("s1", id, "do the thing"), true);
+
+  assert.deepEqual(await h.gateway.takeDeliveries("s1", 5), [
+    { agentId: id, text: "do the thing" },
+  ]);
+});
+
+test("a parked poll is answered by a delivery that arrives after it", async () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+
+  const polled = h.gateway.takeDeliveries("s1", 5_000);
+  h.gateway.deliver("s1", id, "do the thing");
+
+  assert.deepEqual(await polled, [{ agentId: id, text: "do the thing" }]);
+});
+
+test("a poll with nothing queued is answered empty", async () => {
+  const h = makeHarness();
+  assert.deepEqual(await h.gateway.takeDeliveries("s1", 5), []);
+});
+
+test("nothing is queued for an unknown or detached tab", () => {
+  const h = makeHarness();
+  const { id } = h.gateway.register("s1", { name: "worker" });
+  h.gateway.setStatus("s1", id, "detached");
+
+  assert.equal(h.gateway.deliver("s1", "nope", "hello"), false);
+  assert.equal(h.gateway.deliver("s1", id, "hello"), false);
+});
+
+test("a tab going terminal discards what was queued for it", async () => {
+  const h = makeHarness();
+  const gone = h.gateway.register("s1", { name: "gone" });
+  const kept = h.gateway.register("s1", { name: "kept" });
+  h.gateway.deliver("s1", gone.id, "lost");
+  h.gateway.deliver("s1", kept.id, "still wanted");
+
+  h.gateway.setStatus("s1", gone.id, "completed");
+
+  assert.deepEqual(await h.gateway.takeDeliveries("s1", 5), [
+    { agentId: kept.id, text: "still wanted" },
+  ]);
 });
 
 test("listSubagents is scoped per session", () => {

@@ -17,6 +17,13 @@ export interface RelayChannel {
   sessionId: string;
   /** Human label used when relaying messages to Prime (e.g. the peer's name). */
   label: string;
+  /**
+   * The Participant this channel speaks for, when one owns it. A channel a
+   * connector opened for a participant reports **as** that participant, in its
+   * own Conversation; an unowned one has no standing anywhere and can only be
+   * relayed to Prime.
+   */
+  participantId?: string;
   /** The credential this channel — and only this channel — is opened by. */
   credential: ConnectorCredential;
   /** Open questions awaiting an answer, keyed by request id. */
@@ -29,6 +36,8 @@ export interface RelayChannel {
 export interface OpenChannelInput {
   sessionId: string;
   label?: string;
+  /** The Participant the channel belongs to, when a connector owns it. */
+  participantId?: string;
 }
 
 export interface PendingQuestion {
@@ -52,6 +61,7 @@ export class RelayRegistry {
       channelId,
       sessionId: input.sessionId,
       label: input.label?.trim() || "remote agent",
+      participantId: input.participantId,
       credential,
       pending: new Map(),
       answers: new Map(),

@@ -1,18 +1,17 @@
 import { randomUUID } from "node:crypto";
 
 import type { RelayChannel, RelayRegistry } from "./relayRegistry.ts";
+import type { RelayReport } from "./relayReport.ts";
 
 /**
  * Generic MCP JSON-RPC handler for a single relay channel. It speaks the subset
  * of the Model Context Protocol an external client exercises when the gateway
  * dials in — `initialize`, `tools/list`, `tools/call` — and exposes two generic
- * tools that forward to the channel's session Prime. It has no knowledge of the
+ * tools that carry the peer's words back to Prime. It has no knowledge of the
  * remote runtime on the other end (that lives entirely in the bundle that
- * opened the channel).
+ * opened the channel), and none of how its report reaches the session: it hands
+ * over the peer's own words and {@link RelayReport} decides where they land.
  */
-
-/** Callback that relays a message to a session's Prime agent. */
-export type DeliverToPrime = (sessionId: string, text: string) => void;
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -68,7 +67,7 @@ interface Ctx {
   registry: RelayRegistry;
   channel: RelayChannel;
   message: JsonRpcRequest;
-  deliverToPrime: DeliverToPrime;
+  report: RelayReport;
   id: string | number;
 }
 
@@ -89,7 +88,7 @@ export async function dispatchMcp(
   registry: RelayRegistry,
   channel: RelayChannel,
   message: JsonRpcRequest,
-  deliverToPrime: DeliverToPrime,
+  report: RelayReport,
 ): Promise<JsonRpcResponse | null> {
   const method = String(message.method ?? "");
   const id = message.id;
@@ -109,7 +108,7 @@ export async function dispatchMcp(
       error: { code: -32601, message: `method not found: ${method}` },
     };
   }
-  return handler({ registry, channel, message, deliverToPrime, id });
+  return handler({ registry, channel, message, report, id });
 }
 
 function handleInitialize({ message, id }: Ctx): JsonRpcResponse {
@@ -154,31 +153,29 @@ function callTool(
   return `Unknown tool: ${name}`;
 }
 
-function sendToPrimeTool(
-  { channel, deliverToPrime }: Ctx,
+async function sendToPrimeTool(
+  { channel, report }: Ctx,
   args: Record<string, unknown>,
-): string {
+): Promise<string> {
   const text = String(args.text ?? "").trim();
   if (!text) return "Nothing to send (empty text).";
-  deliverToPrime(
-    channel.sessionId,
-    `Remote agent (${channel.label}) reports:\n\n${text}`,
-  );
+  await report(channel, text);
   return "Delivered to Prime.";
 }
 
 async function askPrimeTool(
-  { registry, channel, deliverToPrime }: Ctx,
+  { registry, channel, report }: Ctx,
   args: Record<string, unknown>,
 ): Promise<string> {
   const question = String(args.question ?? "").trim();
   if (!question) return "Empty question; nothing to ask.";
   const requestId = randomUUID().replace(/-/g, "").slice(0, 12);
   registry.addQuestion(channel.channelId, requestId, question);
-  deliverToPrime(
-    channel.sessionId,
-    `Remote agent (${channel.label}) asks (request_id "${requestId}"):\n\n` +
-      `${question}\n\n` +
+  // The request id is part of what the peer is asking, not framing around it:
+  // whoever answers has to be told which question they are answering.
+  await report(
+    channel,
+    `${question}\n\n` +
       `Reply by supplying an answer for request_id "${requestId}".`,
   );
   const deadline = Date.now() + ASK_TIMEOUT_MS;
