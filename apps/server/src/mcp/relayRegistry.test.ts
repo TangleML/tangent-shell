@@ -16,6 +16,22 @@ test("open issues a distinct channel id and secret bound to the session", () => 
   assert.equal(registry.get(b.channelId)?.label, "remote agent");
 });
 
+test("a channel's credential opens that channel and no other", () => {
+  const registry = new RelayRegistry();
+  const a = registry.open({ sessionId: "s1" });
+  const b = registry.open({ sessionId: "s1" });
+
+  const credential = registry.get(a.channelId)!.credential;
+  assert.equal(
+    credential.verify({ authorization: `Bearer ${a.secret}` }),
+    true,
+  );
+  assert.equal(
+    credential.verify({ authorization: `Bearer ${b.secret}` }),
+    false,
+  );
+});
+
 test("answer resolves a pending question and takeAnswer consumes it once", () => {
   const registry = new RelayRegistry();
   const { channelId } = registry.open({ sessionId: "s1" });

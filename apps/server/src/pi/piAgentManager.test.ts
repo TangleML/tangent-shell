@@ -267,6 +267,7 @@ test("the local roster describes its connector", () => {
     kind: "pi-stdio",
     lifecycle: "owned",
     spawnAuthority: "server",
+    credentialScheme: "inherited-token",
   };
   assert.deepEqual(info.connector, expected);
   assert.equal(info.host, "local");

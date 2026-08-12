@@ -15,7 +15,6 @@ import {
 } from "@tangent/shared/contracts.ts";
 
 import {
-  INTERNAL_TOKEN,
   INTERNAL_URL,
   PI_BIN,
   PI_DEBUG,
@@ -24,6 +23,7 @@ import {
   PI_PROXY_URL,
   PI_THINKING,
 } from "../config.ts";
+import { piCredential } from "../connectors/credentials.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
@@ -949,7 +949,7 @@ export class PiAgentManager {
           TANGENT_AGENT_ID: descriptor.agentId,
           TANGENT_AGENT_ROLE: descriptor.role,
           TANGENT_INTERNAL_URL: INTERNAL_URL,
-          TANGENT_INTERNAL_TOKEN: INTERNAL_TOKEN,
+          ...piCredential.spawnEnv(),
         },
         stdio: ["pipe", "pipe", "pipe"],
       },

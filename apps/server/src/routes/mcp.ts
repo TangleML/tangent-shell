@@ -1,7 +1,7 @@
 import { type Request, type Response, Router } from "express";
 
 import { type DeliverToPrime, dispatchMcp } from "../mcp/mcpRelayServer.ts";
-import type { RelayRegistry } from "../mcp/relayRegistry.ts";
+import type { RelayChannel, RelayRegistry } from "../mcp/relayRegistry.ts";
 
 /**
  * Public MCP endpoint an external client (dialed by the gateway) uses to relay
@@ -28,7 +28,7 @@ export function createMcpRelayRouter(
 function handleGet(registry: RelayRegistry, req: Request, res: Response): void {
   const channelId = String(req.params.channelId);
   const channel = registry.get(channelId);
-  const isAuthed = channel ? authorized(req, channel.secret) : false;
+  const isAuthed = channel ? authorized(req, channel) : false;
   logDial("GET", channelId, req, isAuthed, channel !== undefined);
   if (!channel || !isAuthed) {
     res.status(channel ? 401 : 404).end();
@@ -47,7 +47,7 @@ async function handlePost(
 ): Promise<void> {
   const channelId = String(req.params.channelId);
   const channel = registry.get(channelId);
-  const isAuthed = channel ? authorized(req, channel.secret) : false;
+  const isAuthed = channel ? authorized(req, channel) : false;
   logDial("POST", channelId, req, isAuthed, channel !== undefined);
   if (!channel) {
     res.status(404).json({
@@ -80,8 +80,10 @@ async function handlePost(
   res.json(response);
 }
 
-function authorized(req: Request, secret: string): boolean {
-  return req.get("authorization") === `Bearer ${secret}`;
+function authorized(req: Request, channel: RelayChannel): boolean {
+  return channel.credential.verify({
+    authorization: req.get("authorization"),
+  });
 }
 
 /**

@@ -154,6 +154,32 @@ test("resolution is total: an unheld participant gets a refusing connector", () 
   assert.equal(connector.acceptsDelivery, false);
 });
 
+test("every connector's credential agrees with the scheme it publishes", () => {
+  const h = makeHarness();
+  const { id } = h.externalGateway.register("s1", { name: "worker" });
+
+  // The descriptor names the scheme (it goes to clients); the credential holds
+  // the secret (it does not). A connector whose two disagreed would be lying
+  // about how its far end is authenticated.
+  for (const participantId of ["local-1", "remote-1", id, "ghost"]) {
+    const connector = h.connectors.resolve("s1", participantId);
+    assert.equal(
+      connector.credential.scheme,
+      connector.descriptor.credentialScheme,
+      `${participantId} publishes a scheme its credential does not implement`,
+    );
+  }
+
+  assert.equal(
+    h.connectors.resolve("s1", "local-1").descriptor.credentialScheme,
+    "inherited-token",
+  );
+  assert.equal(
+    h.connectors.resolve("s1", "ghost").credential.configured,
+    false,
+  );
+});
+
 test("a message to an unknown participant is refused in its own conversation", () => {
   const h = makeHarness();
 
@@ -314,6 +340,7 @@ test("revive skips Prime, terminal rows and attached participants", () => {
       kind: "pi-stdio",
       lifecycle: "attached",
       spawnAuthority: "server",
+      credentialScheme: "inherited-token",
     }),
   ]);
 

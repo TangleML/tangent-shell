@@ -8,8 +8,9 @@ import { type Response, Router } from "express";
 import { z } from "zod";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
+import { piCredential } from "../connectors/credentials.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
-import { requireInternalToken } from "../middleware/requireInternalToken.ts";
+import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import { PRIME_AGENT_ID } from "../pi/types.ts";
@@ -273,8 +274,9 @@ async function handleRoom(
 /**
  * Internal API used only by the orchestrator extension running inside each Pi
  * process. It lets Prime spawn/message/kill/list sub-agents and lets any agent
- * read the shared transcript. Guarded by a bearer token shared with the
- * spawned processes via env, so arbitrary local callers can't drive agents.
+ * read the shared transcript. Guarded by the Pi connector's credential — the
+ * token those processes inherited at spawn — so arbitrary local callers can't
+ * drive agents.
  */
 export function createInternalAgentsRouter(
   store: SessionStore,
@@ -283,7 +285,7 @@ export function createInternalAgentsRouter(
 ): Router {
   const router = Router();
 
-  router.use(requireInternalToken);
+  router.use(requireCredential(piCredential));
 
   router.post("/spawn", validate({ body: spawnSchema }), (req, res) =>
     handleSpawn(

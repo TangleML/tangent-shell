@@ -1,20 +1,9 @@
-import type { NextFunction, Request, Response } from "express";
-
-import { INTERNAL_TOKEN } from "../config.ts";
+import { piCredential } from "../connectors/credentials.ts";
+import { requireCredential } from "./requireCredential.ts";
 
 /**
- * Shared guard for the `/internal/*` APIs: rejects any request not bearing the
- * server's internal bearer token. The token is shared with the Pi processes via
- * env, so arbitrary local callers can't drive a session's agents/triggers/memory.
+ * Guard for the `/internal/*` APIs a Pi process calls: the extensions running
+ * inside each child present the token they inherited at spawn, so the Pi
+ * connector's credential is the one that answers for them.
  */
-export function requireInternalToken(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  if (req.get("authorization") !== `Bearer ${INTERNAL_TOKEN}`) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
-}
+export const requireInternalToken = requireCredential(piCredential);
