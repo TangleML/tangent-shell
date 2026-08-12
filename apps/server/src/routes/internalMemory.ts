@@ -7,7 +7,7 @@ import type { MemoryManager } from "../pi/memory.ts";
 import type {
   MemoryRememberedHandler,
   MemorySuggestionHandler,
-} from "../sockets/chat.ts";
+} from "../sockets/chatMemory.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { loadSession } from "./sessions/utils.ts";
 

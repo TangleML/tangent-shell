@@ -7,7 +7,7 @@ import {
 
 import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import { ExternalConnector } from "./externalConnector.ts";
@@ -76,6 +76,15 @@ export class ConnectorRegistry {
     );
   }
 
+  /**
+   * Whether the connector for `kind` can carry a message at all. Read when
+   * deriving a Membership: a transport nothing can be delivered to declares a
+   * `never` reaction instead of silently swallowing wakes.
+   */
+  acceptsDelivery(kind: ConnectorKind): boolean {
+    return this.forKind(kind)?.acceptsDelivery ?? false;
+  }
+
   /** The connector that spawns `kind` on the server's behalf, if any may. */
   spawner(kind: ConnectorKind): SpawningConnector | undefined {
     const connector = this.forKind(kind);
@@ -114,7 +123,7 @@ export function createConnectorRegistry(
   pi: PiAgentManager,
   remoteGateway: RemoteEnvironmentGateway,
   externalGateway: ExternalSubagentGateway,
-  handlers: PiAgentHandlers,
+  handlers: ConversationEventSink,
 ): ConnectorRegistry {
   return new ConnectorRegistry(
     [

@@ -192,6 +192,48 @@ export const conversations = sqliteTable(
   ],
 );
 
+/**
+ * A participant's standing in one Conversation: whether it reacts to what is
+ * posted there, what work arriving through it counts as, and how much of the
+ * transcript it sees. The successor to `session_agents.auto_relay_to_prime`,
+ * which was a one-bit approximation of the reaction predicate.
+ *
+ * `session_id` is here because a participant or conversation id is only unique
+ * within a session.
+ */
+export const memberships = sqliteTable(
+  "memberships",
+  {
+    /** The participant that holds the membership (an agent id today). */
+    participantId: text("participant_id").notNull(),
+    /** The conversation it is a member of (an agent id today). */
+    conversationId: text("conversation_id").notNull(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** A `ReactionSpec`: `+`-joined preset names, read as a disjunction. */
+    reaction: text("reaction").notNull().default("never"),
+    /** `reaction` | `schedule` | `webhook` | `tool`. */
+    ingress: text("ingress").notNull().default("reaction"),
+    /** `shared` | `summarized` | `opaque`. */
+    transcriptVisibility: text("transcript_visibility")
+      .notNull()
+      .default("shared"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    unique("memberships_session_conversation_participant").on(
+      table.sessionId,
+      table.conversationId,
+      table.participantId,
+    ),
+    index("memberships_session_conversation_idx").on(
+      table.sessionId,
+      table.conversationId,
+    ),
+  ],
+);
+
 /** When each user last opened a session. `user_key` is the email, or `local`. */
 export const sessionViews = sqliteTable(
   "session_views",
@@ -213,3 +255,4 @@ export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type SessionAgentRow = typeof sessionAgents.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;
+export type MembershipRow = typeof memberships.$inferSelect;

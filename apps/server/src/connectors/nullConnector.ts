@@ -1,6 +1,6 @@
 import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
 
-import type { PiAgentHandlers } from "../pi/types.ts";
+import type { ConversationEventSink } from "../pi/types.ts";
 import { refuseDelivery } from "./refusal.ts";
 import type {
   CancelResult,
@@ -26,9 +26,9 @@ export class NullConnector implements Connector {
   readonly descriptor = connectorFor("unresolved");
   readonly acceptsDelivery = false;
 
-  private readonly handlers: PiAgentHandlers;
+  private readonly handlers: ConversationEventSink;
 
-  constructor(handlers: PiAgentHandlers) {
+  constructor(handlers: ConversationEventSink) {
     this.handlers = handlers;
   }
 

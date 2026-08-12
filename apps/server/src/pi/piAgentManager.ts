@@ -3,9 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   type AgentActivity,
-  type ChatAuthor,
   type MessageDelivery,
-  PI_AGENT,
   RESTORABLE_STATUSES,
   type RunIngress,
   type SessionRunStatus,
@@ -43,7 +41,7 @@ import {
   type AgentEvent,
   type AgentProcess,
   type AssistantDelta,
-  type PiAgentHandlers,
+  type ConversationEventSink,
   type PiStdoutEvent,
   PRIME_AGENT_ID,
   type SessionAgents,
@@ -72,7 +70,7 @@ export type {
   AgentEvent,
   AgentEventHandler,
   AgentMessageHandler,
-  PiAgentHandlers,
+  ConversationEventSink,
   SubagentUpdateHandler,
 } from "./types.ts";
 
@@ -157,6 +155,17 @@ export interface SpawnedSubagent {
   systemPrompt: string;
   /** Whether the sub-agent's finalized replies auto-relay back to Prime. */
   autoRelayToPrime: boolean;
+}
+
+/** One message to deliver to one agent's stdin. */
+export interface SendToAgentOptions {
+  sessionId: string;
+  agentId: string;
+  text: string;
+  /** Whether a mid-run message steers or queues. Defaults to `auto`. */
+  delivery?: MessageDelivery;
+  /** What the message counts as if it opens a Run. Defaults to `reaction`. */
+  ingress?: RunIngress;
 }
 
 /** A requested model/thinking change; either field may be omitted to keep it. */
@@ -437,7 +446,7 @@ function busyStreamingBehavior(
  */
 export class PiAgentManager {
   private readonly sessions = new Map<string, SessionAgents>();
-  private readonly handlers: PiAgentHandlers;
+  private readonly handlers: ConversationEventSink;
   private readonly memory: MemoryManager;
   /**
    * The Runs this manager's agents work under. Pi is the authority on its own
@@ -457,7 +466,7 @@ export class PiAgentManager {
   private readonly lastStatus = new Map<string, SessionRunStatus>();
 
   constructor(
-    handlers: PiAgentHandlers,
+    handlers: ConversationEventSink,
     memory: MemoryManager,
     runs: RunRegistry,
     spawnProcess: typeof spawn = spawn,
@@ -708,31 +717,10 @@ export class PiAgentManager {
   }
 
   /**
-   * Relays a human message to the session's Prime process, spawning it first if
-   * needed. Only Prime receives human input; sub-agents are directed by Prime.
-   * `delivery` controls how the message is queued when Prime is mid-run.
-   */
-  prompt(
-    sessionId: string,
-    rootPath: string,
-    text: string,
-    delivery: MessageDelivery = "auto",
-    ingress: RunIngress = "reaction",
-  ): void {
-    this.ensure(sessionId, rootPath);
-    this.sendToAgent(
-      sessionId,
-      PRIME_AGENT_ID,
-      text,
-      undefined,
-      delivery,
-      ingress,
-    );
-  }
-
-  /**
-   * Spawns a sub-agent for the session and returns its roster entry. Optionally
-   * delivers an initial task. The session's Prime must already exist.
+   * Spawns a sub-agent for the session and returns its roster entry. The
+   * session's Prime must already exist. An initial task is not delivered here:
+   * it is a Message posted into the new sub-agent's Conversation, which is what
+   * both surfaces it and wakes the sub-agent.
    */
   spawnSubagent(
     sessionId: string,
@@ -766,8 +754,6 @@ export class PiAgentManager {
     const info = toSubagentInfo(agent);
     this.handlers.onSubagentUpdate(sessionId, info);
 
-    this.deliverInitialTask(sessionId, agentId, request.task);
-
     return {
       info,
       tools: [...config.tools],
@@ -777,43 +763,18 @@ export class PiAgentManager {
   }
 
   /**
-   * Delivers an optional initial task to a freshly spawned sub-agent, skipping
-   * empty or whitespace-only tasks.
-   */
-  private deliverInitialTask(
-    sessionId: string,
-    agentId: string,
-    task: string | undefined,
-  ): void {
-    if (task && task.trim()) {
-      this.sendToAgent(sessionId, agentId, task, PI_AGENT, "auto", "tool");
-    }
-  }
-
-  /**
    * Delivers a message to a specific agent's stdin. If that agent is already
    * streaming, the message is queued: `delivery: "steer"` applies it after the
    * current tool call (before the next LLM call), while `"followUp"` (and the
    * `"auto"` default) waits until the run fully stops. The default preserves
-   * the original behavior so internal relays never drop a message.
-   *
-   * When `surfaceAuthor` is provided and the target is a sub-agent, the message
-   * is also surfaced into that sub-agent's transcript (attributed to
-   * `surfaceAuthor`), so directed tasks read as a real conversation. Internal
-   * relays (e.g. feeding a sub-agent's reply back to Prime) omit it.
+   * the original behavior so nothing is dropped.
    *
    * A message that finds the agent idle opens a Run with `ingress`; one that
    * finds it mid-run joins the Run in flight, because Pi folds a steer or
    * follow-up into the turn it is already taking.
    */
-  sendToAgent(
-    sessionId: string,
-    agentId: string,
-    text: string,
-    surfaceAuthor?: ChatAuthor,
-    delivery: MessageDelivery = "auto",
-    ingress: RunIngress = "reaction",
-  ): void {
+  sendToAgent(options: SendToAgentOptions): void {
+    const { sessionId, agentId, text } = options;
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
     if (!agent) {
       // No participant, so no Run: this error belongs to no unit of work.
@@ -826,11 +787,11 @@ export class PiAgentManager {
     }
 
     if (!agent.busy) {
+      const ingress = options.ingress ?? "reaction";
       this.runs.open({ sessionId, participantId: agentId, ingress });
     }
 
-    this.surfaceDirectedMessage(sessionId, agent, text, surfaceAuthor);
-    this.writePrompt(sessionId, agent, text, delivery);
+    this.writePrompt(sessionId, agent, text, options.delivery ?? "auto");
     this.notifyStatus(sessionId);
   }
 
@@ -867,49 +828,6 @@ export class PiAgentManager {
 
     agent.busy = true;
     agent.child.stdin.write(`${JSON.stringify(command)}\n`);
-  }
-
-  /**
-   * Surfaces a directed message into a sub-agent's transcript (attributed to
-   * `surfaceAuthor`) so directed tasks and human nudges read as a real
-   * conversation. No-op for Prime or when no author is given (internal relays).
-   */
-  private surfaceDirectedMessage(
-    sessionId: string,
-    agent: AgentProcess,
-    text: string,
-    surfaceAuthor?: ChatAuthor,
-  ): void {
-    if (!surfaceAuthor || agent.role !== "subagent") return;
-    this.handlers.onAgentMessage(sessionId, agent.agentId, surfaceAuthor, text);
-  }
-
-  /**
-   * Delivers a sub-agent's directed update to Prime (the `message_prime` tool).
-   * The report is surfaced in the sub-agent's own transcript (attributed to the
-   * sub-agent) so the user sees it in that thread, and delivered to Prime's
-   * stdin so it can react immediately — Prime is event-driven and otherwise
-   * only wakes on the end-of-run relay. Ignored for unknown or non-sub-agents.
-   */
-  reportToPrime(sessionId: string, fromAgentId: string, text: string): void {
-    const agent = this.sessions.get(sessionId)?.agents.get(fromAgentId);
-    if (!agent || agent.role !== "subagent") return;
-
-    const author: ChatAuthor = {
-      id: agent.agentId,
-      kind: "agent",
-      name: agent.name,
-      agentRole: "subagent",
-    };
-    this.handlers.onAgentMessage(sessionId, fromAgentId, author, text);
-    this.sendToAgent(
-      sessionId,
-      PRIME_AGENT_ID,
-      `Sub-agent "${agent.name}" reported:\n\n${text}`,
-      undefined,
-      "auto",
-      "tool",
-    );
   }
 
   /**
@@ -1337,7 +1255,12 @@ export class PiAgentManager {
     });
   }
 
-  /** Emits the `end` event for the in-flight message and records its text. */
+  /**
+   * Emits the `end` event for the in-flight message and records its text. The
+   * event is what gets persisted as a Message and fanned out, so who wakes on it
+   * is decided there — this only reports that the turn produced something, and
+   * whether it was cut short.
+   */
   private finalizeMessage(
     sessionId: string,
     agent: AgentProcess,
@@ -1353,15 +1276,8 @@ export class PiAgentManager {
       messageId: agent.currentMessageId as string,
       content,
       thinking: agent.thinkingAccum,
+      ...(agent.aborted ? { aborted: true } : {}),
     });
-
-    // Safety net: relay every finalized sub-agent message to Prime as it lands,
-    // not just the last one at run end, so intermediate reports (e.g. submitted
-    // run ids) reach Prime even when the sub-agent doesn't call message_prime.
-    // A user-aborted run is intentionally cut short, so its partial output is
-    // not relayed back to Prime as if the sub-agent finished its task.
-    if (agent.aborted) return;
-    this.relaySubagentReply(sessionId, agent, content);
   }
 
   /**
@@ -1400,11 +1316,7 @@ export class PiAgentManager {
     });
   }
 
-  /**
-   * Ends a run: clears busy + the activity indicator. Sub-agent replies are no
-   * longer relayed here — each finalized message is relayed to Prime as it
-   * lands in {@link finalizeMessage}, so intermediate reports aren't dropped.
-   */
+  /** Ends a run: clears busy + the activity indicator. */
   private onAgentEnd(sessionId: string, agent: AgentProcess): void {
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
@@ -1469,28 +1381,6 @@ export class PiAgentManager {
       }
     }
     return entries;
-  }
-
-  /**
-   * Keeps Prime in the loop: each finalized sub-agent message is fed back so
-   * Prime can react as it lands (sub-agents are directed only by Prime; this
-   * closes the loop). Called per message rather than once at run end so
-   * intermediate updates aren't dropped. No-op for Prime or empty content.
-   */
-  private relaySubagentReply(
-    sessionId: string,
-    agent: AgentProcess,
-    content: string,
-  ): void {
-    if (agent.role !== "subagent" || !content.trim()) return;
-    // Trigger-owned sub-agents react in isolation; they reach Prime only when
-    // they explicitly call `message_prime`, never via this automatic relay.
-    if (!agent.autoRelayToPrime) return;
-    this.sendToAgent(
-      sessionId,
-      PRIME_AGENT_ID,
-      `Sub-agent "${agent.name}" replied:\n\n${content}`,
-    );
   }
 
   /** Emits an error (and resets state) for an in-flight assistant message. */

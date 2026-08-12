@@ -13,7 +13,7 @@ import {
 import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
 
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
-import type { AgentDescriptor, PiAgentHandlers } from "../pi/types.ts";
+import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
@@ -73,7 +73,7 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
  * roster rows so a restart has something to reattach to. An external sub-agent
  * is one whose work runs outside Tangent (e.g. driven by a bundle tool over the
  * `/internal/external-agents` API); the gateway only owns the sidebar tab and
- * relays streamed events into it via the shared {@link PiAgentHandlers}, so an
+ * relays streamed events into it via the shared {@link ConversationEventSink}, so an
  * external sub-agent renders and persists like a local one.
  *
  * The gateway is transport-agnostic and carries no knowledge of what runtime
@@ -85,7 +85,7 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
  * {@link import("../pi/piAgentManager.ts").PiAgentManager}.
  */
 export class ExternalSubagentGateway {
-  private readonly handlers: PiAgentHandlers;
+  private readonly handlers: ConversationEventSink;
   private readonly runs: RunRegistry;
   private readonly store: SessionStore;
 
@@ -93,7 +93,7 @@ export class ExternalSubagentGateway {
   private readonly sessions = new Map<string, Map<string, ExternalSubagent>>();
 
   constructor(
-    handlers: PiAgentHandlers,
+    handlers: ConversationEventSink,
     runs: RunRegistry,
     store: SessionStore,
   ) {

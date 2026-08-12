@@ -83,14 +83,16 @@ export interface RemoteSpawnCommand {
   thinkingDepth?: ThinkingLevel;
   /** Template the sub-agent was resolved from, if any (informational). */
   template?: string;
-  /** Optional initial task to start the sub-agent working immediately. */
-  task?: string;
-  /** Whether finalized replies are auto-relayed back to Prime. */
-  autoRelayToPrime: boolean;
   /**
-   * The Run the initial `task` is work for, to echo back on its events. Absent
-   * when no task is sent, or when the server predates run attribution.
+   * @deprecated No longer sent. An initial task is a Message posted into the new
+   * sub-agent's Conversation, so it arrives as an ordinary
+   * {@link RemoteMessageCommand} immediately after this one. Kept so an
+   * environment built against the older command still type-checks.
    */
+  task?: string;
+  /** Whether Prime reacts to this sub-agent's finalized replies. */
+  autoRelayToPrime: boolean;
+  /** @deprecated No longer sent; the initial task's command carries its own Run. */
   runId?: RunId;
 }
 

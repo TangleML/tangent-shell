@@ -5,6 +5,7 @@ import type {
   AgentRole,
   ChatAuthor,
   RunId,
+  RunIngress,
   SessionRunStatus,
   SubagentInfo,
   SubagentStatus,
@@ -25,7 +26,17 @@ type AgentEventBody =
   | { type: "start"; messageId: string }
   | { type: "delta"; messageId: string; delta: string }
   | { type: "thinking"; messageId: string; delta: string }
-  | { type: "end"; messageId: string; content: string; thinking: string }
+  | {
+      type: "end";
+      messageId: string;
+      content: string;
+      thinking: string;
+      /**
+       * Set when the turn was cut short by a cancellation. Its content is
+       * history, not a request, so it is persisted but provokes no reaction.
+       */
+      aborted?: boolean;
+    }
   | { type: "error"; messageId?: string; message: string }
   | { type: "activity"; activity: AgentActivity | null }
   | { type: "queue"; steering: string[]; followUp: string[] };
@@ -59,17 +70,26 @@ export type SubagentUpdateHandler = (
   subagent: SubagentInfo,
 ) => void;
 
+/** A Message a transport asks the conversation layer to post. */
+export interface PostedMessage {
+  sessionId: string;
+  /** The Conversation it lands in. */
+  conversationId: string;
+  /** Who it is attributed to. */
+  author: ChatAuthor;
+  content: string;
+  /** Participants it addresses by id, which is how a wake is requested. */
+  mentions?: string[];
+  /** What created it, when a reaction did not. */
+  ingress?: RunIngress;
+}
+
 /**
- * Surfaces a directed message (e.g. a task Prime sends a sub-agent) into a
- * specific conversation's transcript. `conversationId` is the owning agent's
- * id; `author` is the sender to attribute it to.
+ * Posts a Message into a Conversation. A transport reaches for this to say what
+ * happened — a report it received, a refusal it has to explain — never to route
+ * work: who wakes on a Message is the fan-out engine's decision.
  */
-export type AgentMessageHandler = (
-  sessionId: string,
-  conversationId: string,
-  author: ChatAuthor,
-  content: string,
-) => void;
+export type AgentMessageHandler = (message: PostedMessage) => void;
 
 /** Relays a session's live run status change to the shared sessions lobby. */
 export type SessionStatusHandler = (
@@ -77,12 +97,18 @@ export type SessionStatusHandler = (
   status: SessionRunStatus,
 ) => void;
 
-export interface PiAgentHandlers {
+/**
+ * Where a participant's events go: whatever holds participants — the local Pi
+ * manager, the remote-env gateway, an external tab — reports through this one
+ * interface, so a conversation renders and persists the same regardless of which
+ * transport produced it.
+ */
+export interface ConversationEventSink {
   /** Relays an agent's streaming events to the session's room. */
   onAgentEvent: AgentEventHandler;
   /** Relays a sub-agent's spawn or status change to the session's room. */
   onSubagentUpdate: SubagentUpdateHandler;
-  /** Surfaces a directed message into a sub-agent's transcript. */
+  /** Posts a Message into a Conversation. */
   onAgentMessage: AgentMessageHandler;
   /** Broadcasts a session's live run status change to the sessions lobby. */
   onSessionStatus: SessionStatusHandler;
@@ -105,8 +131,8 @@ export interface AgentProcess {
   busy: boolean;
   /**
    * Set when the current run was aborted by the user (via the `abort` RPC
-   * command). Read on `agent_end` to skip relaying a half-finished sub-agent
-   * reply back to Prime, then reset for the next run.
+   * command). Carried onto the finalized `end` event so a half-finished reply is
+   * persisted without waking anyone, then reset for the next run.
    */
   aborted: boolean;
   /** The id of the assistant message currently streaming, if any. */
@@ -121,17 +147,12 @@ export interface AgentProcess {
   accum: string;
   /** Accumulated reasoning for the in-flight assistant message. */
   thinkingAccum: string;
-  /**
-   * Text of the most recently finalized assistant message in this run. Used to
-   * relay a sub-agent's reply back to Prime after the whole run ends, since a
-   * single run can finalize multiple distinct messages.
-   */
+  /** Text of the most recently finalized assistant message in this run. */
   lastFinalContent: string;
   /**
-   * Whether this agent's finalized replies are auto-relayed back to Prime as
-   * they land. True for ordinary sub-agents (Prime directs them); false for a
-   * trigger-owned sub-agent, which reacts in isolation but may still reach Prime
-   * on its own via `message_prime`.
+   * Whether Prime reacts to this agent's finalized replies. Retained so a spawn
+   * can persist it and a revive can restore it; what it now describes is Prime's
+   * Membership in this agent's Conversation, which is what actually decides.
    */
   autoRelayToPrime: boolean;
   /**

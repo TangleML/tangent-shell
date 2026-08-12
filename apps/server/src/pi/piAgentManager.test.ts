@@ -13,7 +13,7 @@ import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import type { MemoryManager } from "./memory.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
-import type { PiAgentHandlers } from "./types.ts";
+import type { ConversationEventSink } from "./types.ts";
 
 /**
  * Minimal stand-in for a Pi child process. It records stdin writes and lets a
@@ -82,7 +82,7 @@ function makeManager(): {
     return child as unknown as ChildProcessWithoutNullStreams;
   }) as unknown as typeof spawn;
 
-  const handlers: PiAgentHandlers = {
+  const handlers: ConversationEventSink = {
     onAgentEvent: (_sessionId, agent, event) =>
       events.push({
         agentId: agent.agentId,
@@ -302,7 +302,7 @@ test("a prompt opens one run and every event in the turn carries its id", async 
   const h = makeManager();
   h.pi.ensure("s1", "/tmp/s1");
 
-  h.pi.prompt("s1", "/tmp/s1", "hello");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
   assert.ok(runId, "prompting an idle agent opens a run");
 
@@ -325,9 +325,13 @@ test("a message delivered mid-run joins the run in flight", () => {
   const h = makeManager();
   h.pi.ensure("s1", "/tmp/s1");
 
-  h.pi.prompt("s1", "/tmp/s1", "first");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "first" });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
-  h.pi.prompt("s1", "/tmp/s1", "and also this");
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "and also this",
+  });
 
   assert.equal(
     h.runs.current("s1", PRIME_AGENT_ID)?.id,
@@ -339,7 +343,11 @@ test("a message delivered mid-run joins the run in flight", () => {
 test("aborting a run settles it as cancelled, not completed", async () => {
   const h = makeManager();
   h.pi.ensure("s1", "/tmp/s1");
-  h.pi.prompt("s1", "/tmp/s1", "long job");
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "long job",
+  });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
   assert.ok(runId);
 
@@ -371,7 +379,7 @@ test("a turn Pi starts on its own still gets a run", () => {
 test("a crash fails the run that was in flight", async () => {
   const h = makeManager();
   h.pi.ensure("s1", "/tmp/s1");
-  h.pi.prompt("s1", "/tmp/s1", "work");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "work" });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
   assert.ok(runId);
 
@@ -381,11 +389,23 @@ test("a crash fails the run that was in flight", async () => {
   assert.equal((await h.runStore.getRun(runId))?.status, "failed");
 });
 
-test("a sub-agent's initial task is a tool-driven run", () => {
+test("a spawn alone opens no run; the task that follows does", () => {
   const h = makeManager();
   h.pi.ensure("s1", "/tmp/s1");
 
-  const { info } = h.pi.spawnSubagent("s1", { name: "Worker", task: "go" });
+  const { info } = h.pi.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(
+    h.runs.current("s1", info.id),
+    undefined,
+    "a sub-agent with nothing to do yet is not working",
+  );
+
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: info.id,
+    text: "go",
+    ingress: "tool",
+  });
 
   assert.equal(h.runs.current("s1", info.id)?.ingress, "tool");
 });
@@ -393,7 +413,13 @@ test("a sub-agent's initial task is a tool-driven run", () => {
 test("killing a sub-agent mid-run cancels its run", async () => {
   const h = makeManager();
   h.pi.ensure("s1", "/tmp/s1");
-  const { info } = h.pi.spawnSubagent("s1", { name: "Worker", task: "go" });
+  const { info } = h.pi.spawnSubagent("s1", { name: "Worker" });
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: info.id,
+    text: "go",
+    ingress: "tool",
+  });
   const runId = h.runs.current("s1", info.id)?.id;
   assert.ok(runId);
 

@@ -1,5 +1,4 @@
 import type {
-  ChatAuthor,
   ConnectorDescriptor,
   MessageDelivery,
   RunId,
@@ -11,16 +10,15 @@ import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 
-/** A message addressed to one participant, as a connector receives it. */
+/**
+ * A message addressed to one participant, as a connector receives it. It carries
+ * no author: the Message it came from is already persisted and broadcast, so a
+ * connector's job is to deliver text, not to decide what appears in a transcript.
+ */
 export interface DeliveryRequest {
   sessionId: string;
   participantId: string;
   text: string;
-  /**
-   * Surfaces the message in the participant's own transcript attributed to this
-   * author. Omitted by internal relays, which are already surfaced elsewhere.
-   */
-  surfaceAuthor?: ChatAuthor;
   delivery?: MessageDelivery;
   /**
    * What this delivery counts as when it starts a Run. Defaults to `reaction`,
