@@ -238,7 +238,7 @@ test("a cycle of reactions stops at the depth limit, and says why once", async (
 
   let author = { ...WORKER, id: "a", name: "A" };
   let conversationId = "a";
-  for (let hop = 0; hop < 20; hop += 1) {
+  for (let hop = 0; hop < 40; hop += 1) {
     const result = await h.engine.fanOut({
       message: message({ conversationId, author, endsRun: true }),
       project,
@@ -249,9 +249,43 @@ test("a cycle of reactions stops at the depth limit, and says why once", async (
     conversationId = next;
   }
 
-  assert.equal(h.delivered.length, 8, "the chain runs to the hop limit");
+  assert.equal(h.delivered.length, 24, "the chain runs to the hop limit");
   assert.equal(h.notices.length, 1, "and announces the stop exactly once");
-  assert.match(h.notices[0].text, /reached its limit of 8 hops/);
+  assert.match(h.notices[0].text, /reached its limit of 24 hops/);
+});
+
+test("a cycle that changes rooms on every hop is bounded just the same", async () => {
+  // Each hop is a deliberate tool call, which on its own starts a fresh chain.
+  // Because each one is also written from the author's own conversation, the
+  // chain travels with it — otherwise this pair launders an unbounded cycle by
+  // taking turns in each other's rooms while neither room fills its budget.
+  const h = makeEngine([
+    membership("a", "a", "always"),
+    membership("b", "b", "always"),
+  ]);
+
+  let author = { ...WORKER, id: "a", name: "A" };
+  for (let hop = 0; hop < 40; hop += 1) {
+    const target = author.id === "a" ? "b" : "a";
+    const result = await h.engine.fanOut({
+      message: message({
+        conversationId: target,
+        author,
+        source: { kind: "relay", from: author.id, fromConversation: author.id },
+      }),
+      ingress: "tool",
+      project,
+    });
+    if (result.woke.length === 0) break;
+    author = { ...WORKER, id: result.woke[0], name: result.woke[0] };
+  }
+
+  assert.equal(
+    h.delivered.length,
+    24,
+    "hopping rooms does not reset the chain",
+  );
+  assert.equal(h.notices.length, 1);
 });
 
 test("deliberate work starts a fresh chain instead of inheriting one", async () => {
@@ -264,7 +298,7 @@ test("deliberate work starts a fresh chain instead of inheriting one", async () 
   // driven by explicit tool calls must not be cut short by an earlier cascade.
   let author = { ...WORKER, id: "a", name: "A" };
   let conversationId = "a";
-  for (let hop = 0; hop < 20; hop += 1) {
+  for (let hop = 0; hop < 40; hop += 1) {
     const result = await h.engine.fanOut({
       message: message({ conversationId, author, endsRun: true }),
       project,

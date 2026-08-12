@@ -140,6 +140,10 @@ async function handleSpawn(
  * it. Surfacing and delivery are the same act: the sub-agent reacts because it
  * was addressed, and the bubble the user reads is the Message that woke it.
  * Skips an empty or whitespace-only task.
+ *
+ * Prime writes this from its own Conversation, so it is a cross-Conversation
+ * post: authorized by Prime's Membership in the sub-agent's thread, recorded as
+ * having arrived from elsewhere, and kept inside the wave Prime is already in.
  */
 async function postDirective(
   router: ConversationRouter,
@@ -148,14 +152,17 @@ async function postDirective(
   text: string | undefined,
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
-  const { refused } = await router.post({
+  const { message, refused } = await router.postToConversation({
     sessionId,
     conversationId: agentId,
+    fromConversation: PRIME_AGENT_ID,
     author: PI_AGENT,
     content: text,
     mentions: [agentId],
     ingress: "tool",
   });
+  // Nothing was posted at all: the refusal is about Prime, not the recipient.
+  if (!message) return refused[0]?.reason;
   return refused.find((entry) => entry.participantId === agentId)?.reason;
 }
 

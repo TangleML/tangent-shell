@@ -6,6 +6,7 @@ import {
   type ChatMessage,
   type MemoryScope,
   type MessageDelivery,
+  type MessageSource,
   type RunId,
   type RunIngress,
   SocketEvents,
@@ -39,6 +40,12 @@ export interface PostInput {
   runId?: RunId;
   endsRun?: boolean;
   memory?: { scope: MemoryScope };
+  /**
+   * The Conversation the author wrote this from, when it is not this one. Set
+   * only by {@link ConversationRouter.postToConversation}, and what makes the
+   * Message's provenance a `relay` rather than an ordinary turn.
+   */
+  fromConversation?: string;
   /** What created this Message, when a reaction did not. */
   ingress?: RunIngress;
   /** Whether a mid-run delivery steers or queues behind the current turn. */
@@ -60,6 +67,20 @@ export interface PostResult extends FanOutResult {
   message: ChatMessage;
 }
 
+/** Everything {@link ConversationRouter.postToConversation} needs. */
+export interface CrossPostInput extends PostInput {
+  fromConversation: string;
+}
+
+/**
+ * A cross-Conversation post. `message` is absent when Membership did not
+ * authorize it, in which case `refused` names the author and says why — a post
+ * that never happened must not read like one that woke nobody.
+ */
+export interface CrossPostResult extends FanOutResult {
+  message?: ChatMessage;
+}
+
 /** Fields an empty value must omit rather than persist as empty. */
 function whatIsThere(input: PostInput): Partial<ChatMessage> {
   const fields: Partial<ChatMessage> = {};
@@ -67,6 +88,24 @@ function whatIsThere(input: PostInput): Partial<ChatMessage> {
   if (input.attachments?.length) fields.attachments = input.attachments;
   if (input.memory) fields.memory = input.memory;
   return fields;
+}
+
+/**
+ * Where a Message came from. A post written from another Conversation records
+ * that it was, so the log can answer "did this arrive across a boundary"
+ * instead of leaving the provenance to be reconstructed at delivery time.
+ */
+function sourceFor(input: PostInput): MessageSource {
+  const { fromConversation } = input;
+  // A Conversation is not somewhere else from itself.
+  if (!fromConversation || fromConversation === input.conversationId) {
+    return sourceFromAuthor(input.author);
+  }
+  return {
+    kind: "relay",
+    from: input.author.id,
+    fromConversation,
+  };
 }
 
 function buildMessage(input: PostInput & { seq: number }): ChatMessage {
@@ -79,7 +118,7 @@ function buildMessage(input: PostInput & { seq: number }): ChatMessage {
     seq: input.seq,
     author: input.author,
     mentions: input.mentions ?? [],
-    source: sourceFromAuthor(input.author),
+    source: sourceFor(input),
     content: input.content,
     runId: input.runId,
     endsRun: input.endsRun,
@@ -135,6 +174,7 @@ export function deliveryText(
 export class ConversationRouter {
   private readonly io: Server;
   private readonly store: SessionStore;
+  private readonly memberships: MembershipRegistry;
   private readonly engine: FanOutEngine;
   private connectors?: ConnectorRegistry;
 
@@ -145,6 +185,7 @@ export class ConversationRouter {
   ) {
     this.io = io;
     this.store = store;
+    this.memberships = memberships;
     this.engine = new FanOutEngine(
       memberships,
       () => this.requireConnectors(),
@@ -187,6 +228,39 @@ export class ConversationRouter {
       project: deliveryText,
     });
     return { message, ...outcome };
+  }
+
+  /**
+   * Posts into a Conversation the author is not writing from — an orchestrator
+   * reporting into the human's thread, or issuing a directive in a worker's.
+   * A Run's output lands in its home Conversation by default, so writing
+   * elsewhere is deliberate and has to be authorized: only a participant that
+   * holds a Membership there may post there.
+   *
+   * The post stays in its author's wave whatever its ingress, which is what
+   * stops two Conversations whose participants wake each other from laundering
+   * an unbounded cycle by changing rooms.
+   */
+  async postToConversation(input: CrossPostInput): Promise<CrossPostResult> {
+    if (input.fromConversation === input.conversationId) {
+      return this.post(input);
+    }
+
+    const membership = await this.memberships.memberIn(
+      input.sessionId,
+      input.conversationId,
+      input.author.id,
+    );
+    if (membership) return this.post(input);
+
+    const reason = `${input.author.name} isn't a member of that conversation, so nothing was posted.`;
+    console.log(
+      `[conversation] refused a post by ${input.author.id} into ${input.conversationId}`,
+    );
+    return {
+      woke: [],
+      refused: [{ participantId: input.author.id, reason }],
+    };
   }
 
   private broadcast(

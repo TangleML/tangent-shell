@@ -136,6 +136,24 @@ test("a stored membership wins over what the roster would derive", async () => {
   ]);
 });
 
+test("membership answers whether one participant stands in a conversation", async () => {
+  const h = makeRegistry();
+  await h.sessions.recordAgent("s1", {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    status: "active",
+    autoRelayToPrime: true,
+    connector: connectorFor("pi-stdio"),
+  });
+
+  // What lets the orchestrator be woken by a worker's thread is what authorizes
+  // it to write into one; a peer worker holds no standing there at all.
+  const prime = await h.registry.memberIn("s1", "sub-1", "prime");
+  assert.equal(prime?.reaction, "atRunEnd+mentionsMe");
+  assert.equal(await h.registry.memberIn("s1", "sub-1", "sub-2"), undefined);
+});
+
 test("a spawn whose row has not landed yet still resolves, without being kept", async () => {
   const h = makeRegistry();
 

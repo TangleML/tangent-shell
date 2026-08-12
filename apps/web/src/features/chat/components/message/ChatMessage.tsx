@@ -18,6 +18,7 @@ import { MessageAvatar } from "./MessageAvatar";
 import type { MessageBubbleVariant } from "./MessageBubble";
 import { MessageHeader } from "./MessageHeader";
 import { MessageLayout } from "./MessageLayout";
+import { originLabelFor } from "./messageOrigin";
 import { roleLabelFor } from "./messageRole";
 import { ThinkingOnlyMessage } from "./ThinkingOnlyMessage";
 
@@ -99,6 +100,7 @@ function ChatMessageContent({
           roleLabel={roleLabel}
           createdAt={message.createdAt}
           content={message.content}
+          origin={originLabelFor(message)}
           onCollapse={onCollapse}
         />
       }
