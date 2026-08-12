@@ -3,10 +3,12 @@ import { test } from "node:test";
 
 import {
   BearerCredential,
+  type ConnectorCredential,
   deniedCredential,
   HandshakeTokenCredential,
   InheritedTokenCredential,
   mintSecretCredential,
+  PeerBearerCredential,
 } from "./credentials.ts";
 
 test("a bearer credential accepts only its own token, exactly", () => {
@@ -49,7 +51,37 @@ test("only an inherited credential hands its secret to a spawned child", () => {
     {},
   );
   assert.deepEqual(new HandshakeTokenCredential("tok").spawnEnv(), {});
+  assert.deepEqual(new PeerBearerCredential("tok").spawnEnv(), {});
   assert.deepEqual(deniedCredential.spawnEnv(), {});
+});
+
+test("a peer credential authorizes nobody: it is only ever presented outbound", () => {
+  // Held as the interface, which is how a guard sees it: `verify` takes no
+  // argument on the class precisely because it reads nothing.
+  const credential: ConnectorCredential = new PeerBearerCredential(
+    "peer-secret",
+  );
+
+  // Nothing inbound is an A2A peer, so there is no request this should let in —
+  // including one presenting the very token we send out.
+  assert.equal(credential.scheme, "peer-bearer");
+  assert.equal(credential.configured, true);
+  assert.equal(
+    credential.verify({ authorization: "Bearer peer-secret" }),
+    false,
+  );
+  assert.equal(credential.verify({ token: "peer-secret" }), false);
+  assert.equal(credential.verify({}), false);
+});
+
+test("a peer credential sends a header only when a secret is configured", () => {
+  // An unset secret is not a lockout here, unlike the inbound schemes: a peer
+  // that asks for no credential is still reachable.
+  assert.deepEqual(new PeerBearerCredential("tok").headers(), {
+    Authorization: "Bearer tok",
+  });
+  assert.deepEqual(new PeerBearerCredential("").headers(), {});
+  assert.equal(new PeerBearerCredential("").configured, false);
 });
 
 test("the same secret verifies the same way however it was issued", () => {

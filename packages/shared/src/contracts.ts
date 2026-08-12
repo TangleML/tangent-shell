@@ -473,12 +473,17 @@ export type SpawnAuthority = "server" | "remote-env" | "bundle-tool" | "none";
  * `inherited-token` and `internal-bearer` are the same server secret differing
  * in issuance — one is handed to a process the server spawns, the other is
  * presented back by a caller that already holds it.
+ *
+ * `peer-bearer` runs the other way: the far end sits outside the trust domain
+ * and Tangent is the caller, so the secret is presented outbound and no inbound
+ * caller ever authenticates under this scheme.
  */
 export type CredentialScheme =
   | "inherited-token"
   | "shared-token"
   | "internal-bearer"
   | "minted-secret"
+  | "peer-bearer"
   | "none";
 
 /**
@@ -494,6 +499,12 @@ export interface ConnectorDescriptor {
   credentialScheme: CredentialScheme;
   /** The remote environment this participant is bound to, when it has one. */
   environmentId?: string;
+  /**
+   * Where the far end is reached, for a connector that dials out rather than
+   * being dialled. Its sibling: `environmentId` names an environment that
+   * connects to Tangent, `endpointUrl` an address Tangent connects to.
+   */
+  endpointUrl?: string;
 }
 
 /**
@@ -527,7 +538,7 @@ export const CONNECTOR_FACETS: Record<
     kind: "a2a",
     lifecycle: "attached",
     spawnAuthority: "none",
-    credentialScheme: "none",
+    credentialScheme: "peer-bearer",
   },
   unresolved: {
     kind: "unresolved",
@@ -544,6 +555,22 @@ const LEGACY_HOST: Record<ConnectorKind, SubagentHost | undefined> = {
   "external-inbound": "external",
   a2a: undefined,
   unresolved: undefined,
+};
+
+/**
+ * How much of a Conversation a Membership on each connector sees by default.
+ * A far end outside Tangent gets `opaque`: it is sent what addresses it, not
+ * the log. Declared as data so no membership becomes `shared` by omission.
+ */
+export const DEFAULT_TRANSCRIPT_VISIBILITY: Record<
+  ConnectorKind,
+  TranscriptVisibility
+> = {
+  "pi-stdio": "shared",
+  "remote-env": "shared",
+  "external-inbound": "opaque",
+  a2a: "opaque",
+  unresolved: "opaque",
 };
 
 /** Builds a connector descriptor, optionally bound to a remote environment. */

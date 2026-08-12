@@ -80,6 +80,47 @@ test("recordAgent round-trips a connector descriptor", async () => {
   assert.deepEqual(agents.find((a) => a.id === "sub-1")?.connector, expected);
 });
 
+test("an attached peer's endpoint round-trips, and nothing else carries one", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+
+  await store.recordAgent(session.id, {
+    id: "peer-1",
+    role: "subagent",
+    name: "Weather",
+    connector: {
+      kind: "a2a",
+      lifecycle: "attached",
+      spawnAuthority: "none",
+      credentialScheme: "peer-bearer",
+      endpointUrl: "https://agent.example.com",
+    },
+  });
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    connector: {
+      kind: "pi-stdio",
+      lifecycle: "owned",
+      spawnAuthority: "server",
+      credentialScheme: "inherited-token",
+    },
+  });
+
+  const agents = await store.listAgents(session.id);
+  assert.equal(
+    agents.find((a) => a.id === "peer-1")?.connector.endpointUrl,
+    "https://agent.example.com",
+  );
+  // Absent rather than empty: a participant that connects to Tangent has no far
+  // end to dial, and the column says so by staying null.
+  assert.equal(
+    agents.find((a) => a.id === "sub-1")?.connector.endpointUrl,
+    undefined,
+  );
+});
+
 test("a row recorded without a connector reads back from its host", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });

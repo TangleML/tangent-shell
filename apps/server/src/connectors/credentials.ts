@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import type { CredentialScheme } from "@tangent/shared/contracts.ts";
 
-import { INTERNAL_TOKEN, REMOTE_ENV_TOKEN } from "../config.ts";
+import { A2A_TOKEN, INTERNAL_TOKEN, REMOTE_ENV_TOKEN } from "../config.ts";
 
 /** Env var a spawned Pi child reads its inherited credential from. */
 const INHERITED_TOKEN_VAR = "TANGENT_INTERNAL_TOKEN";
@@ -137,6 +137,46 @@ export function mintSecretCredential(): MintedSecretCredential {
 }
 
 /**
+ * A secret Tangent presents to a far end that sits outside the trust domain,
+ * rather than one a caller presents to Tangent. The direction is the whole
+ * difference: {@link verify} refuses everything, because nothing inbound is an
+ * A2A peer, and the secret leaves through {@link headers}.
+ *
+ * An unset secret means the peer asked for none, so it is not a lockout the way
+ * it is for the inbound schemes — there is nobody to lock out.
+ */
+export class PeerBearerCredential implements ConnectorCredential {
+  readonly scheme: CredentialScheme = "peer-bearer";
+  private readonly token: string;
+
+  constructor(token: string) {
+    this.token = token;
+  }
+
+  get configured(): boolean {
+    return this.token.length > 0;
+  }
+
+  verify(): boolean {
+    return false;
+  }
+
+  spawnEnv(): Record<string, string> {
+    return {};
+  }
+
+  /**
+   * Headers to send the peer. Concrete-only, like {@link
+   * MintedSecretCredential.secret}: code holding the interface can check a
+   * credential, never read one out.
+   */
+  headers(): Record<string, string> {
+    if (!this.configured) return {};
+    return { Authorization: `Bearer ${this.token}` };
+  }
+}
+
+/**
  * The credential of a connector that authenticates nobody, for the null
  * connector. Declared rather than absent, like its `acceptsDelivery: false`:
  * an unclaimed participant has no far end to prove anything.
@@ -161,3 +201,6 @@ export const externalCredential = new BearerCredential(
   "internal-bearer",
   INTERNAL_TOKEN,
 );
+
+/** A2A peers: the outbound token Tangent presents when it dials one. */
+export const a2aCredential = new PeerBearerCredential(A2A_TOKEN);

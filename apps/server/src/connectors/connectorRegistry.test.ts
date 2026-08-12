@@ -8,6 +8,7 @@ import {
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
 
+import { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
@@ -17,6 +18,7 @@ import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import { createConnectorRegistry } from "./connectorRegistry.ts";
+import { PeerBearerCredential } from "./credentials.ts";
 
 /** A message a fake gateway was asked to deliver. */
 interface Delivery {
@@ -120,21 +122,38 @@ function makeHarness() {
 
   const local = fakePi();
   const remote = fakeRemote();
+  const runs = new RunRegistry(new InMemoryRunStore());
   const externalGateway = new ExternalSubagentGateway(
     handlers,
-    new RunRegistry(new InMemoryRunStore()),
+    runs,
     new InMemorySessionStore(),
+  );
+  // Real, like the external gateway, with only its discovery replaced: a peer
+  // that answers nothing still holds a tab, which is all resolution needs.
+  const a2aGateway = new A2aPeerGateway(
+    handlers,
+    runs,
+    new InMemorySessionStore(),
+    () => {},
+    new PeerBearerCredential(""),
+    async () => ({
+      card: { name: "Weather" },
+      async *send() {},
+      async cancel() {},
+    }),
   );
   const connectors = createConnectorRegistry(
     local.pi,
     remote.gateway,
     externalGateway,
+    a2aGateway,
     handlers,
   );
 
   return {
     connectors,
     externalGateway,
+    a2aGateway,
     surfaced,
     piDeliveries: local.deliveries,
     piKills: local.kills,
@@ -154,14 +173,17 @@ test("resolution is total: an unheld participant gets a refusing connector", () 
   assert.equal(connector.acceptsDelivery, false);
 });
 
-test("every connector's credential agrees with the scheme it publishes", () => {
+test("every connector's credential agrees with the scheme it publishes", async () => {
   const h = makeHarness();
   const { id } = h.externalGateway.register("s1", { name: "worker" });
+  const peer = await h.a2aGateway.attach("s1", {
+    endpointUrl: "https://agent.example.com",
+  });
 
   // The descriptor names the scheme (it goes to clients); the credential holds
   // the secret (it does not). A connector whose two disagreed would be lying
   // about how its far end is authenticated.
-  for (const participantId of ["local-1", "remote-1", id, "ghost"]) {
+  for (const participantId of ["local-1", "remote-1", id, peer.id, "ghost"]) {
     const connector = h.connectors.resolve("s1", participantId);
     assert.equal(
       connector.credential.scheme,
@@ -175,9 +197,30 @@ test("every connector's credential agrees with the scheme it publishes", () => {
     "inherited-token",
   );
   assert.equal(
+    h.connectors.resolve("s1", peer.id).descriptor.credentialScheme,
+    "peer-bearer",
+  );
+  assert.equal(
     h.connectors.resolve("s1", "ghost").credential.configured,
     false,
   );
+});
+
+test("a message aimed at an A2A peer reaches its gateway, not the local agents", async () => {
+  const h = makeHarness();
+  const peer = await h.a2aGateway.attach("s1", {
+    endpointUrl: "https://agent.example.com",
+  });
+
+  const result = h.connectors.resolve("s1", peer.id).deliver({
+    sessionId: "s1",
+    participantId: peer.id,
+    text: "do the thing",
+  });
+
+  assert.equal(result.delivered, true);
+  assert.deepEqual(h.piDeliveries, []);
+  assert.deepEqual(h.remoteDeliveries, []);
 });
 
 test("a message to an unknown participant is refused in its own conversation", () => {
@@ -291,13 +334,16 @@ test("killing an external participant reaches its gateway", () => {
   assert.deepEqual(h.piKills, []);
 });
 
-test("list walks every connector's roster", () => {
+test("list walks every connector's roster", async () => {
   const h = makeHarness();
   const { id } = h.externalGateway.register("s1", { name: "worker" });
+  const peer = await h.a2aGateway.attach("s1", {
+    endpointUrl: "https://agent.example.com",
+  });
 
   assert.deepEqual(
     h.connectors.list("s1").map((s) => s.id),
-    ["local-1", "remote-1", id],
+    ["local-1", "remote-1", id, peer.id],
   );
 });
 
@@ -328,23 +374,42 @@ test("revive routes each persisted row to the connector that recorded it", () =>
   ]);
 });
 
-test("revive skips Prime, terminal rows and attached participants", () => {
+test("revive skips Prime and terminal rows", () => {
   const h = makeHarness();
 
   h.connectors.revive("s1", [
     agentRow("prime", connectorFor("pi-stdio"), { role: "prime" }),
     agentRow("killed-1", connectorFor("pi-stdio"), { status: "killed" }),
-    // An attached connector's far end exists independently of Tangent, so it
-    // waits to be reattached rather than being brought back from a row.
-    agentRow("attached-1", {
-      kind: "pi-stdio",
-      lifecycle: "attached",
-      spawnAuthority: "server",
-      credentialScheme: "inherited-token",
-    }),
   ]);
 
   assert.deepEqual(h.piRevives, []);
+});
+
+test("an attached row is restored too: what a revive means is the connector's call", () => {
+  const h = makeHarness();
+
+  // Tangent is the client of an A2A service, so "wait to be reattached" would
+  // mean "never". The tab comes back detached from the endpoint the row kept,
+  // and the next delivery re-discovers the peer.
+  h.connectors.revive("s1", [
+    agentRow("peer-1", {
+      ...connectorFor("a2a"),
+      endpointUrl: "https://agent.example.com",
+    }),
+  ]);
+
+  assert.deepEqual(h.a2aGateway.listSubagents("s1"), [
+    {
+      id: "peer-1",
+      name: "peer-1",
+      status: "detached",
+      connector: {
+        ...connectorFor("a2a"),
+        endpointUrl: "https://agent.example.com",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ]);
 });
 
 test("only connectors the spawn API may act on are spawners", () => {

@@ -7,6 +7,7 @@ import {
 import { type Response, Router } from "express";
 import { z } from "zod";
 
+import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
@@ -30,6 +31,14 @@ export const spawnSchema = z.object({
   environment: z.enum(["local", "remote"]).optional(),
 });
 export type SpawnInput = z.infer<typeof spawnSchema>;
+
+/** Attach an A2A agent that already runs as a service, by its card's base URL. */
+export const attachSchema = z.object({
+  sessionId: z.string(),
+  endpointUrl: z.url(),
+  name: z.string().optional(),
+});
+export type AttachInput = z.infer<typeof attachSchema>;
 
 /** Deliver a Prime-issued directive to a sub-agent. */
 export const messageSchema = z.object({
@@ -133,6 +142,31 @@ async function handleSpawn(
     );
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
+  }
+}
+
+/**
+ * Attaches an A2A agent to the session. Nothing is created: the agent already
+ * runs somewhere, so this reads its Agent Card and records the tab. A card that
+ * cannot be read is the request failing, not a tab that never works — which is
+ * why, unlike a spawn, there is nothing to undo on the way out.
+ */
+async function handleAttach(
+  a2a: A2aPeerGateway,
+  body: AttachInput,
+  res: Response,
+): Promise<void> {
+  try {
+    const subagent = await a2a.attach(body.sessionId, {
+      endpointUrl: body.endpointUrl,
+      name: body.name,
+    });
+    res.json({ subagent });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res
+      .status(400)
+      .json({ error: `Couldn't attach ${body.endpointUrl}: ${message}` });
   }
 }
 
@@ -282,6 +316,7 @@ export function createInternalAgentsRouter(
   store: SessionStore,
   connectors: ConnectorRegistry,
   conversations: ConversationRouter,
+  a2a: A2aPeerGateway,
 ): Router {
   const router = Router();
 
@@ -295,6 +330,10 @@ export function createInternalAgentsRouter(
       getValidated<SpawnInput>(req).body,
       res,
     ),
+  );
+
+  router.post("/attach", validate({ body: attachSchema }), (req, res) =>
+    handleAttach(a2a, getValidated<AttachInput>(req).body, res),
   );
 
   router.post("/message", validate({ body: messageSchema }), (req, res) =>

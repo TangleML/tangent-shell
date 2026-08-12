@@ -71,6 +71,13 @@
       "when": 1786488898589,
       "tag": "0009_exotic_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1786568496433,
+      "tag": "0010_thick_chat",
+      "breakpoints": true
     }
   ]
 }
