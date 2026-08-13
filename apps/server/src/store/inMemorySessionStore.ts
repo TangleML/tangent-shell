@@ -178,6 +178,15 @@ export class InMemorySessionStore implements SessionStore {
     return this.messages.get(sessionId) ?? [];
   }
 
+  async getConversationMessages(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<ChatMessage[]> {
+    return (this.messages.get(sessionId) ?? [])
+      .filter((message) => message.conversationId === conversationId)
+      .sort((a, b) => a.seq - b.seq || a.id.localeCompare(b.id));
+  }
+
   async appendMessage(message: ChatMessage): Promise<void> {
     const existing = this.messages.get(message.sessionId);
     if (existing) {

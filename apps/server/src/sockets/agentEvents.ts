@@ -27,7 +27,7 @@ import type {
   SubagentUpdateHandler,
 } from "../pi/types.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
-import { roomFor, SESSIONS_LOBBY } from "./rooms.ts";
+import { messageRoomFor, roomFor, SESSIONS_LOBBY } from "./rooms.ts";
 
 /** Resolves the chat author for an agent: Prime is fixed, sub-agents per id. */
 function authorFor(agent: AgentDescriptor): ChatAuthor {
@@ -239,7 +239,7 @@ export function createAgentEventHandler(
 ): AgentEventHandler {
   return (sessionId, agent, event) => {
     const ctx: EmitContext = {
-      room: roomFor(sessionId),
+      room: messageRoomFor(sessionId, agent.agentId),
       sessionId,
       conversationId: agent.agentId,
       author: authorFor(agent),

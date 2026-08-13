@@ -37,7 +37,7 @@ interface SessionChatProps {
 
 export function SessionChat({ sessionId }: SessionChatProps) {
   const {
-    messages,
+    messagesFor,
     subagents,
     triggers,
     artifacts,
@@ -97,9 +97,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     activeTab === CHAT_TAB_VALUE ? PI_AGENT.id : activeTab;
 
   // The Chat tab is Prime's main thread; each sub-agent has its own thread tab.
-  const primeMessages = messages.filter(
-    (m) => m.conversationId === PI_AGENT.id,
-  );
+  const primeMessages = messagesFor(PI_AGENT.id);
 
   const busySubagents = subagents
     .filter((s) => isConversationBusy(s.id))
@@ -135,7 +133,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     sessionId,
     subagents,
     triggers,
-    messages,
+    messagesFor,
     currentAuthorId,
     bundleId,
     connected,

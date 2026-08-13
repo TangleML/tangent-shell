@@ -124,6 +124,18 @@ export const PI_THINKING = process.env.PI_THINKING ?? DEFAULT_THINKING_LEVEL;
 export const PI_DEBUG = !/^(0|false|no)$/i.test(process.env.PI_DEBUG ?? "");
 
 /**
+ * When enabled (the default), a Message is delivered to a room per Conversation
+ * rather than one room per session: a socket joins only the Conversation rooms
+ * its Participant is authorized for, so who receives a Message is a server-side
+ * decision derived from Membership rather than a client-side render filter. Set
+ * `ROOM_PER_CONVERSATION=0/false/no` to fall back to the session-scoped room —
+ * a rollback for this PR only; a later cleanup removes the flag.
+ */
+export const ROOM_PER_CONVERSATION = !/^(0|false|no)$/i.test(
+  process.env.ROOM_PER_CONVERSATION ?? "",
+);
+
+/**
  * Base URL the orchestrator extension (running inside each Pi process) uses to
  * reach this server's internal agent API. Defaults to loopback on {@link PORT}.
  */

@@ -19,7 +19,7 @@ interface AssetTabContentProps {
   sessionId: string;
   subagents: SubagentInfo[];
   triggers: Trigger[];
-  messages: ChatMessage[];
+  messagesFor: (conversationId: string) => ChatMessage[];
   currentAuthorId: string;
   bundleId?: string;
   connected: boolean;
@@ -55,7 +55,7 @@ export function AssetTabContent({
   sessionId,
   subagents,
   triggers,
-  messages,
+  messagesFor,
   currentAuthorId,
   bundleId,
   connected,
@@ -82,7 +82,7 @@ export function AssetTabContent({
           sessionId={sessionId}
           agentId={tab.agentId}
           name={info?.name ?? tab.title}
-          messages={messages}
+          messages={messagesFor(tab.agentId)}
           currentAuthorId={currentAuthorId}
           bundleId={bundleId}
           historyLoaded={historyLoaded}
