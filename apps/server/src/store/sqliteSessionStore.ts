@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   type AgentRole,
+  capabilitiesForRole,
   type ChatMessage,
   type ConnectorDescriptor,
   connectorFor,
@@ -34,6 +35,10 @@ import {
   sessions,
   sessionViews,
 } from "./db/schema.ts";
+import {
+  participantFromAgent,
+  type ParticipantStore,
+} from "./participantStore.ts";
 import {
   connectorFromHost,
   type CreateSessionParams,
@@ -102,6 +107,7 @@ function toAgent(row: SessionAgentRow): SessionAgent {
     sessionId: row.sessionId,
     role: row.role as AgentRole,
     name: row.name,
+    capabilities: capabilitiesForRole(row.role as AgentRole),
     purpose: row.purpose ?? undefined,
     status: row.status as SessionAgentStatus,
     model: row.model ?? undefined,
@@ -137,9 +143,16 @@ export class SqliteSessionStore implements SessionStore {
   /** Caches sessionId -> rootPath so `appendMessage` avoids a DB read per line. */
   private readonly rootPaths = new Map<string, string>();
   private readonly db: Db;
+  /**
+   * The participant projection this store dual-writes on every `recordAgent`, so
+   * a `participants` row tracks each roster row while `session_agents` stays the
+   * write authority. Optional so a bare store (e.g. a test) skips the mirror.
+   */
+  private readonly participants?: ParticipantStore;
 
-  constructor(db: Db) {
+  constructor(db: Db, participants?: ParticipantStore) {
     this.db = db;
+    this.participants = participants;
   }
 
   async listSessions(): Promise<Session[]> {
@@ -449,7 +462,10 @@ export class SqliteSessionStore implements SessionStore {
       )
       .get();
     // The row was just upserted, so it always exists here.
-    return toAgent(row as SessionAgentRow);
+    const recorded = toAgent(row as SessionAgentRow);
+    // Mirror it into the participant projection; the roster stays authoritative.
+    await this.participants?.put(participantFromAgent(recorded));
+    return recorded;
   }
 
   async setAgentStatus(

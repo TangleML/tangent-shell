@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  capabilitiesForRole,
   type ConnectorDescriptor,
   connectorFields,
   connectorFor,
@@ -59,6 +60,7 @@ function agentRow(
     sessionId: "s1",
     role: "subagent",
     name: id,
+    capabilities: capabilitiesForRole(overrides.role ?? "subagent"),
     status: "detached",
     connector,
     createdAt: "2026-01-01T00:00:00.000Z",

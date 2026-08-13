@@ -1,15 +1,25 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 // Point the session root at a throwaway dir before importing modules that read
 // config at load time, so `createSession`'s mkdir never touches the repo.
 const ROOT = mkdtempSync(path.join(tmpdir(), "session-store-"));
 process.env.SESSIONS_ROOT = ROOT;
 
+const { connectorFor } = await import("@tangent/shared/contracts.ts");
+const { sql } = await import("drizzle-orm");
 const { openDb } = await import("./db/client.ts");
+const { SqliteParticipantStore } = await import("./sqliteParticipantStore.ts");
 const { SqliteSessionStore } = await import("./sqliteSessionStore.ts");
 
 after(() => rmSync(ROOT, { recursive: true, force: true }));
@@ -17,6 +27,19 @@ after(() => rmSync(ROOT, { recursive: true, force: true }));
 /** A store backed by a fresh in-memory DB with migrations applied. */
 function newStore() {
   return new SqliteSessionStore(openDb(":memory:"));
+}
+
+/** The backfill statement drizzle-kit's 0011 migration appended by hand. */
+function backfillStatement(): string {
+  const file = fileURLToPath(
+    new URL("./db/migrations/0011_small_magneto.sql", import.meta.url),
+  );
+  const statement = readFileSync(file, "utf8")
+    .split("--> statement-breakpoint")
+    .map((chunk) => chunk.trim())
+    .find((chunk) => chunk.startsWith("INSERT OR IGNORE INTO `participants`"));
+  assert.ok(statement, "0011 carries a participants backfill statement");
+  return statement;
 }
 
 test("getLastViewedMap is empty before anything is viewed", async () => {
@@ -298,4 +321,65 @@ test("deleting a session cascades its read state", async () => {
 
   await store.deleteSession(session.id);
   assert.equal((await store.getLastViewedMap("a@x")).size, 0);
+});
+
+test("recordAgent dual-writes the participant projection", async () => {
+  const db = openDb(":memory:");
+  const participants = new SqliteParticipantStore(db);
+  const store = new SqliteSessionStore(db, participants);
+
+  // createSession seeds the Prime roster row, which mirrors as an orchestrator.
+  const session = await store.createSession({ name: "S" });
+  const prime = await participants.get(session.id, "prime");
+  assert.equal(prime?.kind, "agent");
+  assert.deepEqual(prime?.capabilities, ["orchestrator"]);
+
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    host: "remote",
+    connector: connectorFor("remote-env", "env-1"),
+  });
+  const sub = await participants.get(session.id, "sub-1");
+  assert.deepEqual(sub?.capabilities, []);
+  assert.equal(sub?.connector.environmentId, "env-1");
+});
+
+test("the 0011 backfill materializes participants and leaves seq seeding alone", async () => {
+  const db = openDb(":memory:");
+  // A store with no participant projection, so nothing is dual-written: this is
+  // exactly the pre-0011 shape the migration has to backfill.
+  const store = new SqliteSessionStore(db);
+  const session = await store.createSession({ name: "S" });
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+  });
+
+  const participants = new SqliteParticipantStore(db);
+  assert.equal((await participants.listForSession(session.id)).length, 0);
+  const countConversations = () =>
+    (db.get(sql`select count(*) as n from conversations`) as { n: number }).n;
+  const conversationsBefore = countConversations();
+
+  const statement = backfillStatement();
+  db.run(sql.raw(statement));
+
+  const backfilled = await participants.listForSession(session.id);
+  assert.deepEqual(
+    backfilled.map((p) => [p.id, p.capabilities]).sort(),
+    [
+      ["prime", ["orchestrator"]],
+      ["sub-1", []],
+    ].sort(),
+  );
+
+  // Idempotent: the `INSERT OR IGNORE` re-run adds nothing.
+  db.run(sql.raw(statement));
+  assert.equal((await participants.listForSession(session.id)).length, 2);
+
+  // The promotion never invents `next_seq` rows — seeding stays a read concern.
+  assert.equal(countConversations(), conversationsBefore);
 });

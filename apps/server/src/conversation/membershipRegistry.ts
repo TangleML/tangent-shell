@@ -36,6 +36,18 @@ const ON_REQUEST = reactionSpec("mentionsMe");
 /** A member that has declared it does not act — a display-only external tab. */
 const INERT = reactionSpec("never");
 
+/**
+ * The id of the roster row holding the `orchestrator` capability, or the
+ * well-known default when a session has none resolved — the successor to
+ * treating `PRIME_AGENT_ID` as a reserved id.
+ */
+function orchestratorFrom(agents: SessionAgent[]): string {
+  const holder = agents.find((agent) =>
+    agent.capabilities.includes("orchestrator"),
+  );
+  return holder?.id ?? PRIME_AGENT_ID;
+}
+
 function membership(
   sessionId: string,
   participantId: string,
@@ -93,8 +105,14 @@ export class MembershipRegistry {
 
     const agents = await this.sessions.listAgents(sessionId);
     const agent = agents.find((candidate) => candidate.id === conversationId);
-    const derived = this.derive(sessionId, conversationId, agent);
-    if (!agent && conversationId !== PRIME_AGENT_ID) return derived;
+    const orchestratorId = orchestratorFrom(agents);
+    const derived = this.derive(
+      sessionId,
+      conversationId,
+      agent,
+      orchestratorId,
+    );
+    if (!agent && conversationId !== orchestratorId) return derived;
 
     byConversation.set(conversationId, derived);
     for (const row of derived) await this.store.put(row);
@@ -140,10 +158,11 @@ export class MembershipRegistry {
     sessionId: string,
     conversationId: string,
     agent: SessionAgent | undefined,
+    orchestratorId: string,
   ): Membership[] {
-    if (conversationId === PRIME_AGENT_ID) {
+    if (conversationId === orchestratorId) {
       return [
-        membership(sessionId, PRIME_AGENT_ID, PRIME_AGENT_ID, ADDRESSABLE),
+        membership(sessionId, orchestratorId, orchestratorId, ADDRESSABLE),
       ];
     }
 
@@ -152,7 +171,7 @@ export class MembershipRegistry {
       this.subject(sessionId, conversationId, agent),
       membership(
         sessionId,
-        PRIME_AGENT_ID,
+        orchestratorId,
         conversationId,
         relays ? ORCHESTRATOR : ON_REQUEST,
       ),

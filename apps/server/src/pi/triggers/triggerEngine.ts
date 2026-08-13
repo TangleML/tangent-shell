@@ -12,10 +12,11 @@ import { Cron } from "croner";
 import type { Server } from "socket.io";
 
 import type { ConversationRouter } from "../../conversation/conversationRouter.ts";
+import { orchestratorIdFor } from "../../conversation/participantRegistry.ts";
 import { roomFor } from "../../sockets/rooms.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SubagentSpawnRequest } from "../agentConfig.ts";
-import { type PiAgentManager, PRIME_AGENT_ID } from "../piAgentManager.ts";
+import type { PiAgentManager } from "../piAgentManager.ts";
 import { resolveTriggerPrompt } from "./handlerRunner.ts";
 import type { StoredTrigger, TriggerManager } from "./triggerManager.ts";
 
@@ -240,12 +241,13 @@ export class TriggerEngine {
     prompt: string,
   ): Promise<void> {
     this.pi.ensure(sessionId, rootPath);
+    const orchestratorId = await orchestratorIdFor(this.store, sessionId);
     await this.conversations.post({
       sessionId,
-      conversationId: PRIME_AGENT_ID,
+      conversationId: orchestratorId,
       author: triggerAuthor(stored),
       content: prompt,
-      mentions: [PRIME_AGENT_ID],
+      mentions: [orchestratorId],
       ingress: ingressFor(stored),
     });
   }

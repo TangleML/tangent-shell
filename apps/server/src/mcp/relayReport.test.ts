@@ -48,7 +48,7 @@ function makeReport(roster: SubagentInfo[]) {
     relay,
     sessions,
     delivered,
-    report: createRelayReport(connectors, conversations),
+    report: createRelayReport(connectors, conversations, sessions),
   };
 }
 

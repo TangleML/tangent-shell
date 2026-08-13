@@ -683,6 +683,40 @@ export type ReactionSpec = string;
  */
 export type TranscriptVisibility = "shared" | "summarized" | "opaque";
 
+/**
+ * The kind of a {@link Participant}: a person (`human`), a coding agent
+ * (`agent`), or an ingress-driven actor with no interactive presence
+ * (`automation`). Kinds describe role only and never placement — a
+ * heterogeneous agent reached over A2A is an `agent`, not a distinct kind.
+ * Authority rides on {@link Capability}, not on kind.
+ */
+export type ParticipantKind = "human" | "agent" | "automation";
+
+/**
+ * An ability a Participant holds independently of its kind. `orchestrator` is
+ * the one Prime carries today: it grants the spawn/message/list tools and marks
+ * the at-most-one Participant a Session directs its sub-agents through.
+ * Designation is by capability, not by a reserved id.
+ */
+export type Capability = "orchestrator";
+
+/**
+ * Whether a Participant is reachable right now: `connected`, `away`, or
+ * `detached` — the same "the far end is gone" state 1.4 gave attached
+ * connectors. A stored default until presence lifecycle (2.2) makes it live.
+ */
+export type Presence = "connected" | "away" | "detached";
+
+/**
+ * The capabilities an agent's `role` carries. Prime holds `orchestrator` — the
+ * successor to `PRIME_AGENT_ID` being a reserved id, so authority reads a
+ * capability rather than comparing an id to a constant — and a sub-agent holds
+ * none. A Session designates at most one orchestrator by convention.
+ */
+export function capabilitiesForRole(role: AgentRole): Capability[] {
+  return role === "prime" ? ["orchestrator"] : [];
+}
+
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */

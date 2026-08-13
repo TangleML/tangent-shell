@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { SubagentInfo } from "@tangent/shared/contracts.ts";
+import {
+  capabilitiesForRole,
+  type SubagentInfo,
+} from "@tangent/shared/contracts.ts";
 
 import { RelayRegistry } from "../mcp/relayRegistry.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
@@ -43,6 +46,7 @@ function agentRow(id: string, overrides: Partial<SessionAgent> = {}) {
     sessionId: "s1",
     role: "subagent",
     name: "worker",
+    capabilities: capabilitiesForRole(overrides.role ?? "subagent"),
     status: "detached",
     connector: {
       kind: "external-inbound",

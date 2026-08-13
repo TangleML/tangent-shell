@@ -1,5 +1,6 @@
 import {
   type AgentRole,
+  type Capability,
   type ChatMessage,
   type ConnectorDescriptor,
   connectorFor,
@@ -61,6 +62,12 @@ export interface SessionAgent {
   sessionId: string;
   role: AgentRole;
   name: string;
+  /**
+   * The capabilities this participant holds, derived from `role`. Prime carries
+   * `orchestrator`; a sub-agent carries none. Authority reads this rather than
+   * comparing the id to a reserved constant.
+   */
+  capabilities: Capability[];
   /** The agent's task/description, when known. */
   purpose?: string;
   status: SessionAgentStatus;

@@ -241,6 +241,53 @@ export const memberships = sqliteTable(
   ],
 );
 
+/**
+ * A session-scoped actor identity: the unification of today's `ChatAuthor` and
+ * `SubagentInfo`. `kind` describes role only (`human` | `agent` | `automation`);
+ * authority rides on `capabilities` (a JSON array — Prime holds `orchestrator`),
+ * not on a reserved id. The connector facets that used to live on
+ * `session_agents` move here; the agent-only columns (`role`, `model`,
+ * `template`, `tools`, `system_prompt`, `auto_relay_to_prime`, `host`,
+ * `purpose`, `status`) become a per-kind `agent_payload` blob rather than
+ * participant-shaped columns.
+ *
+ * `session_agents` stays the write authority for this PR; these rows are
+ * backfilled from it and kept in sync on record, and derived read-through for a
+ * session the backfill never touched. A later cleanup drops `session_agents`.
+ */
+export const participants = sqliteTable(
+  "participants",
+  {
+    /** Participant id: `prime`, or a sub-agent uuid. Same string as today. */
+    id: text("id").notNull(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** `human` | `agent` | `automation`. */
+    kind: text("kind").notNull(),
+    displayName: text("display_name").notNull(),
+    /** JSON-encoded `Capability[]` (e.g. `["orchestrator"]`); `[]` for none. */
+    capabilities: text("capabilities").notNull().default("[]"),
+    /** `connected` | `away` | `detached`. A default until presence lifecycle. */
+    presence: text("presence").notNull().default("connected"),
+    connectorKind: text("connector_kind"),
+    connectorLifecycle: text("connector_lifecycle"),
+    connectorEnvironmentId: text("connector_environment_id"),
+    connectorEndpointUrl: text("connector_endpoint_url"),
+    /**
+     * JSON-encoded kind-specific payload. For an agent: `role`, `model`,
+     * `thinkingDepth`, `template`, `tools`, `systemPrompt`, `autoRelayToPrime`,
+     * `host`, `purpose`, `status` — everything that was an agent-only column.
+     */
+    agentPayload: text("agent_payload"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    unique("participants_session_id").on(table.sessionId, table.id),
+    index("participants_session_idx").on(table.sessionId),
+  ],
+);
+
 /** When each user last opened a session. `user_key` is the email, or `local`. */
 export const sessionViews = sqliteTable(
   "session_views",
@@ -263,3 +310,4 @@ export type SessionAgentRow = typeof sessionAgents.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;
 export type MembershipRow = typeof memberships.$inferSelect;
+export type ParticipantRow = typeof participants.$inferSelect;
