@@ -5,12 +5,16 @@ import {
   type ArtifactUnpinPayload,
   type ChatAuthor,
   type ChatJoinPayload,
+  type ChatMessage,
   type ChatMessagePayload,
+  type ConversationHistoryPayload,
+  type ConversationSubscribePayload,
   DEFAULT_USER,
   humanAuthor,
   type MemoryConfirmPayload,
   type MemoryDismissPayload,
   PI_AGENT,
+  type Session,
   SocketEvents,
   type SubagentRosterPayload,
   type TriggerRosterPayload,
@@ -18,6 +22,7 @@ import {
 import type { Server, Socket } from "socket.io";
 
 import { resolveUserIdentity } from "../auth/identity.ts";
+import { ROOM_PER_CONVERSATION } from "../config.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
@@ -25,7 +30,8 @@ import type { ParticipantService } from "../conversation/participantService.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
-import type { SessionStore } from "../store/sessionStore.ts";
+import type { Membership } from "../store/membershipStore.ts";
+import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 import {
   handleArtifactPin,
   handleArtifactUnpin,
@@ -38,7 +44,7 @@ import {
 } from "./chatMemory.ts";
 import { type MentionCandidate, resolveMentions } from "./mentions.ts";
 import type { PresenceTracker } from "./presenceTracker.ts";
-import { roomFor } from "./rooms.ts";
+import { roomFor, roomForConversation } from "./rooms.ts";
 import {
   emitPrimeSelection,
   ensureSessionAgents,
@@ -88,10 +94,9 @@ function handleAgentAbort(
   console.log(`[runs] cancel refused for ${participantId}: ${reason}`);
 }
 
-/** Wires one connected socket's chat/agent/memory/artifact listeners. */
+/** Wires one connected socket's chat and agent listeners. */
 function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
-  const { io, store, pi, connectors, memory } = deps;
-  const { onRemembered, triggerEngine, emitUiCommand } = deps;
+  const { io, store, pi, connectors } = deps;
 
   // Resolved once per connection: the identity is the connection's, and the
   // client never gets a say in who its messages are attributed to.
@@ -102,9 +107,18 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   const tracked = new Set<string>();
 
   socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) => {
-    void handleChatJoin(socket, store, pi, connectors, triggerEngine, payload);
+    void handleChatJoin(socket, deps, author, payload);
     void markPresent(deps, author, payload?.sessionId, tracked);
   });
+
+  // Only meaningful under per-Conversation rooms; the session-scoped rollback
+  // already delivers every Conversation over the one room the socket joined.
+  if (ROOM_PER_CONVERSATION)
+    socket.on(
+      SocketEvents.ConversationSubscribe,
+      (payload: ConversationSubscribePayload) =>
+        void handleConversationSubscribe(socket, deps, author, payload),
+    );
 
   socket.on("disconnect", () => markAbsent(deps, tracked));
 
@@ -119,6 +133,13 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   socket.on(SocketEvents.AgentSetModel, (payload: AgentSetModelPayload) =>
     handleAgentSetModel(io, store, pi, payload),
   );
+
+  wireMemoryAndArtifacts(socket, deps);
+}
+
+/** Wires the memory, artifact, session-status, and reserved terminal listeners. */
+function wireMemoryAndArtifacts(socket: Socket, deps: ChatHandlerDeps): void {
+  const { store, pi, connectors, memory, onRemembered, emitUiCommand } = deps;
 
   socket.on(SocketEvents.MemoryConfirm, (payload: MemoryConfirmPayload) =>
     handleMemoryConfirm(store, connectors, memory, onRemembered, payload),
@@ -163,18 +184,19 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
 /** Joins the session room, then replays history and the sub-agent roster. */
 async function handleChatJoin(
   socket: Socket,
-  store: SessionStore,
-  pi: PiAgentManager,
-  connectors: ConnectorRegistry,
-  triggerEngine: TriggerEngine,
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
   payload: ChatJoinPayload,
 ): Promise<void> {
+  const { store, pi, connectors, triggerEngine } = deps;
   const session = await store.getSession(payload?.sessionId);
   if (!session) {
     socket.emit("error", { message: "Session not found" });
     return;
   }
 
+  // The session room still carries session-level events (roster, presence,
+  // triggers, artifacts); per-Conversation rooms carry the Messages.
   await socket.join(roomFor(session.id));
 
   // Lazily (re)spawn Prime and revive the session's sub-agents in case the
@@ -184,8 +206,11 @@ async function handleChatJoin(
   // Re-arm the session's schedule triggers (idempotent) and surface the roster.
   triggerEngine.sync(session.id, session.rootPath);
 
-  const history = await store.getMessages(session.id);
-  socket.emit(SocketEvents.ChatHistory, history);
+  const authorized = await joinAuthorized(socket, deps, author, session);
+  socket.emit(
+    SocketEvents.ChatHistory,
+    await authorizedHistory(store, session.id, authorized),
+  );
 
   const roster: SubagentRosterPayload = {
     sessionId: session.id,
@@ -206,6 +231,120 @@ async function handleChatJoin(
   socket.emit(SocketEvents.TriggerRoster, triggerRoster);
 
   await replayArtifacts(socket, store, session.id);
+}
+
+/**
+ * Adds a socket to a Conversation that appeared after it joined — a newly
+ * spawned sub-agent the client only learns about from a `subagent:update` — and
+ * replies with that Conversation's history. Authorization is the same gate the
+ * join uses. A no-op under the session-scoped rollback, where the one room
+ * already covers every Conversation.
+ */
+async function handleConversationSubscribe(
+  socket: Socket,
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  payload: ConversationSubscribePayload,
+): Promise<void> {
+  const { sessionId, conversationId } = payload ?? EMPTY_SUBSCRIBE;
+  if (!sessionId || !conversationId) return;
+  const session = await deps.store.getSession(sessionId);
+  if (!session) return;
+
+  const authorized = await joinAuthorized(socket, deps, author, session);
+  if (!authorized.has(conversationId)) return;
+
+  const history: ConversationHistoryPayload = {
+    conversationId,
+    messages: await deps.store.getConversationMessages(
+      session.id,
+      conversationId,
+    ),
+  };
+  socket.emit(SocketEvents.ConversationHistory, history);
+}
+
+/** Absent-payload default so the subscribe guard reads without optional chains. */
+const EMPTY_SUBSCRIBE: ConversationSubscribePayload = {
+  sessionId: "",
+  conversationId: "",
+};
+
+/**
+ * Joins the socket to each Conversation room it is authorized for and returns
+ * that set, so history can be scoped to the same Conversations. No rooms are
+ * joined under the session-scoped rollback; the returned set still scopes
+ * history should it be consulted.
+ */
+async function joinAuthorized(
+  socket: Socket,
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  session: Session,
+): Promise<Set<string>> {
+  const agents = await deps.store.listAgents(session.id);
+  const memberships =
+    author.kind === "human"
+      ? await deps.participantService.membershipsOf(session.id, author.id)
+      : [];
+  const authorized = authorizedConversations(
+    author,
+    session,
+    agents,
+    memberships,
+  );
+  if (ROOM_PER_CONVERSATION)
+    for (const conversationId of authorized)
+      await socket.join(roomForConversation(session.id, conversationId));
+  return authorized;
+}
+
+/**
+ * The join-time history seed, scoped to the Conversations this socket is
+ * authorized for. Unfiltered under the rollback, so the session-scoped
+ * transport still receives the whole transcript.
+ */
+async function authorizedHistory(
+  store: SessionStore,
+  sessionId: string,
+  authorized: Set<string>,
+): Promise<ChatMessage[]> {
+  const history = await store.getMessages(sessionId);
+  if (!ROOM_PER_CONVERSATION) return history;
+  return history.filter((message) => authorized.has(message.conversationId));
+}
+
+/**
+ * The Conversations a socket may receive Messages for. The session owner (its
+ * creator, or any human when auth is disabled) sees every Conversation; an
+ * invited human sees only the ones it holds a Membership in. This is the D1
+ * gate: who receives a Message is derived from Membership and ownership, not
+ * from a client-side render filter over one shared room.
+ */
+export function authorizedConversations(
+  author: ChatAuthor,
+  session: Session,
+  agents: SessionAgent[],
+  memberships: Membership[],
+): Set<string> {
+  const conversationIds = new Set(agents.map((agent) => agent.id));
+  if (isSessionOwner(author, session)) return conversationIds;
+
+  const held = new Set<string>();
+  for (const membership of memberships)
+    if (conversationIds.has(membership.conversationId))
+      held.add(membership.conversationId);
+  return held;
+}
+
+/**
+ * Whether this socket's author owns the session. The owner is the creator
+ * (`session.user`); with auth disabled no creator is resolved, so any human is
+ * treated as the owner — matching the single-user local default.
+ */
+function isSessionOwner(author: ChatAuthor, session: Session): boolean {
+  if (author.kind !== "human") return false;
+  return session.user ? author.id === session.user.email : true;
 }
 
 /**

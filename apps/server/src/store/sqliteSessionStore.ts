@@ -24,6 +24,7 @@ import {
   appendMessage as appendChatMessage,
   highestSeq,
   readAllMessages,
+  readMessages,
 } from "./chatLog.ts";
 import type { Db } from "./db/client.ts";
 import {
@@ -284,6 +285,15 @@ export class SqliteSessionStore implements SessionStore {
     const rootPath = await this.rootPathFor(sessionId);
     if (!rootPath) return [];
     return readAllMessages(rootPath);
+  }
+
+  async getConversationMessages(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<ChatMessage[]> {
+    const rootPath = await this.rootPathFor(sessionId);
+    if (!rootPath) return [];
+    return readMessages(rootPath, conversationId);
   }
 
   async appendMessage(message: ChatMessage): Promise<void> {

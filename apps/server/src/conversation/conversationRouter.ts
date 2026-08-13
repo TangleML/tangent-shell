@@ -16,7 +16,7 @@ import {
 import type { Server } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
-import { roomFor } from "../sockets/rooms.ts";
+import { messageRoomFor } from "../sockets/rooms.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { FanOutEngine, type FanOutResult } from "./fanOut.ts";
@@ -269,7 +269,7 @@ export class ConversationRouter {
   ): void {
     if (override) return override(message);
     this.io
-      .to(roomFor(message.sessionId))
+      .to(messageRoomFor(message.sessionId, message.conversationId))
       .emit(SocketEvents.ChatMessage, message);
   }
 

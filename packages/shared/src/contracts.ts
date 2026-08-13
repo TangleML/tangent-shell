@@ -937,6 +937,30 @@ export interface ChatJoinPayload {
 }
 
 /**
+ * Payload sent by the client to subscribe to one Conversation that appeared
+ * after it joined (a newly spawned sub-agent). The server authorizes the
+ * subscription against Membership (or session ownership), joins the socket to
+ * that Conversation's room, and replies with its history. Conversations present
+ * at join time are subscribed server-side, so the client only sends this for
+ * ones it learns about later.
+ */
+export interface ConversationSubscribePayload {
+  sessionId: string;
+  conversationId: string;
+}
+
+/**
+ * One Conversation's history, sent in reply to a {@link
+ * ConversationSubscribePayload}. Distinct from `chat:history` (the join-time
+ * bulk seed of every authorized Conversation) so a late subscription merges one
+ * thread's log without disturbing the rest.
+ */
+export interface ConversationHistoryPayload {
+  conversationId: string;
+  messages: ChatMessage[];
+}
+
+/**
  * How a chat message is delivered when its target agent is mid-run:
  * - `"auto"`: normal prompt (queued by Pi as a follow-up only if busy).
  * - `"steer"`: nudge applied after the current tool call, before the next LLM
@@ -1234,6 +1258,8 @@ export const SocketEvents = {
   ChatJoin: "chat:join",
   ChatHistory: "chat:history",
   ChatMessage: "chat:message",
+  ConversationSubscribe: "conversation:subscribe",
+  ConversationHistory: "conversation:history",
   TerminalData: "terminal:data",
   AgentStart: "agent:start",
   AgentDelta: "agent:delta",

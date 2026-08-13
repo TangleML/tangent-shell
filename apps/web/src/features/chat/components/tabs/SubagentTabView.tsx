@@ -23,7 +23,7 @@ interface SubagentTabViewProps {
   agentId: string;
   /** Display name, used in the stop control's label. */
   name: string;
-  /** All chat messages; filtered to this sub-agent's conversation. */
+  /** This sub-agent's conversation messages, already scoped by the server room. */
   messages: ChatMessage[];
   currentAuthorId: string;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
@@ -86,13 +86,11 @@ export function SubagentTabView({
   pinnedPaths,
   onTogglePinArtifact,
 }: SubagentTabViewProps) {
-  const visibleMessages = messages.filter((m) => m.conversationId === agentId);
-
   return (
     <BlockStack grow>
       <ChatMessageList
         sessionId={sessionId}
-        messages={visibleMessages}
+        messages={messages}
         currentAuthorId={currentAuthorId}
         activity={activity}
         historyLoaded={historyLoaded}

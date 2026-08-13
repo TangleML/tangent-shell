@@ -140,6 +140,15 @@ export interface SessionStore {
   deleteSession(id: string): Promise<boolean>;
 
   getMessages(sessionId: string): Promise<ChatMessage[]>;
+  /**
+   * One Conversation's messages, in `seq` order. The per-Conversation read the
+   * room-per-Conversation transport uses to seed a single thread's history on
+   * subscribe, rather than merging the whole session's transcript.
+   */
+  getConversationMessages(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<ChatMessage[]>;
   appendMessage(message: ChatMessage): Promise<void>;
   /**
    * Allocates the next `seq` in a Conversation. The single allocator: {@link
