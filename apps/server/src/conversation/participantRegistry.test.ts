@@ -7,7 +7,10 @@ import { InMemoryParticipantStore } from "../store/inMemoryParticipantStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
 import type { Participant } from "../store/participantStore.ts";
 import {
+  homeConversationFor,
+  orchestratorConversationFor,
   orchestratorIdFor,
+  participantForConversation,
   ParticipantRegistry,
 } from "./participantRegistry.ts";
 
@@ -104,6 +107,48 @@ test("the current roster row wins over a stale stored participant", async () => 
   });
 
   assert.equal((await registry.get("s1", "prime"))?.displayName, "Prime");
+});
+
+test("home conversation resolves and reverses through the mapping", async () => {
+  const { sessions } = makeRegistry();
+  const recorded = await sessions.recordAgent("s1", {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+  });
+
+  const home = await homeConversationFor(sessions, "s1", "sub-1");
+  assert.equal(home, recorded.homeConversationId);
+  assert.notEqual(home, "sub-1", "a new agent's conversation is a fresh id");
+  assert.equal(
+    await participantForConversation(sessions, "s1", home),
+    "sub-1",
+    "the reverse map recovers the owning participant",
+  );
+});
+
+test("resolution falls back to the id for an unmapped agent or conversation", async () => {
+  const { sessions } = makeRegistry();
+  assert.equal(await homeConversationFor(sessions, "s1", "ghost"), "ghost");
+  assert.equal(
+    await participantForConversation(sessions, "s1", "ghost"),
+    "ghost",
+  );
+});
+
+test("orchestratorConversationFor resolves the capability holder's home", async () => {
+  const { sessions } = makeRegistry();
+  const prime = await sessions.recordAgent("s1", {
+    id: "prime",
+    role: "prime",
+    name: "Prime",
+  });
+  assert.equal(
+    await orchestratorConversationFor(sessions, "s1"),
+    prime.homeConversationId,
+  );
+  // An empty session has no orchestrator to resolve, so it falls back.
+  assert.equal(await orchestratorConversationFor(sessions, "empty"), "prime");
 });
 
 test("recording an agent dual-writes the participant projection", async () => {

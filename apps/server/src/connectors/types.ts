@@ -20,6 +20,13 @@ export interface DeliveryRequest {
   sessionId: string;
   participantId: string;
   text: string;
+  /**
+   * The Conversation this delivery is on behalf of — where a refusal surfaces
+   * when the transport cannot carry it. Set by the fan-out engine to the
+   * Conversation the reaction is happening in; a direct delivery that omits it
+   * falls back to the participant's own id (its legacy home).
+   */
+  conversationId?: string;
   delivery?: MessageDelivery;
   /**
    * What this delivery counts as when it starts a Run. Defaults to `reaction`,

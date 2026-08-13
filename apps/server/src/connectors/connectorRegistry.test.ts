@@ -42,6 +42,7 @@ function rosterEntry(
 ): SubagentInfo {
   return {
     id,
+    conversationId: id,
     name: id,
     status: "active",
     ...connectorFields(kind),
@@ -63,6 +64,7 @@ function agentRow(
     capabilities: capabilitiesForRole(overrides.role ?? "subagent"),
     status: "detached",
     connector,
+    homeConversationId: id,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -387,6 +389,7 @@ test("revive routes each persisted row to the connector that recorded it", () =>
   assert.deepEqual(h.externalGateway.listSubagents("s1"), [
     {
       id: "ext-1",
+      conversationId: "ext-1",
       name: "ext-1",
       status: "detached",
       ...connectorFields("external-inbound"),
@@ -425,6 +428,7 @@ test("an attached row is restored too: what a revive means is the connector's ca
   assert.deepEqual(h.a2aGateway.listSubagents("s1"), [
     {
       id: "peer-1",
+      conversationId: "peer-1",
       name: "peer-1",
       status: "detached",
       connector: {

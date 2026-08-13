@@ -25,6 +25,8 @@ import { ThinkingOnlyMessage } from "./ThinkingOnlyMessage";
 interface ChatMessageProps {
   sessionId: string;
   message: ChatMessageType;
+  /** The orchestrator's home Conversation, for the "from Prime's thread" label. */
+  primaryConversationId: string;
   isOwn: boolean;
   /** Whether this message is still receiving streamed deltas. */
   isStreaming?: boolean;
@@ -45,6 +47,7 @@ interface ChatMessageProps {
 function ChatMessageContent({
   sessionId,
   message,
+  primaryConversationId,
   isOwn,
   isStreaming = false,
   bundleId,
@@ -100,7 +103,7 @@ function ChatMessageContent({
           roleLabel={roleLabel}
           createdAt={message.createdAt}
           content={message.content}
-          origin={originLabelFor(message)}
+          origin={originLabelFor(message, primaryConversationId)}
           onCollapse={onCollapse}
         />
       }

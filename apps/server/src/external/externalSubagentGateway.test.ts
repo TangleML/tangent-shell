@@ -54,6 +54,7 @@ function agentRow(id: string, overrides: Partial<SessionAgent> = {}) {
       spawnAuthority: "bundle-tool",
       credentialScheme: "internal-bearer",
     },
+    homeConversationId: id,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   } satisfies SessionAgent;

@@ -92,6 +92,13 @@
       "when": 1786644715013,
       "tag": "0012_previous_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1786650882282,
+      "tag": "0013_chief_veda",
+      "breakpoints": true
     }
   ]
 }

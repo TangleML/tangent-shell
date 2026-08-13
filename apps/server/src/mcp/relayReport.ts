@@ -1,7 +1,10 @@
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
-import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import {
+  homeConversationFor,
+  orchestratorIdFor,
+} from "../conversation/participantRegistry.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import type { RelayChannel } from "./relayRegistry.ts";
 
@@ -46,7 +49,11 @@ export function createRelayReport(
 
     await conversations.post({
       sessionId: channel.sessionId,
-      conversationId: author.id,
+      conversationId: await homeConversationFor(
+        store,
+        channel.sessionId,
+        author.id,
+      ),
       author,
       content: text,
       mentions: [orchestratorId],

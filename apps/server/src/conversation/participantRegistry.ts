@@ -25,6 +25,54 @@ export async function orchestratorIdFor(
 }
 
 /**
+ * The Conversation an agent posts into — the mapping that lets a Conversation id
+ * stop naming an agent. Falls back to the agent's own id for a legacy agent the
+ * `conversations` table never mapped, whose transcript is keyed that way.
+ */
+export async function homeConversationFor(
+  sessions: Pick<SessionStore, "listAgents">,
+  sessionId: string,
+  agentId: string,
+): Promise<string> {
+  const agents = await sessions.listAgents(sessionId);
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  return agent?.homeConversationId ?? agentId;
+}
+
+/**
+ * The participant that owns a Conversation as its home thread — the reverse of
+ * {@link homeConversationFor}, for cancel/abort and delivery framing. Falls back
+ * to the Conversation id itself for a legacy thread the mapping never covered.
+ */
+export async function participantForConversation(
+  sessions: Pick<SessionStore, "listAgents">,
+  sessionId: string,
+  conversationId: string,
+): Promise<string> {
+  const agents = await sessions.listAgents(sessionId);
+  const owner = agents.find(
+    (candidate) => candidate.homeConversationId === conversationId,
+  );
+  return owner?.id ?? conversationId;
+}
+
+/**
+ * The orchestrator's home Conversation — where a message addressed to "Prime"
+ * lands. The successor to using the orchestrator's participant id as a
+ * conversation id, now that the two are distinct.
+ */
+export async function orchestratorConversationFor(
+  sessions: Pick<SessionStore, "listAgents">,
+  sessionId: string,
+): Promise<string> {
+  const agents = await sessions.listAgents(sessionId);
+  const holder = agents.find((agent) =>
+    agent.capabilities.includes("orchestrator"),
+  );
+  return holder?.homeConversationId ?? holder?.id ?? PRIME_AGENT_ID;
+}
+
+/**
  * The session's Participants. Reads through to a {@link ParticipantStore}, but
  * the roster (`session_agents`) stays the write authority for this PR: for every
  * agent the current roster row wins, so an agent's participant view is never
@@ -79,6 +127,14 @@ export class ParticipantRegistry {
       participant.capabilities.includes("orchestrator"),
     );
     return holder?.id ?? PRIME_AGENT_ID;
+  }
+
+  /**
+   * The participant that owns a Conversation as its home thread — for cancel and
+   * close, which act on the participant, not the Conversation id.
+   */
+  async ownerOf(sessionId: string, conversationId: string): Promise<string> {
+    return participantForConversation(this.sessions, sessionId, conversationId);
   }
 
   /** Loads a session's participants once, reconciling them against the roster. */

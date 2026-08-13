@@ -25,7 +25,10 @@ import { resolveUserIdentity } from "../auth/identity.ts";
 import { ROOM_PER_CONVERSATION } from "../config.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
-import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import {
+  orchestratorConversationFor,
+  participantForConversation,
+} from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
@@ -77,14 +80,22 @@ export interface ChatHandlerDeps {
  * to stop something that isn't stoppable, and a system message in the thread
  * would be noise.
  */
-function handleAgentAbort(
+async function handleAgentAbort(
+  store: SessionStore,
   connectors: ConnectorRegistry,
   payload: AgentAbortPayload,
-): void {
+): Promise<void> {
   const sessionId = payload?.sessionId;
-  const participantId = payload?.conversationId;
-  if (!sessionId || !participantId) return;
+  const conversationId = payload?.conversationId;
+  if (!sessionId || !conversationId) return;
 
+  // The client cancels by Conversation; a Run belongs to the participant that
+  // owns it, so map back before asking its connector to stop.
+  const participantId = await participantForConversation(
+    store,
+    sessionId,
+    conversationId,
+  );
   const { cancelled, reason } = connectors.cancelRun({
     sessionId,
     participantId,
@@ -126,8 +137,10 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
     handleChatMessage(socket, deps, author, payload),
   );
 
-  socket.on(SocketEvents.AgentAbort, (payload: AgentAbortPayload) =>
-    handleAgentAbort(connectors, payload),
+  socket.on(
+    SocketEvents.AgentAbort,
+    (payload: AgentAbortPayload) =>
+      void handleAgentAbort(store, connectors, payload),
   );
 
   socket.on(SocketEvents.AgentSetModel, (payload: AgentSetModelPayload) =>
@@ -215,6 +228,7 @@ async function handleChatJoin(
   const roster: SubagentRosterPayload = {
     sessionId: session.id,
     subagents: connectors.list(session.id),
+    primaryConversationId: await orchestratorConversationFor(store, session.id),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
 
@@ -327,7 +341,9 @@ export function authorizedConversations(
   agents: SessionAgent[],
   memberships: Membership[],
 ): Set<string> {
-  const conversationIds = new Set(agents.map((agent) => agent.id));
+  const conversationIds = new Set(
+    agents.map((agent) => agent.homeConversationId),
+  );
   if (isSessionOwner(author, session)) return conversationIds;
 
   const held = new Set<string>();
@@ -442,12 +458,22 @@ async function handleChatMessage(
     return;
   }
 
-  // Target thread: the orchestrator's by default, or a specific sub-agent so
-  // users can steer it from its own tab.
-  const orchestratorId = await orchestratorIdFor(store, session.id);
-  const conversationId = payload.conversationId ?? orchestratorId;
-  if (conversationId === orchestratorId)
-    pi.ensure(session.id, session.rootPath);
+  // Target thread: the orchestrator's home Conversation by default, or a
+  // specific sub-agent so users can steer it from its own tab.
+  const primaryConversationId = await orchestratorConversationFor(
+    store,
+    session.id,
+  );
+  const conversationId = payload.conversationId ?? primaryConversationId;
+  if (conversationId === primaryConversationId)
+    pi.ensure(
+      session.id,
+      session.rootPath,
+      undefined,
+      undefined,
+      undefined,
+      primaryConversationId,
+    );
 
   await conversations.post({
     sessionId: session.id,

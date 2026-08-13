@@ -209,9 +209,9 @@ export class ParticipantService {
   }
 
   /**
-   * Closes a Conversation: ends every Membership and settles its open Runs.
-   * Identity is still one string this PR, so the subject Participant's id is the
-   * Conversation id — its open Run is the Conversation's.
+   * Closes a Conversation: ends every Membership and settles its open Runs. The
+   * open Run belongs to the Conversation's subject participant, which is no
+   * longer the Conversation id itself — so reverse-map before cancelling.
    */
   async closeConversation(
     sessionId: string,
@@ -227,8 +227,12 @@ export class ParticipantService {
         conversationId,
         member.participantId,
       );
-    this.connectors.cancelRun({ sessionId, participantId: conversationId });
-    this.runs.settleOpenFor(sessionId, conversationId, "cancelled");
+    const owner = await this.participantRegistry.ownerOf(
+      sessionId,
+      conversationId,
+    );
+    this.connectors.cancelRun({ sessionId, participantId: owner });
+    this.runs.settleOpenFor(sessionId, owner, "cancelled");
     this.membershipRegistry.invalidate(sessionId);
   }
 

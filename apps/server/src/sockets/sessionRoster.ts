@@ -12,7 +12,10 @@ import {
 import type { Server, Socket } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
-import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import {
+  orchestratorConversationFor,
+  orchestratorIdFor,
+} from "../conversation/participantRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -115,12 +118,17 @@ export async function ensureSessionAgents(
   session: Session,
 ): Promise<void> {
   const primeOverride = await loadPrimeOverride(store, session.id);
+  const primaryConversationId = await orchestratorConversationFor(
+    store,
+    session.id,
+  );
   pi.ensure(
     session.id,
     session.rootPath,
     undefined,
     primeOverride,
     session.user,
+    primaryConversationId,
   );
   const persistedAgents = await store.listAgents(session.id);
   connectors.revive(session.id, persistedAgents);

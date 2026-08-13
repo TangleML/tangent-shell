@@ -64,6 +64,8 @@ interface RemoteEnvConnection {
 /** A sub-agent hosted in a remote environment, tracked in the gateway roster. */
 interface RemoteSubagent {
   agentId: string;
+  /** The Conversation this sub-agent's tab lives in, distinct from its id. */
+  homeConversationId: string;
   name: string;
   status: SubagentStatus;
   template?: string;
@@ -88,6 +90,7 @@ function clampLimit(limit: number | undefined): number {
 function toInfo(subagent: RemoteSubagent): SubagentInfo {
   return {
     id: subagent.agentId,
+    conversationId: subagent.homeConversationId,
     name: subagent.name,
     status: subagent.status,
     ...connectorFields("remote-env", subagent.environmentId),
@@ -176,12 +179,14 @@ export class RemoteEnvironmentGateway {
     }
 
     const agentId = randomUUID();
+    const homeConversationId = randomUUID();
     const config = resolveSubagentConfig(request);
     const autoRelayToPrime = request.autoRelayToPrime ?? true;
     const tools = [...config.tools];
 
     const subagent: RemoteSubagent = {
       agentId,
+      homeConversationId,
       name: request.name,
       status: "active",
       template: request.template,
@@ -236,6 +241,7 @@ export class RemoteEnvironmentGateway {
     const run = this.runs.open({
       sessionId,
       participantId: agentId,
+      homeConversationId: this.homeConversationOf(sessionId, agentId),
       ingress: options.ingress ?? "reaction",
     });
     const command: RemoteMessageCommand = {
@@ -269,6 +275,7 @@ export class RemoteEnvironmentGateway {
 
     const subagent: RemoteSubagent = {
       agentId: agent.id,
+      homeConversationId: agent.homeConversationId,
       name: agent.name,
       status: "detached",
       template: agent.template,
@@ -333,6 +340,13 @@ export class RemoteEnvironmentGateway {
   }
 
   /** Returns (creating if needed) the session's remote sub-agent roster. */
+  /** A sub-agent's home Conversation, falling back to its id for a legacy row. */
+  private homeConversationOf(sessionId: string, agentId: string): string {
+    return (
+      this.sessions.get(sessionId)?.get(agentId)?.homeConversationId ?? agentId
+    );
+  }
+
   private rosterFor(sessionId: string): Map<string, RemoteSubagent> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
@@ -343,7 +357,12 @@ export class RemoteEnvironmentGateway {
 
   /** Builds the agent descriptor a relayed event is tagged with. */
   private descriptorFor(subagent: RemoteSubagent): AgentDescriptor {
-    return { agentId: subagent.agentId, role: "subagent", name: subagent.name };
+    return {
+      agentId: subagent.agentId,
+      role: "subagent",
+      name: subagent.name,
+      homeConversationId: subagent.homeConversationId,
+    };
   }
 
   /** Creates the `/remote-env` namespace with auth + connection handlers. */
@@ -487,7 +506,7 @@ export class RemoteEnvironmentGateway {
 
     this.handlers.onAgentMessage({
       sessionId: payload.sessionId,
-      conversationId: payload.agentId,
+      conversationId: subagent.homeConversationId,
       author: {
         id: subagent.agentId,
         kind: "agent",

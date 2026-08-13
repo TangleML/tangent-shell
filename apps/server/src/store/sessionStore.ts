@@ -90,6 +90,14 @@ export interface SessionAgent {
   host?: SubagentHost;
   /** The connector that runs the agent; derived from `host` on legacy rows. */
   connector: ConnectorDescriptor;
+  /**
+   * The Conversation this agent posts into as its home thread. A fresh id for an
+   * agent created after 2.4 (so a Conversation id no longer names an agent); the
+   * agent's own id for a legacy row, whose JSONL log is named that way and stays
+   * valid because the `conversations` table maps it. Resolved from that table on
+   * read, falling back to {@link SessionAgent.id}.
+   */
+  homeConversationId: string;
   createdAt: string;
 }
 
@@ -114,6 +122,13 @@ export interface RecordAgentInput {
   host?: SubagentHost;
   /** The connector running the agent; omitted leaves the stored one in place. */
   connector?: ConnectorDescriptor;
+  /**
+   * The Conversation id to mint for this agent's home thread. Supplied by a
+   * spawner that mints the id up front (so its roster update and the subscribe
+   * that follows carry it); omitted for Prime and legacy revives, where the
+   * store resolves-or-mints the mapping itself.
+   */
+  homeConversationId?: string;
 }
 
 /**

@@ -79,7 +79,7 @@ export interface AgentModelSelection {
   thinkingDepth?: ThinkingLevel;
 }
 
-/** Messages bucketed by the Conversation (agent id) they belong to. */
+/** Messages bucketed by the `conversationId` they belong to. */
 type MessageMap = Map<string, ChatMessage[]>;
 
 /** Stable empty result so an unknown Conversation doesn't churn renders. */
@@ -160,6 +160,19 @@ export function useSessionChat(sessionId: string) {
   const [messagesByConversation, setMessagesByConversation] =
     useState<MessageMap>(() => new Map());
   const [subagents, setSubagents] = useState<SubagentInfo[]>([]);
+  // The orchestrator's home Conversation — the primary ("Prime") thread the main
+  // Chat tab renders. Server-derived from the `orchestrator` capability (roster
+  // payload) so the client no longer privileges the reserved `"prime"` id.
+  // Seeded with `PI_AGENT.id` for a legacy session whose Prime keeps that id.
+  const [primaryConversationId, setPrimaryConversationId] = useState<string>(
+    PI_AGENT.id,
+  );
+  // Maps an agent id to the Conversation its thread lives in (`SubagentInfo.id →
+  // conversationId`, plus Prime → `primaryConversationId`). Components resolve an
+  // agent tab/card to its Conversation through this rather than assuming equality.
+  const [conversationByAgent, setConversationByAgent] = useState<
+    Map<string, string>
+  >(() => new Map());
   // Per-agent model/thinking selection, keyed by agent id (`"prime"` or a
   // sub-agent id). Seeded from the roster (sub-agents) and the `agent:model`
   // event (Prime), and updated as either changes.
@@ -196,6 +209,11 @@ export function useSessionChat(sessionId: string) {
   // arrives as a `subagent:update` for an unseen id, which triggers a
   // `conversation:subscribe` so its room and history are joined on demand.
   const subscribedConversations = useRef<Set<string>>(new Set());
+  // Reverse of `conversationByAgent` (conversationId → agent id), used only to
+  // key the shared agent-status cache — which `useAgentStatus` reads by agent id
+  // — from socket events that now carry a decoupled conversation id. A ref: no
+  // render depends on it; it mirrors the roster as it arrives.
+  const agentByConversation = useRef<Map<string, string>>(new Map());
   // Maps an in-flight message id to its conversation so `agent:delta` /
   // `agent:thinking` / `agent:error` (which only carry a messageId) can reach
   // the right thread's bucket and streaming state.
@@ -250,6 +268,12 @@ export function useSessionChat(sessionId: string) {
       );
     };
 
+    // Resolves the agent that owns a Conversation, so a socket event carrying a
+    // decoupled conversation id keys the agent-status cache (read by agent id).
+    // Falls back to the id itself for a legacy agent whose ids still coincide.
+    const agentIdOf = (conversationId: string) =>
+      agentByConversation.current.get(conversationId) ?? conversationId;
+
     // Republishes Prime plus every known sub-agent (e.g. after a (re)connect or
     // disconnect, when the busy/activity inputs reset for all of them at once).
     const publishAll = () => {
@@ -281,6 +305,8 @@ export function useSessionChat(sessionId: string) {
       setMessagesByConversation(new Map());
       setHistoryLoaded(false);
       setSubagents([]);
+      setPrimaryConversationId(PI_AGENT.id);
+      setConversationByAgent(new Map());
       setModelByAgent(new Map());
       setTriggers([]);
       setArtifacts([]);
@@ -292,8 +318,10 @@ export function useSessionChat(sessionId: string) {
       conversationByMessageId.current.clear();
       runIdByConversation.current.clear();
       streamingRuns.current.clear();
-      // Prime is joined server-side at chat:join; seed it so a later update for
-      // it doesn't re-subscribe redundantly.
+      agentByConversation.current.clear();
+      // Prime is joined server-side at chat:join; seed its id so a later update
+      // for it doesn't re-subscribe. The roster replaces this with Prime's real
+      // home conversation once it arrives.
       subscribedConversations.current = new Set([PI_AGENT.id]);
       // Reset the published statuses; the join snapshot (roster + replayed
       // activity) republishes them. Prime is present immediately.
@@ -363,8 +391,9 @@ export function useSessionChat(sessionId: string) {
         setMessagesByConversation((prev) =>
           appendToConversation(prev, message),
         );
-        streaming.add(message.conversationId);
-        publish(message.conversationId);
+        const agentId = agentIdOf(message.conversationId);
+        streaming.add(agentId);
+        publish(agentId);
       },
     );
     // Streamed token: append it to the matching in-flight message, routed to its
@@ -422,8 +451,9 @@ export function useSessionChat(sessionId: string) {
           () => message,
         ),
       );
-      streaming.delete(message.conversationId);
-      publish(message.conversationId);
+      const agentId = agentIdOf(message.conversationId);
+      streaming.delete(agentId);
+      publish(agentId);
     });
     // The agent's run-level activity changed: a non-null activity surfaces the
     // ephemeral spinner bubble; null clears it (message streaming / run idle).
@@ -440,12 +470,13 @@ export function useSessionChat(sessionId: string) {
           }
           return next;
         });
+        const agentId = agentIdOf(conversationId);
         if (activity) {
-          activities.set(conversationId, activity);
+          activities.set(agentId, activity);
         } else {
-          activities.delete(conversationId);
+          activities.delete(agentId);
         }
-        publish(conversationId);
+        publish(agentId);
       },
     );
     socket.on(
@@ -472,9 +503,10 @@ export function useSessionChat(sessionId: string) {
             next.delete(conversationId);
             return next;
           });
-          streaming.delete(conversationId);
-          activities.delete(conversationId);
-          publish(conversationId);
+          const agentId = agentIdOf(conversationId);
+          streaming.delete(agentId);
+          activities.delete(agentId);
+          publish(agentId);
         }
         console.error("[chat] agent error:", message);
       },
@@ -484,8 +516,23 @@ export function useSessionChat(sessionId: string) {
     // sub-agent's model/thinking selection.
     socket.on(
       SocketEvents.SubagentRoster,
-      ({ subagents: roster }: SubagentRosterPayload) => {
+      ({
+        subagents: roster,
+        primaryConversationId: primary,
+      }: SubagentRosterPayload) => {
         setSubagents(roster);
+        setPrimaryConversationId(primary);
+        setConversationByAgent(() => {
+          const next = new Map<string, string>([[PI_AGENT.id, primary]]);
+          for (const s of roster) next.set(s.id, s.conversationId);
+          return next;
+        });
+        agentByConversation.current = new Map([[primary, PI_AGENT.id]]);
+        for (const s of roster)
+          agentByConversation.current.set(s.conversationId, s.id);
+        // Prime's home is joined server-side at chat:join; record it so a later
+        // roster/update for it does not re-subscribe.
+        subscribedConversations.current.add(primary);
         setModelByAgent((prev) => {
           const next = new Map(prev);
           for (const s of roster) {
@@ -497,7 +544,7 @@ export function useSessionChat(sessionId: string) {
           statuses.set(s.id, s.status);
           // Joined server-side at chat:join; record it so a later update for it
           // does not re-subscribe.
-          subscribedConversations.current.add(s.id);
+          subscribedConversations.current.add(s.conversationId);
           publish(s.id);
         }
       },
@@ -508,14 +555,18 @@ export function useSessionChat(sessionId: string) {
       ({ subagent }: SubagentUpdatePayload) => {
         // A sub-agent this client hasn't been subscribed to yet spawned after
         // join: subscribe so its per-Conversation room and history are joined.
-        if (!subscribedConversations.current.has(subagent.id)) {
-          subscribedConversations.current.add(subagent.id);
+        if (!subscribedConversations.current.has(subagent.conversationId)) {
+          subscribedConversations.current.add(subagent.conversationId);
           const payload: ConversationSubscribePayload = {
             sessionId,
-            conversationId: subagent.id,
+            conversationId: subagent.conversationId,
           };
           socket.emit(SocketEvents.ConversationSubscribe, payload);
         }
+        setConversationByAgent((prev) =>
+          new Map(prev).set(subagent.id, subagent.conversationId),
+        );
+        agentByConversation.current.set(subagent.conversationId, subagent.id);
         setSubagents((prev) => {
           const next = prev.filter((s) => s.id !== subagent.id);
           next.push(subagent);
@@ -612,7 +663,7 @@ export function useSessionChat(sessionId: string) {
     const payload: ChatMessagePayload = {
       sessionId,
       content: trimmed,
-      conversationId: options?.conversationId ?? PI_AGENT.id,
+      conversationId: options?.conversationId ?? primaryConversationId,
       delivery: options?.delivery ?? "auto",
       ...(hasAttachments ? { attachments } : {}),
     };
@@ -725,6 +776,14 @@ export function useSessionChat(sessionId: string) {
     return messagesByConversation.get(conversationId) ?? NO_MESSAGES;
   }
 
+  // The Conversation an agent's thread lives in, or the agent id itself when the
+  // roster hasn't mapped it yet (a legacy agent whose ids coincide, or Prime
+  // before the roster arrives). Components resolve an agent tab/card to its
+  // thread through this rather than assuming `conversationId === agentId`.
+  function conversationForAgent(agentId: string): string {
+    return conversationByAgent.get(agentId) ?? agentId;
+  }
+
   // Removes a sub-agent from the local roster (e.g. dismissing a killed agent
   // from the sidebar). The server still tracks it, so it reappears on the next
   // `subagent:roster` snapshot after a reconnect.
@@ -735,6 +794,8 @@ export function useSessionChat(sessionId: string) {
   return {
     messagesFor,
     subagents,
+    primaryConversationId,
+    conversationForAgent,
     triggers,
     artifacts,
     pinnedPaths,
@@ -746,7 +807,7 @@ export function useSessionChat(sessionId: string) {
     confirmMemory,
     dismissMemory,
     // The main thread's busy state drives the header/input; Prime owns it.
-    agentBusy: isConversationBusy(PI_AGENT.id),
+    agentBusy: isConversationBusy(primaryConversationId),
     isConversationBusy,
     getActivity,
     isMessageStreaming,

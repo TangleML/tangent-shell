@@ -12,7 +12,11 @@ import { Cron } from "croner";
 import type { Server } from "socket.io";
 
 import type { ConversationRouter } from "../../conversation/conversationRouter.ts";
-import { orchestratorIdFor } from "../../conversation/participantRegistry.ts";
+import {
+  homeConversationFor,
+  orchestratorConversationFor,
+  orchestratorIdFor,
+} from "../../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../../conversation/participantService.ts";
 import { roomFor } from "../../sockets/rooms.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
@@ -244,12 +248,23 @@ export class TriggerEngine {
     stored: StoredTrigger,
     prompt: string,
   ): Promise<void> {
-    this.pi.ensure(sessionId, rootPath);
     const orchestratorId = await orchestratorIdFor(this.store, sessionId);
+    const primaryConversationId = await orchestratorConversationFor(
+      this.store,
+      sessionId,
+    );
+    this.pi.ensure(
+      sessionId,
+      rootPath,
+      undefined,
+      undefined,
+      undefined,
+      primaryConversationId,
+    );
     await this.ensureTriggerParticipant(sessionId, stored);
     await this.conversations.post({
       sessionId,
-      conversationId: orchestratorId,
+      conversationId: primaryConversationId,
       author: triggerAuthor(stored),
       content: prompt,
       mentions: [orchestratorId],
@@ -269,11 +284,19 @@ export class TriggerEngine {
     stored: StoredTrigger,
     prompt: string,
   ): Promise<void> {
+    this.pi.ensure(
+      sessionId,
+      rootPath,
+      undefined,
+      undefined,
+      undefined,
+      await orchestratorConversationFor(this.store, sessionId),
+    );
     const { agentId } = this.ensureSubagent(sessionId, rootPath, stored);
     await this.ensureTriggerParticipant(sessionId, stored);
     await this.conversations.post({
       sessionId,
-      conversationId: agentId,
+      conversationId: await homeConversationFor(this.store, sessionId, agentId),
       author: triggerAuthor(stored),
       content: prompt,
       mentions: [agentId],

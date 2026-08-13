@@ -51,6 +51,8 @@ export interface SendToPeer {
 /** An attached peer's tab, plus what its in-flight turn needs. */
 interface A2aTab {
   agentId: string;
+  /** The Conversation this peer's tab lives in, distinct from its agent id. */
+  homeConversationId: string;
   name: string;
   status: SubagentStatus;
   endpointUrl: string;
@@ -78,6 +80,7 @@ interface Turn {
 function toInfo(tab: A2aTab): SubagentInfo {
   return {
     id: tab.agentId,
+    conversationId: tab.homeConversationId,
     name: tab.name,
     status: tab.status,
     connector: { ...connectorFor("a2a"), endpointUrl: tab.endpointUrl },
@@ -160,6 +163,7 @@ export class A2aPeerGateway {
     const peer = await this.connect(spec.endpointUrl, headers);
     const tab: A2aTab = {
       agentId: randomUUID(),
+      homeConversationId: randomUUID(),
       name: spec.name?.trim() || peer.card.name,
       status: "active",
       endpointUrl: spec.endpointUrl,
@@ -174,6 +178,7 @@ export class A2aPeerGateway {
       purpose: peer.card.description,
       status: tab.status,
       connector: { ...connectorFor("a2a"), endpointUrl: tab.endpointUrl },
+      homeConversationId: tab.homeConversationId,
     });
     const info = toInfo(tab);
     this.handlers.onSubagentUpdate(sessionId, info);
@@ -195,6 +200,7 @@ export class A2aPeerGateway {
 
     const tab: A2aTab = {
       agentId: agent.id,
+      homeConversationId: agent.homeConversationId,
       name: agent.name,
       status: "detached",
       endpointUrl,
@@ -298,6 +304,7 @@ export class A2aPeerGateway {
       run: this.runs.open({
         sessionId: input.sessionId,
         participantId: tab.agentId,
+        homeConversationId: tab.homeConversationId,
         ingress: input.ingress ?? "reaction",
         externalId: tab.taskId,
       }),
@@ -460,9 +467,10 @@ export class A2aPeerGateway {
 
   /** Says in the peer's own thread why a message went nowhere. */
   private refuse(input: SendToPeer, reason: string): void {
+    const tab = this.tabFor(input.sessionId, input.participantId);
     this.handlers.onAgentMessage({
       sessionId: input.sessionId,
-      conversationId: input.participantId,
+      conversationId: tab?.homeConversationId ?? input.participantId,
       author: SYSTEM_AUTHOR,
       content: reason,
     });
@@ -507,5 +515,10 @@ export class A2aPeerGateway {
 
 /** Builds the agent descriptor a relayed event is tagged with. */
 function descriptorFor(tab: A2aTab): AgentDescriptor {
-  return { agentId: tab.agentId, role: "subagent", name: tab.name };
+  return {
+    agentId: tab.agentId,
+    role: "subagent",
+    name: tab.name,
+    homeConversationId: tab.homeConversationId,
+  };
 }

@@ -120,6 +120,7 @@ function agentRow(overrides: Partial<SessionAgent>): SessionAgent {
     status: "active",
     autoRelayToPrime: true,
     connector: connectorFor("pi-stdio"),
+    homeConversationId: "agent-1",
     createdAt: new Date().toISOString(),
     ...overrides,
   };

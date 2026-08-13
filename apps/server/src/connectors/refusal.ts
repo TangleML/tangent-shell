@@ -15,7 +15,7 @@ export function refuseDelivery(
 ): DeliveryResult {
   handlers.onAgentMessage({
     sessionId: request.sessionId,
-    conversationId: request.participantId,
+    conversationId: request.conversationId ?? request.participantId,
     author: SYSTEM_AUTHOR,
     content: reason,
   });

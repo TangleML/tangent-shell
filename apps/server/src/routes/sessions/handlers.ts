@@ -20,7 +20,7 @@ import {
   SESSIONS_ROOT,
   UPLOADS_DIRNAME,
 } from "../../config.ts";
-import { orchestratorIdFor } from "../../conversation/participantRegistry.ts";
+import { orchestratorConversationFor } from "../../conversation/participantRegistry.ts";
 import { installBundle } from "../../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
@@ -163,13 +163,16 @@ async function createSessionFromBundle(
     // Pre-seed Prime's first message so the bundle's agent "speaks first"
     // (e.g. renders a welcome card). It replays via `chat:history` on join and
     // renders any `tangent-ui:*` card because the bundle id is already attached.
+    const primaryConversationId = await orchestratorConversationFor(
+      store,
+      sessionId,
+    );
     if (config.welcomeMessage) {
-      const orchestratorId = await orchestratorIdFor(store, sessionId);
       await store.appendMessage({
         id: randomUUID(),
         sessionId,
-        conversationId: orchestratorId,
-        seq: await store.nextSeq(sessionId, orchestratorId),
+        conversationId: primaryConversationId,
+        seq: await store.nextSeq(sessionId, primaryConversationId),
         author: PI_AGENT,
         mentions: [],
         source: sourceFromAuthor(PI_AGENT),
@@ -178,7 +181,14 @@ async function createSessionFromBundle(
       });
     }
 
-    pi.ensure(sessionId, rootPath, config, undefined, user);
+    pi.ensure(
+      sessionId,
+      rootPath,
+      config,
+      undefined,
+      user,
+      primaryConversationId,
+    );
     res.status(201).json({ session: withConfig });
   } catch (err) {
     await store.deleteSession(sessionId);
@@ -270,10 +280,15 @@ async function activityFor(
   session: Session,
   lastViewedAt: string | undefined,
 ): Promise<SessionActivity> {
-  const [{ unreadCount, lastActivityAt }, agents] = await Promise.all([
-    readActivity(session.rootPath, lastViewedAt),
-    store.listAgents(session.id),
-  ]);
+  const agents = await store.listAgents(session.id);
+  const primaryConversationId = agents.find((agent) =>
+    agent.capabilities.includes("orchestrator"),
+  )?.homeConversationId;
+  const { unreadCount, lastActivityAt } = await readActivity(
+    session.rootPath,
+    lastViewedAt,
+    primaryConversationId,
+  );
   return {
     unreadCount,
     lastActivityAt,

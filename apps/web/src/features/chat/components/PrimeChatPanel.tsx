@@ -32,6 +32,8 @@ type SendFn = (
 
 interface PrimeChatPanelProps {
   sessionId: string;
+  /** The orchestrator's home Conversation this panel sends/aborts against. */
+  primaryConversationId: string;
   messages: ChatMessage[];
   currentAuthorId: string;
   bundleId?: string;
@@ -43,7 +45,7 @@ interface PrimeChatPanelProps {
   memorySuggestions: MemorySuggestionPayload[];
   confirmMemory: (suggestionId: string) => void;
   dismissMemory: (suggestionId: string) => void;
-  busySubagents: { id: string; name: string }[];
+  busySubagents: { id: string; name: string; conversationId: string }[];
   armedTriggers: Trigger[];
   subagents: SubagentInfo[];
   assets: Asset[];
@@ -60,6 +62,7 @@ interface PrimeChatPanelProps {
 
 export function PrimeChatPanel({
   sessionId,
+  primaryConversationId,
   messages,
   currentAuthorId,
   bundleId,
@@ -91,6 +94,7 @@ export function PrimeChatPanel({
         sessionId={sessionId}
         messages={messages}
         currentAuthorId={currentAuthorId}
+        primaryConversationId={primaryConversationId}
         activity={activity}
         historyLoaded={historyLoaded}
         bundleId={bundleId}
@@ -136,10 +140,10 @@ export function PrimeChatPanel({
         agentId={PI_AGENT.id}
         disabled={!connected}
         agentBusy={agentBusy}
-        onAbort={() => abort(PI_AGENT.id)}
+        onAbort={() => abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) =>
           send(content, {
-            conversationId: PI_AGENT.id,
+            conversationId: primaryConversationId,
             delivery,
             attachments,
           })
@@ -151,7 +155,7 @@ export function PrimeChatPanel({
 
 interface PrimeComposerFooterProps {
   sessionId: string;
-  busySubagents: { id: string; name: string }[];
+  busySubagents: { id: string; name: string; conversationId: string }[];
   armedTriggers: Trigger[];
   subagents: SubagentInfo[];
   assets: Asset[];
