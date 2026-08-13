@@ -92,6 +92,7 @@ function toParticipant(row: ParticipantRow): Participant {
     presence: row.presence as Presence,
     connector: toConnector(row, agent),
     agent,
+    revokedAt: orUndefined(row.revokedAt),
     createdAt: row.createdAt,
   };
 }
@@ -152,6 +153,7 @@ export class SqliteParticipantStore implements ParticipantStore {
         presence: participant.presence,
         ...columns,
         agentPayload,
+        revokedAt: participant.revokedAt ?? null,
         createdAt: participant.createdAt,
       })
       .onConflictDoUpdate({
@@ -163,8 +165,33 @@ export class SqliteParticipantStore implements ParticipantStore {
           presence: participant.presence,
           ...columns,
           agentPayload,
+          revokedAt: participant.revokedAt ?? null,
         },
       })
+      .run();
+  }
+
+  async updatePresence(
+    sessionId: string,
+    id: string,
+    presence: Presence,
+  ): Promise<void> {
+    this.db
+      .update(participants)
+      .set({ presence })
+      .where(
+        and(eq(participants.sessionId, sessionId), eq(participants.id, id)),
+      )
+      .run();
+  }
+
+  async revoke(sessionId: string, id: string): Promise<void> {
+    this.db
+      .update(participants)
+      .set({ revokedAt: new Date().toISOString(), capabilities: "[]" })
+      .where(
+        and(eq(participants.sessionId, sessionId), eq(participants.id, id)),
+      )
       .run();
   }
 }

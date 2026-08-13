@@ -1,0 +1,1 @@
+ALTER TABLE `participants` ADD `revoked_at` text;

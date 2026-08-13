@@ -91,3 +91,53 @@ test("get returns nothing for a participant that was never written", async () =>
   const { store, sessionId } = await withSession();
   assert.equal(await store.get(sessionId, "missing"), undefined);
 });
+
+test("revokedAt round-trips and defaults to undefined", async () => {
+  const { store, sessionId } = await withSession();
+  await store.put(participant(sessionId));
+
+  const active = await store.get(sessionId, "p-1");
+  assert.equal(active?.revokedAt, undefined);
+
+  await store.put(
+    participant(sessionId, { revokedAt: "2026-02-02T00:00:00.000Z" }),
+  );
+  const revoked = await store.get(sessionId, "p-1");
+  assert.equal(revoked?.revokedAt, "2026-02-02T00:00:00.000Z");
+});
+
+test("updatePresence moves only the presence column", async () => {
+  const { store, sessionId } = await withSession();
+  await store.put(participant(sessionId, { capabilities: ["orchestrator"] }));
+
+  await store.updatePresence(sessionId, "p-1", "detached");
+
+  const got = await store.get(sessionId, "p-1");
+  assert.equal(got?.presence, "detached");
+  assert.deepEqual(got?.capabilities, ["orchestrator"]);
+});
+
+test("revoke stamps revokedAt and clears capabilities, keeping the row", async () => {
+  const { store, sessionId } = await withSession();
+  await store.put(
+    participant(sessionId, { kind: "human", capabilities: ["orchestrator"] }),
+  );
+
+  await store.revoke(sessionId, "p-1");
+
+  const got = await store.get(sessionId, "p-1");
+  assert.ok(got, "a revoked participant is retained, not deleted");
+  assert.ok(got.revokedAt, "revocation is stamped");
+  assert.deepEqual(
+    got.capabilities,
+    [],
+    "a revoked participant loses authority",
+  );
+});
+
+test("updatePresence and revoke are no-ops for an absent row", async () => {
+  const { store, sessionId } = await withSession();
+  await store.updatePresence(sessionId, "ghost", "away");
+  await store.revoke(sessionId, "ghost");
+  assert.equal(await store.get(sessionId, "ghost"), undefined);
+});

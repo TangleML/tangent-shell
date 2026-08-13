@@ -134,6 +134,15 @@ export class MembershipRegistry {
     return members.find((member) => member.participantId === participantId);
   }
 
+  /**
+   * Drops a session's cached memberships so the next read reloads from the
+   * store. Called after a membership is joined, left, muted or removed out of
+   * band, so a change is not hidden behind the derive-once cache.
+   */
+  invalidate(sessionId: string): void {
+    this.cache.delete(sessionId);
+  }
+
   /** The session's memberships, indexed by conversation on first use. */
   private async load(sessionId: string): Promise<Map<string, Membership[]>> {
     const cached = this.cache.get(sessionId);

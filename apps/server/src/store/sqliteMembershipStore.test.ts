@@ -89,3 +89,43 @@ test("deleting a session takes its memberships with it", async () => {
 
   assert.deepEqual(await store.listForSession(session.id), []);
 });
+
+test("get returns one membership by its full key, or nothing", async () => {
+  const { store, sessionId } = await newStore();
+  await store.put(membership({ sessionId, conversationId: "sub-1" }));
+
+  assert.deepEqual(await store.get(sessionId, "sub-1", "prime"), {
+    ...membership({ sessionId, conversationId: "sub-1" }),
+  });
+  assert.equal(await store.get(sessionId, "sub-1", "nobody"), undefined);
+  assert.equal(await store.get(sessionId, "other", "prime"), undefined);
+});
+
+test("listForConversation returns only that conversation's members", async () => {
+  const { store, sessionId } = await newStore();
+  await store.put(
+    membership({ sessionId, conversationId: "sub-1", participantId: "sub-1" }),
+  );
+  await store.put(
+    membership({ sessionId, conversationId: "sub-1", participantId: "prime" }),
+  );
+  await store.put(
+    membership({ sessionId, conversationId: "prime", participantId: "prime" }),
+  );
+
+  const members = await store.listForConversation(sessionId, "sub-1");
+  assert.deepEqual(members.map((m) => m.participantId).sort(), [
+    "prime",
+    "sub-1",
+  ]);
+});
+
+test("remove deletes one membership and no-ops when absent", async () => {
+  const { store, sessionId } = await newStore();
+  await store.put(membership({ sessionId, conversationId: "sub-1" }));
+
+  await store.remove(sessionId, "sub-1", "prime");
+  assert.deepEqual(await store.listForSession(sessionId), []);
+
+  await store.remove(sessionId, "sub-1", "prime");
+});

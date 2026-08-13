@@ -21,6 +21,7 @@ import { resolveUserIdentity } from "../auth/identity.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import type { ParticipantService } from "../conversation/participantService.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
@@ -36,6 +37,7 @@ import {
   type MemoryRememberedHandler,
 } from "./chatMemory.ts";
 import { type MentionCandidate, resolveMentions } from "./mentions.ts";
+import type { PresenceTracker } from "./presenceTracker.ts";
 import { roomFor } from "./rooms.ts";
 import {
   emitPrimeSelection,
@@ -57,6 +59,8 @@ export interface ChatHandlerDeps {
   onRemembered: MemoryRememberedHandler;
   triggerEngine: TriggerEngine;
   emitUiCommand: UiCommandEmitter;
+  participantService: ParticipantService;
+  presence: PresenceTracker;
 }
 
 /**
@@ -93,9 +97,16 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   // client never gets a say in who its messages are attributed to.
   const author = resolveSocketAuthor(socket.handshake.headers.cookie);
 
-  socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) =>
-    handleChatJoin(socket, store, pi, connectors, triggerEngine, payload),
-  );
+  // (sessionId\0participantId) pairs whose presence this socket is holding up,
+  // so the last of a person's tabs to close is what marks them detached.
+  const tracked = new Set<string>();
+
+  socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) => {
+    void handleChatJoin(socket, store, pi, connectors, triggerEngine, payload);
+    void markPresent(deps, author, payload?.sessionId, tracked);
+  });
+
+  socket.on("disconnect", () => markAbsent(deps, tracked));
 
   socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
     handleChatMessage(socket, deps, author, payload),
@@ -223,6 +234,51 @@ function mentionCandidates(
  */
 export function resolveSocketAuthor(cookieHeader: string | undefined) {
   return humanAuthor(resolveUserIdentity(cookieHeader) ?? DEFAULT_USER);
+}
+
+/** Key of the presence a socket holds for one participant in one session. */
+function presenceKey(sessionId: string, participantId: string): string {
+  return `${sessionId}\u0000${participantId}`;
+}
+
+/**
+ * Marks a connecting human present, if they are an invited Participant of this
+ * session. Only their first live socket transitions them to `connected`; a
+ * non-participant (a session's owner who was never invited) has no presence.
+ */
+async function markPresent(
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  sessionId: string | undefined,
+  tracked: Set<string>,
+): Promise<void> {
+  if (author.kind !== "human" || !sessionId) return;
+  const participant = await deps.participantService.get(sessionId, author.id);
+  if (!participant) return;
+  const key = presenceKey(sessionId, author.id);
+  if (tracked.has(key)) return;
+  tracked.add(key);
+  if (deps.presence.arrive(sessionId, author.id))
+    await deps.participantService.setPresence(
+      sessionId,
+      author.id,
+      "connected",
+    );
+}
+
+/** Marks a disconnecting socket's participants detached once their last tab closes. */
+function markAbsent(deps: ChatHandlerDeps, tracked: Set<string>): void {
+  for (const key of tracked) {
+    const sep = key.indexOf("\u0000");
+    const sessionId = key.slice(0, sep);
+    const participantId = key.slice(sep + 1);
+    if (deps.presence.depart(sessionId, participantId))
+      void deps.participantService.setPresence(
+        sessionId,
+        participantId,
+        "detached",
+      );
+  }
 }
 
 /**

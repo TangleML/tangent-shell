@@ -28,6 +28,23 @@ export interface Membership {
 export interface MembershipStore {
   /** Every membership in a session, so a registry can seed one lookup. */
   listForSession(sessionId: string): Promise<Membership[]>;
+  /** Every membership in one Conversation, so closing it can end each. */
+  listForConversation(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<Membership[]>;
+  /** One membership, or nothing when the participant holds none here. */
+  get(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<Membership | undefined>;
   /** Upserts by `(sessionId, conversationId, participantId)`. */
   put(membership: Membership): Promise<void>;
+  /** Removes one membership. A no-op when there is none to remove. */
+  remove(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<void>;
 }

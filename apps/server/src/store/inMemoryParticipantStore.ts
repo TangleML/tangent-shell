@@ -1,3 +1,5 @@
+import type { Presence } from "@tangent/shared/contracts.ts";
+
 import type { Participant, ParticipantStore } from "./participantStore.ts";
 
 /** Key of one participant, matching the table's uniqueness. */
@@ -28,5 +30,25 @@ export class InMemoryParticipantStore implements ParticipantStore {
       keyFor(participant.sessionId, participant.id),
       participant,
     );
+  }
+
+  async updatePresence(
+    sessionId: string,
+    id: string,
+    presence: Presence,
+  ): Promise<void> {
+    const existing = this.participants.get(keyFor(sessionId, id));
+    if (!existing) return;
+    this.participants.set(keyFor(sessionId, id), { ...existing, presence });
+  }
+
+  async revoke(sessionId: string, id: string): Promise<void> {
+    const existing = this.participants.get(keyFor(sessionId, id));
+    if (!existing) return;
+    this.participants.set(keyFor(sessionId, id), {
+      ...existing,
+      capabilities: [],
+      revokedAt: new Date().toISOString(),
+    });
   }
 }

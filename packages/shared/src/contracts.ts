@@ -717,6 +717,36 @@ export function capabilitiesForRole(role: AgentRole): Capability[] {
   return role === "prime" ? ["orchestrator"] : [];
 }
 
+/**
+ * A Participant as returned by the REST surface (`/api/sessions/:id/participants`):
+ * the durable actor identity, without the internal `agent_payload` or connector
+ * facets. `revokedAt` is set once a person has been removed from the session —
+ * the row is kept so its transcript attributions still resolve.
+ */
+export interface ParticipantView {
+  id: string;
+  sessionId: string;
+  kind: ParticipantKind;
+  displayName: string;
+  capabilities: Capability[];
+  presence: Presence;
+  /** ISO-8601 timestamp; set once the Participant has been revoked. */
+  revokedAt?: string;
+  createdAt: string;
+}
+
+/**
+ * One of a Participant's Memberships, as returned alongside a
+ * {@link ParticipantView}. `muted` is the read of a `reaction` that has been set
+ * to `never`, so a client need not know the reaction vocabulary to show it.
+ */
+export interface MembershipView {
+  conversationId: string;
+  reaction: ReactionSpec;
+  ingress: RunIngress;
+  muted: boolean;
+}
+
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
@@ -1047,6 +1077,17 @@ export interface SubagentUpdatePayload {
 }
 
 /**
+ * A Participant's live {@link Presence} transition (server -> client): a human
+ * connecting, going away, or dropping ("closed laptop"). Broadcast to the
+ * session room so a client can show who is currently reachable.
+ */
+export interface ParticipantPresencePayload {
+  sessionId: string;
+  participantId: string;
+  presence: Presence;
+}
+
+/**
  * Emitted (server -> client) when the agent suggests remembering something that
  * needs user confirmation before it is applied (agent-initiated global memory).
  * Rendered as a confirm/dismiss card in the chat.
@@ -1206,6 +1247,7 @@ export const SocketEvents = {
   AgentQueue: "agent:queue",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
+  ParticipantPresence: "participant:presence",
   MemorySuggestion: "memory:suggestion",
   MemoryConfirm: "memory:confirm",
   MemoryDismiss: "memory:dismiss",

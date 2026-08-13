@@ -13,6 +13,7 @@ import type { Server } from "socket.io";
 
 import type { ConversationRouter } from "../../conversation/conversationRouter.ts";
 import { orchestratorIdFor } from "../../conversation/participantRegistry.ts";
+import type { ParticipantService } from "../../conversation/participantService.ts";
 import { roomFor } from "../../sockets/rooms.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SubagentSpawnRequest } from "../agentConfig.ts";
@@ -85,6 +86,7 @@ export class TriggerEngine {
   private readonly pi: PiAgentManager;
   private readonly triggers: TriggerManager;
   private readonly conversations: ConversationRouter;
+  private readonly participants: ParticipantService | undefined;
 
   constructor(
     io: Server,
@@ -92,12 +94,14 @@ export class TriggerEngine {
     pi: PiAgentManager,
     triggers: TriggerManager,
     conversations: ConversationRouter,
+    participants?: ParticipantService,
   ) {
     this.io = io;
     this.store = store;
     this.pi = pi;
     this.triggers = triggers;
     this.conversations = conversations;
+    this.participants = participants;
   }
 
   /** Seeds a bundle's triggers into a new session and arms its schedules. */
@@ -242,6 +246,7 @@ export class TriggerEngine {
   ): Promise<void> {
     this.pi.ensure(sessionId, rootPath);
     const orchestratorId = await orchestratorIdFor(this.store, sessionId);
+    await this.ensureTriggerParticipant(sessionId, stored);
     await this.conversations.post({
       sessionId,
       conversationId: orchestratorId,
@@ -265,6 +270,7 @@ export class TriggerEngine {
     prompt: string,
   ): Promise<void> {
     const { agentId } = this.ensureSubagent(sessionId, rootPath, stored);
+    await this.ensureTriggerParticipant(sessionId, stored);
     await this.conversations.post({
       sessionId,
       conversationId: agentId,
@@ -273,6 +279,23 @@ export class TriggerEngine {
       mentions: [agentId],
       ingress: ingressFor(stored),
     });
+  }
+
+  /**
+   * Materializes the trigger Automation Participant once per session, so the
+   * actor behind a firing is a real, listable row. The delivered Message still
+   * carries the TRIGGER_AUTHOR label (its title-specific name).
+   */
+  private async ensureTriggerParticipant(
+    sessionId: string,
+    stored: StoredTrigger,
+  ): Promise<void> {
+    await this.participants?.ensureAutomation(
+      sessionId,
+      TRIGGER_AUTHOR.id,
+      TRIGGER_AUTHOR.name,
+      ingressFor(stored),
+    );
   }
 
   /**
