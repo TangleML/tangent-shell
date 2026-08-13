@@ -2,6 +2,7 @@ import { Icon } from "@tangent/ui-primitives/icon";
 import { cva } from "class-variance-authority";
 
 import type { AgentRole } from "@/features/chat/model/types";
+import { UserAvatar } from "@/features/user/components/UserAvatar";
 import { cn } from "@/shared/lib/utils";
 
 // Role-keyed avatar styling. The `agent`/`subagent` roles reuse the same
@@ -45,17 +46,27 @@ interface MessageAvatarProps {
   kind: "human" | "agent";
   name: string;
   agentRole?: AgentRole;
+  /** The human author's email, used to resolve a Gravatar image. */
+  email?: string;
 }
 
 /**
  * MessageAvatar — small circular badge conveying the message sender's kind
- * (human, prime agent, sub-agent). Styles a raw `<div>` (the sanctioned escape
- * hatch, like `StatusDot`/`UserAvatar`), so it is exempt from
- * tangle-ui/no-classname-on-primitives.
+ * (human, prime agent, sub-agent). Delegates to {@link UserAvatar}: human
+ * authors show their Gravatar, and everyone else (or a human without one) falls
+ * back to the role icon badge.
+ *
+ * Styles a raw `<div>` (the sanctioned escape hatch, like `StatusDot`), so it is
+ * exempt from `tangle-ui/no-classname-on-primitives`.
  */
-export function MessageAvatar({ kind, name, agentRole }: MessageAvatarProps) {
+export function MessageAvatar({
+  kind,
+  name,
+  agentRole,
+  email,
+}: MessageAvatarProps) {
   const role = avatarRole(kind, agentRole);
-  return (
+  const badge = (
     <div
       title={name}
       aria-label={name}
@@ -63,5 +74,11 @@ export function MessageAvatar({ kind, name, agentRole }: MessageAvatarProps) {
     >
       <Icon name={AVATAR_ICONS[role]} size="xs" />
     </div>
+  );
+
+  if (role !== "human" || !email?.trim().length) return badge;
+
+  return (
+    <UserAvatar email={email ?? ""} name={name} size="sm" fallback={badge} />
   );
 }
