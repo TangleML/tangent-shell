@@ -70,6 +70,7 @@ function agentRow(): SessionAgent {
       credentialScheme: "peer-bearer",
       endpointUrl: "https://agent.example.com",
     },
+    homeConversationId: "peer-1",
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }

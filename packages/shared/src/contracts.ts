@@ -751,6 +751,13 @@ export interface MembershipView {
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
   id: string;
+  /**
+   * The Conversation this sub-agent's thread lives in — what the client
+   * subscribes to and buckets its messages under. Decoupled from {@link
+   * SubagentInfo.id}: a fresh id for a sub-agent spawned after 2.4, the agent's
+   * own id for a legacy one whose transcript is keyed that way.
+   */
+  conversationId: string;
   name: string;
   status: SubagentStatus;
   /** The connector that runs the sub-agent. */
@@ -821,9 +828,10 @@ export interface ChatMessage {
   id: string;
   sessionId: string;
   /**
-   * The agent process this message belongs to: `"prime"` for the shared
-   * human/Prime thread, or a sub-agent's id for that sub-agent's thread. Drives
-   * which transcript the client buckets the message into.
+   * The Conversation this message belongs to — which transcript the client
+   * buckets it into. A Conversation id in its own right, no longer an agent's
+   * id: mapped to its owning participant through the `conversations` table, so a
+   * thread can outlive or hold more than the one agent it started with.
    */
   conversationId: string;
   /**
@@ -1092,6 +1100,12 @@ export interface AgentQueuePayload {
 export interface SubagentRosterPayload {
   sessionId: string;
   subagents: SubagentInfo[];
+  /**
+   * The orchestrator's home Conversation — the primary ("Prime") thread the UI
+   * renders in its main tab. Server-derived from the `orchestrator` capability
+   * so the client no longer privileges a reserved `"prime"` id.
+   */
+  primaryConversationId: string;
 }
 
 /** A single sub-agent's spawn or status change. Upserted by `id` on the client. */

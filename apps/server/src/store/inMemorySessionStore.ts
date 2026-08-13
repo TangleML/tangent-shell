@@ -59,7 +59,7 @@ function mergeAgent(
   sessionId: string,
   agent: RecordAgentInput,
   prior: SessionAgent | undefined,
-): SessionAgent {
+): Omit<SessionAgent, "homeConversationId"> {
   return {
     ...prior,
     ...definedAgentFields(agent),
@@ -82,6 +82,8 @@ export class InMemorySessionStore implements SessionStore {
   private readonly views = new Map<string, Map<string, string>>();
   /** Per-conversation `seq` counters, keyed `sessionId/conversationId`. */
   private readonly seqs = new Map<string, number>();
+  /** Agent → home Conversation id, keyed by session; mirrors `conversations`. */
+  private readonly homeConversations = new Map<string, Map<string, string>>();
   /** Mirrors each recorded roster row, matching the SQLite store's dual-write. */
   private readonly participants?: ParticipantStore;
 
@@ -171,6 +173,7 @@ export class InMemorySessionStore implements SessionStore {
     }
     this.artifacts.delete(id);
     this.agents.delete(id);
+    this.homeConversations.delete(id);
     return this.sessions.delete(id);
   }
 
@@ -252,13 +255,41 @@ export class InMemorySessionStore implements SessionStore {
   ): Promise<SessionAgent> {
     const existing = this.agents.get(sessionId) ?? [];
     const prior = existing.find((a) => a.id === agent.id);
-    const next = mergeAgent(sessionId, agent, prior);
+    const homeConversationId = this.ensureHomeConversation(
+      sessionId,
+      agent.id,
+      prior?.homeConversationId ?? agent.homeConversationId,
+    );
+    const next = { ...mergeAgent(sessionId, agent, prior), homeConversationId };
     const updated = prior
       ? existing.map((a) => (a.id === agent.id ? next : a))
       : [...existing, next];
     this.agents.set(sessionId, updated);
     await this.participants?.put(participantFromAgent(next));
     return next;
+  }
+
+  /**
+   * Resolves an agent's home Conversation, minting one when it has none. A
+   * caller-supplied id (a spawner minting up front) wins; a legacy agent whose
+   * transcript is already keyed by its own id keeps that id; anything else gets
+   * a fresh one so a Conversation id stops naming an agent.
+   */
+  private ensureHomeConversation(
+    sessionId: string,
+    agentId: string,
+    provided: string | undefined,
+  ): string {
+    const map = this.homeConversations.get(sessionId) ?? new Map();
+    const existing = map.get(agentId);
+    if (existing) return existing;
+
+    const held = this.messages.get(sessionId) ?? [];
+    const legacy = held.some((message) => message.conversationId === agentId);
+    const resolved = provided ?? (legacy ? agentId : randomUUID());
+    map.set(agentId, resolved);
+    this.homeConversations.set(sessionId, map);
+    return resolved;
   }
 
   async setAgentStatus(

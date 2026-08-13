@@ -10,7 +10,10 @@ import type { Server } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
-import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import {
+  orchestratorConversationFor,
+  orchestratorIdFor,
+} from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -44,7 +47,7 @@ export function createMemoryRememberedHandler(
     );
     await conversations.post({
       sessionId,
-      conversationId: await orchestratorIdFor(store, sessionId),
+      conversationId: await orchestratorConversationFor(store, sessionId),
       author: MEMORY_AUTHOR,
       content: text,
       memory: { scope },

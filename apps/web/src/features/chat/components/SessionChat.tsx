@@ -39,6 +39,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const {
     messagesFor,
     subagents,
+    primaryConversationId,
+    conversationForAgent,
     triggers,
     artifacts,
     pinnedPaths,
@@ -97,11 +99,15 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     activeTab === CHAT_TAB_VALUE ? PI_AGENT.id : activeTab;
 
   // The Chat tab is Prime's main thread; each sub-agent has its own thread tab.
-  const primeMessages = messagesFor(PI_AGENT.id);
+  const primeMessages = messagesFor(primaryConversationId);
 
   const busySubagents = subagents
-    .filter((s) => isConversationBusy(s.id))
-    .map((s) => ({ id: s.id, name: s.name }));
+    .filter((s) => isConversationBusy(s.conversationId))
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      conversationId: s.conversationId,
+    }));
   const armedTriggers = triggers.filter((t) => t.enabled);
 
   // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
@@ -132,6 +138,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const sharedTabProps = {
     sessionId,
     subagents,
+    conversationForAgent,
+    primaryConversationId,
     triggers,
     messagesFor,
     currentAuthorId,
@@ -204,13 +212,14 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               <TabsContent value={CHAT_TAB_VALUE} forceMount>
                 <PrimeChatPanel
                   sessionId={sessionId}
+                  primaryConversationId={primaryConversationId}
                   messages={primeMessages}
                   currentAuthorId={currentAuthorId}
                   bundleId={bundleId}
                   connected={connected}
                   historyLoaded={historyLoaded}
                   agentBusy={agentBusy}
-                  activity={getActivity(PI_AGENT.id)}
+                  activity={getActivity(primaryConversationId)}
                   isMessageStreaming={isMessageStreaming}
                   memorySuggestions={memorySuggestions}
                   confirmMemory={confirmMemory}

@@ -50,6 +50,8 @@ export interface OpenExternalRun {
 /** An external sub-agent tab, tracked in the gateway roster (display only). */
 interface ExternalSubagent {
   agentId: string;
+  /** The Conversation this tab lives in, distinct from its agent id. */
+  homeConversationId: string;
   name: string;
   status: SubagentStatus;
   template?: string;
@@ -74,6 +76,7 @@ function belongsTo(
 function toInfo(subagent: ExternalSubagent): SubagentInfo {
   return {
     id: subagent.agentId,
+    conversationId: subagent.homeConversationId,
     name: subagent.name,
     status: subagent.status,
     ...connectorFields("external-inbound"),
@@ -161,6 +164,7 @@ export class ExternalSubagentGateway {
     spec: RegisterExternalSubagent,
   ): RegisteredExternalSubagent {
     const agentId = randomUUID();
+    const homeConversationId = randomUUID();
     const channel = this.relay.open({
       sessionId,
       label: spec.name,
@@ -168,6 +172,7 @@ export class ExternalSubagentGateway {
     });
     const subagent: ExternalSubagent = {
       agentId,
+      homeConversationId,
       name: spec.name,
       status: "active",
       template: spec.template,
@@ -188,6 +193,7 @@ export class ExternalSubagentGateway {
         template: subagent.template,
         host: "external",
         connector: connectorFor("external-inbound"),
+        homeConversationId,
       })
       .catch((err: unknown) => {
         console.error(
@@ -237,6 +243,7 @@ export class ExternalSubagentGateway {
 
     const subagent: ExternalSubagent = {
       agentId: agent.id,
+      homeConversationId: agent.homeConversationId,
       name: agent.name,
       status: "detached",
       template: agent.template,
@@ -267,6 +274,7 @@ export class ExternalSubagentGateway {
     return this.runs.open({
       sessionId,
       participantId: agentId,
+      homeConversationId: subagent.homeConversationId,
       ingress: "tool",
       externalId: input.externalId,
       cursor: input.cursor,
@@ -379,6 +387,11 @@ export class ExternalSubagentGateway {
 
   /** Builds the agent descriptor a relayed event is tagged with. */
   private descriptorFor(subagent: ExternalSubagent): AgentDescriptor {
-    return { agentId: subagent.agentId, role: "subagent", name: subagent.name };
+    return {
+      agentId: subagent.agentId,
+      role: "subagent",
+      name: subagent.name,
+      homeConversationId: subagent.homeConversationId,
+    };
   }
 }

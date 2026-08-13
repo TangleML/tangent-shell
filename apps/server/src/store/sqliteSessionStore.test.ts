@@ -73,6 +73,120 @@ test("markViewed upserts and isolates read state per user", async () => {
   assert.equal(a.get(session.id), "2026-03-01T00:00:00.000Z");
 });
 
+/** The `agent_id` backfill statement drizzle-kit's 0013 migration appended. */
+function agentIdBackfillStatement(): string {
+  const file = fileURLToPath(
+    new URL("./db/migrations/0013_chief_veda.sql", import.meta.url),
+  );
+  const statement = readFileSync(file, "utf8")
+    .split("--> statement-breakpoint")
+    .map((chunk) => chunk.trim())
+    .find((chunk) => chunk.startsWith("UPDATE `conversations`"));
+  assert.ok(statement, "0013 carries an agent_id backfill statement");
+  return statement;
+}
+
+test("recordAgent mints a fresh home conversation for a new agent id", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+
+  const recorded = await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    connector: connectorFor("pi-stdio"),
+  });
+
+  assert.notEqual(
+    recorded.homeConversationId,
+    "sub-1",
+    "a Conversation id no longer names the agent that owns it",
+  );
+  // Idempotent: re-recording (a revive) resolves the same id, never re-mints.
+  const again = await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    status: "active",
+    connector: connectorFor("pi-stdio"),
+  });
+  assert.equal(again.homeConversationId, recorded.homeConversationId);
+  const agents = await store.listAgents(session.id);
+  assert.equal(
+    agents.find((a) => a.id === "sub-1")?.homeConversationId,
+    recorded.homeConversationId,
+    "listAgents resolves the same mapping",
+  );
+});
+
+test("recordAgent honors a spawner-supplied home conversation id", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+
+  const recorded = await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    homeConversationId: "conv-abc",
+    connector: connectorFor("pi-stdio"),
+  });
+
+  assert.equal(recorded.homeConversationId, "conv-abc");
+});
+
+test("a legacy <agentId>.jsonl keeps the agent id as its home conversation", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+
+  // A transcript an older build left keyed by the agent's own id: its home
+  // conversation must stay that id so the file is never orphaned.
+  const dir = path.join(session.rootPath, ".tangent", "chats");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, "legacy-1.jsonl"),
+    `${JSON.stringify({
+      id: "m1",
+      sessionId: session.id,
+      conversationId: "legacy-1",
+      author: { id: "legacy-1", kind: "agent", name: "Worker" },
+      content: "hi",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    })}\n`,
+  );
+
+  const recorded = await store.recordAgent(session.id, {
+    id: "legacy-1",
+    role: "subagent",
+    name: "Worker",
+    connector: connectorFor("pi-stdio"),
+  });
+
+  assert.equal(recorded.homeConversationId, "legacy-1");
+});
+
+test("the 0013 backfill claims pre-existing conversation rows for their agent", async () => {
+  const db = openDb(":memory:");
+  const store = new SqliteSessionStore(db);
+  const session = await store.createSession({ name: "S" });
+
+  // A pre-0013 counter row: keyed by an agent id, with no owner recorded yet.
+  db.run(
+    sql`INSERT INTO conversations (id, session_id, agent_id, next_seq, created_at)
+        VALUES ('prime', ${session.id}, NULL, 1, '2026-01-01T00:00:00.000Z')`,
+  );
+
+  db.run(sql.raw(agentIdBackfillStatement()));
+
+  const row = db.get(
+    sql`SELECT agent_id FROM conversations WHERE id = 'prime' AND session_id = ${session.id}`,
+  ) as { agent_id: string | null } | undefined;
+  assert.equal(
+    row?.agent_id,
+    "prime",
+    "a legacy row adopts its own id as its owner",
+  );
+});
+
 test("recordAgent round-trips a connector descriptor", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });

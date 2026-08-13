@@ -20,6 +20,8 @@ interface ChatMessageListProps {
   sessionId: string;
   messages: ChatMessageType[];
   currentAuthorId: string;
+  /** The orchestrator's home Conversation, for the "from Prime's thread" label. */
+  primaryConversationId: string;
   /** Ephemeral agent activity for this thread, or null when idle/streaming. */
   activity?: AgentActivity | null;
   /** Whether the room's history snapshot has arrived; gates loader vs empty. */
@@ -52,6 +54,7 @@ interface RowContentProps {
   row: Row;
   sessionId: string;
   currentAuthorId: string;
+  primaryConversationId: string;
   bundleId?: string;
   onSendPrompt?: (text: string) => void;
   onOpenArtifact?: (url: string, title: string) => void;
@@ -66,6 +69,7 @@ function RowContent({
   row,
   sessionId,
   currentAuthorId,
+  primaryConversationId,
   bundleId,
   onSendPrompt,
   onOpenArtifact,
@@ -81,6 +85,7 @@ function RowContent({
         <ChatMessage
           sessionId={sessionId}
           message={row.message}
+          primaryConversationId={primaryConversationId}
           isOwn={row.message.author.id === currentAuthorId}
           bundleId={bundleId}
           onSendPrompt={onSendPrompt}
@@ -126,6 +131,7 @@ export function ChatMessageList({
   sessionId,
   messages,
   currentAuthorId,
+  primaryConversationId,
   activity,
   historyLoaded,
   bundleId,
@@ -228,6 +234,7 @@ export function ChatMessageList({
                       row={row}
                       sessionId={sessionId}
                       currentAuthorId={currentAuthorId}
+                      primaryConversationId={primaryConversationId}
                       bundleId={bundleId}
                       onSendPrompt={onSendPrompt}
                       onOpenArtifact={onOpenArtifact}

@@ -11,7 +11,11 @@ import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
-import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import {
+  homeConversationFor,
+  orchestratorConversationFor,
+  orchestratorIdFor,
+} from "../conversation/participantRegistry.ts";
 import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
@@ -131,17 +135,22 @@ async function handleSpawn(
       autoRelayToPrime,
       host,
       connector: info.connector,
+      homeConversationId: info.conversationId,
     });
     res.json({ subagent: info });
     // Answered first: the sub-agent exists either way, and a failure to post its
     // first task must not read as a failed spawn Prime might retry.
-    const orchestratorId = await orchestratorIdFor(store, body.sessionId);
+    const fromConversation = await orchestratorConversationFor(
+      store,
+      body.sessionId,
+    );
     await postDirective(
       router,
       body.sessionId,
       info.id,
+      info.conversationId,
       body.task,
-      orchestratorId,
+      fromConversation,
     ).catch((err: unknown) => {
       console.error(`[agents] initial task for ${info.id} failed:`, err);
     });
@@ -189,13 +198,14 @@ async function postDirective(
   router: ConversationRouter,
   sessionId: string,
   agentId: string,
+  conversationId: string,
   text: string | undefined,
   fromConversation: string,
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
   const { message, refused } = await router.postToConversation({
     sessionId,
-    conversationId: agentId,
+    conversationId,
     fromConversation,
     author: PI_AGENT,
     content: text,
@@ -222,8 +232,9 @@ async function handleMessage(
     router,
     body.sessionId,
     body.agentId,
+    await homeConversationFor(store, body.sessionId, body.agentId),
     body.text,
-    await orchestratorIdFor(store, body.sessionId),
+    await orchestratorConversationFor(store, body.sessionId),
   );
   res.json({ ok: !refused, ...(refused ? { error: refused } : {}) });
 }
@@ -249,7 +260,7 @@ async function handleReport(
 
   await router.post({
     sessionId,
-    conversationId: agentId,
+    conversationId: await homeConversationFor(store, sessionId, agentId),
     author,
     content: text,
     mentions: [await orchestratorIdFor(store, sessionId)],

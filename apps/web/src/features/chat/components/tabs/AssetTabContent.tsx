@@ -18,6 +18,8 @@ interface AssetTabContentProps {
   tab: AssetTab;
   sessionId: string;
   subagents: SubagentInfo[];
+  conversationForAgent: (agentId: string) => string;
+  primaryConversationId: string;
   triggers: Trigger[];
   messagesFor: (conversationId: string) => ChatMessage[];
   currentAuthorId: string;
@@ -54,6 +56,8 @@ export function AssetTabContent({
   tab,
   sessionId,
   subagents,
+  conversationForAgent,
+  primaryConversationId,
   triggers,
   messagesFor,
   currentAuthorId,
@@ -77,31 +81,34 @@ export function AssetTabContent({
     case "agent": {
       const info = subagents.find((s) => s.id === tab.agentId);
       const model = getAgentModel(tab.agentId);
+      const conversationId =
+        info?.conversationId ?? conversationForAgent(tab.agentId);
       return (
         <SubagentTabView
           sessionId={sessionId}
           agentId={tab.agentId}
+          primaryConversationId={primaryConversationId}
           name={info?.name ?? tab.title}
-          messages={messagesFor(tab.agentId)}
+          messages={messagesFor(conversationId)}
           currentAuthorId={currentAuthorId}
           bundleId={bundleId}
           historyLoaded={historyLoaded}
-          activity={getActivity(tab.agentId)}
+          activity={getActivity(conversationId)}
           status={info?.status ?? "completed"}
-          busy={isConversationBusy(tab.agentId)}
+          busy={isConversationBusy(conversationId)}
           disabled={!connected}
           isMessageStreaming={isMessageStreaming}
           model={model?.model}
           thinkingDepth={model?.thinkingDepth}
           onSetModel={(selection) => setAgentModel(tab.agentId, selection)}
-          onAbort={() => abort(tab.agentId)}
+          onAbort={() => abort(conversationId)}
           onRemove={() => {
             dismissSubagent(tab.agentId);
             closeAsset(tab.id);
           }}
           onSubmit={(content, { delivery, attachments }) =>
             send(content, {
-              conversationId: tab.agentId,
+              conversationId,
               delivery,
               attachments,
             })

@@ -21,6 +21,7 @@ import type { Membership } from "../store/membershipStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { FanOutEngine, type FanOutResult } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
+import { participantForConversation } from "./participantRegistry.ts";
 
 /**
  * Everything a Message needs beyond its envelope defaults. `seq` comes from the
@@ -150,18 +151,20 @@ function frameFor(message: ChatMessage, recipient: Membership): string {
 }
 
 /**
- * The text one recipient's transport receives for a Message. A participant
- * reading its own Conversation gets the content as written; one woken from
- * another Conversation gets the provenance framing that used to be baked into a
- * wrapped relay string. Framing is a projection, so what is persisted stays the
- * author's own words.
+ * The text one recipient's transport receives for a Message. The participant
+ * that owns the Conversation (its subject) gets the content as written; one
+ * woken from another Conversation gets the provenance framing that used to be
+ * baked into a wrapped relay string. Ownership is passed in rather than inferred
+ * from the id, now that a Conversation id no longer equals its owner's id.
+ * Framing is a projection, so what is persisted stays the author's own words.
  */
 export function deliveryText(
   message: ChatMessage,
   recipient: Membership,
+  ownerParticipantId: string,
 ): string {
   const body = withAttachments(message.content, message.attachments);
-  if (message.conversationId === recipient.participantId) return body;
+  if (recipient.participantId === ownerParticipantId) return body;
   return `${frameFor(message, recipient)}\n\n${body}`;
 }
 
@@ -221,11 +224,18 @@ export class ConversationRouter {
       return { message, woke: [], refused: [] };
     }
 
+    // The subject of this Conversation reads it plain; everyone else woken from
+    // it gets provenance framing. Resolve the owner once for the whole fan-out.
+    const owner = await participantForConversation(
+      this.store,
+      message.sessionId,
+      message.conversationId,
+    );
     const outcome = await this.engine.fanOut({
       message,
       ingress: input.ingress,
       delivery: input.delivery,
-      project: deliveryText,
+      project: (msg, recipient) => deliveryText(msg, recipient, owner),
     });
     return { message, ...outcome };
   }

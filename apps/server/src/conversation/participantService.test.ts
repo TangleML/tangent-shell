@@ -93,14 +93,17 @@ test("invite creates an away human keyed by email, with memberships", async () =
 });
 
 test("inviting into Prime's conversation keeps Prime a member", async () => {
-  const { service, memberships, session } = await harness();
+  const { service, memberships, sessions, session } = await harness();
+  // Prime's home Conversation is a minted id now, not the reserved "prime".
+  const [prime] = await sessions.listAgents(session.id);
+  const primeConversationId = prime.homeConversationId;
 
   await service.invite(session.id, {
     email: "a@shopify.com",
-    conversationIds: ["prime"],
+    conversationIds: [primeConversationId],
   });
 
-  const members = await memberships.membersOf(session.id, "prime");
+  const members = await memberships.membersOf(session.id, primeConversationId);
   const ids = members.map((m) => m.participantId).sort();
   assert.deepEqual(ids, ["a@shopify.com", "prime"]);
 });

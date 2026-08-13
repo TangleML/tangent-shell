@@ -184,11 +184,24 @@ export const runs = sqliteTable(
 export const conversations = sqliteTable(
   "conversations",
   {
-    /** Conversation id: an agent id today (`prime` or a sub-agent uuid). */
+    /**
+     * Conversation id. A fresh uuid for a Conversation minted after 2.4; an
+     * agent id (`prime` or a sub-agent uuid) for a legacy row, whose JSONL log
+     * is named the same and stays valid because {@link conversations.agentId}
+     * maps it. No longer names an agent for new Conversations.
+     */
     id: text("id").notNull(),
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
+    /**
+     * The participant that owns this Conversation as its home thread (an agent
+     * id). The mapping that lets a Conversation id be distinct from the agent's
+     * id: a message an agent produces lands in the Conversation whose `agentId`
+     * is that agent, and a legacy row where `id == agentId` maps to itself.
+     * Null only until the 0013 backfill sets `agent_id = id`.
+     */
+    agentId: text("agent_id"),
     /** The next `seq` to hand out; incremented as each is allocated. */
     nextSeq: integer("next_seq").notNull().default(1),
     createdAt: text("created_at").notNull(),
@@ -196,6 +209,7 @@ export const conversations = sqliteTable(
   (table) => [
     unique("conversations_session_id").on(table.sessionId, table.id),
     index("conversations_session_idx").on(table.sessionId),
+    index("conversations_session_agent_idx").on(table.sessionId, table.agentId),
   ],
 );
 

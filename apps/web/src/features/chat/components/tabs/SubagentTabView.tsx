@@ -19,8 +19,10 @@ import { ChatMessageList } from "../message/ChatMessageList";
 
 interface SubagentTabViewProps {
   sessionId: string;
-  /** The sub-agent (and conversation) this tab is dedicated to. */
+  /** The sub-agent this tab is dedicated to. */
   agentId: string;
+  /** The orchestrator's home Conversation, for the "from Prime's thread" label. */
+  primaryConversationId: string;
   /** Display name, used in the stop control's label. */
   name: string;
   /** This sub-agent's conversation messages, already scoped by the server room. */
@@ -67,6 +69,7 @@ interface SubagentTabViewProps {
 export function SubagentTabView({
   sessionId,
   agentId,
+  primaryConversationId,
   messages,
   currentAuthorId,
   bundleId,
@@ -92,6 +95,7 @@ export function SubagentTabView({
         sessionId={sessionId}
         messages={messages}
         currentAuthorId={currentAuthorId}
+        primaryConversationId={primaryConversationId}
         activity={activity}
         historyLoaded={historyLoaded}
         bundleId={bundleId}

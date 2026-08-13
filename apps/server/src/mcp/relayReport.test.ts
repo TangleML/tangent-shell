@@ -55,6 +55,7 @@ function makeReport(roster: SubagentInfo[]) {
 function workerRow(id: string, name: string): SubagentInfo {
   return {
     id,
+    conversationId: id,
     name,
     status: "active",
     connector: connectorFor("external-inbound"),
@@ -70,6 +71,7 @@ test("a participant's channel posts in its own thread, addressed to Prime", asyn
     name: "Explorer",
     status: "active",
     autoRelayToPrime: true,
+    homeConversationId: "ext-1",
     connector: connectorFor("external-inbound"),
   });
   const { channelId } = h.relay.open({

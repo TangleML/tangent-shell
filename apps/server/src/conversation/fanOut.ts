@@ -199,6 +199,7 @@ export class FanOutEngine {
       .deliver({
         sessionId: message.sessionId,
         participantId: member.participantId,
+        conversationId: message.conversationId,
         text: request.project(message, member),
         ingress: request.ingress ?? member.ingress,
         delivery: request.delivery,

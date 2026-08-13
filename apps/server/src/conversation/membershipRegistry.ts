@@ -36,18 +36,6 @@ const ON_REQUEST = reactionSpec("mentionsMe");
 /** A member that has declared it does not act — a display-only external tab. */
 const INERT = reactionSpec("never");
 
-/**
- * The id of the roster row holding the `orchestrator` capability, or the
- * well-known default when a session has none resolved — the successor to
- * treating `PRIME_AGENT_ID` as a reserved id.
- */
-function orchestratorFrom(agents: SessionAgent[]): string {
-  const holder = agents.find((agent) =>
-    agent.capabilities.includes("orchestrator"),
-  );
-  return holder?.id ?? PRIME_AGENT_ID;
-}
-
 function membership(
   sessionId: string,
   participantId: string,
@@ -103,20 +91,40 @@ export class MembershipRegistry {
     const known = byConversation.get(conversationId);
     if (known) return known;
 
-    const agents = await this.sessions.listAgents(sessionId);
-    const agent = agents.find((candidate) => candidate.id === conversationId);
-    const orchestratorId = orchestratorFrom(agents);
-    const derived = this.derive(
-      sessionId,
-      conversationId,
-      agent,
-      orchestratorId,
-    );
-    if (!agent && conversationId !== orchestratorId) return derived;
+    const roster = await this.roster(sessionId, conversationId);
+    const derived = this.derive(sessionId, conversationId, roster);
+    // A conversation with no owner that is not the orchestrator's own is a spawn
+    // whose row has not landed: return provisionally, neither cached nor stored.
+    if (!roster.owner && conversationId !== roster.orchestratorHome)
+      return derived;
 
     byConversation.set(conversationId, derived);
     for (const row of derived) await this.store.put(row);
     return derived;
+  }
+
+  /**
+   * Resolves a Conversation's owner and the orchestrator's identity/home from
+   * the roster. The owner is found by its `homeConversationId`, not by an id
+   * that equals the Conversation — the two are no longer the same string.
+   */
+  private async roster(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<RosterContext> {
+    const agents = await this.sessions.listAgents(sessionId);
+    const owner = agents.find(
+      (candidate) => candidate.homeConversationId === conversationId,
+    );
+    const orchestrator = agents.find((agent) =>
+      agent.capabilities.includes("orchestrator"),
+    );
+    const orchestratorId = orchestrator?.id ?? PRIME_AGENT_ID;
+    return {
+      owner,
+      orchestratorId,
+      orchestratorHome: orchestrator?.homeConversationId ?? orchestratorId,
+    };
   }
 
   /**
@@ -166,18 +174,17 @@ export class MembershipRegistry {
   private derive(
     sessionId: string,
     conversationId: string,
-    agent: SessionAgent | undefined,
-    orchestratorId: string,
+    { owner, orchestratorId, orchestratorHome }: RosterContext,
   ): Membership[] {
-    if (conversationId === orchestratorId) {
+    if (conversationId === orchestratorHome) {
       return [
-        membership(sessionId, orchestratorId, orchestratorId, ADDRESSABLE),
+        membership(sessionId, orchestratorId, conversationId, ADDRESSABLE),
       ];
     }
 
-    const relays = agent?.autoRelayToPrime ?? true;
+    const relays = owner?.autoRelayToPrime ?? true;
     return [
-      this.subject(sessionId, conversationId, agent),
+      this.subject(sessionId, conversationId, owner),
       membership(
         sessionId,
         orchestratorId,
@@ -199,24 +206,29 @@ export class MembershipRegistry {
   private subject(
     sessionId: string,
     conversationId: string,
-    agent: SessionAgent | undefined,
+    owner: SessionAgent | undefined,
   ): Membership {
-    const kind = agent?.connector.kind;
-    if (kind && !this.acceptsDelivery(kind)) {
-      return membership(
-        sessionId,
-        conversationId,
-        conversationId,
-        INERT,
-        "opaque",
-      );
-    }
+    // Legacy fallback: a Conversation the mapping never covered is keyed by its
+    // owner's id, so the owner is the conversation id itself.
+    if (!owner)
+      return membership(sessionId, conversationId, conversationId, ADDRESSABLE);
+
+    const kind = owner.connector.kind;
+    if (!this.acceptsDelivery(kind))
+      return membership(sessionId, owner.id, conversationId, INERT, "opaque");
     return membership(
       sessionId,
-      conversationId,
+      owner.id,
       conversationId,
       ADDRESSABLE,
-      kind ? DEFAULT_TRANSCRIPT_VISIBILITY[kind] : "shared",
+      DEFAULT_TRANSCRIPT_VISIBILITY[kind],
     );
   }
+}
+
+/** The roster facts a Conversation's memberships are derived from. */
+interface RosterContext {
+  owner: SessionAgent | undefined;
+  orchestratorId: string;
+  orchestratorHome: string;
 }

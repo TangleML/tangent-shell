@@ -13,7 +13,11 @@ import type { RunStore } from "../store/runStore.ts";
 export interface OpenRunInput {
   sessionId: string;
   participantId: string;
-  /** Defaults to `participantId`: a conversation is agent-keyed for now. */
+  /**
+   * The Conversation this Run's output lands in. Defaults to `participantId`
+   * only as a legacy fallback (an agent whose Conversation is still keyed by its
+   * own id); a spawner that minted a distinct Conversation passes it explicitly.
+   */
   homeConversationId?: string;
   ingress: RunIngress;
   /** The far side's own id for this work, when the connector has one. */

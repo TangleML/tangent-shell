@@ -148,11 +148,12 @@ export interface ChatActivity {
 export async function readActivity(
   rootPath: string,
   since?: string,
+  primaryConversationId: string = PI_AGENT.id,
 ): Promise<ChatActivity> {
   const messages = await readAllMessages(rootPath);
   const isUnread = (message: ChatMessage): boolean =>
     message.author.kind === "agent" &&
-    message.conversationId === PI_AGENT.id &&
+    message.conversationId === primaryConversationId &&
     (!since || message.createdAt > since);
   const unreadCount = messages.filter(isUnread).length;
   const last = messages.at(-1);

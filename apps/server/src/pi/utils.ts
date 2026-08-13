@@ -141,13 +141,19 @@ export function readDelta(
 
 /** Builds the descriptor that tags events with their producing agent. */
 export function toDescriptor(agent: AgentProcess): AgentDescriptor {
-  return { agentId: agent.agentId, role: agent.role, name: agent.name };
+  return {
+    agentId: agent.agentId,
+    role: agent.role,
+    name: agent.name,
+    homeConversationId: agent.homeConversationId,
+  };
 }
 
 /** Maps an internal process record to the roster shape exposed to the UI. */
 export function toSubagentInfo(agent: AgentProcess): SubagentInfo {
   return {
     id: agent.agentId,
+    conversationId: agent.homeConversationId,
     name: agent.name,
     status: agent.status,
     ...connectorFields("pi-stdio"),

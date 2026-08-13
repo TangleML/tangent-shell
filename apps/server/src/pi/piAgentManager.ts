@@ -556,6 +556,7 @@ export class PiAgentManager {
     config?: ResolvedSessionConfig,
     primeOverride?: AgentModelSelection,
     user?: UserIdentity,
+    homeConversationId: string = PRIME_AGENT_ID,
   ): void {
     const existing = this.sessions.get(sessionId);
     if (existing?.agents.has(PRIME_AGENT_ID)) return;
@@ -577,7 +578,12 @@ export class PiAgentManager {
     this.spawnAgent(
       sessionId,
       session,
-      { agentId: PRIME_AGENT_ID, role: "prime", name: "Prime" },
+      {
+        agentId: PRIME_AGENT_ID,
+        role: "prime",
+        name: "Prime",
+        homeConversationId,
+      },
       withModelSelection(primeConfig, primeOverride),
     );
   }
@@ -606,6 +612,7 @@ export class PiAgentManager {
         role: "subagent",
         name: agent.name,
         template: agent.template,
+        homeConversationId: agent.homeConversationId,
         autoRelayToPrime: agent.autoRelayToPrime ?? true,
       },
       this.reconstructSubagentConfig(session, agent),
@@ -698,6 +705,7 @@ export class PiAgentManager {
       role: existing.role,
       name: existing.name,
       template: existing.template,
+      homeConversationId: existing.homeConversationId,
     };
     const nextConfig = withModelSelection(existing.config, selection);
 
@@ -738,6 +746,10 @@ export class PiAgentManager {
     }
 
     const agentId = randomUUID();
+    // Mint the sub-agent's Conversation up front so its roster update — and the
+    // subscribe the client makes off it — already carry a Conversation id that
+    // is not the agent's id. The store persists this mapping on `recordAgent`.
+    const homeConversationId = randomUUID();
     const config = resolveSubagentConfig(request, {
       templates: session.config?.templates,
       defaults: session.config?.subagentDefaults,
@@ -752,6 +764,7 @@ export class PiAgentManager {
         role: "subagent",
         name: request.name,
         template: request.template,
+        homeConversationId,
         autoRelayToPrime,
       },
       config,
@@ -783,10 +796,17 @@ export class PiAgentManager {
     const { sessionId, agentId, text } = options;
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
     if (!agent) {
-      // No participant, so no Run: this error belongs to no unit of work.
+      // No participant, so no Run: this error belongs to no unit of work. With
+      // no roster row there is no home Conversation to resolve, so the error is
+      // tagged with the agent's id (its legacy home) as a best effort.
       this.handlers.onAgentEvent(
         sessionId,
-        { agentId, role: "prime", name: "Prime" },
+        {
+          agentId,
+          role: "prime",
+          name: "Prime",
+          homeConversationId: agentId,
+        },
         { type: "error", message: `Agent ${agentId} is not available.` },
       );
       return;
@@ -794,7 +814,12 @@ export class PiAgentManager {
 
     if (!agent.busy) {
       const ingress = options.ingress ?? "reaction";
-      this.runs.open({ sessionId, participantId: agentId, ingress });
+      this.runs.open({
+        sessionId,
+        participantId: agentId,
+        homeConversationId: agent.homeConversationId,
+        ingress,
+      });
     }
 
     this.writePrompt(sessionId, agent, text, options.delivery ?? "auto");
@@ -968,6 +993,7 @@ export class PiAgentManager {
       role: descriptor.role,
       name: descriptor.name,
       template: descriptor.template,
+      homeConversationId: descriptor.homeConversationId,
       status: "active",
       createdAt: new Date().toISOString(),
       config,
@@ -1094,6 +1120,7 @@ export class PiAgentManager {
       role: agent.role,
       name: agent.name,
       template: agent.template,
+      homeConversationId: agent.homeConversationId,
       autoRelayToPrime: agent.autoRelayToPrime,
     };
     const { config } = agent;
@@ -1165,6 +1192,7 @@ export class PiAgentManager {
       this.runs.open({
         sessionId,
         participantId: agent.agentId,
+        homeConversationId: agent.homeConversationId,
         ingress: "reaction",
       });
     }
@@ -1383,7 +1411,7 @@ export class PiAgentManager {
     for (const agent of session.agents.values()) {
       if (agent.lastActivity) {
         entries.push({
-          conversationId: agent.agentId,
+          conversationId: agent.homeConversationId,
           activity: agent.lastActivity,
         });
       }
@@ -1410,6 +1438,7 @@ export class PiAgentManager {
       agentId: agent.agentId,
       role: agent.role,
       name: agent.name,
+      homeConversationId: agent.homeConversationId,
     };
     this.emit(sessionId, descriptor, { type: "error", messageId, message });
     this.notifyStatus(sessionId);

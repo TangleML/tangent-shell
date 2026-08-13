@@ -41,6 +41,7 @@ function agent(id: string): SessionAgent {
     capabilities: id === "prime" ? ["orchestrator"] : [],
     status: "active",
     connector: connectorFor("pi-stdio"),
+    homeConversationId: id,
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }

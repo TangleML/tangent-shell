@@ -41,6 +41,7 @@ test("an auto-relaying sub-agent's conversation puts Prime on its run ends", asy
     name: "Worker",
     status: "active",
     autoRelayToPrime: true,
+    homeConversationId: "sub-1",
     connector: connectorFor("pi-stdio"),
   });
 
@@ -60,6 +61,7 @@ test("a sub-agent that does not auto-relay is reachable only by being addressed"
     name: "Worker",
     status: "active",
     autoRelayToPrime: false,
+    homeConversationId: "sub-1",
     connector: connectorFor("pi-stdio"),
   });
 
@@ -78,6 +80,7 @@ test("a participant nothing can deliver to declares that it never reacts", async
     role: "subagent",
     name: "External",
     status: "active",
+    homeConversationId: "tab-1",
     connector: connectorFor("external-inbound"),
   });
 
@@ -97,6 +100,7 @@ test("an external worker is addressable but sees none of the transcript", async 
     role: "subagent",
     name: "External",
     status: "active",
+    homeConversationId: "tab-1",
     connector: connectorFor("external-inbound"),
   });
 
@@ -118,6 +122,7 @@ test("an A2A peer is addressable but sees none of the transcript", async () => {
     role: "subagent",
     name: "Weather",
     status: "active",
+    homeConversationId: "peer-1",
     connector: connectorFor("a2a"),
   });
 
@@ -157,6 +162,7 @@ test("a derived conversation is persisted, so it is derived once", async () => {
     name: "Worker",
     status: "active",
     autoRelayToPrime: false,
+    homeConversationId: "sub-1",
     connector: connectorFor("pi-stdio"),
   });
 
@@ -179,6 +185,7 @@ test("a stored membership wins over what the roster would derive", async () => {
     name: "Worker",
     status: "active",
     autoRelayToPrime: true,
+    homeConversationId: "sub-1",
     connector: connectorFor("pi-stdio"),
   });
   await h.store.put({
@@ -203,6 +210,7 @@ test("membership answers whether one participant stands in a conversation", asyn
     name: "Worker",
     status: "active",
     autoRelayToPrime: true,
+    homeConversationId: "sub-1",
     connector: connectorFor("pi-stdio"),
   });
 
@@ -230,6 +238,7 @@ test("a spawn whose row has not landed yet still resolves, without being kept", 
     name: "Worker",
     status: "active",
     autoRelayToPrime: false,
+    homeConversationId: "sub-1",
     connector: connectorFor("pi-stdio"),
   });
 

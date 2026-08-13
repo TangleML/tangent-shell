@@ -57,6 +57,12 @@ export interface AgentDescriptor {
   agentId: string;
   role: AgentRole;
   name: string;
+  /**
+   * The Conversation the agent's messages land in — decoupled from
+   * {@link AgentDescriptor.agentId} so a Conversation id no longer names an
+   * agent. Where the event handler tags the message and picks its room.
+   */
+  homeConversationId: string;
 }
 
 export type AgentEventHandler = (
@@ -119,6 +125,13 @@ export interface AgentProcess {
   role: AgentRole;
   name: string;
   template?: string;
+  /**
+   * The Conversation this agent posts into. Minted fresh when the agent is
+   * spawned (Prime's resolved from the store, a sub-agent's from its spawner) so
+   * it is distinct from {@link AgentProcess.agentId}; falls back to the agent id
+   * for a legacy agent whose transcript is keyed that way.
+   */
+  homeConversationId: string;
   status: SubagentStatus;
   createdAt: string;
   /**

@@ -228,9 +228,10 @@ function emitQueue(
  * Builds the handler that relays agents' streaming events to the matching
  * session room, dispatching each event variant to its emit helper.
  *
- * Each message is tagged with the producing agent's id as its `conversationId`
- * so the client can bucket it into the right transcript (Prime's main thread or
- * a sub-agent's drill-in thread). Reasoning streams for every agent.
+ * Each message is tagged with the producing agent's home Conversation as its
+ * `conversationId` — a Conversation id, no longer the agent's id — so the client
+ * buckets it into the right transcript (the primary thread or a sub-agent's
+ * drill-in thread). Reasoning streams for every agent.
  */
 export function createAgentEventHandler(
   io: Server,
@@ -239,9 +240,9 @@ export function createAgentEventHandler(
 ): AgentEventHandler {
   return (sessionId, agent, event) => {
     const ctx: EmitContext = {
-      room: messageRoomFor(sessionId, agent.agentId),
+      room: messageRoomFor(sessionId, agent.homeConversationId),
       sessionId,
-      conversationId: agent.agentId,
+      conversationId: agent.homeConversationId,
       author: authorFor(agent),
       runId: event.runId,
     };

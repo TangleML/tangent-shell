@@ -101,8 +101,16 @@ function connectorColumns(connector: ConnectorDescriptor | undefined) {
   };
 }
 
-/** Maps a session_agents row onto the {@link SessionAgent} domain type. */
-function toAgent(row: SessionAgentRow): SessionAgent {
+/**
+ * Maps a session_agents row onto the {@link SessionAgent} domain type. The home
+ * Conversation is resolved from the `conversations` table by the caller and
+ * passed in (falling back to the agent's own id for a legacy row the mapping
+ * never covered).
+ */
+function toAgent(
+  row: SessionAgentRow,
+  homeConversationId: string,
+): SessionAgent {
   return {
     id: row.id,
     sessionId: row.sessionId,
@@ -119,6 +127,7 @@ function toAgent(row: SessionAgentRow): SessionAgent {
     autoRelayToPrime: row.autoRelayToPrime,
     host: row.host as SubagentHost,
     connector: toConnector(row),
+    homeConversationId,
     createdAt: row.createdAt,
   };
 }
@@ -361,16 +370,14 @@ export class SqliteSessionStore implements SessionStore {
 
     const rootPath = await this.rootPathFor(sessionId);
     const occupied = rootPath ? await highestSeq(rootPath, conversationId) : 0;
-    this.db
-      .insert(conversations)
-      .values({
-        id: conversationId,
-        sessionId,
-        nextSeq: occupied + 1,
-        createdAt: new Date().toISOString(),
-      })
-      .onConflictDoNothing()
-      .run();
+    // A row seeded here (rather than by a mint) is a legacy conversation the
+    // migration never covered — its id is the agent's own id, so it owns itself.
+    this.insertConversation(
+      sessionId,
+      conversationId,
+      conversationId,
+      occupied + 1,
+    );
   }
 
   async getArtifacts(sessionId: string): Promise<PinnedArtifact[]> {
@@ -472,10 +479,116 @@ export class SqliteSessionStore implements SessionStore {
       )
       .get();
     // The row was just upserted, so it always exists here.
-    const recorded = toAgent(row as SessionAgentRow);
+    const homeConversationId = await this.ensureHomeConversation(
+      sessionId,
+      agent.id,
+      agent.homeConversationId,
+    );
+    const recorded = toAgent(row as SessionAgentRow, homeConversationId);
     // Mirror it into the participant projection; the roster stays authoritative.
     await this.participants?.put(participantFromAgent(recorded));
     return recorded;
+  }
+
+  /**
+   * Resolves an agent's home Conversation, minting one when it has none. Lookup
+   * order: an existing owner row (`agent_id == agentId`) wins; a legacy row
+   * keyed by the agent's own id is adopted as its owner; a caller-supplied id (a
+   * spawner minting up front) is inserted; a legacy JSONL log already on disk
+   * keeps the agent's id so its transcript stays addressable; otherwise a fresh
+   * id is minted so a Conversation id stops naming an agent. Idempotent: a
+   * revive or re-record resolves the same id instead of minting a second.
+   */
+  private async ensureHomeConversation(
+    sessionId: string,
+    agentId: string,
+    provided: string | undefined,
+  ): Promise<string> {
+    const owned = this.db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.sessionId, sessionId),
+          eq(conversations.agentId, agentId),
+        ),
+      )
+      .get();
+    if (owned) return owned.id;
+
+    const legacyRow = this.db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.sessionId, sessionId),
+          eq(conversations.id, agentId),
+        ),
+      )
+      .get();
+    if (legacyRow) {
+      this.db
+        .update(conversations)
+        .set({ agentId })
+        .where(
+          and(
+            eq(conversations.sessionId, sessionId),
+            eq(conversations.id, agentId),
+          ),
+        )
+        .run();
+      return agentId;
+    }
+
+    if (provided) {
+      this.insertConversation(sessionId, provided, agentId, 1);
+      return provided;
+    }
+
+    const rootPath = await this.rootPathFor(sessionId);
+    const occupied = rootPath ? await highestSeq(rootPath, agentId) : 0;
+    if (occupied > 0) {
+      this.insertConversation(sessionId, agentId, agentId, occupied + 1);
+      return agentId;
+    }
+
+    const fresh = randomUUID();
+    this.insertConversation(sessionId, fresh, agentId, 1);
+    return fresh;
+  }
+
+  /** Inserts a conversation counter row that maps `agentId` to `id`. */
+  private insertConversation(
+    sessionId: string,
+    id: string,
+    agentId: string,
+    nextSeq: number,
+  ): void {
+    this.db
+      .insert(conversations)
+      .values({
+        id,
+        sessionId,
+        agentId,
+        nextSeq,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  /** Maps each agent to its home Conversation id for one session. */
+  private homeConversationMap(sessionId: string): Map<string, string> {
+    const rows = this.db
+      .select({ id: conversations.id, agentId: conversations.agentId })
+      .from(conversations)
+      .where(eq(conversations.sessionId, sessionId))
+      .all();
+    const byAgent = new Map<string, string>();
+    for (const row of rows) {
+      if (row.agentId) byAgent.set(row.agentId, row.id);
+    }
+    return byAgent;
   }
 
   async setAgentStatus(
@@ -502,7 +615,8 @@ export class SqliteSessionStore implements SessionStore {
       .where(eq(sessionAgents.sessionId, sessionId))
       .orderBy(asc(sessionAgents.createdAt))
       .all();
-    return rows.map(toAgent);
+    const homes = this.homeConversationMap(sessionId);
+    return rows.map((row) => toAgent(row, homes.get(row.id) ?? row.id));
   }
 
   async detachActiveSubagents(): Promise<number> {
@@ -534,7 +648,15 @@ export class SqliteSessionStore implements SessionStore {
       )
       .orderBy(asc(sessionAgents.createdAt))
       .all();
-    return rows.map(toAgent);
+    const homesBySession = new Map<string, Map<string, string>>();
+    return rows.map((row) => {
+      let homes = homesBySession.get(row.sessionId);
+      if (!homes) {
+        homes = this.homeConversationMap(row.sessionId);
+        homesBySession.set(row.sessionId, homes);
+      }
+      return toAgent(row, homes.get(row.id) ?? row.id);
+    });
   }
 
   async markViewed(
