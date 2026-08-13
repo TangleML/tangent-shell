@@ -11,6 +11,7 @@ import type { Server } from "socket.io";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import type { ParticipantService } from "../conversation/participantService.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { roomFor } from "./rooms.ts";
@@ -30,8 +31,17 @@ export type MemoryRememberedHandler = (
 export function createMemoryRememberedHandler(
   conversations: ConversationRouter,
   store: SessionStore,
+  participants: ParticipantService,
 ): MemoryRememberedHandler {
   return async (sessionId, scope, text) => {
+    // Memory is an Automation Participant: the row it authors from is real and
+    // listable, even though the Message still carries the MEMORY_AUTHOR label.
+    await participants.ensureAutomation(
+      sessionId,
+      MEMORY_AUTHOR.id,
+      MEMORY_AUTHOR.name,
+      "reaction",
+    );
     await conversations.post({
       sessionId,
       conversationId: await orchestratorIdFor(store, sessionId),

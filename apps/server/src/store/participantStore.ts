@@ -43,6 +43,11 @@ export interface Participant {
   presence: Presence;
   connector: ConnectorDescriptor;
   agent?: AgentPayload;
+  /**
+   * Set once the Participant has been revoked from the session. The row is kept
+   * so its transcript attributions still resolve; `undefined` means active.
+   */
+  revokedAt?: string;
   createdAt: string;
 }
 
@@ -75,7 +80,10 @@ export function participantFromAgent(agent: SessionAgent): Participant {
     kind: "agent",
     displayName: agent.name,
     capabilities: agent.capabilities,
-    presence: "connected",
+    // Presence follows the roster's lifecycle: a detached tab (1.4) is a
+    // participant whose far end is gone, the same question a human's presence
+    // asks. Every other status is a runtime that is reachable.
+    presence: agent.status === "detached" ? "detached" : "connected",
     connector: agent.connector,
     agent: agentPayload(agent),
     createdAt: agent.createdAt,
@@ -97,4 +105,16 @@ export interface ParticipantStore {
   get(sessionId: string, id: string): Promise<Participant | undefined>;
   /** Upserts by `(sessionId, id)`. */
   put(participant: Participant): Promise<void>;
+  /** Moves a participant to a new {@link Presence}. A no-op if the row is gone. */
+  updatePresence(
+    sessionId: string,
+    id: string,
+    presence: Presence,
+  ): Promise<void>;
+  /**
+   * Marks a participant revoked (stamps `revokedAt`, drops its capabilities) so
+   * it no longer acts, without deleting the row — its transcript attributions
+   * must still resolve. A no-op if the row is gone.
+   */
+  revoke(sessionId: string, id: string): Promise<void>;
 }

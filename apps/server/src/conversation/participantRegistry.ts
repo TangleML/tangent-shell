@@ -51,6 +51,16 @@ export class ParticipantRegistry {
     return [...byId.values()];
   }
 
+  /**
+   * Drops a session's cached participants so the next read reloads from the
+   * store. Called after a write the registry did not make itself — an
+   * invitation, a revocation, a presence transition — so a human added out of
+   * band is not hidden behind a stale cache.
+   */
+  invalidate(sessionId: string): void {
+    this.cache.delete(sessionId);
+  }
+
   /** One Participant by id, or nothing when neither a row nor an agent exists. */
   async get(sessionId: string, id: string): Promise<Participant | undefined> {
     const byId = await this.load(sessionId);

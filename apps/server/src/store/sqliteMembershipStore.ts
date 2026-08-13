@@ -2,7 +2,7 @@ import type {
   RunIngress,
   TranscriptVisibility,
 } from "@tangent/shared/contracts.ts";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import type { Db } from "./db/client.ts";
 import { type MembershipRow, memberships } from "./db/schema.ts";
@@ -38,6 +38,43 @@ export class SqliteMembershipStore implements MembershipStore {
     return rows.map(toMembership);
   }
 
+  async listForConversation(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<Membership[]> {
+    const rows = this.db
+      .select()
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.sessionId, sessionId),
+          eq(memberships.conversationId, conversationId),
+        ),
+      )
+      .orderBy(asc(memberships.createdAt))
+      .all();
+    return rows.map(toMembership);
+  }
+
+  async get(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<Membership | undefined> {
+    const row = this.db
+      .select()
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.sessionId, sessionId),
+          eq(memberships.conversationId, conversationId),
+          eq(memberships.participantId, participantId),
+        ),
+      )
+      .get();
+    return row ? toMembership(row) : undefined;
+  }
+
   async put(membership: Membership): Promise<void> {
     const { reaction, ingress, transcriptVisibility } = membership;
     this.db
@@ -59,6 +96,23 @@ export class SqliteMembershipStore implements MembershipStore {
         ],
         set: { reaction, ingress, transcriptVisibility },
       })
+      .run();
+  }
+
+  async remove(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<void> {
+    this.db
+      .delete(memberships)
+      .where(
+        and(
+          eq(memberships.sessionId, sessionId),
+          eq(memberships.conversationId, conversationId),
+          eq(memberships.participantId, participantId),
+        ),
+      )
       .run();
   }
 }

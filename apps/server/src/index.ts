@@ -10,6 +10,8 @@ import { PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
+import { ParticipantRegistry } from "./conversation/participantRegistry.ts";
+import { ParticipantService } from "./conversation/participantService.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { createRelayReport } from "./mcp/relayReport.ts";
@@ -46,6 +48,10 @@ import {
   createMemoryRememberedHandler,
   createMemorySuggestionHandler,
 } from "./sockets/chatMemory.ts";
+import {
+  createParticipantPresenceEmitter,
+  PresenceTracker,
+} from "./sockets/presenceTracker.ts";
 import { createUiCommandEmitter } from "./sockets/sessionRoster.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
@@ -93,19 +99,20 @@ const emitUiCommand = createUiCommandEmitter(io);
 // from the agent roster on a cache miss, so a session the backfill never touched
 // still resolves; `acceptsDelivery` is read lazily because the registry it comes
 // from is built below.
-const memberships = new MembershipRegistry(
-  store,
-  new SqliteMembershipStore(db),
-  (kind) => connectors.acceptsDelivery(kind),
+const membershipStore = new SqliteMembershipStore(db);
+const memberships = new MembershipRegistry(store, membershipStore, (kind) =>
+  connectors.acceptsDelivery(kind),
 );
+
+// The read surface over the `participants` table, reconciling stored humans and
+// automations with the agent roster. 2.1 left it unit-tested only; this PR is
+// its first runtime consumer.
+const participantRegistry = new ParticipantRegistry(store, participants);
 
 // The one way a Message enters a Conversation: persist, broadcast, then deliver
 // to whoever reacts. Every entry point — a human turn, a trigger firing, a tool
 // call, a finalized agent turn — goes through it.
 const conversations = new ConversationRouter(io, store, memberships);
-
-// Surfaces applied memory writes as a highlighted message in Prime's thread.
-const onMemoryRemembered = createMemoryRememberedHandler(conversations, store);
 
 // Shared event sink: a participant's streaming events, roster changes and posted
 // messages land the same way whether it runs locally (PiAgentManager), in a
@@ -190,13 +197,47 @@ const connectors = createConnectorRegistry(
 // not in the dependency, so it is broken here rather than by an indirection.
 conversations.useConnectors(connectors);
 
+// Broadcasts a participant's live presence to its session room.
+const emitParticipantPresence = createParticipantPresenceEmitter(io);
+
+// The lifecycle of humans, automations and their memberships: invitation,
+// presence, revocation, and the membership edits (join, leave, mute, close) a
+// multi-actor Conversation needs. Owns the rows the agent roster never writes.
+const participantService = new ParticipantService(
+  participants,
+  membershipStore,
+  participantRegistry,
+  memberships,
+  runs,
+  connectors,
+  emitParticipantPresence,
+);
+
+// Refcounts each participant's live sockets so presence follows the person.
+const presence = new PresenceTracker();
+
+// Surfaces applied memory writes as a highlighted message in Prime's thread,
+// authored by the memory Automation Participant this ensures exists.
+const onMemoryRemembered = createMemoryRememberedHandler(
+  conversations,
+  store,
+  participantService,
+);
+
 // Where a relay peer's words land: posted as the participant its channel belongs
 // to, or delivered to Prime when no participant owns the channel.
 const relayReport = createRelayReport(connectors, conversations, store);
 
 // Drives schedule timers and callback firings, posting prompts into the target's
 // Conversation.
-const triggerEngine = new TriggerEngine(io, store, pi, triggers, conversations);
+const triggerEngine = new TriggerEngine(
+  io,
+  store,
+  pi,
+  triggers,
+  conversations,
+  participantService,
+);
 
 app.get("/api/health", (req, res) => {
   const cookies = Object.fromEntries(
@@ -216,7 +257,14 @@ app.get("/api/health", (req, res) => {
 
 app.use(
   "/api/sessions",
-  createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore),
+  createSessionsRouter(
+    store,
+    pi,
+    triggers,
+    triggerEngine,
+    agentBundleStore,
+    participantService,
+  ),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
@@ -272,6 +320,8 @@ registerChatHandlers({
   onRemembered: onMemoryRemembered,
   triggerEngine,
   emitUiCommand,
+  participantService,
+  presence,
 });
 
 httpServer.listen(PORT, () => {

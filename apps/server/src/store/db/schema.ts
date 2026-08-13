@@ -280,6 +280,12 @@ export const participants = sqliteTable(
      * `host`, `purpose`, `status` — everything that was an agent-only column.
      */
     agentPayload: text("agent_payload"),
+    /**
+     * ISO-8601 timestamp set when a Participant is revoked from the session. A
+     * revoked row is retained so a transcript keeps its attributions and a
+     * person who left is not an unresolvable id; null means active.
+     */
+    revokedAt: text("revoked_at"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
