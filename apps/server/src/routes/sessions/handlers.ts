@@ -20,10 +20,10 @@ import {
   SESSIONS_ROOT,
   UPLOADS_DIRNAME,
 } from "../../config.ts";
+import { orchestratorIdFor } from "../../conversation/participantRegistry.ts";
 import { installBundle } from "../../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
-import { PRIME_AGENT_ID } from "../../pi/types.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import { readActivity } from "../../store/chatLog.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
@@ -164,11 +164,12 @@ async function createSessionFromBundle(
     // (e.g. renders a welcome card). It replays via `chat:history` on join and
     // renders any `tangent-ui:*` card because the bundle id is already attached.
     if (config.welcomeMessage) {
+      const orchestratorId = await orchestratorIdFor(store, sessionId);
       await store.appendMessage({
         id: randomUUID(),
         sessionId,
-        conversationId: PRIME_AGENT_ID,
-        seq: await store.nextSeq(sessionId, PRIME_AGENT_ID),
+        conversationId: orchestratorId,
+        seq: await store.nextSeq(sessionId, orchestratorId),
         author: PI_AGENT,
         mentions: [],
         source: sourceFromAuthor(PI_AGENT),
@@ -278,7 +279,9 @@ async function activityFor(
     lastActivityAt,
     hasError: agents.some((agent) => agent.status === "error"),
     activeAgentCount: agents.filter(
-      (agent) => agent.role !== "prime" && agent.status === "active",
+      (agent) =>
+        !agent.capabilities.includes("orchestrator") &&
+        agent.status === "active",
     ).length,
   };
 }

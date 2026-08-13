@@ -1,7 +1,8 @@
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
-import { PRIME_AGENT_ID } from "../pi/types.ts";
+import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import type { SessionStore } from "../store/sessionStore.ts";
 import type { RelayChannel } from "./relayRegistry.ts";
 
 /** Carries what a relay peer said back into the session it belongs to. */
@@ -26,16 +27,18 @@ export type RelayReport = (
 export function createRelayReport(
   connectors: ConnectorRegistry,
   conversations: ConversationRouter,
+  store: SessionStore,
 ): RelayReport {
   return async (channel, text) => {
+    const orchestratorId = await orchestratorIdFor(store, channel.sessionId);
     const author = channel.participantId
       ? subagentAuthor(connectors, channel.sessionId, channel.participantId)
       : undefined;
 
     if (!author) {
-      connectors.resolve(channel.sessionId, PRIME_AGENT_ID).deliver({
+      connectors.resolve(channel.sessionId, orchestratorId).deliver({
         sessionId: channel.sessionId,
-        participantId: PRIME_AGENT_ID,
+        participantId: orchestratorId,
         text: `Remote agent (${channel.label}) reports:\n\n${text}`,
       });
       return;
@@ -46,7 +49,7 @@ export function createRelayReport(
       conversationId: author.id,
       author,
       content: text,
-      mentions: [PRIME_AGENT_ID],
+      mentions: [orchestratorId],
       ingress: "tool",
     });
   };

@@ -11,10 +11,10 @@ import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
+import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
 import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
-import { PRIME_AGENT_ID } from "../pi/types.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 /** Spawn a sub-agent; `sessionId` and `name` identify and label it. */
@@ -135,11 +135,16 @@ async function handleSpawn(
     res.json({ subagent: info });
     // Answered first: the sub-agent exists either way, and a failure to post its
     // first task must not read as a failed spawn Prime might retry.
-    await postDirective(router, body.sessionId, info.id, body.task).catch(
-      (err: unknown) => {
-        console.error(`[agents] initial task for ${info.id} failed:`, err);
-      },
-    );
+    const orchestratorId = await orchestratorIdFor(store, body.sessionId);
+    await postDirective(
+      router,
+      body.sessionId,
+      info.id,
+      body.task,
+      orchestratorId,
+    ).catch((err: unknown) => {
+      console.error(`[agents] initial task for ${info.id} failed:`, err);
+    });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -185,12 +190,13 @@ async function postDirective(
   sessionId: string,
   agentId: string,
   text: string | undefined,
+  fromConversation: string,
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
   const { message, refused } = await router.postToConversation({
     sessionId,
     conversationId: agentId,
-    fromConversation: PRIME_AGENT_ID,
+    fromConversation,
     author: PI_AGENT,
     content: text,
     mentions: [agentId],
@@ -207,6 +213,7 @@ async function postDirective(
  * looks exactly like one that worked.
  */
 async function handleMessage(
+  store: SessionStore,
   router: ConversationRouter,
   body: MessageInput,
   res: Response,
@@ -216,6 +223,7 @@ async function handleMessage(
     body.sessionId,
     body.agentId,
     body.text,
+    await orchestratorIdFor(store, body.sessionId),
   );
   res.json({ ok: !refused, ...(refused ? { error: refused } : {}) });
 }
@@ -226,6 +234,7 @@ async function handleMessage(
  * addressing it, not by a dedicated relay.
  */
 async function handleReport(
+  store: SessionStore,
   connectors: ConnectorRegistry,
   router: ConversationRouter,
   body: ReportInput,
@@ -243,7 +252,7 @@ async function handleReport(
     conversationId: agentId,
     author,
     content: text,
-    mentions: [PRIME_AGENT_ID],
+    mentions: [await orchestratorIdFor(store, sessionId)],
     ingress: "tool",
   });
   res.json({ ok: true });
@@ -319,11 +328,17 @@ export function createInternalAgentsRouter(
   );
 
   router.post("/message", validate({ body: messageSchema }), (req, res) =>
-    handleMessage(conversations, getValidated<MessageInput>(req).body, res),
+    handleMessage(
+      store,
+      conversations,
+      getValidated<MessageInput>(req).body,
+      res,
+    ),
   );
 
   router.post("/report", validate({ body: reportSchema }), (req, res) =>
     handleReport(
+      store,
       connectors,
       conversations,
       getValidated<ReportInput>(req).body,

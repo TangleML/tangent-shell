@@ -2,16 +2,21 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  ChatMessage,
-  ConnectorDescriptor,
-  PinnedArtifact,
-  Session,
-  SessionConfigMeta,
-  UpdateSessionRequest,
+import {
+  capabilitiesForRole,
+  type ChatMessage,
+  type ConnectorDescriptor,
+  type PinnedArtifact,
+  type Session,
+  type SessionConfigMeta,
+  type UpdateSessionRequest,
 } from "@tangent/shared/contracts.ts";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
+import {
+  participantFromAgent,
+  type ParticipantStore,
+} from "./participantStore.ts";
 import {
   connectorFromHost,
   type CreateSessionParams,
@@ -62,6 +67,7 @@ function mergeAgent(
     sessionId,
     role: agent.role,
     name: agent.name,
+    capabilities: capabilitiesForRole(agent.role),
     status: agent.status ?? prior?.status ?? "active",
     connector: mergeConnector(agent, prior),
     createdAt: prior?.createdAt ?? new Date().toISOString(),
@@ -76,6 +82,12 @@ export class InMemorySessionStore implements SessionStore {
   private readonly views = new Map<string, Map<string, string>>();
   /** Per-conversation `seq` counters, keyed `sessionId/conversationId`. */
   private readonly seqs = new Map<string, number>();
+  /** Mirrors each recorded roster row, matching the SQLite store's dual-write. */
+  private readonly participants?: ParticipantStore;
+
+  constructor(participants?: ParticipantStore) {
+    this.participants = participants;
+  }
 
   async listSessions(): Promise<Session[]> {
     return [...this.sessions.values()].sort((a, b) =>
@@ -236,6 +248,7 @@ export class InMemorySessionStore implements SessionStore {
       ? existing.map((a) => (a.id === agent.id ? next : a))
       : [...existing, next];
     this.agents.set(sessionId, updated);
+    await this.participants?.put(participantFromAgent(next));
     return next;
   }
 

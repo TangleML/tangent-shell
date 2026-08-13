@@ -8,10 +8,12 @@
  * and is never imported by the server itself — only passed as a path to the Pi
  * subprocess, which loads it with jiti.
  *
- * Role is taken from `TANGENT_AGENT_ROLE`:
- * - `prime`: gets tools to spawn / message / kill / list sub-agents, plus
- *   `read_room`. Prime is the only agent allowed to direct sub-agents.
- * - `subagent`: gets only `read_room` so it can read the shared transcript.
+ * The tool grant is gated on the `orchestrator` capability, carried in
+ * `TANGENT_AGENT_CAPABILITIES` (comma-separated):
+ * - holds `orchestrator`: gets tools to spawn / message / kill / list
+ *   sub-agents, plus `read_room`. The orchestrator directs sub-agents.
+ * - otherwise: gets only `read_room` plus `message_prime`, so it can read the
+ *   shared transcript and report to the orchestrator.
  *
  * All tools are thin clients over this server's internal agent API; the server
  * owns process lifecycle and message routing.
@@ -22,7 +24,11 @@ import { Type } from "typebox";
 
 const SESSION_ID = process.env.TANGENT_SESSION_ID ?? "";
 const AGENT_ID = process.env.TANGENT_AGENT_ID ?? "";
-const ROLE = process.env.TANGENT_AGENT_ROLE ?? "subagent";
+const CAPABILITIES = (process.env.TANGENT_AGENT_CAPABILITIES ?? "")
+  .split(",")
+  .map((capability) => capability.trim())
+  .filter(Boolean);
+const IS_ORCHESTRATOR = CAPABILITIES.includes("orchestrator");
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
 
@@ -93,7 +99,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  if (ROLE !== "prime") {
+  if (!IS_ORCHESTRATOR) {
     // Sub-agent-only: push a directed update to Prime mid-run. Prime is
     // event-driven and only acts when prompted, so a sub-agent must report
     // each milestone directly rather than relying on Prime to poll the room.

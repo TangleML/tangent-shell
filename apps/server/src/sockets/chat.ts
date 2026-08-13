@@ -20,8 +20,9 @@ import type { Server, Socket } from "socket.io";
 import { resolveUserIdentity } from "../auth/identity.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
+import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
 import type { MemoryManager } from "../pi/memory.ts";
-import { type PiAgentManager, PRIME_AGENT_ID } from "../pi/piAgentManager.ts";
+import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import {
@@ -113,7 +114,7 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   );
 
   socket.on(SocketEvents.MemoryDismiss, (payload: MemoryDismissPayload) =>
-    handleMemoryDismiss(connectors, memory, payload),
+    handleMemoryDismiss(store, connectors, memory, payload),
   );
 
   socket.on(SocketEvents.ArtifactPin, (payload: ArtifactPinPayload) =>
@@ -185,7 +186,7 @@ async function handleChatJoin(
   replayAgentActivities(socket, pi, session.id);
 
   // Surface Prime's current model/thinking (the roster only tracks sub-agents).
-  emitPrimeSelection(socket, pi, session.id);
+  await emitPrimeSelection(socket, pi, store, session.id);
 
   const triggerRoster: TriggerRosterPayload = {
     sessionId: session.id,
@@ -246,10 +247,11 @@ async function handleChatMessage(
     return;
   }
 
-  // Target thread: Prime by default, or a specific sub-agent so users can steer
-  // it from its own tab.
-  const conversationId = payload.conversationId ?? PRIME_AGENT_ID;
-  if (conversationId === PRIME_AGENT_ID)
+  // Target thread: the orchestrator's by default, or a specific sub-agent so
+  // users can steer it from its own tab.
+  const orchestratorId = await orchestratorIdFor(store, session.id);
+  const conversationId = payload.conversationId ?? orchestratorId;
+  if (conversationId === orchestratorId)
     pi.ensure(session.id, session.rootPath);
 
   await conversations.post({

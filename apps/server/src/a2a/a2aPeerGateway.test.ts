@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
-import type { SubagentInfo, UiCommand } from "@tangent/shared/contracts.ts";
+import {
+  capabilitiesForRole,
+  type SubagentInfo,
+  type UiCommand,
+} from "@tangent/shared/contracts.ts";
 
 // Point the session root at a throwaway dir before importing modules that read
 // config at load time, so a written artifact never touches the repo.
@@ -147,6 +151,7 @@ function agentRow(overrides: Partial<SessionAgent> = {}): SessionAgent {
     sessionId: "s1",
     role: "subagent",
     name: "Weather",
+    capabilities: capabilitiesForRole(overrides.role ?? "subagent"),
     status: "detached",
     connector: {
       kind: "a2a",

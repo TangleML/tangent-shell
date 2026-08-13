@@ -61,6 +61,7 @@ function agentRow(): SessionAgent {
     sessionId: "s1",
     role: "subagent",
     name: "Weather",
+    capabilities: [],
     status: "detached",
     connector: {
       kind: "a2a",

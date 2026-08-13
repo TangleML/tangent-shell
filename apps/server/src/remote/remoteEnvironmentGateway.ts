@@ -29,17 +29,14 @@ import {
   type ConnectorCredential,
   remoteEnvCredential,
 } from "../connectors/credentials.ts";
+import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
 import {
   parseThinkingLevel,
   resolveSubagentConfig,
   type SubagentSpawnRequest,
 } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
-import {
-  type AgentDescriptor,
-  type ConversationEventSink,
-  PRIME_AGENT_ID,
-} from "../pi/types.ts";
+import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
@@ -388,7 +385,8 @@ export class RemoteEnvironmentGateway {
     );
     socket.on(
       RemoteEnvEvents.AgentMessage,
-      (payload: RemoteAgentMessagePayload) => this.handleAgentMessage(payload),
+      (payload: RemoteAgentMessagePayload) =>
+        void this.handleAgentMessage(payload),
     );
     socket.on(
       RemoteEnvEvents.RoomRead,
@@ -480,7 +478,9 @@ export class RemoteEnvironmentGateway {
    * `message_prime` uses, so neither transport carries its own copy of "and now
    * tell Prime".
    */
-  private handleAgentMessage(payload: RemoteAgentMessagePayload): void {
+  private async handleAgentMessage(
+    payload: RemoteAgentMessagePayload,
+  ): Promise<void> {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
     if (!subagent) return;
     this.markAttached(payload.sessionId, subagent);
@@ -495,7 +495,7 @@ export class RemoteEnvironmentGateway {
         agentRole: "subagent",
       },
       content: payload.text,
-      mentions: [PRIME_AGENT_ID],
+      mentions: [await orchestratorIdFor(this.store, payload.sessionId)],
       ingress: "tool",
     });
   }

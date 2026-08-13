@@ -12,8 +12,9 @@ import {
 import type { Server, Socket } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
+import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
-import { type PiAgentManager, PRIME_AGENT_ID } from "../pi/piAgentManager.ts";
+import type { PiAgentManager } from "../pi/piAgentManager.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { roomFor, SESSIONS_LOBBY } from "./rooms.ts";
 
@@ -85,13 +86,15 @@ function persistAndBroadcastSelection(
   io.to(roomFor(sessionId)).emit(SocketEvents.AgentModel, out);
 }
 
-/** Reads Prime's persisted model/thinking selection, parsing the stored depth. */
+/** Reads the orchestrator's persisted model/thinking selection. */
 async function loadPrimeOverride(
   store: SessionStore,
   sessionId: string,
 ): Promise<{ model?: string; thinkingDepth?: ThinkingLevel } | undefined> {
   const agents = await store.listAgents(sessionId);
-  const prime = agents.find((agent) => agent.id === PRIME_AGENT_ID);
+  const prime = agents.find((agent) =>
+    agent.capabilities.includes("orchestrator"),
+  );
   if (!prime) return undefined;
   return {
     model: prime.model,
@@ -143,16 +146,18 @@ export function replayAgentActivities(
   }
 }
 
-/** Emits Prime's current resolved model/thinking to the joining socket. */
-export function emitPrimeSelection(
+/** Emits the orchestrator's current resolved model/thinking to the socket. */
+export async function emitPrimeSelection(
   socket: Socket,
   pi: PiAgentManager,
+  store: SessionStore,
   sessionId: string,
-): void {
-  const selection = pi.getAgentSelection(sessionId, PRIME_AGENT_ID);
+): Promise<void> {
+  const orchestratorId = await orchestratorIdFor(store, sessionId);
+  const selection = pi.getAgentSelection(sessionId, orchestratorId);
   const payload: AgentModelPayload = {
     sessionId,
-    agentId: PRIME_AGENT_ID,
+    agentId: orchestratorId,
     model: selection?.model,
     thinkingDepth: selection?.thinkingDepth,
   };

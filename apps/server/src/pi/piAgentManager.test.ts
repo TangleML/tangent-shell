@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
 
-import { connectorFor } from "@tangent/shared/contracts.ts";
+import {
+  capabilitiesForRole,
+  connectorFor,
+} from "@tangent/shared/contracts.ts";
 
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
@@ -113,6 +116,7 @@ function agentRow(overrides: Partial<SessionAgent>): SessionAgent {
     sessionId: "s1",
     role: "subagent",
     name: "Worker",
+    capabilities: capabilitiesForRole(overrides.role ?? "subagent"),
     status: "active",
     autoRelayToPrime: true,
     connector: connectorFor("pi-stdio"),

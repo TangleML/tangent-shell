@@ -50,14 +50,20 @@ import { createUiCommandEmitter } from "./sockets/sessionRoster.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
 import { SqliteMembershipStore } from "./store/sqliteMembershipStore.ts";
+import { SqliteParticipantStore } from "./store/sqliteParticipantStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 
 // Opening the DB applies pending drizzle-kit migrations on startup. The single
-// shared connection backs both stores: session metadata for the REST routes and
-// socket handlers, runs for the run registry.
+// shared connection backs every store: session metadata for the REST routes and
+// socket handlers, runs for the run registry, participants for the roster
+// projection.
 const db = openDb();
-const store = new SqliteSessionStore(db);
+// The participant projection each roster write mirrors into. `session_agents`
+// stays the write authority for this PR; this keeps the `participants` table
+// tracking it so Phase 2 consumers read a populated table.
+const participants = new SqliteParticipantStore(db);
+const store = new SqliteSessionStore(db, participants);
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
 
@@ -99,7 +105,7 @@ const memberships = new MembershipRegistry(
 const conversations = new ConversationRouter(io, store, memberships);
 
 // Surfaces applied memory writes as a highlighted message in Prime's thread.
-const onMemoryRemembered = createMemoryRememberedHandler(conversations);
+const onMemoryRemembered = createMemoryRememberedHandler(conversations, store);
 
 // Shared event sink: a participant's streaming events, roster changes and posted
 // messages land the same way whether it runs locally (PiAgentManager), in a
@@ -186,7 +192,7 @@ conversations.useConnectors(connectors);
 
 // Where a relay peer's words land: posted as the participant its channel belongs
 // to, or delivered to Prime when no participant owns the channel.
-const relayReport = createRelayReport(connectors, conversations);
+const relayReport = createRelayReport(connectors, conversations, store);
 
 // Drives schedule timers and callback firings, posting prompts into the target's
 // Conversation.

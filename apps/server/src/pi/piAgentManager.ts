@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   type AgentActivity,
+  capabilitiesForRole,
   type MessageDelivery,
   RESTORABLE_STATUSES,
   type RunIngress,
@@ -108,6 +109,11 @@ interface SpawnExtras {
  * (e.g. the current user and the per-session memory), so every agent starts each
  * session aware of that standing context. Empty preambles are dropped.
  */
+/** The spawn env's capability list: the role's capabilities, comma-separated. */
+function capabilities(role: AgentDescriptor["role"]): string {
+  return capabilitiesForRole(role).join(",");
+}
+
 function appendPreambles(config: AgentConfig, preambles: string[]): string {
   const extras = preambles.map((preamble) => preamble.trim()).filter(Boolean);
   if (extras.length === 0) return config.appendSystemPrompt;
@@ -948,6 +954,8 @@ export class PiAgentManager {
           TANGENT_SESSION_ID: sessionId,
           TANGENT_AGENT_ID: descriptor.agentId,
           TANGENT_AGENT_ROLE: descriptor.role,
+          // Gates the extension's orchestration-tool grant on capability, not role.
+          TANGENT_AGENT_CAPABILITIES: capabilities(descriptor.role),
           TANGENT_INTERNAL_URL: INTERNAL_URL,
           ...piCredential.spawnEnv(),
         },
