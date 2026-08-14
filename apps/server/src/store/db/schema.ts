@@ -384,6 +384,44 @@ export const resourceReferences = sqliteTable(
   ],
 );
 
+/**
+ * Which of a Conversation's {@link resourceReferences} one Participant may be
+ * shown and may cite — the per-Membership grant of unified-model §4.4. Keyed by
+ * `(conversation_id, participant_id, resource_id)` because a grant refines a
+ * `(Participant, Conversation)` Membership's view of a single resource.
+ *
+ * Default-permissive: a Membership with no rows here surfaces the whole
+ * reference set, so an empty table changes nothing. This is a surfacing and
+ * citation decision, not a filesystem gate (§10), and delivery does not yet
+ * consult it — enforcement lands with the multi-party transcript UI (2.6).
+ */
+export const resourceGrants = sqliteTable(
+  "resource_grants",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").notNull(),
+    participantId: text("participant_id").notNull(),
+    resourceId: text("resource_id")
+      .notNull()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    unique("resource_grants_conversation_participant_resource").on(
+      table.conversationId,
+      table.participantId,
+      table.resourceId,
+    ),
+    index("resource_grants_conversation_participant_idx").on(
+      table.sessionId,
+      table.conversationId,
+      table.participantId,
+    ),
+  ],
+);
+
 /** When each user last opened a session. `user_key` is the email, or `local`. */
 export const sessionViews = sqliteTable(
   "session_views",
@@ -409,3 +447,4 @@ export type MembershipRow = typeof memberships.$inferSelect;
 export type ParticipantRow = typeof participants.$inferSelect;
 export type ResourceRow = typeof resources.$inferSelect;
 export type ResourceReferenceRow = typeof resourceReferences.$inferSelect;
+export type ResourceGrantRow = typeof resourceGrants.$inferSelect;

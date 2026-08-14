@@ -369,6 +369,39 @@ export interface PinnedArtifact {
   pinnedAt: string;
 }
 
+/** What a catalogued resource is: content the session holds, by origin. */
+export type ResourceKind = "file" | "memory" | "attachment" | "artifact";
+
+/**
+ * A catalogued piece of content in a session — a pinned `artifact`, a human
+ * `attachment`, a `memory` document, or a workspace `file` — regardless of
+ * which connector or mechanism produced it. The bytes stay where they are; this
+ * is the catalog entry that points at them by {@link Resource.uri}.
+ */
+export interface Resource {
+  id: string;
+  sessionId: string;
+  kind: ResourceKind;
+  /** Display name / title. */
+  name: string;
+  /**
+   * Where the content lives: a path relative to the session root (e.g.
+   * `artifacts/report.html`) or a `memory://session` / `memory://global`
+   * scheme.
+   */
+  uri: string;
+  /** The participant that produced it, when known. */
+  authorParticipantId?: string;
+  /** Kind-specific facts (e.g. `contentType`, `size`, `scope`). */
+  meta?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** Response from `GET /api/sessions/:id/resources`. */
+export interface ListResourcesResponse {
+  resources: Resource[];
+}
+
 /** Response from `GET /api/sessions/:id/triggers`. */
 export interface ListTriggersResponse {
   triggers: Trigger[];

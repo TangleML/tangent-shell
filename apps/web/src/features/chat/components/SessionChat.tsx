@@ -1,3 +1,4 @@
+import type { Resource } from "@tangent/shared/contracts";
 import { PI_AGENT } from "@tangent/shared/contracts";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
@@ -19,10 +20,12 @@ import {
   useAssetTabs,
 } from "@/features/chat/hooks/useAssetTabs";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
+import { useSessionResources } from "@/features/chat/hooks/useSessionResources";
 import { type Agent, buildAgents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { useSession } from "@/features/sessions/hooks/useSession";
-import { isViewableArtifact } from "@/shared/lib/markdown/artifact";
+import { apiUrl } from "@/shared/lib/basePath";
+import { isViewableArtifact, resolveUrl } from "@/shared/lib/markdown/artifact";
 
 import { PrimeChatPanel } from "./PrimeChatPanel";
 import { SessionCard } from "./sidebar/sessions/SessionCard";
@@ -79,6 +82,11 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   // The session's pages, files, and triggers as one uniform list of cards.
   const assets = buildAssets({ sessionId, artifacts, triggers });
 
+  // The catalogued content (artifacts, attachments, memory, workspace files)
+  // surfaced read-only in the Resources panel, fetched over REST and refreshed
+  // by useSessionChat when a socket signal implies the catalog changed.
+  const { data: resources = [] } = useSessionResources(sessionId);
+
   // Prime first, then the live sub-agent roster, surfaced as sidebar cards.
   const agents = buildAgents(subagents);
 
@@ -120,6 +128,15 @@ export function SessionChat({ sessionId }: SessionChatProps) {
       url,
       path: url,
     });
+  };
+
+  // Opening a viewable resource resolves its workspace-relative uri to the file
+  // API url and reuses the artifact tab, so a catalogued file opens the same way
+  // a pinned artifact does.
+  const openResourceTab = (resource: Resource) => {
+    const base = apiUrl(`/api/sessions/${sessionId}/files`);
+    const url = resolveUrl(resource.uri, base) ?? resource.uri;
+    openArtifactTab(url, resource.name);
   };
 
   // Pin an artifact if it isn't already pinned, else unpin it. The chip's
@@ -169,6 +186,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
           selectedAgentId,
           activeTab,
           assets,
+          resources,
           onOpenAgent: openAgentTab,
           onRemoveAgent: (agent) => {
             dismissSubagent(agent.id);
@@ -176,6 +194,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
           },
           onOpenAsset: openAsset,
           onUnpinArtifact: unpinArtifact,
+          onOpenResource: openResourceTab,
         }}
       >
         <SessionChatWindowsMount />

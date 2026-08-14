@@ -1,29 +1,8 @@
-/** What a catalogued resource is: content the session holds, by origin. */
-export type ResourceKind = "file" | "memory" | "attachment" | "artifact";
+import type { Resource, ResourceKind } from "@tangent/shared/contracts.ts";
 
-/**
- * A catalogued piece of content in a session — a pinned `artifact`, a human
- * `attachment`, a `memory` document, or a workspace `file` — regardless of which
- * connector or mechanism produced it. The bytes stay where they are; this is the
- * catalog entry that points at them by {@link Resource.uri}.
- */
-export interface Resource {
-  id: string;
-  sessionId: string;
-  kind: ResourceKind;
-  /** Display name / title. */
-  name: string;
-  /**
-   * Where the content lives: a path relative to the session root (e.g.
-   * `artifacts/report.html`) or a `memory://session` / `memory://global` scheme.
-   */
-  uri: string;
-  /** The participant that produced it, when known. */
-  authorParticipantId?: string;
-  /** Kind-specific facts (e.g. `contentType`, `size`, `scope`). */
-  meta?: Record<string, unknown>;
-  createdAt: string;
-}
+// The wire-facing shape lives in `@tangent/shared` now that the web surfaces the
+// catalog; re-exported here so server modules keep their existing import site.
+export type { Resource, ResourceKind } from "@tangent/shared/contracts.ts";
 
 /**
  * Fields accepted when cataloguing. The store assigns `id` and `createdAt` the
@@ -46,6 +25,19 @@ export interface ResourceReference {
 }
 
 /**
+ * A per-Membership grant: one Participant may be shown and may cite one of a
+ * Conversation's referenced {@link Resource}s. The refinement of a Membership's
+ * view; default-permissive, so a Membership with no grants surfaces every
+ * reference (unified-model §4.4).
+ */
+export interface ResourceGrant {
+  sessionId: string;
+  conversationId: string;
+  participantId: string;
+  resourceId: string;
+}
+
+/**
  * Durable home of the session's {@link Resource}s and the Conversations they are
  * referenced in. Kept apart from
  * {@link import("./sessionStore.ts").SessionStore} for the same reason
@@ -62,12 +54,32 @@ export interface ResourceStore {
    */
   catalog(input: CatalogInput): Promise<Resource>;
   /**
+   * Catalogs a resource only when `(sessionId, uri)` is not already known,
+   * returning the stored row either way. Unlike {@link ResourceStore.catalog}
+   * this never overwrites an existing entry, so a workspace-file scan cannot
+   * downgrade a path already catalogued as an `artifact` or `attachment`.
+   */
+  catalogIfAbsent(input: CatalogInput): Promise<Resource>;
+  /**
    * Removes a resource by `(sessionId, uri)`, cascading its references. A no-op
    * when nothing is catalogued there.
    */
   remove(sessionId: string, uri: string): Promise<void>;
   /** Upserts a reference by `(conversationId, resourceId)`. */
   reference(ref: ResourceReference): Promise<void>;
+  /**
+   * Grants one Participant sight of one referenced resource in a Conversation.
+   * Idempotent by `(conversationId, participantId, resourceId)`.
+   */
+  grant(grant: ResourceGrant): Promise<void>;
+  /** Revokes a grant. A no-op when there is none to revoke. */
+  revoke(grant: ResourceGrant): Promise<void>;
+  /** The resource ids one Membership has been granted, if any. */
+  listGrants(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<string[]>;
   /** Every catalogued resource in a session, oldest first. */
   listForSession(sessionId: string): Promise<Resource[]>;
   /** Every resource referenced in one Conversation, oldest referenced first. */
