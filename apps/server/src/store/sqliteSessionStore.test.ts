@@ -20,6 +20,7 @@ const { connectorFor } = await import("@tangent/shared/contracts.ts");
 const { sql } = await import("drizzle-orm");
 const { openDb } = await import("./db/client.ts");
 const { SqliteParticipantStore } = await import("./sqliteParticipantStore.ts");
+const { SqliteResourceStore } = await import("./sqliteResourceStore.ts");
 const { SqliteSessionStore } = await import("./sqliteSessionStore.ts");
 
 after(() => rmSync(ROOT, { recursive: true, force: true }));
@@ -496,4 +497,35 @@ test("the 0011 backfill materializes participants and leaves seq seeding alone",
 
   // The promotion never invents `next_seq` rows — seeding stays a read concern.
   assert.equal(countConversations(), conversationsBefore);
+});
+
+test("pinning an artifact mirrors it into the resource catalog", async () => {
+  const db = openDb(":memory:");
+  const resources = new SqliteResourceStore(db);
+  const store = new SqliteSessionStore(db, undefined, resources);
+  const session = await store.createSession({ name: "S" });
+
+  await store.pinArtifact(session.id, {
+    path: "artifacts/report.html",
+    title: "Report",
+  });
+
+  const catalogued = await resources.listForSession(session.id);
+  assert.equal(catalogued.length, 1);
+  assert.equal(catalogued[0].kind, "artifact");
+  assert.equal(catalogued[0].uri, "artifacts/report.html");
+  assert.equal(catalogued[0].name, "Report");
+
+  // Re-pinning refreshes the title in place rather than duplicating.
+  await store.pinArtifact(session.id, {
+    path: "artifacts/report.html",
+    title: "Report (final)",
+  });
+  const afterRepin = await resources.listForSession(session.id);
+  assert.equal(afterRepin.length, 1);
+  assert.equal(afterRepin[0].name, "Report (final)");
+
+  // Unpinning removes the catalog entry too.
+  await store.unpinArtifact(session.id, "artifacts/report.html");
+  assert.equal((await resources.listForSession(session.id)).length, 0);
 });

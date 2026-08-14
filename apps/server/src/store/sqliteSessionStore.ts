@@ -40,6 +40,7 @@ import {
   participantFromAgent,
   type ParticipantStore,
 } from "./participantStore.ts";
+import type { ResourceStore } from "./resourceStore.ts";
 import {
   connectorFromHost,
   type CreateSessionParams,
@@ -159,10 +160,22 @@ export class SqliteSessionStore implements SessionStore {
    * write authority. Optional so a bare store (e.g. a test) skips the mirror.
    */
   private readonly participants?: ParticipantStore;
+  /**
+   * The resource catalog a pinned artifact mirrors into, so an artifact is a
+   * catalogued, citable resource on the same path a peer's output takes. The
+   * `session_assets` table stays the write authority for the pin itself;
+   * optional so a bare store (e.g. a test) skips the mirror.
+   */
+  private readonly resources?: ResourceStore;
 
-  constructor(db: Db, participants?: ParticipantStore) {
+  constructor(
+    db: Db,
+    participants?: ParticipantStore,
+    resources?: ResourceStore,
+  ) {
     this.db = db;
     this.participants = participants;
+    this.resources = resources;
   }
 
   async listSessions(): Promise<Session[]> {
@@ -403,6 +416,14 @@ export class SqliteSessionStore implements SessionStore {
         set: { title: artifact.title },
       })
       .run();
+    // Mirror the pin into the resource catalog so an artifact is citable
+    // content; the pin row stays authoritative for the asset list.
+    await this.resources?.catalog({
+      sessionId,
+      kind: "artifact",
+      name: artifact.title,
+      uri: artifact.path,
+    });
     return this.readArtifacts(sessionId);
   }
 
@@ -419,6 +440,7 @@ export class SqliteSessionStore implements SessionStore {
         ),
       )
       .run();
+    await this.resources?.remove(sessionId, artifactPath);
     return this.readArtifacts(sessionId);
   }
 

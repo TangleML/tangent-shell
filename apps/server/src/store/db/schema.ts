@@ -308,6 +308,82 @@ export const participants = sqliteTable(
   ],
 );
 
+/**
+ * A catalogued piece of content in a session, regardless of which connector or
+ * mechanism produced it: a pinned `artifact`, a human `attachment`, a `memory`
+ * document, or a workspace `file`. The unification of `session_assets`,
+ * `Attachment` (embedded in JSONL), and the memory files, so "what content does
+ * this session hold, and who authored it" has one answer.
+ *
+ * The bytes stay where they are (on disk under the session root, or in a memory
+ * markdown file); this row is the catalog entry that points at them by `uri`.
+ * Additive for this PR — the mechanisms above stay the write authority and
+ * mirror into this table; a later cleanup can fold them onto it.
+ */
+export const resources = sqliteTable(
+  "resources",
+  {
+    /** Resource id: a fresh uuid, or an opaque id for a backfilled row. */
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** `file` | `memory` | `attachment` | `artifact`. */
+    kind: text("kind").notNull(),
+    /** Display name / title. */
+    name: text("name").notNull(),
+    /**
+     * Where the content lives: a path relative to the session root (e.g.
+     * `artifacts/report.html`, `uploads/data.csv`) or a `memory://session` /
+     * `memory://global` scheme for a memory document.
+     */
+    uri: text("uri").notNull(),
+    /** The participant that produced it; null for a backfilled/legacy row. */
+    authorParticipantId: text("author_participant_id"),
+    /** Kind-specific JSON blob (e.g. `contentType`, `size`, `scope`). */
+    meta: text("meta"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    unique("resources_session_uri").on(table.sessionId, table.uri),
+    index("resources_session_idx").on(table.sessionId),
+  ],
+);
+
+/**
+ * A {@link resources} entry surfaced in one Conversation: the answer to "should
+ * this content appear in this thread, regardless of which connector produced
+ * it". A reference governs surfacing and citation, not filesystem access —
+ * agents read the workspace through tools against the session root and a
+ * reference does not interpose on a read or write.
+ *
+ * `session_id` is here because a conversation id is only unique within a
+ * session (as on `memberships`), and for the cascade delete.
+ */
+export const resourceReferences = sqliteTable(
+  "resource_references",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").notNull(),
+    resourceId: text("resource_id")
+      .notNull()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    unique("resource_references_conversation_resource").on(
+      table.conversationId,
+      table.resourceId,
+    ),
+    index("resource_references_conversation_idx").on(
+      table.sessionId,
+      table.conversationId,
+    ),
+  ],
+);
+
 /** When each user last opened a session. `user_key` is the email, or `local`. */
 export const sessionViews = sqliteTable(
   "session_views",
@@ -331,3 +407,5 @@ export type RunRow = typeof runs.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;
 export type MembershipRow = typeof memberships.$inferSelect;
 export type ParticipantRow = typeof participants.$inferSelect;
+export type ResourceRow = typeof resources.$inferSelect;
+export type ResourceReferenceRow = typeof resourceReferences.$inferSelect;

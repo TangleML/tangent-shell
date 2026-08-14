@@ -17,6 +17,7 @@ import {
   participantFromAgent,
   type ParticipantStore,
 } from "./participantStore.ts";
+import type { ResourceStore } from "./resourceStore.ts";
 import {
   connectorFromHost,
   type CreateSessionParams,
@@ -86,9 +87,12 @@ export class InMemorySessionStore implements SessionStore {
   private readonly homeConversations = new Map<string, Map<string, string>>();
   /** Mirrors each recorded roster row, matching the SQLite store's dual-write. */
   private readonly participants?: ParticipantStore;
+  /** Mirrors each pinned artifact into the resource catalog, when present. */
+  private readonly resources?: ResourceStore;
 
-  constructor(participants?: ParticipantStore) {
+  constructor(participants?: ParticipantStore, resources?: ResourceStore) {
     this.participants = participants;
+    this.resources = resources;
   }
 
   async listSessions(): Promise<Session[]> {
@@ -236,6 +240,12 @@ export class InMemorySessionStore implements SessionStore {
       ? existing.map((a) => (a.path === artifact.path ? next : a))
       : [...existing, next];
     this.artifacts.set(sessionId, updated);
+    await this.resources?.catalog({
+      sessionId,
+      kind: "artifact",
+      name: artifact.title,
+      uri: artifact.path,
+    });
     return updated;
   }
 
@@ -246,6 +256,7 @@ export class InMemorySessionStore implements SessionStore {
     const existing = this.artifacts.get(sessionId) ?? [];
     const updated = existing.filter((a) => a.path !== path);
     this.artifacts.set(sessionId, updated);
+    await this.resources?.remove(sessionId, path);
     return updated;
   }
 

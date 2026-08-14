@@ -11,9 +11,11 @@ import type { Server } from "socket.io";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { DeliveryRequest } from "../connectors/types.ts";
 import { InMemoryMembershipStore } from "../store/inMemoryMembershipStore.ts";
+import { InMemoryResourceStore } from "../store/inMemoryResourceStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
 import { ConversationRouter } from "./conversationRouter.ts";
 import { MembershipRegistry } from "./membershipRegistry.ts";
+import { ResourceCatalog } from "./resourceCatalog.ts";
 
 const WORKER: ChatAuthor = {
   id: "sub-1",
@@ -52,9 +54,15 @@ function makeRouter() {
     }),
   } as unknown as ConnectorRegistry;
 
-  const router = new ConversationRouter(io, sessions, memberships);
+  const resourceStore = new InMemoryResourceStore();
+  const router = new ConversationRouter(
+    io,
+    sessions,
+    memberships,
+    new ResourceCatalog(resourceStore),
+  );
   router.useConnectors(connectors);
-  return { router, sessions, emitted, delivered };
+  return { router, sessions, emitted, delivered, resourceStore };
 }
 
 /** A persisted sub-agent, so its Conversation's memberships derive from a row. */
@@ -138,6 +146,51 @@ test("a participant with no membership there posts nothing at all", async () => 
   assert.match(refused[0].reason, /isn't a member of that conversation/);
   assert.deepEqual(await h.sessions.getMessages("s1"), []);
   assert.deepEqual(h.emitted, [], "nothing reached the room either");
+});
+
+test("an attachment on a post is catalogued and referenced into its conversation", async () => {
+  const h = makeRouter();
+  await withWorker(h.sessions);
+
+  await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: WORKER,
+    content: "here is the data",
+    attachments: [
+      {
+        name: "data.csv",
+        path: "uploads/data.csv",
+        size: 128,
+        contentType: "text/csv",
+      },
+    ],
+  });
+
+  const referenced = await h.resourceStore.listForConversation("s1", "sub-1");
+  assert.equal(referenced.length, 1);
+  assert.equal(referenced[0].kind, "attachment");
+  assert.equal(referenced[0].uri, "uploads/data.csv");
+  assert.equal(referenced[0].authorParticipantId, "sub-1");
+  assert.deepEqual(referenced[0].meta, { size: 128, contentType: "text/csv" });
+});
+
+test("a memory write on a post is catalogued and referenced into its conversation", async () => {
+  const h = makeRouter();
+  await withWorker(h.sessions);
+
+  await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: WORKER,
+    content: "remembered a preference",
+    memory: { scope: "session" },
+  });
+
+  const referenced = await h.resourceStore.listForConversation("s1", "sub-1");
+  assert.equal(referenced.length, 1);
+  assert.equal(referenced[0].kind, "memory");
+  assert.equal(referenced[0].uri, "memory://session");
 });
 
 test("posting into the conversation it was written from is an ordinary post", async () => {
