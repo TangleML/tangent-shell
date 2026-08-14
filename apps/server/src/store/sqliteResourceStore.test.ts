@@ -132,3 +132,83 @@ test("deleting a session cascades its resources", async () => {
 
   assert.equal((await resources.listForSession(sessionId)).length, 0);
 });
+
+test("catalogIfAbsent inserts once and never downgrades a known uri", async () => {
+  const { resources, sessionId } = await fixture();
+
+  // A pin catalogues the path as an `artifact`.
+  const pinned = await resources.catalog({
+    sessionId,
+    kind: "artifact",
+    name: "Report",
+    uri: "artifacts/report.html",
+  });
+
+  // A later workspace scan of the same path must keep the artifact's kind/id.
+  const scanned = await resources.catalogIfAbsent({
+    sessionId,
+    kind: "file",
+    name: "report.html",
+    uri: "artifacts/report.html",
+  });
+  assert.equal(scanned.id, pinned.id);
+  assert.equal(scanned.kind, "artifact");
+
+  // A path nothing else catalogued is inserted as a `file`.
+  const fresh = await resources.catalogIfAbsent({
+    sessionId,
+    kind: "file",
+    name: "notes.md",
+    uri: "artifacts/notes.md",
+  });
+  assert.equal(fresh.kind, "file");
+  assert.equal((await resources.listForSession(sessionId)).length, 2);
+});
+
+test("grants dedupe by (conversation, participant, resource) and revoke", async () => {
+  const { resources, sessionId } = await fixture();
+  const resource = await resources.catalog({
+    sessionId,
+    kind: "artifact",
+    name: "Report",
+    uri: "artifacts/report.html",
+  });
+  const grant = {
+    sessionId,
+    conversationId: "c1",
+    participantId: "ben",
+    resourceId: resource.id,
+  };
+
+  await resources.grant(grant);
+  await resources.grant(grant);
+  assert.deepEqual(await resources.listGrants(sessionId, "c1", "ben"), [
+    resource.id,
+  ]);
+
+  // A different participant in the same conversation has no grants of its own.
+  assert.deepEqual(await resources.listGrants(sessionId, "c1", "ana"), []);
+
+  await resources.revoke(grant);
+  assert.deepEqual(await resources.listGrants(sessionId, "c1", "ben"), []);
+});
+
+test("removing a resource cascades its grants", async () => {
+  const { resources, sessionId } = await fixture();
+  const resource = await resources.catalog({
+    sessionId,
+    kind: "artifact",
+    name: "Report",
+    uri: "artifacts/report.html",
+  });
+  await resources.grant({
+    sessionId,
+    conversationId: "c1",
+    participantId: "ben",
+    resourceId: resource.id,
+  });
+
+  await resources.remove(sessionId, "artifacts/report.html");
+
+  assert.deepEqual(await resources.listGrants(sessionId, "c1", "ben"), []);
+});

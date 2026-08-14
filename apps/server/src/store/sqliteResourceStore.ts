@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 
 import type { Db } from "./db/client.ts";
 import {
+  resourceGrants,
   resourceReferences,
   type ResourceRow,
   resources,
@@ -11,6 +12,7 @@ import {
 import type {
   CatalogInput,
   Resource,
+  ResourceGrant,
   ResourceKind,
   ResourceReference,
   ResourceStore,
@@ -82,6 +84,21 @@ export class SqliteResourceStore implements ResourceStore {
     return toResource(row);
   }
 
+  async catalogIfAbsent(input: CatalogInput): Promise<Resource> {
+    const existing = this.db
+      .select()
+      .from(resources)
+      .where(
+        and(
+          eq(resources.sessionId, input.sessionId),
+          eq(resources.uri, input.uri),
+        ),
+      )
+      .get();
+    if (existing) return toResource(existing);
+    return this.catalog(input);
+  }
+
   async remove(sessionId: string, uri: string): Promise<void> {
     // References cascade on the resource FK, so deleting the row is enough.
     this.db
@@ -101,6 +118,52 @@ export class SqliteResourceStore implements ResourceStore {
       })
       .onConflictDoNothing()
       .run();
+  }
+
+  async grant(grant: ResourceGrant): Promise<void> {
+    this.db
+      .insert(resourceGrants)
+      .values({
+        sessionId: grant.sessionId,
+        conversationId: grant.conversationId,
+        participantId: grant.participantId,
+        resourceId: grant.resourceId,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  async revoke(grant: ResourceGrant): Promise<void> {
+    this.db
+      .delete(resourceGrants)
+      .where(
+        and(
+          eq(resourceGrants.conversationId, grant.conversationId),
+          eq(resourceGrants.participantId, grant.participantId),
+          eq(resourceGrants.resourceId, grant.resourceId),
+        ),
+      )
+      .run();
+  }
+
+  async listGrants(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<string[]> {
+    const rows = this.db
+      .select({ resourceId: resourceGrants.resourceId })
+      .from(resourceGrants)
+      .where(
+        and(
+          eq(resourceGrants.sessionId, sessionId),
+          eq(resourceGrants.conversationId, conversationId),
+          eq(resourceGrants.participantId, participantId),
+        ),
+      )
+      .all();
+    return rows.map((row) => row.resourceId);
   }
 
   async listForSession(sessionId: string): Promise<Resource[]> {

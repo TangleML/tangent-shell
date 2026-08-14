@@ -1,6 +1,7 @@
 import { type Request, type Response, Router } from "express";
 
 import type { ParticipantService } from "../../conversation/participantService.ts";
+import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
 import { getValidated, validate } from "../../middleware/validate.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
@@ -19,6 +20,7 @@ import {
   uploadFiles,
 } from "./handlers.ts";
 import { registerParticipantRoutes } from "./participants.ts";
+import { registerResourceRoutes } from "./resources.ts";
 import type {
   CreateSessionInput,
   SessionParams,
@@ -137,6 +139,7 @@ export function createSessionsRouter(
   triggerEngine: TriggerEngine,
   agentBundleStore: AgentBundleStore,
   participants: ParticipantService,
+  resources: ResourceCatalog,
 ): Router {
   const router = Router();
 
@@ -151,6 +154,7 @@ export function createSessionsRouter(
   registerSessionActivityRoutes(router, store);
   registerTriggerRoutes(router, store, triggers, triggerEngine);
   registerParticipantRoutes(router, store, participants);
+  registerResourceRoutes(router, store, resources);
 
   // Declared after the trigger routes so the `*splat` catch-all doesn't shadow
   // the more specific `/:id/triggers/...` paths.

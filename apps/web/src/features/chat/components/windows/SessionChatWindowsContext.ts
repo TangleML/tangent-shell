@@ -1,3 +1,4 @@
+import type { Resource } from "@tangent/shared/contracts";
 import { createContext, useContext } from "react";
 
 import type { Agent } from "@/features/chat/model/agents";
@@ -15,10 +16,14 @@ export interface SessionChatWindowsValue {
   selectedAgentId: string | null;
   activeTab: string;
   assets: Asset[];
+  /** The session's catalogued content, surfaced read-only in the Resources panel. */
+  resources: Resource[];
   onOpenAgent: (agent: Agent) => void;
   onRemoveAgent: (agent: Agent) => void;
   onOpenAsset: (asset: Asset) => void;
   onUnpinArtifact: (path: string) => void;
+  /** Opens a viewable (`file`/`artifact`) resource in its own tab. */
+  onOpenResource: (resource: Resource) => void;
 }
 
 export const SessionChatWindowsContext = createContext<

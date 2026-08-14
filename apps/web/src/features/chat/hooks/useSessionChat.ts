@@ -366,6 +366,13 @@ export function useSessionChat(sessionId: string) {
     );
     socket.on(SocketEvents.ChatMessage, (message: ChatMessage) => {
       setMessagesByConversation((prev) => appendToConversation(prev, message));
+      // A message carrying an attachment or a memory write is catalogued
+      // server-side; refetch the resource list so the catalog view reflects it.
+      if (message.attachments?.length || message.memory) {
+        void queryClient.invalidateQueries({
+          queryKey: SessionQueryKeys.Resources(sessionId),
+        });
+      }
     });
 
     // An agent begins a (new) message: append an empty placeholder we fill via
@@ -626,6 +633,10 @@ export function useSessionChat(sessionId: string) {
     socket.on(SocketEvents.UiCommand, ({ command }: UiCommandPayload) => {
       if (command.kind === "artifacts.update") {
         setArtifacts(command.artifacts);
+        // A pin/unpin mirrors into the resource catalog; refetch its view.
+        void queryClient.invalidateQueries({
+          queryKey: SessionQueryKeys.Resources(sessionId),
+        });
         return;
       }
       dispatchUiCommand(command);

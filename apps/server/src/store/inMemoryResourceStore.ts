@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   CatalogInput,
   Resource,
+  ResourceGrant,
   ResourceReference,
   ResourceStore,
 } from "./resourceStore.ts";
@@ -15,6 +16,15 @@ function uriKey(sessionId: string, uri: string): string {
 /** Key of one reference, matching `(conversation_id, resource_id)`. */
 function refKey(conversationId: string, resourceId: string): string {
   return `${conversationId}\u0000${resourceId}`;
+}
+
+/** Key of one grant, matching `(conversation_id, participant_id, resource_id)`. */
+function grantKey(
+  conversationId: string,
+  participantId: string,
+  resourceId: string,
+): string {
+  return `${conversationId}\u0000${participantId}\u0000${resourceId}`;
 }
 
 /**
@@ -30,6 +40,8 @@ export class InMemoryResourceStore implements ResourceStore {
   private readonly byUri = new Map<string, string>();
   /** `(conversation, resource)` -> reference, in insertion order. */
   private readonly refs = new Map<string, ResourceReference>();
+  /** `(conversation, participant, resource)` -> grant, in insertion order. */
+  private readonly grants = new Map<string, ResourceGrant>();
 
   async catalog(input: CatalogInput): Promise<Resource> {
     const key = uriKey(input.sessionId, input.uri);
@@ -61,6 +73,12 @@ export class InMemoryResourceStore implements ResourceStore {
     return resource;
   }
 
+  async catalogIfAbsent(input: CatalogInput): Promise<Resource> {
+    const existingId = this.byUri.get(uriKey(input.sessionId, input.uri));
+    if (existingId) return this.byId.get(existingId) as Resource;
+    return this.catalog(input);
+  }
+
   async remove(sessionId: string, uri: string): Promise<void> {
     const key = uriKey(sessionId, uri);
     const id = this.byUri.get(key);
@@ -70,11 +88,44 @@ export class InMemoryResourceStore implements ResourceStore {
     for (const [refId, ref] of this.refs) {
       if (ref.resourceId === id) this.refs.delete(refId);
     }
+    for (const [gKey, grant] of this.grants) {
+      if (grant.resourceId === id) this.grants.delete(gKey);
+    }
   }
 
   async reference(ref: ResourceReference): Promise<void> {
     const key = refKey(ref.conversationId, ref.resourceId);
     if (!this.refs.has(key)) this.refs.set(key, ref);
+  }
+
+  async grant(grant: ResourceGrant): Promise<void> {
+    const key = grantKey(
+      grant.conversationId,
+      grant.participantId,
+      grant.resourceId,
+    );
+    if (!this.grants.has(key)) this.grants.set(key, grant);
+  }
+
+  async revoke(grant: ResourceGrant): Promise<void> {
+    this.grants.delete(
+      grantKey(grant.conversationId, grant.participantId, grant.resourceId),
+    );
+  }
+
+  async listGrants(
+    sessionId: string,
+    conversationId: string,
+    participantId: string,
+  ): Promise<string[]> {
+    const out: string[] = [];
+    for (const grant of this.grants.values()) {
+      if (grant.sessionId !== sessionId) continue;
+      if (grant.conversationId !== conversationId) continue;
+      if (grant.participantId !== participantId) continue;
+      out.push(grant.resourceId);
+    }
+    return out;
   }
 
   async listForSession(sessionId: string): Promise<Resource[]> {

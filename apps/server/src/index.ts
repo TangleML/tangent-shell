@@ -277,6 +277,7 @@ app.use(
     triggerEngine,
     agentBundleStore,
     participantService,
+    resourceCatalog,
   ),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
