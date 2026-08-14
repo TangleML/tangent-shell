@@ -18,10 +18,12 @@ import type { Server } from "socket.io";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { messageRoomFor } from "../sockets/rooms.ts";
 import type { Membership } from "../store/membershipStore.ts";
+import type { CatalogInput } from "../store/resourceStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { FanOutEngine, type FanOutResult } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
 import { participantForConversation } from "./participantRegistry.ts";
+import type { ResourceCatalog } from "./resourceCatalog.ts";
 
 /**
  * Everything a Message needs beyond its envelope defaults. `seq` comes from the
@@ -168,6 +170,38 @@ export function deliveryText(
   return `${frameFor(message, recipient)}\n\n${body}`;
 }
 
+/** The catalog entry a human attachment on a Message stands for. */
+function attachmentResource(
+  message: ChatMessage,
+  attachment: Attachment,
+): CatalogInput {
+  const meta: Record<string, unknown> = { size: attachment.size };
+  if (attachment.contentType) meta.contentType = attachment.contentType;
+  return {
+    sessionId: message.sessionId,
+    kind: "attachment",
+    name: attachment.name,
+    uri: attachment.path,
+    authorParticipantId: message.author.id,
+    meta,
+  };
+}
+
+/** The catalog entry a memory write surfaced in a Message stands for. */
+function memoryResource(
+  message: ChatMessage,
+  scope: MemoryScope,
+): CatalogInput {
+  return {
+    sessionId: message.sessionId,
+    kind: "memory",
+    name: scope === "global" ? "Global memory" : "Session memory",
+    uri: `memory://${scope}`,
+    authorParticipantId: message.author.id,
+    meta: { scope },
+  };
+}
+
 /**
  * The one way a Message enters a Conversation: allocate its ordinal, persist it,
  * broadcast it, then let the fan-out engine decide who reacts. Nothing else
@@ -178,6 +212,13 @@ export class ConversationRouter {
   private readonly io: Server;
   private readonly store: SessionStore;
   private readonly memberships: MembershipRegistry;
+  /**
+   * Catalogs the content a Message carries — attachments and memory writes — and
+   * references it into this Conversation, so it surfaces as citable content
+   * regardless of which connector produced it. Optional so a bare router (e.g. a
+   * test) skips the mirror.
+   */
+  private readonly resources?: ResourceCatalog;
   private readonly engine: FanOutEngine;
   private connectors?: ConnectorRegistry;
 
@@ -185,10 +226,12 @@ export class ConversationRouter {
     io: Server,
     store: SessionStore,
     memberships: MembershipRegistry,
+    resources?: ResourceCatalog,
   ) {
     this.io = io;
     this.store = store;
     this.memberships = memberships;
+    this.resources = resources;
     this.engine = new FanOutEngine(
       memberships,
       () => this.requireConnectors(),
@@ -219,6 +262,7 @@ export class ConversationRouter {
     const message = buildMessage({ ...input, seq });
     // Persist before broadcasting so a reconnecting client sees it in history.
     await this.store.appendMessage(message);
+    await this.catalogContent(message);
     this.broadcast(message, input.broadcast);
     if (input.provokes === false) {
       return { message, woke: [], refused: [] };
@@ -271,6 +315,28 @@ export class ConversationRouter {
       woke: [],
       refused: [{ participantId: input.author.id, reason }],
     };
+  }
+
+  /**
+   * Mirrors the content a Message carries into the resource catalog and
+   * references it into this Conversation: each human attachment, and a memory
+   * write's surfaced document. The bytes are untouched — this only records that
+   * the content exists and appears here.
+   */
+  private async catalogContent(message: ChatMessage): Promise<void> {
+    if (!this.resources) return;
+    for (const attachment of message.attachments ?? []) {
+      await this.resources.catalogIn(
+        message.conversationId,
+        attachmentResource(message, attachment),
+      );
+    }
+    if (message.memory) {
+      await this.resources.catalogIn(
+        message.conversationId,
+        memoryResource(message, message.memory.scope),
+      );
+    }
   }
 
   private broadcast(

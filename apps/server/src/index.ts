@@ -12,6 +12,7 @@ import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
 import { ParticipantRegistry } from "./conversation/participantRegistry.ts";
 import { ParticipantService } from "./conversation/participantService.ts";
+import { ResourceCatalog } from "./conversation/resourceCatalog.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { createRelayReport } from "./mcp/relayReport.ts";
@@ -57,6 +58,7 @@ import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
 import { SqliteMembershipStore } from "./store/sqliteMembershipStore.ts";
 import { SqliteParticipantStore } from "./store/sqliteParticipantStore.ts";
+import { SqliteResourceStore } from "./store/sqliteResourceStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 
@@ -69,7 +71,11 @@ const db = openDb();
 // stays the write authority for this PR; this keeps the `participants` table
 // tracking it so Phase 2 consumers read a populated table.
 const participants = new SqliteParticipantStore(db);
-const store = new SqliteSessionStore(db, participants);
+// The resource catalog every content path mirrors into: a pinned artifact, a
+// message attachment, a memory write. Additive for now — the existing stores
+// stay authoritative and this table tracks them so a resource is citable.
+const resourceStore = new SqliteResourceStore(db);
+const store = new SqliteSessionStore(db, participants, resourceStore);
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
 
@@ -111,8 +117,15 @@ const participantRegistry = new ParticipantRegistry(store, participants);
 
 // The one way a Message enters a Conversation: persist, broadcast, then deliver
 // to whoever reacts. Every entry point — a human turn, a trigger firing, a tool
-// call, a finalized agent turn — goes through it.
-const conversations = new ConversationRouter(io, store, memberships);
+// call, a finalized agent turn — goes through it. It also mirrors the content a
+// Message carries (attachments, memory writes) into the resource catalog.
+const resourceCatalog = new ResourceCatalog(resourceStore);
+const conversations = new ConversationRouter(
+  io,
+  store,
+  memberships,
+  resourceCatalog,
+);
 
 // Shared event sink: a participant's streaming events, roster changes and posted
 // messages land the same way whether it runs locally (PiAgentManager), in a
