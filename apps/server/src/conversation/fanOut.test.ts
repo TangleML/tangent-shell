@@ -214,6 +214,54 @@ test("a participant that ignores a message it was not addressed by stays silent"
   );
 });
 
+test("a shared room delivers by predicate to heterogeneous members", async () => {
+  // One Conversation holding two humans, an orchestrator, an opaque A2A peer,
+  // an observer that follows everything, and a compliance member that only
+  // contributes. Each predicate decides for itself whether its Participant runs.
+  const room = "room";
+  const h = makeEngine([
+    membership("prime", room, "fromHumans+mentionsMe"),
+    membership("ada@x", room, "never"),
+    membership("ben@x", room, "never"),
+    membership("peer-1", room, "mentionsMe"),
+    membership("observer", room, "always"),
+    membership("audit", room, "never"),
+  ]);
+
+  const result = await h.engine.fanOut({
+    message: message({
+      conversationId: room,
+      author: { id: "ben@x", kind: "human", name: "Ben" },
+      mentions: ["peer-1"],
+    }),
+    project,
+  });
+
+  // The peer wakes because it was addressed; the orchestrator because a human
+  // spoke; the observer because it follows every Message. The other human and
+  // the compliance member never react.
+  assert.deepEqual(result.woke.sort(), ["observer", "peer-1", "prime"]);
+});
+
+test("an unaddressed human message leaves the mentions-only members asleep", async () => {
+  const room = "room";
+  const h = makeEngine([
+    membership("prime", room, "fromHumans+mentionsMe"),
+    membership("peer-1", room, "mentionsMe"),
+    membership("observer", room, "always"),
+    membership("audit", room, "never"),
+  ]);
+
+  const result = await h.engine.fanOut({
+    message: message({ conversationId: room }),
+    project,
+  });
+
+  // No mention: the specialist / opaque peer stays asleep. Only the
+  // orchestrator (a human spoke) and the observer (follows everything) wake.
+  assert.deepEqual(result.woke.sort(), ["observer", "prime"]);
+});
+
 test("a connector's refusal reaches the sender instead of reading as success", async () => {
   const h = makeEngine(
     [membership("prime", "prime", "always")],

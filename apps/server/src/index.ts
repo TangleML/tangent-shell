@@ -289,7 +289,13 @@ app.use("/api/me", createMeRouter());
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use(
   "/internal/agents",
-  createInternalAgentsRouter(store, connectors, conversations, a2aGateway),
+  createInternalAgentsRouter(
+    store,
+    connectors,
+    conversations,
+    a2aGateway,
+    participantService,
+  ),
 );
 // Internal API a bundle tool uses to drive external sub-agent tabs: register a
 // tab, stream the external runtime's output into it, and mark its lifecycle.

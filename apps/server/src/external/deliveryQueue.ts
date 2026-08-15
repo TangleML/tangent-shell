@@ -55,8 +55,6 @@ export class DeliveryQueue {
         this.forget(sessionId, waiter);
         resolve([]);
       }, timeoutMs);
-      // Unreferenced so a parked poll never holds the process open.
-      timer.unref?.();
       const waiter: Waiter = { resolve, timer };
       const waiters = this.waiting.get(sessionId);
       if (waiters) waiters.push(waiter);

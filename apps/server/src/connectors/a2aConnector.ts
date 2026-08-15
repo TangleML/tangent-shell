@@ -63,6 +63,7 @@ export class A2aConnector implements Connector {
       participantId: request.participantId,
       text: request.text,
       ingress: request.ingress,
+      conversationId: request.conversationId,
     });
     if (delivered) return { delivered: true };
     return refuseDelivery(this.handlers, request, NOT_ATTACHED);

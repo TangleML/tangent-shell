@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   type ChatAuthor,
+  type ChatMessage,
   connectorFor,
   PI_AGENT,
 } from "@tangent/shared/contracts.ts";
@@ -13,7 +14,8 @@ import type { DeliveryRequest } from "../connectors/types.ts";
 import { InMemoryMembershipStore } from "../store/inMemoryMembershipStore.ts";
 import { InMemoryResourceStore } from "../store/inMemoryResourceStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
-import { ConversationRouter } from "./conversationRouter.ts";
+import type { Membership } from "../store/membershipStore.ts";
+import { ConversationRouter, deliveryText } from "./conversationRouter.ts";
 import { MembershipRegistry } from "./membershipRegistry.ts";
 import { ResourceCatalog } from "./resourceCatalog.ts";
 
@@ -209,5 +211,40 @@ test("posting into the conversation it was written from is an ordinary post", as
     message?.source,
     { kind: "agent" },
     "its own thread is not somewhere else",
+  );
+});
+
+test("an opaque member is sent the addressing Message plain, a shared one framed", () => {
+  const msg: ChatMessage = {
+    id: "m1",
+    sessionId: "s1",
+    conversationId: "room",
+    seq: 1,
+    author: { id: "ada@x", kind: "human", name: "Ada" },
+    source: { kind: "human" },
+    mentions: ["peer-1"],
+    content: "peer, are you there?",
+    createdAt: new Date().toISOString(),
+  };
+  const opaque: Membership = {
+    sessionId: "s1",
+    participantId: "peer-1",
+    conversationId: "room",
+    reaction: "mentionsMe",
+    ingress: "reaction",
+    transcriptVisibility: "opaque",
+  };
+  const shared: Membership = {
+    ...opaque,
+    participantId: "sub-9",
+    transcriptVisibility: "shared",
+  };
+
+  // Neither is the owner ("prime"). The opaque peer, which sees none of the
+  // log, gets only the Message; the shared member gets the provenance framing.
+  assert.equal(deliveryText(msg, opaque, "prime"), "peer, are you there?");
+  assert.match(
+    deliveryText(msg, shared, "prime"),
+    /posted in another conversation/,
   );
 });

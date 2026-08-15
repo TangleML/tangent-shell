@@ -10,6 +10,7 @@ import type { Connector } from "./types.ts";
 /** A gateway recording what the connector asked of it. */
 function makeHarness(holds = true) {
   const sends: string[] = [];
+  const sendInputs: Array<{ text: string; conversationId?: string }> = [];
   const cancels: string[] = [];
   const detaches: Array<{ agentId: string; completed: boolean }> = [];
   const reattaches: string[] = [];
@@ -18,8 +19,9 @@ function makeHarness(holds = true) {
   const gateway = {
     hasAgent: () => holds,
     listSubagents: () => [],
-    send: ({ text }: { text: string }) => {
-      sends.push(text);
+    send: (input: { text: string; conversationId?: string }) => {
+      sends.push(input.text);
+      sendInputs.push(input);
       return holds;
     },
     cancel: (_sessionId: string, agentId: string) => {
@@ -47,6 +49,7 @@ function makeHarness(holds = true) {
   return {
     connector,
     sends,
+    sendInputs,
     cancels,
     detaches,
     reattaches,
@@ -105,6 +108,21 @@ test("delivery is accepted synchronously and handed to the gateway", () => {
   assert.deepEqual(h.sends, ["do the thing"]);
   // Nothing is said in the thread: the reply is what the peer will say there.
   assert.deepEqual(h.surfaced, []);
+});
+
+test("delivery forwards the addressing conversation, so the peer replies there", () => {
+  const h = makeHarness();
+
+  h.connector.deliver({
+    sessionId: "s1",
+    participantId: "peer-1",
+    text: "in the room",
+    conversationId: "room-1",
+  });
+
+  // A peer that is a member of a shared room answers in it, not in its private
+  // thread — the gateway needs the Conversation the delivery came through.
+  assert.equal(h.sendInputs.at(-1)?.conversationId, "room-1");
 });
 
 test("a delivery to a peer no longer attached is refused in its own thread", () => {
