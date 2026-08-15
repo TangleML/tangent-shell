@@ -5,6 +5,8 @@ import { AgentsWindow } from "./AgentsWindow";
 import { AgentsWindowHeader } from "./AgentsWindowHeader";
 import { AssetsWindow } from "./AssetsWindow";
 import { AssetsWindowHeader } from "./AssetsWindowHeader";
+import { ParticipantsWindow } from "./ParticipantsWindow";
+import { ParticipantsWindowHeader } from "./ParticipantsWindowHeader";
 import { ResourcesWindow } from "./ResourcesWindow";
 import { ResourcesWindowHeader } from "./ResourcesWindowHeader";
 import { SessionSwitcherWindow } from "./SessionSwitcherWindow";
@@ -31,6 +33,12 @@ export function useSessionChatWindows() {
       id: "agents",
       title: "Agents",
       header: <AgentsWindowHeader />,
+    });
+    store.openWindow(<ParticipantsWindow />, {
+      ...SHARED_OPTIONS,
+      id: "participants",
+      title: "Participants",
+      header: <ParticipantsWindowHeader />,
     });
     store.openWindow(<AssetsWindow />, {
       ...SHARED_OPTIONS,

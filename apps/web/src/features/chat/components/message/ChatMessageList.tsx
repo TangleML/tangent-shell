@@ -1,4 +1,4 @@
-import type { AgentActivity } from "@tangent/shared/contracts";
+import type { AgentActivity, AgentRole } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
 import { Spinner } from "@tangent/ui-primitives/spinner";
@@ -24,6 +24,9 @@ interface ChatMessageListProps {
   primaryConversationId: string;
   /** Ephemeral agent activity for this thread, or null when idle/streaming. */
   activity?: AgentActivity | null;
+  /** This thread's own agent, so the activity bubble is attributed to it. */
+  activityAuthorName: string;
+  activityAuthorRole: AgentRole;
   /** Whether the room's history snapshot has arrived; gates loader vs empty. */
   historyLoaded: boolean;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
@@ -55,6 +58,8 @@ interface RowContentProps {
   sessionId: string;
   currentAuthorId: string;
   primaryConversationId: string;
+  activityAuthorName: string;
+  activityAuthorRole: AgentRole;
   bundleId?: string;
   onSendPrompt?: (text: string) => void;
   onOpenArtifact?: (url: string, title: string) => void;
@@ -70,6 +75,8 @@ function RowContent({
   sessionId,
   currentAuthorId,
   primaryConversationId,
+  activityAuthorName,
+  activityAuthorRole,
   bundleId,
   onSendPrompt,
   onOpenArtifact,
@@ -104,7 +111,13 @@ function RowContent({
         />
       );
     case "activity":
-      return <AgentActivityBubble activity={row.activity} />;
+      return (
+        <AgentActivityBubble
+          activity={row.activity}
+          authorName={activityAuthorName}
+          authorRole={activityAuthorRole}
+        />
+      );
   }
 }
 
@@ -133,6 +146,8 @@ export function ChatMessageList({
   currentAuthorId,
   primaryConversationId,
   activity,
+  activityAuthorName,
+  activityAuthorRole,
   historyLoaded,
   bundleId,
   onSendPrompt,
@@ -235,6 +250,8 @@ export function ChatMessageList({
                       sessionId={sessionId}
                       currentAuthorId={currentAuthorId}
                       primaryConversationId={primaryConversationId}
+                      activityAuthorName={activityAuthorName}
+                      activityAuthorRole={activityAuthorRole}
                       bundleId={bundleId}
                       onSendPrompt={onSendPrompt}
                       onOpenArtifact={onOpenArtifact}

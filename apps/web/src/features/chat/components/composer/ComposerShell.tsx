@@ -6,12 +6,16 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
   type ReactNode,
+  type SyntheticEvent,
   useRef,
 } from "react";
 
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 import { FileDropZone } from "./FileDropZone";
+import { MentionPicker } from "./MentionPicker";
+import { useMentionAutocomplete } from "./useMentionAutocomplete";
 
 // Pasted blobs are often named generically, so derive a unique, readable name
 // from the MIME subtype to disambiguate the staged-file pills.
@@ -38,6 +42,8 @@ interface ComposerShellProps {
   busy?: boolean;
   placeholder?: string;
   hideSend?: boolean;
+  /** People/agents the `@mention` picker can address; omitted disables it. */
+  mentionCandidates?: MentionCandidate[];
   children?: ReactNode;
 }
 
@@ -50,9 +56,17 @@ export function ComposerShell({
   busy,
   placeholder = "Message the session...",
   hideSend,
+  mentionCandidates = [],
   children,
 }: ComposerShellProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mention = useMentionAutocomplete({
+    candidates: mentionCandidates,
+    value,
+    onValueChange,
+    textareaRef,
+  });
 
   function handleFilesPicked(e: ChangeEvent<HTMLInputElement>) {
     onAttach(e.target.files ? Array.from(e.target.files) : []);
@@ -67,7 +81,13 @@ export function ComposerShell({
     onAttach(images);
   }
 
+  function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
+    onValueChange(e.target.value);
+    mention.sync(e.target);
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mention.handleKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
@@ -95,16 +115,30 @@ export function ComposerShell({
               disabled={busy}
               aria-label="Attach files"
             />
-            <Textarea
-              autoGrow
-              rows={2}
-              placeholder={placeholder}
-              value={value}
-              onChange={(e) => onValueChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              disabled={busy}
-            />
+            {/* local primitive — relative anchor for the floating mention picker. */}
+            <div className="relative flex-1">
+              {mention.open ? (
+                <MentionPicker
+                  candidates={mention.matches}
+                  highlight={mention.highlight}
+                  onSelect={mention.accept}
+                />
+              ) : null}
+              <Textarea
+                ref={textareaRef}
+                autoGrow
+                rows={2}
+                placeholder={placeholder}
+                value={value}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                onSelect={(e: SyntheticEvent<HTMLTextAreaElement>) =>
+                  mention.sync(e.currentTarget)
+                }
+                disabled={busy}
+              />
+            </div>
             {hideSend ? null : (
               <IconButton
                 icon="Send"

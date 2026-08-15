@@ -12,6 +12,7 @@ import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
 import type { Asset } from "@/features/chat/model/assets";
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { ActiveTasksIndicator } from "./composer/ActiveTasksIndicator";
@@ -58,6 +59,7 @@ interface PrimeChatPanelProps {
   openArtifactTab: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
   togglePinArtifact: (path: string, title: string) => void;
+  mentionCandidates: MentionCandidate[];
 }
 
 export function PrimeChatPanel({
@@ -87,6 +89,7 @@ export function PrimeChatPanel({
   openArtifactTab,
   pinnedPaths,
   togglePinArtifact,
+  mentionCandidates,
 }: PrimeChatPanelProps) {
   return (
     <BlockStack grow>
@@ -96,6 +99,8 @@ export function PrimeChatPanel({
         currentAuthorId={currentAuthorId}
         primaryConversationId={primaryConversationId}
         activity={activity}
+        activityAuthorName={PI_AGENT.name}
+        activityAuthorRole="prime"
         historyLoaded={historyLoaded}
         bundleId={bundleId}
         onSendPrompt={send}
@@ -140,6 +145,7 @@ export function PrimeChatPanel({
         agentId={PI_AGENT.id}
         disabled={!connected}
         agentBusy={agentBusy}
+        mentionCandidates={mentionCandidates}
         onAbort={() => abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) =>
           send(content, {

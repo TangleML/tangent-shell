@@ -780,6 +780,20 @@ export interface MembershipView {
   muted: boolean;
 }
 
+/**
+ * A {@link ParticipantView} with its Memberships inlined, as returned by
+ * `GET /api/sessions/:id/participants`. The roster reads this to show who is in
+ * the session, their presence, and which Conversations they belong to.
+ */
+export interface ParticipantWithMemberships extends ParticipantView {
+  memberships: MembershipView[];
+}
+
+/** Response of `GET /api/sessions/:id/participants`. */
+export interface ListParticipantsResponse {
+  participants: ParticipantWithMemberships[];
+}
+
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
