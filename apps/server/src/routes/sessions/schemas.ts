@@ -20,6 +20,17 @@ export const sessionParamsSchema = z.object({
 });
 export type SessionParams = z.infer<typeof sessionParamsSchema>;
 
+/**
+ * Optional query for `GET /:id/resources`. When both a Conversation and a
+ * Participant are named, the catalog is filtered by the per-Membership grants
+ * (default-permissive); absent, the whole session catalog is returned.
+ */
+export const listResourcesQuerySchema = z.object({
+  conversationId: z.string().optional(),
+  participantId: z.string().optional(),
+});
+export type ListResourcesQuery = z.infer<typeof listResourcesQuerySchema>;
+
 const triggerScheduleSchema = z.object({
   every: z.string().optional(),
   cron: z.string().optional(),

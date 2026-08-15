@@ -20,6 +20,7 @@ import { MessageHeader } from "./MessageHeader";
 import { MessageLayout } from "./MessageLayout";
 import { originLabelFor } from "./messageOrigin";
 import { roleLabelFor } from "./messageRole";
+import { ReportMessage } from "./ReportMessage";
 import { ThinkingOnlyMessage } from "./ThinkingOnlyMessage";
 
 interface ChatMessageProps {
@@ -62,6 +63,23 @@ function ChatMessageContent({
       <MemoryMessage
         sessionId={sessionId}
         message={message}
+        onCollapse={onCollapse}
+      />
+    );
+
+  // A Message forwarded in from another Conversation renders as a report, not a
+  // peer turn — the cross-conversation posts of 1.7 are attributed and set apart
+  // rather than mixed into this thread's turns.
+  if (message.source.kind === "relay")
+    return (
+      <ReportMessage
+        sessionId={sessionId}
+        message={message}
+        bundleId={bundleId}
+        onSendPrompt={onSendPrompt}
+        onOpenArtifact={onOpenArtifact}
+        pinnedPaths={pinnedPaths}
+        onTogglePinArtifact={onTogglePinArtifact}
         onCollapse={onCollapse}
       />
     );

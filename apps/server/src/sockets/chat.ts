@@ -364,19 +364,28 @@ function isSessionOwner(author: ChatAuthor, session: Session): boolean {
 }
 
 /**
- * Who a message in this session can address: Prime plus every sub-agent any
- * connector holds. Names come from the live roster, so a mention resolves
- * against what the sender currently sees in the sidebar.
+ * Who a message in this session can address: Prime, every sub-agent any
+ * connector holds, and every invited (non-revoked) human Participant. Agent
+ * names come from the live roster; human names from the participant roster, so a
+ * mention of a person resolves to their stable id at write time even though the
+ * display name is mutable. A revoked person is dropped — an old message that
+ * addressed them keeps its resolved id, but new ones cannot.
  */
-function mentionCandidates(
+export async function mentionCandidates(
   connectors: ConnectorRegistry,
+  participantService: ParticipantService,
   sessionId: string,
-): MentionCandidate[] {
+): Promise<MentionCandidate[]> {
+  const participants = await participantService.list(sessionId);
+  const humans = participants
+    .filter((p) => p.kind === "human" && !p.revokedAt)
+    .map((p) => ({ id: p.id, name: p.displayName }));
   return [
     { id: PI_AGENT.id, name: PI_AGENT.name },
     ...connectors
       .list(sessionId)
       .map((subagent) => ({ id: subagent.id, name: subagent.name })),
+    ...humans,
   ];
 }
 
@@ -451,7 +460,7 @@ async function handleChatMessage(
   author: ChatAuthor,
   payload: ChatMessagePayload,
 ): Promise<void> {
-  const { store, pi, connectors, conversations } = deps;
+  const { store, pi, connectors, conversations, participantService } = deps;
   const session = await store.getSession(payload?.sessionId);
   if (!session) {
     socket.emit("error", { message: "Session not found" });
@@ -482,7 +491,7 @@ async function handleChatMessage(
     content: payload.content,
     mentions: resolveMentions(
       payload.content,
-      mentionCandidates(connectors, session.id),
+      await mentionCandidates(connectors, participantService, session.id),
     ),
     attachments: payload.attachments,
     delivery: payload.delivery ?? "auto",

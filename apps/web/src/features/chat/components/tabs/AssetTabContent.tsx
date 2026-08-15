@@ -8,6 +8,7 @@ import type {
 
 import type { AssetTab } from "@/features/chat/hooks/useAssetTabs";
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { ArtifactTabView } from "./ArtifactTabView";
@@ -45,6 +46,7 @@ interface AssetTabContentProps {
   ) => void;
   openArtifactTab: (url: string, title: string) => void;
   togglePinArtifact: (path: string, title: string) => void;
+  mentionCandidates: MentionCandidate[];
 }
 
 /**
@@ -76,6 +78,7 @@ export function AssetTabContent({
   send,
   openArtifactTab,
   togglePinArtifact,
+  mentionCandidates,
 }: AssetTabContentProps) {
   switch (tab.kind) {
     case "agent": {
@@ -116,6 +119,7 @@ export function AssetTabContent({
           onOpenArtifact={openArtifactTab}
           pinnedPaths={pinnedPaths}
           onTogglePinArtifact={togglePinArtifact}
+          mentionCandidates={mentionCandidates}
         />
       );
     }

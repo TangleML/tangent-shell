@@ -8,6 +8,7 @@ import type {
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import {
@@ -59,6 +60,8 @@ interface SubagentTabViewProps {
   onOpenArtifact: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
   onTogglePinArtifact: (path: string, title: string) => void;
+  /** People/agents the `@mention` picker can address in this sub-agent's composer. */
+  mentionCandidates: MentionCandidate[];
 }
 
 /**
@@ -70,6 +73,7 @@ export function SubagentTabView({
   sessionId,
   agentId,
   primaryConversationId,
+  name,
   messages,
   currentAuthorId,
   bundleId,
@@ -88,6 +92,7 @@ export function SubagentTabView({
   onRemove,
   pinnedPaths,
   onTogglePinArtifact,
+  mentionCandidates,
 }: SubagentTabViewProps) {
   return (
     <BlockStack grow>
@@ -97,6 +102,8 @@ export function SubagentTabView({
         currentAuthorId={currentAuthorId}
         primaryConversationId={primaryConversationId}
         activity={activity}
+        activityAuthorName={name}
+        activityAuthorRole="subagent"
         historyLoaded={historyLoaded}
         bundleId={bundleId}
         onOpenArtifact={onOpenArtifact}
@@ -121,6 +128,7 @@ export function SubagentTabView({
         disabled={disabled}
         agentBusy={busy}
         agentStatus={status}
+        mentionCandidates={mentionCandidates}
         onRemove={onRemove}
         onAbort={onAbort}
         onSubmit={onSubmit}

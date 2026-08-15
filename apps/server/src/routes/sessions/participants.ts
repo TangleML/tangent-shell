@@ -1,7 +1,9 @@
 import type {
+  ListParticipantsResponse,
   MembershipView,
   ParticipantKind,
   ParticipantView,
+  ParticipantWithMemberships,
 } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 
@@ -77,7 +79,7 @@ async function handleListParticipants(
   const session = await loadSession(store, res, id);
   if (!session) return;
   const rows = await participants.list(session.id);
-  const views = await Promise.all(
+  const views: ParticipantWithMemberships[] = await Promise.all(
     rows.map(async (participant) => ({
       ...toParticipantView(participant),
       memberships: (
@@ -85,7 +87,8 @@ async function handleListParticipants(
       ).map((membership) => toMembershipView(membership, participant.kind)),
     })),
   );
-  res.json({ participants: views });
+  const body: ListParticipantsResponse = { participants: views };
+  res.json(body);
 }
 
 /** `POST /:id/participants` → invite a person by email. */

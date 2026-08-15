@@ -117,14 +117,31 @@ function mergeConversation(
   return next;
 }
 
-/** Appends a message to its Conversation bucket, returning a new map. */
+/**
+ * Inserts a message into an already-`seq`-sorted bucket at its ordered slot.
+ * A live append is usually the newest, so scan from the end — but two humans
+ * typing while an agent streams can interleave, and the tiebreak keeps every
+ * client rendering the same order regardless of arrival order.
+ */
+function insertBySeq(
+  bucket: ChatMessage[],
+  message: ChatMessage,
+): ChatMessage[] {
+  let i = bucket.length;
+  while (i > 0 && bySeq(bucket[i - 1], message) > 0) i--;
+  const next = bucket.slice();
+  next.splice(i, 0, message);
+  return next;
+}
+
+/** Appends a message to its Conversation bucket in `seq` order. */
 function appendToConversation(
   prev: MessageMap,
   message: ChatMessage,
 ): MessageMap {
   const next = new Map(prev);
   const bucket = next.get(message.conversationId) ?? NO_MESSAGES;
-  next.set(message.conversationId, [...bucket, message]);
+  next.set(message.conversationId, insertBySeq(bucket, message));
   return next;
 }
 
@@ -598,6 +615,15 @@ export function useSessionChat(sessionId: string) {
         );
       },
     );
+
+    // A Participant's presence changed (a human connected/left, a person was
+    // revoked): refetch the roster so the presence dots stay live. The roster
+    // is fetched over REST, so a targeted invalidation is enough.
+    socket.on(SocketEvents.ParticipantPresence, () => {
+      void queryClient.invalidateQueries({
+        queryKey: SessionQueryKeys.Participants(sessionId),
+      });
+    });
 
     // The agent proposed remembering something: queue a confirm/dismiss card.
     socket.on(

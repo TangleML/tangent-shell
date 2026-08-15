@@ -1,4 +1,7 @@
-import type { Resource } from "@tangent/shared/contracts";
+import type {
+  ParticipantWithMemberships,
+  Resource,
+} from "@tangent/shared/contracts";
 import { createContext, useContext } from "react";
 
 import type { Agent } from "@/features/chat/model/agents";
@@ -18,6 +21,18 @@ export interface SessionChatWindowsValue {
   assets: Asset[];
   /** The session's catalogued content, surfaced read-only in the Resources panel. */
   resources: Resource[];
+  /** Everyone in the session (people, agents, automations) with live presence. */
+  participants: ParticipantWithMemberships[];
+  /** The Conversation in view; a roster mute toggle acts on its Membership. */
+  activeConversationId: string;
+  /** The current human's participant id, so their own roster row reads as "you". */
+  currentUserId: string;
+  /** Mutes/unmutes an agent's Membership in the active Conversation. */
+  onToggleMuteParticipant: (
+    participantId: string,
+    conversationId: string,
+    muted: boolean,
+  ) => void;
   onOpenAgent: (agent: Agent) => void;
   onRemoveAgent: (agent: Agent) => void;
   onOpenAsset: (asset: Asset) => void;
