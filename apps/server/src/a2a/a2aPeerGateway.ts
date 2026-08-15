@@ -46,6 +46,12 @@ export interface SendToPeer {
   participantId: string;
   text: string;
   ingress?: RunIngress;
+  /**
+   * The Conversation this delivery arrived through. A peer that is a member of
+   * a shared Conversation replies into it; absent, the turn lands in the peer's
+   * own home thread, which is the point-to-point exchange 1.9 delivers.
+   */
+  conversationId?: string;
 }
 
 /** An attached peer's tab, plus what its in-flight turn needs. */
@@ -69,6 +75,8 @@ interface A2aTab {
 interface Turn {
   sessionId: string;
   tab: A2aTab;
+  /** The Conversation this turn's reply lands in — where the delivery came from. */
+  conversationId: string;
   run: Run;
   messageId: string;
   started: boolean;
@@ -298,13 +306,15 @@ export class A2aPeerGateway {
 
   /** Opens the Run one turn is attributable to, and its accumulating state. */
   private openTurn(input: SendToPeer, tab: A2aTab): Turn {
+    const conversationId = input.conversationId ?? tab.homeConversationId;
     return {
       sessionId: input.sessionId,
       tab,
+      conversationId,
       run: this.runs.open({
         sessionId: input.sessionId,
         participantId: tab.agentId,
-        homeConversationId: tab.homeConversationId,
+        homeConversationId: conversationId,
         ingress: input.ingress ?? "reaction",
         externalId: tab.taskId,
       }),
@@ -465,12 +475,13 @@ export class A2aPeerGateway {
     });
   }
 
-  /** Says in the peer's own thread why a message went nowhere. */
+  /** Says why a message went nowhere, in the Conversation it was sent through. */
   private refuse(input: SendToPeer, reason: string): void {
     const tab = this.tabFor(input.sessionId, input.participantId);
     this.handlers.onAgentMessage({
       sessionId: input.sessionId,
-      conversationId: tab?.homeConversationId ?? input.participantId,
+      conversationId:
+        input.conversationId ?? tab?.homeConversationId ?? input.participantId,
       author: SYSTEM_AUTHOR,
       content: reason,
     });
@@ -492,10 +503,14 @@ export class A2aPeerGateway {
 
   /** Relays one agent event, attributed to the turn's Run. */
   private emit(turn: Turn, event: AgentEvent): void {
-    this.handlers.onAgentEvent(turn.sessionId, descriptorFor(turn.tab), {
-      ...event,
-      runId: turn.run.id,
-    });
+    this.handlers.onAgentEvent(
+      turn.sessionId,
+      descriptorFor(turn.tab, turn.conversationId),
+      {
+        ...event,
+        runId: turn.run.id,
+      },
+    );
   }
 
   /** The tab for a participant, if this gateway holds one. */
@@ -513,12 +528,16 @@ export class A2aPeerGateway {
   }
 }
 
-/** Builds the agent descriptor a relayed event is tagged with. */
-function descriptorFor(tab: A2aTab): AgentDescriptor {
+/**
+ * Builds the agent descriptor a relayed event is tagged with. The reply lands
+ * in the Conversation the turn was delivered through, not always the peer's own
+ * home thread — a shared-room member answers in the room that addressed it.
+ */
+function descriptorFor(tab: A2aTab, conversationId: string): AgentDescriptor {
   return {
     agentId: tab.agentId,
     role: "subagent",
     name: tab.name,
-    homeConversationId: tab.homeConversationId,
+    homeConversationId: conversationId,
   };
 }

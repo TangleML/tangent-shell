@@ -16,6 +16,8 @@ import {
   orchestratorConversationFor,
   orchestratorIdFor,
 } from "../conversation/participantRegistry.ts";
+import type { ParticipantService } from "../conversation/participantService.ts";
+import { reactionSpec } from "../conversation/reaction.ts";
 import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
@@ -41,6 +43,12 @@ export const attachSchema = z.object({
   sessionId: z.string(),
   endpointUrl: z.url(),
   name: z.string().optional(),
+  /**
+   * Join the peer into the shared room — the orchestrator's Conversation, where
+   * the humans are — as an opaque member woken when addressed, rather than
+   * giving it only a private point-to-point thread.
+   */
+  sharedRoom: z.boolean().optional(),
 });
 export type AttachInput = z.infer<typeof attachSchema>;
 
@@ -167,6 +175,8 @@ async function handleSpawn(
  */
 async function handleAttach(
   a2a: A2aPeerGateway,
+  store: SessionStore,
+  participants: ParticipantService,
   body: AttachInput,
   res: Response,
 ): Promise<void> {
@@ -175,6 +185,13 @@ async function handleAttach(
       endpointUrl: body.endpointUrl,
       name: body.name,
     });
+    if (body.sharedRoom) {
+      const room = await orchestratorConversationFor(store, body.sessionId);
+      await participants.join(body.sessionId, subagent.id, room, {
+        reaction: reactionSpec("mentionsMe"),
+        transcriptVisibility: "opaque",
+      });
+    }
     res.json({ subagent });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -319,6 +336,7 @@ export function createInternalAgentsRouter(
   connectors: ConnectorRegistry,
   conversations: ConversationRouter,
   a2a: A2aPeerGateway,
+  participants: ParticipantService,
 ): Router {
   const router = Router();
 
@@ -335,7 +353,13 @@ export function createInternalAgentsRouter(
   );
 
   router.post("/attach", validate({ body: attachSchema }), (req, res) =>
-    handleAttach(a2a, getValidated<AttachInput>(req).body, res),
+    handleAttach(
+      a2a,
+      store,
+      participants,
+      getValidated<AttachInput>(req).body,
+      res,
+    ),
   );
 
   router.post("/message", validate({ body: messageSchema }), (req, res) =>

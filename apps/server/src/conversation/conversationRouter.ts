@@ -159,6 +159,10 @@ function frameFor(message: ChatMessage, recipient: Membership): string {
  * baked into a wrapped relay string. Ownership is passed in rather than inferred
  * from the id, now that a Conversation id no longer equals its owner's id.
  * Framing is a projection, so what is persisted stays the author's own words.
+ *
+ * An opaque member is sent the Message plain as well: framing situates a
+ * Message within a transcript, and a member that sees none of the log — an
+ * A2A peer in a shared room — has nothing to situate it against.
  */
 export function deliveryText(
   message: ChatMessage,
@@ -167,6 +171,7 @@ export function deliveryText(
 ): string {
   const body = withAttachments(message.content, message.attachments);
   if (recipient.participantId === ownerParticipantId) return body;
+  if (recipient.transcriptVisibility === "opaque") return body;
   return `${frameFor(message, recipient)}\n\n${body}`;
 }
 

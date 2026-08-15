@@ -81,6 +81,8 @@ interface RelayedEvent {
   type: string;
   text?: string;
   runId?: string;
+  /** The Conversation the descriptor routed this event into. */
+  conversationId?: string;
 }
 
 /** The text an agent event carries, whichever half of a stream it is. */
@@ -106,11 +108,12 @@ function captureSink(): {
     agentEvents,
     notices,
     handlers: {
-      onAgentEvent: (_sessionId, _agent, event) =>
+      onAgentEvent: (_sessionId, agent, event) =>
         agentEvents.push({
           type: event.type,
           text: textOfEvent(event),
           runId: event.runId,
+          conversationId: agent.homeConversationId,
         }),
       onSubagentUpdate: (_sessionId, info) => rosterUpdates.push(info),
       onAgentMessage: ({ conversationId, content }) =>
@@ -263,6 +266,49 @@ test("a peer's stream becomes agent events, one persisted turn and a settled Run
   assert.equal(runs[0].status, "completed");
   assert.equal(runs[0].ingress, "reaction");
   assert.equal(h.runs.current("s1", info.id), undefined);
+});
+
+test("a peer woken through a shared room replies into it, not its home thread", async () => {
+  const h = makeHarness({
+    events: [
+      { kind: "status", taskId: "task-1", phase: "completed", text: "hello" },
+    ],
+  });
+  const info = await h.gateway.attach("s1", { endpointUrl: ENDPOINT });
+
+  h.gateway.send({
+    sessionId: "s1",
+    participantId: info.id,
+    text: "hi",
+    conversationId: "room-1",
+  });
+  await settled(() => h.agentEvents.at(-1)?.type === "end");
+
+  // Every relayed event, and the Run, land in the Conversation that addressed
+  // the peer — not the private tab it was attached with.
+  assert.ok(h.agentEvents.every((e) => e.conversationId === "room-1"));
+  const runs = await h.runStore.listRuns("s1");
+  assert.equal(runs[0].homeConversationId, "room-1");
+});
+
+test("a peer delivered point-to-point still replies in its own home thread", async () => {
+  const h = makeHarness({
+    events: [
+      { kind: "status", taskId: "task-1", phase: "completed", text: "hi" },
+    ],
+  });
+  const info = await h.gateway.attach("s1", { endpointUrl: ENDPOINT });
+
+  h.gateway.send({ sessionId: "s1", participantId: info.id, text: "hi" });
+  await settled(() => h.agentEvents.at(-1)?.type === "end");
+
+  // Absent an addressing Conversation, the reply falls back to the peer's home:
+  // 1.9's point-to-point exchange is unchanged.
+  assert.ok(
+    h.agentEvents.every((e) => e.conversationId === info.conversationId),
+  );
+  const runs = await h.runStore.listRuns("s1");
+  assert.equal(runs[0].homeConversationId, info.conversationId);
 });
 
 test("a Task left waiting for input keeps its id for the next turn", async () => {

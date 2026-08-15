@@ -213,8 +213,9 @@ export default function (pi: ExtensionAPI) {
       "protocol, by the base URL its Agent Card is served from. Nothing is " +
       "created: the agent exists independently of this session, so attaching " +
       "only gives it a tab you can direct with message_subagent. Its name " +
-      "comes from its card unless you override it. Returns the id to message " +
-      "it by.",
+      "comes from its card unless you override it. Set share_in_room to make " +
+      "it a member of this room instead, woken when anyone addresses it by " +
+      "name and sent only that message. Returns the id to message it by.",
     promptSnippet: "Attach an external A2A agent by its endpoint URL",
     parameters: Type.Object({
       endpoint_url: Type.String({
@@ -227,17 +228,28 @@ export default function (pi: ExtensionAPI) {
           description: "Display name; defaults to the name on the card.",
         }),
       ),
+      share_in_room: Type.Optional(
+        Type.Boolean({
+          description:
+            "Add it to this shared room as an opaque member woken when " +
+            "addressed by name, rather than only a private thread.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
       const data = (await callApi("POST", "attach", {
         sessionId: SESSION_ID,
         endpointUrl: params.endpoint_url,
         name: params.name,
+        sharedRoom: params.share_in_room,
       })) as { subagent: { id: string; name: string } };
 
+      const placement = params.share_in_room
+        ? "It is a member of this room; address it by name to reach it, and its replies appear here."
+        : "Use message_subagent to direct it; its replies appear in its own thread.";
       return textResult(
         `Attached A2A agent "${data.subagent.name}" (id: ${data.subagent.id}). ` +
-          `Use message_subagent to direct it; its replies appear in its own thread.`,
+          placement,
       );
     },
   });

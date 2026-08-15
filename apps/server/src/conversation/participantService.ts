@@ -1,9 +1,12 @@
 import {
   connectorFor,
+  DEFAULT_TRANSCRIPT_VISIBILITY,
   type ParticipantKind,
   type ParticipantPresencePayload,
   type Presence,
+  type ReactionSpec,
   type RunIngress,
+  type TranscriptVisibility,
 } from "@tangent/shared/contracts.ts";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
@@ -45,6 +48,26 @@ export interface InviteInput {
 /** The reaction a freshly-joined participant of a given kind holds. */
 function reactionFor(kind: ParticipantKind | undefined): string {
   return kind === "agent" ? ADDRESSABLE : INERT;
+}
+
+/**
+ * How much of a Conversation a freshly-joined participant sees. An agent's is
+ * its connector's default — a far end outside Tangent's trust domain is
+ * `opaque`, sent what addresses it rather than the log; a person or automation
+ * reads the room, so it is `shared`.
+ */
+function visibilityFor(
+  participant: Participant | undefined,
+): TranscriptVisibility {
+  if (participant?.kind === "agent")
+    return DEFAULT_TRANSCRIPT_VISIBILITY[participant.connector.kind];
+  return "shared";
+}
+
+/** Overrides for a {@link ParticipantService.join} that is not a plain default. */
+export interface JoinOptions {
+  reaction?: ReactionSpec;
+  transcriptVisibility?: TranscriptVisibility;
 }
 
 /**
@@ -155,18 +178,26 @@ export class ParticipantService {
     this.onPresence?.({ sessionId, participantId, presence: "detached" });
   }
 
-  /** Adds a Participant to a Conversation with its kind's default reaction. */
+  /**
+   * Adds a Participant to a Conversation. Defaults to its kind's reaction and
+   * its connector's visibility; an opaque peer joined into a shared room passes
+   * `mentionsMe` + `opaque`, which is what makes it a member woken only when
+   * addressed and sent the Message rather than the log.
+   */
   async join(
     sessionId: string,
     participantId: string,
     conversationId: string,
+    options: JoinOptions = {},
   ): Promise<void> {
     const participant = await this.participants.get(sessionId, participantId);
     await this.addMembership(
       sessionId,
       participantId,
       conversationId,
-      reactionFor(participant?.kind),
+      options.reaction ?? reactionFor(participant?.kind),
+      "reaction",
+      options.transcriptVisibility ?? visibilityFor(participant),
     );
     this.membershipRegistry.invalidate(sessionId);
   }
@@ -294,6 +325,7 @@ export class ParticipantService {
     conversationId: string,
     reaction: string,
     ingress: RunIngress = "reaction",
+    transcriptVisibility: TranscriptVisibility = "shared",
   ): Promise<void> {
     await this.membershipRegistry.membersOf(sessionId, conversationId);
     await this.memberships.put({
@@ -302,7 +334,7 @@ export class ParticipantService {
       conversationId,
       reaction,
       ingress,
-      transcriptVisibility: "shared",
+      transcriptVisibility,
     });
   }
 

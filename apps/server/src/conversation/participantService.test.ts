@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import { connectorFor } from "@tangent/shared/contracts.ts";
+
 // Point the session root at a throwaway dir before importing modules that read
 // config at load time, so `createSession`'s mkdir never touches the repo.
 const ROOT = mkdtempSync(path.join(tmpdir(), "participant-service-"));
@@ -12,6 +14,7 @@ process.env.SESSIONS_ROOT = ROOT;
 const { ParticipantService } = await import("./participantService.ts");
 const { ParticipantRegistry } = await import("./participantRegistry.ts");
 const { MembershipRegistry } = await import("./membershipRegistry.ts");
+const { reactionSpec } = await import("./reaction.ts");
 const { RunRegistry } = await import("../runs/runRegistry.ts");
 const { InMemorySessionStore } =
   await import("../store/inMemorySessionStore.ts");
@@ -175,6 +178,54 @@ test("join then leave adds and removes a single membership", async () => {
     await service.membershipsOf(session.id, "a@shopify.com"),
     [],
   );
+});
+
+test("join places an opaque room member woken only when addressed", async () => {
+  const { service, sessions, memberships, session } = await harness();
+  const [prime] = await sessions.listAgents(session.id);
+  await sessions.recordAgent(session.id, {
+    id: "peer-1",
+    role: "subagent",
+    name: "Weather",
+    connector: connectorFor("a2a"),
+    homeConversationId: "peer-home",
+  });
+
+  await service.join(session.id, "peer-1", prime.homeConversationId, {
+    reaction: reactionSpec("mentionsMe"),
+    transcriptVisibility: "opaque",
+  });
+
+  const membership = await memberships.memberIn(
+    session.id,
+    prime.homeConversationId,
+    "peer-1",
+  );
+  assert.equal(membership?.reaction, "mentionsMe");
+  assert.equal(membership?.transcriptVisibility, "opaque");
+});
+
+test("an agent joins with its connector's default visibility", async () => {
+  const { service, sessions, memberships, session } = await harness();
+  const [prime] = await sessions.listAgents(session.id);
+  await sessions.recordAgent(session.id, {
+    id: "peer-1",
+    role: "subagent",
+    name: "Weather",
+    connector: connectorFor("a2a"),
+    homeConversationId: "peer-home",
+  });
+
+  await service.join(session.id, "peer-1", prime.homeConversationId);
+
+  // a2a is opaque by default; the reaction falls back to the agent default.
+  const membership = await memberships.memberIn(
+    session.id,
+    prime.homeConversationId,
+    "peer-1",
+  );
+  assert.equal(membership?.transcriptVisibility, "opaque");
+  assert.equal(membership?.reaction, "fromHumans+mentionsMe");
 });
 
 test("closeConversation ends memberships and settles the open run", async () => {
