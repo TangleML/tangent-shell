@@ -19,6 +19,7 @@ import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
 import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createMeRouter } from "./routes/me.ts";
+import { createSessionLaunchesRouter } from "./routes/sessionLaunches.ts";
 import { createSessionsRouter } from "./routes/sessions/index.ts";
 import {
   createAgentEventHandler,
@@ -98,6 +99,15 @@ app.get("/api/health", (req, res) => {
 app.use(
   "/api/sessions",
   createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore),
+);
+app.use(
+  "/api/session-launches",
+  createSessionLaunchesRouter({
+    store,
+    pi,
+    triggerEngine,
+    agentBundleStore,
+  }),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));

@@ -92,13 +92,26 @@ over an stdin/stdout RPC protocol. The server starts one **Prime**
 agent per session and spawns sub-agents on demand, streaming their events to the UI over
 Socket.IO rooms.
 
-- **REST API** (`/api/*`) — sessions CRUD, file uploads and artifact serving, agent bundles,
-  global memory, and current-user lookup.
+- **REST API** (`/api/*`) — sessions CRUD, external session launches, file uploads and artifact
+  serving, agent bundles, global memory, and current-user lookup.
 - **Internal API** (`/internal/*`) — called by agents (guarded by a bearer token) to spawn
   and message sub-agents, read/write memory, manage triggers, and make sandboxed egress
   requests through an allowlist.
 - **WebSocket events** — streaming assistant deltas, tool/thinking activity, sub-agent roster
   updates, memory suggestions, trigger updates, and chat messages.
+
+External systems can create a bundle-backed session and immediately prompt its Prime agent:
+
+```bash
+curl -u "$INGRESS_USERNAME:$INGRESS_PASSWORD" \
+  -H "content-type: application/json" \
+  -d '{"bundleId":"tangle-oss","prompt":"Investigate the latest failed run"}' \
+  https://tangent.example.com/api/session-launches
+```
+
+The endpoint returns `201 Created` with `{ "sessionId": "..." }`. Configure machine
+authentication for this path at the deployment ingress or service proxy; shared credentials
+must not be embedded in browser code.
 
 State lives in two places: session **metadata** in SQLite (`sessions`, `sessionAssets`,
 `sessionAgents` tables), and per-session **data** on disk — artifacts, uploads, memory files,

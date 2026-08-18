@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -6,11 +6,8 @@ import type {
   Attachment,
   Session,
   SessionActivity,
-  SessionConfigMeta,
   UploadFilesResponse,
-  UserIdentity,
 } from "@tangent/shared/contracts.ts";
-import { PI_AGENT } from "@tangent/shared/contracts.ts";
 import type { Request, Response } from "express";
 import multer from "multer";
 
@@ -20,14 +17,16 @@ import {
   SESSIONS_ROOT,
   UPLOADS_DIRNAME,
 } from "../../config.ts";
-import { installBundle } from "../../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
-import { PRIME_AGENT_ID } from "../../pi/types.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import { readActivity } from "../../store/chatLog.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import { injectPageBridge } from "./pageBridge.ts";
+import {
+  provisionSession,
+  SessionProvisioningError,
+} from "./provisionSession.ts";
 import type {
   CreateSessionInput,
   SessionParams,
@@ -131,68 +130,7 @@ function serveArtifact(
   });
 }
 
-/**
- * Provisions a new session from an uploaded Configuration Bundle: installs it
- * into the session root, records its metadata, and spawns Prime with the
- * resolved per-session config. On an invalid bundle the just-created session is
- * removed so a failed upload leaves nothing half-provisioned.
- */
-async function createSessionFromBundle(
-  store: SessionStore,
-  pi: PiAgentManager,
-  triggerEngine: TriggerEngine,
-  sessionId: string,
-  rootPath: string,
-  zipBuffer: Buffer,
-  user: UserIdentity | undefined,
-  res: Response,
-): Promise<void> {
-  try {
-    const { manifest, config } = await installBundle(zipBuffer, rootPath);
-    const meta: SessionConfigMeta = {
-      id: manifest.id,
-      name: manifest.name,
-      version: manifest.version,
-      icon: manifest.icon,
-    };
-    const withConfig = await store.attachConfig(sessionId, meta);
-
-    // Seed the bundle's declared triggers and arm any schedules.
-    triggerEngine.seed(sessionId, rootPath, manifest.triggers);
-
-    // Pre-seed Prime's first message so the bundle's agent "speaks first"
-    // (e.g. renders a welcome card). It replays via `chat:history` on join and
-    // renders any `tangent-ui:*` card because the bundle id is already attached.
-    if (config.welcomeMessage) {
-      await store.appendMessage({
-        id: randomUUID(),
-        sessionId,
-        conversationId: PRIME_AGENT_ID,
-        author: PI_AGENT,
-        content: config.welcomeMessage,
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    pi.ensure(sessionId, rootPath, config, undefined, user);
-    res.status(201).json({ session: withConfig });
-  } catch (err) {
-    await store.deleteSession(sessionId);
-    res.status(400).json({ error: (err as Error).message });
-  }
-}
-
-async function resolveCreateBundle(
-  body: CreateSessionInput,
-  agentBundleStore: AgentBundleStore,
-): Promise<Buffer | "not-found"> {
-  return (await agentBundleStore.readBundle(body.bundleId)) ?? "not-found";
-}
-
-/**
- * Handles `POST /api/sessions`. Sessions are created from a saved marketplace
- * agent bundle so every session carries bundle config metadata.
- */
+/** Handles `POST /api/sessions`. */
 export async function handleCreateSession(
   store: SessionStore,
   pi: PiAgentManager,
@@ -202,29 +140,22 @@ export async function handleCreateSession(
   body: CreateSessionInput,
   res: Response,
 ): Promise<void> {
-  // Resolve any bundle before creating the session so a bad id fails without
-  // leaving an empty session behind.
-  const zipBuffer = await resolveCreateBundle(body, agentBundleStore);
-  if (zipBuffer === "not-found") {
-    res.status(404).json({ error: "Agent bundle not found" });
-    return;
+  try {
+    const session = await provisionSession(
+      { store, pi, triggerEngine, agentBundleStore },
+      {
+        ...body,
+        user: resolveUserIdentity(req.headers.cookie) ?? undefined,
+      },
+    );
+    res.status(201).json({ session });
+  } catch (error) {
+    if (error instanceof SessionProvisioningError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    throw error;
   }
-
-  // Resolve the creator's identity from their Oktasso JWT cookie so every agent
-  // spawned for the session knows who it's helping.
-  const user = resolveUserIdentity(req.headers.cookie) ?? undefined;
-  const session = await store.createSession({ name: body.name, user });
-
-  await createSessionFromBundle(
-    store,
-    pi,
-    triggerEngine,
-    session.id,
-    session.rootPath,
-    zipBuffer,
-    user,
-    res,
-  );
 }
 
 /**

@@ -446,6 +446,15 @@ export interface CreateSessionRequest {
   bundleId: string;
 }
 
+export interface LaunchSessionRequest {
+  bundleId: string;
+  prompt: string;
+}
+
+export interface LaunchSessionResponse {
+  sessionId: string;
+}
+
 export interface UpdateSessionRequest {
   name?: string;
   archived?: boolean;
