@@ -23,6 +23,10 @@ import {
   type RemoteRoomReadResponse,
   type RemoteSpawnCommand,
   type RemoteSubagentUpdatePayload,
+  type RemoteToolCallRequest,
+  type RemoteToolCallResponse,
+  type RemoteToolDef,
+  type RemoteToolsRegisterPayload,
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Namespace, Server as SocketIOServer, Socket } from "socket.io";
 
@@ -50,6 +54,9 @@ import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
 
+/** How long a remote tool call waits for the environment's ack before failing. */
+const TOOL_CALL_TIMEOUT_MS = 30_000;
+
 /** One message to deliver to one remote sub-agent. */
 export interface RemoteSendOptions {
   sessionId: string;
@@ -67,6 +74,8 @@ interface RemoteEnvConnection {
   /** Set when the environment authenticated with a scoped per-session token. */
   sessionId?: string;
   socket: Socket;
+  /** The RPC tools this environment currently offers, keyed by tool name. */
+  tools: Map<string, RemoteToolDef>;
 }
 
 /** Looks up a session's installed bundle config for remote spawn resolution. */
@@ -471,6 +480,7 @@ export class RemoteEnvironmentGateway {
       environmentId,
       sessionId,
       socket,
+      tools: new Map(),
     });
     console.log(`[remote-env] connected: ${environmentId}`);
 
@@ -539,6 +549,81 @@ export class RemoteEnvironmentGateway {
         void this.handleRoomRead(request, callback);
       },
     );
+    socket.on(
+      RemoteEnvEvents.ToolsRegister,
+      (payload: RemoteToolsRegisterPayload) => {
+        if (!this.acceptsSession(sessionId, payload.sessionId)) return;
+        this.handleToolsRegister(socket, payload);
+      },
+    );
+  }
+
+  /** Records the catalog an environment declares, replacing any prior one. */
+  private handleToolsRegister(
+    socket: Socket,
+    payload: RemoteToolsRegisterPayload,
+  ): void {
+    const environmentId = socketDataString(socket, "environmentId");
+    if (!environmentId) return;
+    const environment = this.environments.get(environmentId);
+    if (!environment || environment.socket !== socket) return;
+    environment.tools = new Map(payload.tools.map((tool) => [tool.name, tool]));
+    console.log(
+      `[remote-env] ${environmentId} registered ${environment.tools.size} tool(s)`,
+    );
+  }
+
+  /**
+   * The tools available to a session: the catalog of the environment bound to it
+   * (or the shared unscoped one it would spawn on). Empty when no environment is
+   * connected, so a caller can tell "no host" from "host offers nothing".
+   */
+  listTools(sessionId: string): RemoteToolDef[] {
+    const environment = this.pickEnvironment(sessionId);
+    if (!environment) return [];
+    return [...environment.tools.values()];
+  }
+
+  /**
+   * Invokes one registered tool on the session's environment and resolves with
+   * its result. Rejects when no environment is connected, the tool is not in the
+   * environment's catalog, or the environment does not ack before the timeout.
+   */
+  async callTool(
+    sessionId: string,
+    agentId: string,
+    name: string,
+    args: unknown,
+  ): Promise<RemoteToolCallResponse> {
+    const environment = this.pickEnvironment(sessionId);
+    if (!environment) {
+      throw new Error("No remote environment is connected.");
+    }
+    if (!environment.tools.has(name)) {
+      throw new Error(`No remote tool named "${name}" is registered.`);
+    }
+    const request: RemoteToolCallRequest = {
+      callId: randomUUID(),
+      sessionId,
+      agentId,
+      name,
+      arguments: args,
+    };
+    return new Promise<RemoteToolCallResponse>((resolve, reject) => {
+      environment.socket
+        .timeout(TOOL_CALL_TIMEOUT_MS)
+        .emit(
+          RemoteEnvEvents.ToolsCall,
+          request,
+          (err: Error | null, response: RemoteToolCallResponse) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve(response);
+          },
+        );
+    });
   }
 
   /**

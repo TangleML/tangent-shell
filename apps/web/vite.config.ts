@@ -32,7 +32,7 @@ function embedDevChannel(): Plugin {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   // Relative asset base so the built index.html references assets as
   // "./assets/..." rather than "/assets/...". Behind the tangle pod-proxy the
   // Kubernetes apiserver rewrites same-host absolute-path URLs in HTML to its
@@ -75,6 +75,24 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
+      // The dev embed channel serves the runtime through this same server, so a
+      // cross-origin host page cannot construct the default module-URL worker
+      // (worker scripts must be same-origin with the page). Vite does not inline
+      // workers in dev, so `?worker&inline` would still emit a bare root-relative
+      // URL that resolves against the host origin; the dev factory instead boots
+      // from a same-origin blob that imports the worker's absolute Shell URL. The
+      // SPA production build keeps the default separate-chunk worker.
+      ...(command === "serve"
+        ? [
+            {
+              find: /^\.\/createBundleUiWorker$/,
+              replacement: path.resolve(
+                __dirname,
+                "./src/features/bundle-ui/createBundleUiWorker.dev.ts",
+              ),
+            },
+          ]
+        : []),
       { find: "@", replacement: path.resolve(__dirname, "./src") },
       // The SDK barrel UI extensions import. In-repo (harness, type checks) the
       // bare specifier resolves to the runtime module; sandboxed components get
@@ -110,4 +128,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

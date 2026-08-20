@@ -76,6 +76,18 @@ export const SESSION_EXTENSION = path.join(
   "session.ts",
 );
 
+/**
+ * Absolute path to the remote-tools extension loaded into every Pi process. It
+ * registers the `list_remote_tools` / `call_remote_tool` dispatcher so any agent
+ * can invoke the RPC tools a connected remote environment offers, without
+ * spawning a browser sub-agent.
+ */
+export const REMOTE_TOOLS_EXTENSION = path.join(
+  import.meta.dirname,
+  "extensions",
+  "remoteTools.ts",
+);
+
 /** Drops a single optional trailing CR from a line. */
 function stripTrailingCr(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;

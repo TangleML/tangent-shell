@@ -57,6 +57,7 @@ import {
   parsePiEvent,
   PROXY_PROVIDER_EXTENSION,
   readDelta,
+  REMOTE_TOOLS_EXTENSION,
   RESOURCES_EXTENSION,
   SESSION_EXTENSION,
   toDescriptor,
@@ -234,6 +235,25 @@ function resolveModelArgs(config: AgentConfig): ModelArgs {
   return { provider, model, thinking: config.thinkingDepth ?? PI_THINKING };
 }
 
+/**
+ * Built-in extensions loaded into every Pi process, in order. The orchestrator
+ * gives Prime its sub-agent tools; the proxy-provider registers Pi's providers
+ * against the LLM proxy (required without an auto-discovered `~/.pi/agent`
+ * config); memory registers read/remember; resources registers read_resources;
+ * triggers gives Prime its create/list/enable/disable/delete trigger tools;
+ * session gives Prime rename_session; remote-tools gives every agent the
+ * list_remote_tools/call_remote_tool dispatcher.
+ */
+const BUILTIN_EXTENSIONS = [
+  ORCHESTRATOR_EXTENSION,
+  PROXY_PROVIDER_EXTENSION,
+  MEMORY_EXTENSION,
+  RESOURCES_EXTENSION,
+  TRIGGERS_EXTENSION,
+  SESSION_EXTENSION,
+  REMOTE_TOOLS_EXTENSION,
+];
+
 /** Builds the `pi --mode rpc` CLI args for an agent process. */
 function buildPiArgs(
   config: AgentConfig,
@@ -259,26 +279,10 @@ function buildPiArgs(
     config.tools.join(","),
     "--append-system-prompt",
     appendPreambles(config, preambles),
-    // Orchestrator gives Prime its sub-agent tools; the proxy-provider
-    // extension registers Pi's providers against the LLM proxy (required in
-    // environments without an auto-discovered `~/.pi/agent` config); the memory
-    // extension registers the read/remember tools; the resources extension
-    // registers read_resources; the triggers extension gives Prime its
-    // create/list/enable/disable/delete trigger tools; the session extension
-    // gives Prime its rename_session tool.
-    "--extension",
-    ORCHESTRATOR_EXTENSION,
-    "--extension",
-    PROXY_PROVIDER_EXTENSION,
-    "--extension",
-    MEMORY_EXTENSION,
-    "--extension",
-    RESOURCES_EXTENSION,
-    "--extension",
-    TRIGGERS_EXTENSION,
-    "--extension",
-    SESSION_EXTENSION,
   ];
+
+  for (const extension of BUILTIN_EXTENSIONS)
+    args.push("--extension", extension);
 
   // Bundle-provided skills, workflows, and custom tool extensions, applied to
   // every agent in the session so they share the bundle's capabilities.
