@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tangent embed harness</title>
+    <style>
+      /* The host owns all chrome. This deliberately uses a different font and
+         its own --background token to prove Tangent's shadow styles do not leak
+         out and the host's do not leak in. */
+      :root {
+        --background: #10203a;
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background: var(--background);
+        color: #e6ecff;
+      }
+      .host {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      header {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid #2a3b5e;
+      }
+      header input {
+        font: inherit;
+        padding: 4px 6px;
+      }
+      main {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 220px 220px 1fr 1fr;
+      }
+      main > * {
+        min-width: 0;
+        min-height: 0;
+        border-right: 1px solid #2a3b5e;
+      }
+      .side-lists {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .side-lists > * {
+        flex: 1;
+        min-height: 0;
+        border-bottom: 1px solid #2a3b5e;
+      }
+      #artifact:not([data-open]) {
+        display: none;
+      }
+      #status {
+        margin-left: auto;
+        font-size: 13px;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="host">
+      <header>
+        <strong>Host chrome</strong>
+        <label>bundle <input id="bundle" value="tangle-oss" /></label>
+        <label>prompt <input id="prompt" size="28" value="Say hello." /></label>
+        <button id="start">New session</button>
+        <span id="status"></span>
+      </header>
+      <main>
+        <tangent-provider id="provider">
+          <tangent-session-list id="sessions"></tangent-session-list>
+          <div class="side-lists">
+            <tangent-agent-list id="agents"></tangent-agent-list>
+            <tangent-asset-list id="assets"></tangent-asset-list>
+          </div>
+          <tangent-chat id="chat" style="height: 100%"></tangent-chat>
+          <tangent-artifact-viewer id="artifact"></tangent-artifact-viewer>
+        </tangent-provider>
+      </main>
+    </div>
+
+    <script type="module">
+      // The Tangent origin serving /embed/** and /api/**. Override via ?origin=.
+      const params = new URLSearchParams(location.search);
+      const TANGENT_ORIGIN = params.get("origin") ?? location.origin;
+
+      const status = document.getElementById("status");
+      status.textContent = "loading runtime...";
+
+      // Runtime-delivered: import the elements from Tangent's origin.
+      await import(`${TANGENT_ORIGIN}/embed/v1/tangent-elements.js`);
+
+      const provider = document.getElementById("provider");
+      provider.config = { apiBase: TANGENT_ORIGIN };
+      provider.theme = { colorScheme: "system" };
+
+      const chat = document.getElementById("chat");
+      const sessions = document.getElementById("sessions");
+      const agents = document.getElementById("agents");
+      const assets = document.getElementById("assets");
+      const artifact = document.getElementById("artifact");
+
+      // Selecting a session in the list swaps the chat surface.
+      sessions.addEventListener("select-session", (e) => {
+        openSession(e.detail.id);
+      });
+      sessions.addEventListener("session-deleted", (e) =>
+        console.log("[host] session-deleted", e.detail),
+      );
+
+      agents.addEventListener("open-agent", (e) => {
+        chat.agentId = e.detail.kind === "prime" ? "" : e.detail.id;
+        agents.selectedId = e.detail.id;
+        console.log("[host] open-agent", e.detail);
+      });
+      agents.addEventListener("remove-agent", (e) => {
+        if (chat.agentId === e.detail.id) chat.agentId = "";
+        console.log("[host] remove-agent", e.detail);
+      });
+
+      assets.addEventListener("open-asset", (e) => {
+        const asset = e.detail;
+        assets.selectedId = asset.id;
+        if (asset.kind !== "page" && asset.kind !== "file") return;
+        artifact.sessionId = chat.sessionId;
+        artifact.url = asset.url;
+        artifact.title = asset.title;
+        artifact.setAttribute("data-open", "");
+      });
+      assets.addEventListener("unpin-asset", (e) => {
+        artifact.removeAttribute("data-open");
+        console.log("[host] unpin-asset", e.detail);
+      });
+
+      // The host decides what "open an artifact" means. Here: reveal the viewer.
+      chat.addEventListener("open-artifact", (e) => {
+        artifact.sessionId = chat.sessionId;
+        artifact.url = e.detail.url;
+        artifact.title = e.detail.title;
+        artifact.setAttribute("data-open", "");
+      });
+      chat.addEventListener("send-prompt", (e) =>
+        console.log("[host] send-prompt", e.detail),
+      );
+      chat.addEventListener("error", (e) =>
+        console.error("[host] error", e.detail),
+      );
+
+      // A review from the artifact viewer is forwarded to the chat's session.
+      artifact.addEventListener("send-prompt", (e) =>
+        console.log("[host] artifact review", e.detail),
+      );
+
+      function openSession(sessionId) {
+        chat.sessionId = sessionId;
+        chat.agentId = "";
+        sessions.selectedId = sessionId;
+        agents.sessionId = sessionId;
+        agents.selectedId = "";
+        assets.sessionId = sessionId;
+        assets.selectedId = "";
+        artifact.removeAttribute("data-open");
+        status.textContent = `session ${sessionId}`;
+      }
+
+      status.textContent = "ready";
+
+      document.getElementById("start").addEventListener("click", async () => {
+        const bundleId = document.getElementById("bundle").value.trim();
+        const prompt = document.getElementById("prompt").value;
+        status.textContent = "creating session...";
+        try {
+          const { sessionId } = await provider.runtime.newSession(
+            prompt,
+            bundleId,
+            {},
+          );
+          openSession(sessionId);
+        } catch (err) {
+          status.textContent = `error: ${err.message}`;
+          console.error(err);
+        }
+      });
+    </script>
+  </body>
+</html>

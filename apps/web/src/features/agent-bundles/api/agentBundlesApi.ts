@@ -3,6 +3,7 @@ import type {
   ListAgentBundlesResponse,
 } from "@tangent/shared/contracts";
 
+import { apiFetch } from "@/shared/lib/apiFetch";
 import { apiUrl } from "@/shared/lib/basePath";
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -15,7 +16,7 @@ async function parseJson<T>(res: Response): Promise<T> {
 
 export async function listAgentBundles(): Promise<AgentBundleMeta[]> {
   const data = await parseJson<ListAgentBundlesResponse>(
-    await fetch(apiUrl("/api/agent-bundles")),
+    await apiFetch("/api/agent-bundles"),
   );
   return data.bundles;
 }
@@ -23,7 +24,7 @@ export async function listAgentBundles(): Promise<AgentBundleMeta[]> {
 /** Fetches a single bundle's metadata, including its UI `components`. */
 export async function getAgentBundle(id: string): Promise<AgentBundleMeta> {
   const data = await parseJson<{ bundle: AgentBundleMeta }>(
-    await fetch(apiUrl(`/api/agent-bundles/${id}`)),
+    await apiFetch(`/api/agent-bundles/${id}`),
   );
   return data.bundle;
 }
@@ -34,13 +35,13 @@ export async function uploadAgentBundle(file: File): Promise<AgentBundleMeta> {
   form.append("bundle", file);
 
   const data = await parseJson<{ bundle: AgentBundleMeta }>(
-    await fetch(apiUrl("/api/agent-bundles"), { method: "POST", body: form }),
+    await apiFetch("/api/agent-bundles", { method: "POST", body: form }),
   );
   return data.bundle;
 }
 
 export async function deleteAgentBundle(id: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/agent-bundles/${id}`), {
+  const res = await apiFetch(`/api/agent-bundles/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) {

@@ -40,6 +40,29 @@ server {
         proxy_read_timeout 86400;
     }
 
+    # Embedded UI runtime (Option E): the `tangent-*` custom-element bundle,
+    # imported cross-origin by a third-party host as an ESM module. Served from
+    # /app/ui-dist/embed/** and answered honestly with 404 (no SPA fallback, so a
+    # missing bundle is not silently handed back as index.html). CORS is required
+    # because a module script imported from another origin is a cross-origin
+    # request. The channel file (/embed/v<n>/tangent-elements.js) moves with each
+    # UI release, so it gets a short, revalidated cache.
+    location /embed/ {
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Cache-Control "public, max-age=60, must-revalidate" always;
+        try_files $uri =404;
+    }
+
+    # Content-hashed embed chunks (worker, split assets) are immutable, so they
+    # can be cached forever. The regex takes precedence over the prefix above.
+    location ~* ^/embed/v\d+/assets/ {
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
     # SPA history fallback: serve the requested asset if it exists, otherwise
     # hand back index.html so client-side routing can take over.
     location / {

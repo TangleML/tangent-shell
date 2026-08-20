@@ -6,7 +6,7 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
-import { PORT } from "./config.ts";
+import { EMBED_ALLOWED_ORIGINS, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
@@ -16,6 +16,7 @@ import { ResourceCatalog } from "./conversation/resourceCatalog.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { createRelayReport } from "./mcp/relayReport.ts";
+import { createEmbedCors } from "./middleware/embedCors.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
 import { MemoryManager } from "./pi/memory.ts";
 import {
@@ -26,6 +27,7 @@ import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
+import { createEmbedRouter } from "./routes/embed.ts";
 import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
 import { createInternalEgressRouter } from "./routes/internalEgress.ts";
@@ -80,13 +82,17 @@ const store = new SqliteSessionStore(db, participants, resourceStore);
 const agentBundleStore = new FileAgentBundleStore();
 
 const app = express();
+// Cross-origin embed hosts (allowlisted via EMBED_ALLOWED_ORIGINS) need CORS on
+// /api; runs before body parsing so preflight OPTIONS short-circuit cheaply.
+app.use(createEmbedCors(EMBED_ALLOWED_ORIGINS));
 app.use(express.json());
 
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
-  // In dev the UI is served by Vite and proxied here, so same-origin. CORS is
-  // left open to ease direct connections during local development.
-  cors: { origin: true },
+  // Same allowlist as /api. In dev the UI is proxied by Vite (same-origin), so
+  // an empty allowlist reflects any origin to ease direct local connections;
+  // set EMBED_ALLOWED_ORIGINS to pin the handshake to embed hosts.
+  cors: { origin: EMBED_ALLOWED_ORIGINS.length ? EMBED_ALLOWED_ORIGINS : true },
 });
 
 // Owns the agents' global + per-session memory stores.
@@ -286,6 +292,7 @@ app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
+app.use("/api/embed", createEmbedRouter(store));
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use(
   "/internal/agents",

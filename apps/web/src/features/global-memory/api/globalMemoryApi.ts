@@ -4,7 +4,7 @@ import type {
   UpdateGlobalMemoryResponse,
 } from "@tangent/shared/contracts";
 
-import { apiUrl } from "@/shared/lib/basePath";
+import { apiFetch } from "@/shared/lib/apiFetch";
 
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -17,7 +17,7 @@ async function parseJson<T>(res: Response): Promise<T> {
 /** Fetches the current global memory file contents. */
 export async function getGlobalMemory(): Promise<string> {
   const data = await parseJson<GetGlobalMemoryResponse>(
-    await fetch(apiUrl("/api/global-memory")),
+    await apiFetch("/api/global-memory"),
   );
   return data.content;
 }
@@ -26,7 +26,7 @@ export async function getGlobalMemory(): Promise<string> {
 export async function updateGlobalMemory(content: string): Promise<string> {
   const body: UpdateGlobalMemoryRequest = { content };
   const data = await parseJson<UpdateGlobalMemoryResponse>(
-    await fetch(apiUrl("/api/global-memory"), {
+    await apiFetch("/api/global-memory", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),

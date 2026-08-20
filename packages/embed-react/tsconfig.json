@@ -1,0 +1,8 @@
+{
+  "extends": "@tangent/build/tsconfig/react.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["src"]
+}

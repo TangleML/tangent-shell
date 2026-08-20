@@ -108,6 +108,18 @@ export interface Session {
   updatedAt: string;
 }
 
+/** Body of `POST /api/embed/remote-env-token`. */
+export interface RemoteEnvTokenRequest {
+  sessionId: string;
+}
+
+/** Response of `POST /api/embed/remote-env-token`. */
+export interface RemoteEnvTokenResponse {
+  token: string;
+  environmentId: string;
+  expiresAt: string;
+}
+
 /**
  * Distinguishes the session's orchestrating Prime agent from the sub-agents it
  * spawns. Only present on agent authors. Drives client rendering (e.g. sub-agent
@@ -507,15 +519,18 @@ export type SpawnAuthority = "server" | "remote-env" | "bundle-tool" | "none";
  * in issuance — one is handed to a process the server spawns, the other is
  * presented back by a caller that already holds it.
  *
- * `peer-bearer` runs the other way: the far end sits outside the trust domain
- * and Tangent is the caller, so the secret is presented outbound and no inbound
- * caller ever authenticates under this scheme.
+ * `scoped-token` is a short-lived HMAC token minted per session for an embed
+ * host connecting as a remote environment. `peer-bearer` runs the other way:
+ * the far end sits outside the trust domain and Tangent is the caller, so the
+ * secret is presented outbound and no inbound caller ever authenticates under
+ * this scheme.
  */
 export type CredentialScheme =
   | "inherited-token"
   | "shared-token"
   | "internal-bearer"
   | "minted-secret"
+  | "scoped-token"
   | "peer-bearer"
   | "none";
 
