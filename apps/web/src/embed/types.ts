@@ -1,6 +1,8 @@
 import type {
   Attachment,
+  HostResourceInput,
   MessageDelivery,
+  Resource,
   ThinkingLevel,
 } from "@tangent/shared/contracts";
 
@@ -29,6 +31,8 @@ export interface NewSessionOptions {
   delivery?: MessageDelivery;
   /** Attachments to send with the opening prompt. */
   attachments?: Attachment[];
+  /** Resources to seed the session with, applied before the agent spawns. */
+  resources?: HostResourceInput[];
 }
 
 export interface NewSessionResult {
@@ -88,4 +92,7 @@ export interface TangentRuntime {
     bundleId: string,
     options?: NewSessionOptions,
   ): Promise<NewSessionResult>;
+  listResources(sessionId: string): Promise<Resource[]>;
+  addResource(sessionId: string, input: HostResourceInput): Promise<Resource>;
+  removeResource(sessionId: string, uri: string): Promise<void>;
 }

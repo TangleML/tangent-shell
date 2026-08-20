@@ -382,7 +382,12 @@ export interface PinnedArtifact {
 }
 
 /** What a catalogued resource is: content the session holds, by origin. */
-export type ResourceKind = "file" | "memory" | "attachment" | "artifact";
+export type ResourceKind =
+  | "file"
+  | "memory"
+  | "attachment"
+  | "artifact"
+  | "host";
 
 /**
  * A catalogued piece of content in a session — a pinned `artifact`, a human
@@ -412,6 +417,26 @@ export interface Resource {
 /** Response from `GET /api/sessions/:id/resources`. */
 export interface ListResourcesResponse {
   resources: Resource[];
+}
+
+/**
+ * A resource the embed host may seed at session create or add afterwards. A
+ * `memory` entry writes the session (or global) memory store the agent reads; a
+ * `host` entry is host-owned content (e.g. a known pipeline) whose `meta` is
+ * free-form JSON the shell does not interpret.
+ */
+export type HostResourceInput =
+  | { kind: "memory"; scope?: MemoryScope; content: string }
+  | {
+      kind: "host";
+      name: string;
+      uri: string;
+      meta?: Record<string, unknown>;
+    };
+
+/** Response from `POST /api/sessions/:id/resources`: the stored resource. */
+export interface AddResourceResponse {
+  resource: Resource;
 }
 
 /** Response from `GET /api/sessions/:id/triggers`. */
@@ -974,6 +999,11 @@ export interface CreateSessionRequest {
   name?: string;
   /** Marketplace agent bundle id to create the session from. */
   bundleId: string;
+  /**
+   * Resources to seed the session with, applied before the agent spawns so
+   * memory seeds and host entries are standing context from the first turn.
+   */
+  resources?: HostResourceInput[];
 }
 
 export interface UpdateSessionRequest {
@@ -1358,6 +1388,7 @@ export const SocketEvents = {
   TriggerRemoved: "trigger:removed",
   ArtifactPin: "artifact:pin",
   ArtifactUnpin: "artifact:unpin",
+  ResourcesUpdated: "resources:updated",
   UiCommand: "ui:command",
   SessionStatusSubscribe: "session:status:subscribe",
   SessionStatusSnapshot: "session:status:snapshot",

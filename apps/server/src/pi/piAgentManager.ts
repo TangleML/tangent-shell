@@ -36,6 +36,7 @@ import {
   type SubagentSpawnRequest,
 } from "./agentConfig.ts";
 import { loadInstalledConfig } from "./config/bundleLoader.ts";
+import type { HostResourcePreamble } from "./hostResourcePreamble.ts";
 import type { MemoryManager } from "./memory.ts";
 import {
   type AgentDescriptor,
@@ -56,6 +57,7 @@ import {
   parsePiEvent,
   PROXY_PROVIDER_EXTENSION,
   readDelta,
+  RESOURCES_EXTENSION,
   SESSION_EXTENSION,
   toDescriptor,
   toolActivityLabel,
@@ -260,15 +262,18 @@ function buildPiArgs(
     // Orchestrator gives Prime its sub-agent tools; the proxy-provider
     // extension registers Pi's providers against the LLM proxy (required in
     // environments without an auto-discovered `~/.pi/agent` config); the memory
-    // extension registers the read/remember tools; the triggers extension gives
-    // Prime its create/list/enable/disable/delete trigger tools; the session
-    // extension gives Prime its rename_session tool.
+    // extension registers the read/remember tools; the resources extension
+    // registers read_resources; the triggers extension gives Prime its
+    // create/list/enable/disable/delete trigger tools; the session extension
+    // gives Prime its rename_session tool.
     "--extension",
     ORCHESTRATOR_EXTENSION,
     "--extension",
     PROXY_PROVIDER_EXTENSION,
     "--extension",
     MEMORY_EXTENSION,
+    "--extension",
+    RESOURCES_EXTENSION,
     "--extension",
     TRIGGERS_EXTENSION,
     "--extension",
@@ -348,6 +353,23 @@ function canReviveSubagent(
   if (agent.role !== "subagent") return false;
   if (!RESTORABLE_STATUSES.includes(agent.status)) return false;
   return !session.agents.has(agent.id);
+}
+
+/** The environment a spawned Pi process inherits, tagging it with its session. */
+function spawnEnv(
+  sessionId: string,
+  descriptor: AgentDescriptor,
+): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    TANGENT_SESSION_ID: sessionId,
+    TANGENT_AGENT_ID: descriptor.agentId,
+    TANGENT_AGENT_ROLE: descriptor.role,
+    // Gates the extension's orchestration-tool grant on capability, not role.
+    TANGENT_AGENT_CAPABILITIES: capabilities(descriptor.role),
+    TANGENT_INTERNAL_URL: INTERNAL_URL,
+    ...piCredential.spawnEnv(),
+  };
 }
 
 /** Extracts the per-agent {@link SpawnExtras} from a session's bundle config. */
@@ -461,6 +483,11 @@ export class PiAgentManager {
    */
   private readonly runs: RunRegistry;
   /**
+   * Spawn-time projection of each session's host resources, appended to every
+   * agent's preamble. Optional so a bare manager (e.g. a test) skips it.
+   */
+  private readonly hostResources?: HostResourcePreamble;
+  /**
    * Process launcher, injectable so tests can supply a fake child without
    * spawning a real `pi` binary. Defaults to Node's {@link spawn}.
    */
@@ -475,12 +502,14 @@ export class PiAgentManager {
     handlers: ConversationEventSink,
     memory: MemoryManager,
     runs: RunRegistry,
+    hostResources?: HostResourcePreamble,
     spawnProcess: typeof spawn = spawn,
   ) {
     this.spawnProcess = spawnProcess;
     this.handlers = handlers;
     this.memory = memory;
     this.runs = runs;
+    this.hostResources = hostResources;
   }
 
   /**
@@ -954,6 +983,19 @@ export class PiAgentManager {
     }
   }
 
+  /**
+   * The standing-context preambles appended to every agent's system prompt: the
+   * current user, the session + global memory, and the host resources the
+   * embedding app attached. Empty entries are dropped downstream.
+   */
+  private spawnPreambles(sessionId: string, session: SessionAgents): string[] {
+    return [
+      buildUserPreamble(session.user),
+      this.memory.buildPreamble(session.rootPath),
+      this.hostResources?.get(sessionId) ?? "",
+    ];
+  }
+
   private spawnAgent(
     sessionId: string,
     session: SessionAgents,
@@ -967,23 +1009,12 @@ export class PiAgentManager {
     const extras = spawnExtras(session.config);
     logSpawn(sessionId, descriptor, session.rootPath, config, extras);
 
-    const memoryPreamble = this.memory.buildPreamble(session.rootPath);
-    const userPreamble = buildUserPreamble(session.user);
     const child = this.spawnProcess(
       PI_BIN,
-      buildPiArgs(config, extras, [userPreamble, memoryPreamble]),
+      buildPiArgs(config, extras, this.spawnPreambles(sessionId, session)),
       {
         cwd: session.rootPath,
-        env: {
-          ...process.env,
-          TANGENT_SESSION_ID: sessionId,
-          TANGENT_AGENT_ID: descriptor.agentId,
-          TANGENT_AGENT_ROLE: descriptor.role,
-          // Gates the extension's orchestration-tool grant on capability, not role.
-          TANGENT_AGENT_CAPABILITIES: capabilities(descriptor.role),
-          TANGENT_INTERNAL_URL: INTERNAL_URL,
-          ...piCredential.spawnEnv(),
-        },
+        env: spawnEnv(sessionId, descriptor),
         stdio: ["pipe", "pipe", "pipe"],
       },
     ) as ChildProcessWithoutNullStreams;

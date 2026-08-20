@@ -619,6 +619,12 @@ class SessionChatRoom {
       });
     });
 
+    socket.on(SocketEvents.ResourcesUpdated, () => {
+      void queryClient.invalidateQueries({
+        queryKey: SessionQueryKeys.Resources(sessionId),
+      });
+    });
+
     socket.on(
       SocketEvents.MemorySuggestion,
       (suggestion: MemorySuggestionPayload) => {

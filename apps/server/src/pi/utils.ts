@@ -44,6 +44,17 @@ export const MEMORY_EXTENSION = path.join(
 );
 
 /**
+ * Absolute path to the resources extension loaded into every Pi process. It
+ * registers the `read_resources` tool so any agent can re-read the host
+ * resources the embedding app attached, which can change after spawn.
+ */
+export const RESOURCES_EXTENSION = path.join(
+  import.meta.dirname,
+  "extensions",
+  "resources.ts",
+);
+
+/**
  * Absolute path to the triggers extension loaded into every Pi process. It
  * registers Prime-only tools to create, list, enable, disable, and delete the
  * session's triggers (schedule + callback) when the user asks.

@@ -1,11 +1,38 @@
 import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { z } from "zod";
 
+/**
+ * A resource the host may seed at create or add later. Only `memory` and `host`
+ * are host-writable; artifacts, attachments, and files stay on their own
+ * mechanisms and are rejected here.
+ */
+export const hostResourceInputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("memory"),
+    scope: z.enum(["session", "global"]).optional(),
+    content: z.string().trim().min(1),
+  }),
+  z.object({
+    kind: z.literal("host"),
+    name: z.string().trim().min(1),
+    uri: z.string().trim().min(1),
+    meta: z.record(z.string(), z.unknown()).optional(),
+  }),
+]);
+export type HostResourceInputBody = z.infer<typeof hostResourceInputSchema>;
+
 export const createSessionSchema = z.object({
   name: z.string().optional(),
   bundleId: z.string().min(1),
+  resources: z.array(hostResourceInputSchema).optional(),
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
+
+/** `DELETE /:id/resources` query: the resource uri to remove. */
+export const deleteResourceQuerySchema = z.object({
+  uri: z.string().min(1),
+});
+export type DeleteResourceQuery = z.infer<typeof deleteResourceQuerySchema>;
 
 /** Update-session body. */
 export const updateSessionSchema = z.object({
