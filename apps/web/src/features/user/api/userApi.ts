@@ -1,6 +1,6 @@
 import { DEFAULT_USER, type UserIdentity } from "@tangent/shared/contracts";
 
-import { apiUrl } from "@/shared/lib/basePath";
+import { apiFetch } from "@/shared/lib/apiFetch";
 
 /**
  * Fetches the current user from `GET /api/me`. The endpoint returns `401`/`501`
@@ -10,7 +10,7 @@ import { apiUrl } from "@/shared/lib/basePath";
  */
 export async function getMe(): Promise<UserIdentity> {
   try {
-    const res = await fetch(apiUrl("/api/me"));
+    const res = await apiFetch("/api/me");
     if (!res.ok) return DEFAULT_USER;
     return (await res.json()) as UserIdentity;
   } catch {

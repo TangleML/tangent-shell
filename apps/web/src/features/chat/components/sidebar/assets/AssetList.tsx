@@ -42,12 +42,10 @@ export function AssetList({
 
   const copyCallback = (trigger: Trigger): void => {
     if (!trigger.callbackPath) return;
-    // In dev the API lives behind the Vite proxy at API_TARGET, so the copied
-    // callback URL must use that origin (not the dev server) to be reachable by
-    // external callers. In production __API_ORIGIN__ is empty and the app is
-    // served from the backend, so the current origin is correct.
-    const base = __API_ORIGIN__ || window.location.origin;
-    const url = `${base}${apiUrl(trigger.callbackPath)}`;
+    const path = apiUrl(trigger.callbackPath);
+    const url = /^https?:\/\//.test(path)
+      ? path
+      : `${__API_ORIGIN__ || window.location.origin}${path}`;
     void navigator.clipboard?.writeText(url);
   };
 

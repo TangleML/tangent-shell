@@ -12,7 +12,7 @@ import type {
   UploadFilesResponse,
 } from "@tangent/shared/contracts";
 
-import { apiUrl } from "@/shared/lib/basePath";
+import { apiFetch } from "@/shared/lib/apiFetch";
 
 export type CreateSessionInput = CreateSessionRequest;
 
@@ -26,14 +26,14 @@ async function parseJson<T>(res: Response): Promise<T> {
 
 export async function listSessions(): Promise<Session[]> {
   const data = await parseJson<{ sessions: Session[] }>(
-    await fetch(apiUrl("/api/sessions")),
+    await apiFetch("/api/sessions"),
   );
   return data.sessions;
 }
 
 export async function getSession(id: string): Promise<Session> {
   const data = await parseJson<{ session: Session }>(
-    await fetch(apiUrl(`/api/sessions/${id}`)),
+    await apiFetch(`/api/sessions/${id}`),
   );
   return data.session;
 }
@@ -42,7 +42,7 @@ export async function createSession(
   input: CreateSessionInput,
 ): Promise<Session> {
   const data = await parseJson<{ session: Session }>(
-    await fetch(apiUrl("/api/sessions"), {
+    await apiFetch("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -56,7 +56,7 @@ export async function updateSession(
   input: UpdateSessionRequest,
 ): Promise<Session> {
   const data = await parseJson<{ session: Session }>(
-    await fetch(apiUrl(`/api/sessions/${id}`), {
+    await apiFetch(`/api/sessions/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -78,7 +78,7 @@ export async function uploadFiles(
   for (const file of files) form.append("files", file);
 
   const data = await parseJson<UploadFilesResponse>(
-    await fetch(apiUrl(`/api/sessions/${sessionId}/files`), {
+    await apiFetch(`/api/sessions/${sessionId}/files`, {
       method: "POST",
       body: form,
     }),
@@ -122,7 +122,7 @@ export async function listResources(
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   const data = await parseJson<ListResourcesResponse>(
-    await fetch(apiUrl(`/api/sessions/${sessionId}/resources${suffix}`)),
+    await apiFetch(`/api/sessions/${sessionId}/resources${suffix}`),
   );
   return data.resources;
 }
@@ -135,7 +135,7 @@ export async function listParticipants(
   sessionId: string,
 ): Promise<ParticipantWithMemberships[]> {
   const data = await parseJson<ListParticipantsResponse>(
-    await fetch(apiUrl(`/api/sessions/${sessionId}/participants`)),
+    await apiFetch(`/api/sessions/${sessionId}/participants`),
   );
   return data.participants;
 }
@@ -152,7 +152,7 @@ export async function inviteParticipant(
   input: InviteParticipantInput,
 ): Promise<ParticipantView> {
   const data = await parseJson<{ participant: ParticipantView }>(
-    await fetch(apiUrl(`/api/sessions/${sessionId}/participants`), {
+    await apiFetch(`/api/sessions/${sessionId}/participants`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -166,8 +166,8 @@ export async function revokeParticipant(
   sessionId: string,
   participantId: string,
 ): Promise<void> {
-  const res = await fetch(
-    apiUrl(`/api/sessions/${sessionId}/participants/${participantId}`),
+  const res = await apiFetch(
+    `/api/sessions/${sessionId}/participants/${participantId}`,
     { method: "DELETE" },
   );
   if (!res.ok) {
@@ -182,10 +182,8 @@ export async function joinMembership(
   conversationId: string,
 ): Promise<MembershipView | null> {
   const data = await parseJson<{ membership: MembershipView | null }>(
-    await fetch(
-      apiUrl(
-        `/api/sessions/${sessionId}/participants/${participantId}/memberships`,
-      ),
+    await apiFetch(
+      `/api/sessions/${sessionId}/participants/${participantId}/memberships`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -202,10 +200,8 @@ export async function leaveMembership(
   participantId: string,
   conversationId: string,
 ): Promise<void> {
-  const res = await fetch(
-    apiUrl(
-      `/api/sessions/${sessionId}/participants/${participantId}/memberships/${conversationId}`,
-    ),
+  const res = await apiFetch(
+    `/api/sessions/${sessionId}/participants/${participantId}/memberships/${conversationId}`,
     { method: "DELETE" },
   );
   if (!res.ok) {
@@ -225,10 +221,8 @@ export async function muteMembership(
   muted: boolean,
 ): Promise<MembershipView> {
   const data = await parseJson<{ membership: MembershipView }>(
-    await fetch(
-      apiUrl(
-        `/api/sessions/${sessionId}/participants/${participantId}/memberships/${conversationId}`,
-      ),
+    await apiFetch(
+      `/api/sessions/${sessionId}/participants/${participantId}/memberships/${conversationId}`,
       {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -240,7 +234,7 @@ export async function muteMembership(
 }
 
 export async function markSessionViewed(id: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/sessions/${id}/viewed`), {
+  const res = await apiFetch(`/api/sessions/${id}/viewed`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -249,7 +243,7 @@ export async function markSessionViewed(id: string): Promise<void> {
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/sessions/${id}`), { method: "DELETE" });
+  const res = await apiFetch(`/api/sessions/${id}`, { method: "DELETE" });
   if (!res.ok) {
     throw new Error(`Failed to delete session (status ${res.status})`);
   }
