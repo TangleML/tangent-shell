@@ -6,11 +6,14 @@ directly (no npm wrapper), to exercise the runtime bundle, shadow-DOM styling,
 token and a serif font so you can confirm styles do not leak either way.
 
 The page lays out `<tangent-session-list>` (click a row to swap the chat), a
-column of `<tangent-agent-list>` + `<tangent-asset-list>`, `<tangent-chat>`, and
-`<tangent-artifact-viewer>` (revealed when the chat or asset list opens a page).
-Clicking an agent sets `chat.agentId` so the host can show that subagent's
-thread. `<tangent-bundled-ui>` is registered by the same runtime; drive it from
-your own host page by setting `moduleUrl` + `kind`.
+column of `<tangent-agent-list>` + `<tangent-asset-list>` +
+`<tangent-resource-list>` + `<tangent-participant-list>`, `<tangent-chat>`, and
+`<tangent-artifact-viewer>` (revealed when the chat, asset list, or resource
+list opens a page). Clicking an agent sets `chat.agentId` so the host can show
+that subagent's thread. Opening a viewable resource points the artifact viewer
+at it; toggling a participant's mute mutates the shared session and logs
+`toggle-mute`. `<tangent-bundled-ui>` is registered by the same runtime; drive
+it from your own host page by setting `moduleUrl` + `kind`.
 
 ## Build the runtime first
 
@@ -69,3 +72,9 @@ first `/api/sessions` call is blocked cross-origin.
   runtime.
 - Clicking an agent in `<tangent-agent-list>` sets `chat.agentId` (Prime clears
   it); clicking a page in `<tangent-asset-list>` reveals the artifact viewer.
+- `<tangent-resource-list>` surfaces the session's catalogued content read-only;
+  opening a viewable `file`/`artifact` reveals the artifact viewer at its
+  resolved url, while `memory`/`attachment` rows are inert.
+- `<tangent-participant-list>` shows the roster with live presence; the mute
+  toggle on an agent in the active Conversation mutates the shared session and
+  emits `toggle-mute`.

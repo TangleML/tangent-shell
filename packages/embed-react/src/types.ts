@@ -136,6 +136,16 @@ export interface TangentAssetListElementLike extends HTMLElement {
   selectedId: string;
 }
 
+export interface TangentResourceListElementLike extends HTMLElement {
+  sessionId: string;
+  agentId: string;
+}
+
+export interface TangentParticipantListElementLike extends HTMLElement {
+  sessionId: string;
+  agentId: string;
+}
+
 /** An agent row emitted by `<AgentList onOpen>`. */
 export interface EmbedAgent {
   id: string;
@@ -143,6 +153,24 @@ export interface EmbedAgent {
   kind: "prime" | "subagent";
   status: string;
   conversationId: string;
+}
+
+/** A resource row emitted by `<ResourceList onOpen>`. */
+export interface EmbedResourceRow {
+  id: string;
+  kind: EmbedResourceKind;
+  name: string;
+  uri: string;
+  /** The viewable file API url, resolved for a `file`/`artifact`. */
+  url: string;
+  authorParticipantId?: string;
+}
+
+/** A mute toggle emitted by `<ParticipantList onToggleMute>`. */
+export interface EmbedMuteToggle {
+  participantId: string;
+  conversationId: string;
+  muted: boolean;
 }
 
 /** An asset row emitted by `<AssetList onOpen>`. */

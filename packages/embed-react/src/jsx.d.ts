@@ -15,6 +15,8 @@ declare module "react" {
       "tangent-bundled-ui": TangentElementProps;
       "tangent-agent-list": TangentElementProps;
       "tangent-asset-list": TangentElementProps;
+      "tangent-resource-list": TangentElementProps;
+      "tangent-participant-list": TangentElementProps;
     }
   }
 }
