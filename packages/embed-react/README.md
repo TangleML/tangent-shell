@@ -240,6 +240,51 @@ inside the element, with `onUnpin` so the host can close a matching viewer.
 | `instance`           | `string`          | Disambiguate multiple providers.                  |
 | `className`, `style` | —                 | Forwarded; size it with `height`.                 |
 
+### `<ResourceList>`
+
+Renders the session's catalogued content read-only — pinned artifacts, human
+attachments, memory documents, and workspace files. Opening a viewable
+`file`/`artifact` fires `onOpen` with a resolved `url`; other kinds
+(`memory`, `attachment`) are inert rows. Scopes to `agentId`'s Conversation
+when set, otherwise Prime's.
+
+```tsx
+<ResourceList
+  sessionId={sessionId}
+  onOpen={(resource) => openViewer(resource.url, resource.name)}
+/>
+```
+
+| Prop                 | Type                 | Notes                                                           |
+| -------------------- | -------------------- | --------------------------------------------------------------- |
+| `sessionId`          | `string`             | The session whose resources to render.                          |
+| `onOpen`             | `(resource) => void` | A viewable row was clicked. `resource.url` is ready to open.    |
+| `agentId`            | `string`             | Scopes the catalog to that agent's Conversation (else Prime's). |
+| `instance`           | `string`             | Disambiguate multiple providers.                                |
+| `className`, `style` | —                    | Forwarded; size it with `height`.                               |
+
+### `<ParticipantList>`
+
+Renders the session's roster (humans, agents, automations) with live presence,
+the orchestrator marked, and a mute toggle for an agent in the active
+Conversation. The toggle mutates the shared session directly; `onToggleMute`
+fires afterwards so the host can react.
+
+```tsx
+<ParticipantList
+  sessionId={sessionId}
+  onToggleMute={(t) => console.log("muted", t.participantId, t.muted)}
+/>
+```
+
+| Prop                 | Type               | Notes                                                                    |
+| -------------------- | ------------------ | ------------------------------------------------------------------------ |
+| `sessionId`          | `string`           | The session whose roster to render.                                      |
+| `onToggleMute`       | `(toggle) => void` | An agent's mute was toggled: `{ participantId, conversationId, muted }`. |
+| `agentId`            | `string`           | The Conversation a mute acts on (else Prime's thread).                   |
+| `instance`           | `string`           | Disambiguate multiple providers.                                         |
+| `className`, `style` | —                  | Forwarded; size it with `height`.                                        |
+
 ### `<ArtifactViewer>`
 
 Renders an opened artifact (markdown, PDF, images, HTML). Point it at a resolved

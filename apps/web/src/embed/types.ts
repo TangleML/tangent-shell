@@ -3,6 +3,7 @@ import type {
   HostResourceInput,
   MessageDelivery,
   Resource,
+  ResourceKind,
   ThinkingLevel,
 } from "@tangent/shared/contracts";
 
@@ -64,6 +65,24 @@ export type EmbedAssetPayload =
       triggerKind: string;
       enabled: boolean;
     };
+
+/** Serializable resource row handed to the host via `open-resource`. */
+export interface EmbedResourcePayload {
+  id: string;
+  kind: ResourceKind;
+  name: string;
+  uri: string;
+  /** The viewable file API url, resolved from `uri` for a `file`/`artifact`. */
+  url: string;
+  authorParticipantId?: string;
+}
+
+/** Serializable mute toggle handed to the host via `toggle-mute`. */
+export interface EmbedMuteTogglePayload {
+  participantId: string;
+  conversationId: string;
+  muted: boolean;
+}
 
 /** A prompt queued for a session, drained by `<tangent-chat>` once joined. */
 export interface PendingPrompt {

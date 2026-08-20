@@ -80,6 +80,10 @@
           <div class="side-lists">
             <tangent-agent-list id="agents"></tangent-agent-list>
             <tangent-asset-list id="assets"></tangent-asset-list>
+            <tangent-resource-list id="resources"></tangent-resource-list>
+            <tangent-participant-list
+              id="participants"
+            ></tangent-participant-list>
           </div>
           <tangent-chat id="chat" style="height: 100%"></tangent-chat>
           <tangent-artifact-viewer id="artifact"></tangent-artifact-viewer>
@@ -106,6 +110,8 @@
       const sessions = document.getElementById("sessions");
       const agents = document.getElementById("agents");
       const assets = document.getElementById("assets");
+      const resources = document.getElementById("resources");
+      const participants = document.getElementById("participants");
       const artifact = document.getElementById("artifact");
 
       // Selecting a session in the list swaps the chat surface.
@@ -140,6 +146,20 @@
         console.log("[host] unpin-asset", e.detail);
       });
 
+      // Opening a viewable resource reveals the artifact viewer at its url.
+      resources.addEventListener("open-resource", (e) => {
+        const resource = e.detail;
+        artifact.sessionId = chat.sessionId;
+        artifact.url = resource.url;
+        artifact.title = resource.name;
+        artifact.setAttribute("data-open", "");
+        console.log("[host] open-resource", resource);
+      });
+
+      participants.addEventListener("toggle-mute", (e) =>
+        console.log("[host] toggle-mute", e.detail),
+      );
+
       // The host decides what "open an artifact" means. Here: reveal the viewer.
       chat.addEventListener("open-artifact", (e) => {
         artifact.sessionId = chat.sessionId;
@@ -167,6 +187,10 @@
         agents.selectedId = "";
         assets.sessionId = sessionId;
         assets.selectedId = "";
+        resources.sessionId = sessionId;
+        resources.agentId = "";
+        participants.sessionId = sessionId;
+        participants.agentId = "";
         artifact.removeAttribute("data-open");
         status.textContent = `session ${sessionId}`;
       }
