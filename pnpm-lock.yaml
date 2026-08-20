@@ -45,6 +45,9 @@ importers:
       '@tangent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@tangent/ui-extensions-sdk':
+        specifier: workspace:*
+        version: link:../../packages/ui-extensions-sdk
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
@@ -136,6 +139,9 @@ importers:
       '@tangent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@tangent/ui-extensions-sdk':
+        specifier: workspace:*
+        version: link:../../packages/ui-extensions-sdk
       '@tangent/ui-primitives':
         specifier: workspace:*
         version: link:../../packages/ui-primitives
@@ -319,6 +325,49 @@ importers:
       eslint:
         specifier: ^10.4.0
         version: 10.4.0(jiti@2.7.0)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/ui-extensions-sdk:
+    dependencies:
+      esbuild:
+        specifier: 0.28.0
+        version: 0.28.0
+      lucide-react:
+        specifier: ^1.17.0
+        version: 1.17.0(react@19.2.6)
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../build
+      '@tangent/ui-primitives':
+        specifier: workspace:*
+        version: link:../ui-primitives
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      '@types/react':
+        specifier: ^19.2.15
+        version: 19.2.15
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      prettier:
+        specifier: ^3.8.3
+        version: 3.8.4
+      react:
+        specifier: ^19.2.6
+        version: 19.2.6
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

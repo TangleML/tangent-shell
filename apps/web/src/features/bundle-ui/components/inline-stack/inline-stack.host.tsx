@@ -1,6 +1,6 @@
+import { attributes } from "@tangent/ui-extensions-sdk/contracts/inline-stack";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 
 import { makeHostComponent } from "../_shared/make-host-component";
-import { attributes } from "./inline-stack.contract";
 
 export const InlineStackHost = makeHostComponent(InlineStack, attributes);

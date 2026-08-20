@@ -1,6 +1,11 @@
+import {
+  attributes,
+  events,
+  TAG,
+} from "@tangent/ui-extensions-sdk/contracts/card-header";
+
 import { makeAuthorComponent } from "../_shared/author-component";
 import { defineRemoteElement } from "../_shared/define-remote-element";
-import { attributes, events, TAG } from "./card-header.contract";
 
 const CardHeaderElement = defineRemoteElement(TAG, attributes, events);
 
