@@ -205,6 +205,28 @@ export class MemoryManager {
       : this.writeSession(rootPath, text, replaces);
   }
 
+  /**
+   * Empties a store back to its header, so removing a memory resource leaves the
+   * store the agent reads consistent with the catalog. Global also refreshes the
+   * session snapshot.
+   */
+  clear(rootPath: string, scope: MemoryScope): void {
+    if (scope === "global") {
+      this.ensureGlobalFile();
+      writeFileSync(this.globalFile(), header("Global memory"));
+      try {
+        writeFileSync(
+          this.sessionGlobalSnapshot(rootPath),
+          header("Global memory"),
+        );
+      } catch {
+        // Snapshot refresh is best-effort; the canonical write already succeeded.
+      }
+      return;
+    }
+    writeFileSync(this.sessionFile(rootPath), header("Session memory"));
+  }
+
   /** Records an agent-initiated suggestion and returns its id. */
   addSuggestion(
     sessionId: string,

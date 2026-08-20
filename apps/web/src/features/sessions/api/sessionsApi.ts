@@ -1,6 +1,8 @@
 import type {
+  AddResourceResponse,
   Attachment,
   CreateSessionRequest,
+  HostResourceInput,
   ListParticipantsResponse,
   ListResourcesResponse,
   MembershipView,
@@ -125,6 +127,38 @@ export async function listResources(
     await apiFetch(`/api/sessions/${sessionId}/resources${suffix}`),
   );
   return data.resources;
+}
+
+/**
+ * Adds one resource to a session — a memory write or a host entry (e.g. a known
+ * pipeline). Returns the stored resource; re-adding the same `uri` updates it.
+ */
+export async function addResource(
+  sessionId: string,
+  input: HostResourceInput,
+): Promise<Resource> {
+  const data = await parseJson<AddResourceResponse>(
+    await apiFetch(`/api/sessions/${sessionId}/resources`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+  return data.resource;
+}
+
+/** Removes a resource by its `uri`. Removing a memory store clears it. */
+export async function removeResource(
+  sessionId: string,
+  uri: string,
+): Promise<void> {
+  const res = await apiFetch(
+    `/api/sessions/${sessionId}/resources?uri=${encodeURIComponent(uri)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to remove resource (status ${res.status})`);
+  }
 }
 
 /**

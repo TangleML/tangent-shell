@@ -1,4 +1,9 @@
-import { createSession } from "@/features/sessions/api/sessionsApi";
+import {
+  addResource,
+  createSession,
+  listResources,
+  removeResource,
+} from "@/features/sessions/api/sessionsApi";
 import { configureEmbedApi, type EmbedApiConfig } from "@/shared/lib/basePath";
 
 import type {
@@ -57,7 +62,11 @@ export function createRuntime(init: {
       bundleId: string,
       options?: NewSessionOptions,
     ): Promise<NewSessionResult> {
-      const session = await createSession({ bundleId, name: options?.name });
+      const session = await createSession({
+        bundleId,
+        name: options?.name,
+        resources: options?.resources,
+      });
       pending.set(session.id, {
         prompt,
         delivery: options?.delivery,
@@ -66,6 +75,15 @@ export function createRuntime(init: {
         thinkingDepth: options?.thinkingDepth,
       });
       return { sessionId: session.id };
+    },
+    listResources(sessionId) {
+      return listResources(sessionId);
+    },
+    addResource(sessionId, input) {
+      return addResource(sessionId, input);
+    },
+    removeResource(sessionId, uri) {
+      return removeResource(sessionId, uri);
     },
   };
 }

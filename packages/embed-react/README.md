@@ -86,7 +86,7 @@ Loads the runtime once and owns the shared configuration.
 
 ### `useTangent()`
 
-Returns `{ newSession }`.
+Returns `{ newSession, listResources, addResource, removeResource }`.
 
 ```ts
 newSession(
@@ -98,13 +98,71 @@ newSession(
     thinkingDepth?: string;
     delivery?: "auto" | "steer" | "followUp";
     attachments?: unknown[];
+    resources?: HostResourceInput[];
   },
 ): Promise<{ sessionId: string }>;
 ```
 
 Creates a session from the bundle and queues `prompt`; the chat sends it once it
 joins, so it never races the agent. Render `<Chat sessionId={...} />` with the
-returned id.
+returned id. Pass `options.resources` to seed the session before the agent
+spawns, so the seeds are standing context from the first turn.
+
+#### Resources
+
+A session holds a catalog of resources — memory documents, host-provided
+entries, attachments, and workspace files. The host can seed, add, list, and
+remove the two kinds it owns (`memory` and `host`); artifacts, attachments, and
+files stay on their own mechanisms and are read-only through this API.
+
+```ts
+type HostResourceInput =
+  | { kind: "memory"; scope?: "session" | "global"; content: string }
+  | { kind: "host"; name: string; uri: string; meta?: Record<string, unknown> };
+
+listResources(sessionId: string): Promise<EmbedResource[]>;
+addResource(sessionId: string, input: HostResourceInput): Promise<EmbedResource>;
+removeResource(sessionId: string, uri: string): Promise<void>;
+```
+
+A `memory` entry writes the session (or global) memory store the agent reads and
+consults from its first turn. A `host` entry is host-owned content the shell
+surfaces but does not interpret — `uri` is a host-stable id and `meta` is
+free-form JSON. Removing a `memory` resource clears that store; removing a
+`host` resource drops the catalog entry.
+
+```tsx
+const { newSession, addResource } = useTangent();
+
+const { sessionId } = await newSession(
+  "Draft a pipeline that ingests orders and flags anomalies.",
+  "tangle-oss",
+  {
+    name: "Anomaly pipeline",
+    resources: [
+      { kind: "memory", scope: "session", content: "Prefer concise plans." },
+      {
+        kind: "host",
+        name: "Orders pipeline",
+        uri: "https://tangent.example/pipelines/orders",
+        meta: {
+          url: "https://tangent.example/pipelines/orders",
+          name: "Orders pipeline",
+          description: "Ingests orders and flags anomalies.",
+        },
+      },
+    ],
+  },
+);
+
+// Add another known pipeline later:
+await addResource(sessionId, {
+  kind: "host",
+  name: "Returns pipeline",
+  uri: "https://tangent.example/pipelines/returns",
+  meta: { url: "...", name: "Returns pipeline", description: "..." },
+});
+```
 
 ### `<Chat>`
 

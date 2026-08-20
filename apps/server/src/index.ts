@@ -2,6 +2,7 @@ import "./loadEnv.ts";
 
 import { createServer } from "node:http";
 
+import { SocketEvents } from "@tangent/shared/contracts.ts";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
@@ -18,6 +19,7 @@ import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { createRelayReport } from "./mcp/relayReport.ts";
 import { createEmbedCors } from "./middleware/embedCors.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
+import { HostResourcePreamble } from "./pi/hostResourcePreamble.ts";
 import { MemoryManager } from "./pi/memory.ts";
 import {
   type ConversationEventSink,
@@ -34,6 +36,7 @@ import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalExternalAgentsRouter } from "./routes/internalExternalAgents.ts";
 import { createInternalMcpRelayRouter } from "./routes/internalMcpRelay.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
+import { createInternalResourcesRouter } from "./routes/internalResources.ts";
 import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createMcpRelayRouter } from "./routes/mcp.ts";
@@ -55,6 +58,7 @@ import {
   createParticipantPresenceEmitter,
   PresenceTracker,
 } from "./sockets/presenceTracker.ts";
+import { roomFor } from "./sockets/rooms.ts";
 import { createUiCommandEmitter } from "./sockets/sessionRoster.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
@@ -107,6 +111,12 @@ const onMemorySuggestion = createMemorySuggestionHandler(io);
 // Pushes generic agent->UI directives (e.g. session rename) to the room.
 const emitUiCommand = createUiCommandEmitter(io);
 
+// Signals a session's room that its resource catalog changed, so open clients
+// refetch. Host resource CRUD has no ChatMessage to piggyback on.
+const emitResourcesUpdated = (sessionId: string): void => {
+  io.to(roomFor(sessionId)).emit(SocketEvents.ResourcesUpdated, { sessionId });
+};
+
 // Who is in each Conversation and what each of them reacts to. Rows are derived
 // from the agent roster on a cache miss, so a session the backfill never touched
 // still resolves; `acceptsDelivery` is read lazily because the registry it comes
@@ -126,6 +136,9 @@ const participantRegistry = new ParticipantRegistry(store, participants);
 // call, a finalized agent turn — goes through it. It also mirrors the content a
 // Message carries (attachments, memory writes) into the resource catalog.
 const resourceCatalog = new ResourceCatalog(resourceStore);
+// Spawn-time projection of each session's host resources, appended to every
+// agent's preamble and refreshed on every resource mutation.
+const hostResourcePreamble = new HostResourcePreamble(resourceCatalog);
 const conversations = new ConversationRouter(
   io,
   store,
@@ -161,7 +174,12 @@ void store.detachActiveSubagents().then((detached) => {
 // The manager runs a roster of Pi processes per session (Prime + sub-agents);
 // their streaming events and roster changes are relayed to the matching
 // Socket.IO room by the chat handlers.
-const pi = new PiAgentManager(agentHandlers, memory, runs);
+const pi = new PiAgentManager(
+  agentHandlers,
+  memory,
+  runs,
+  hostResourcePreamble,
+);
 
 // Hosts sub-agents inside a connected remote environment over the `/remote-env`
 // namespace. Remote sub-agents share the same event sink as local ones, so what
@@ -284,6 +302,9 @@ app.use(
     agentBundleStore,
     participantService,
     resourceCatalog,
+    memory,
+    hostResourcePreamble,
+    emitResourcesUpdated,
   ),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
@@ -326,6 +347,11 @@ app.use(
     onMemoryRemembered,
     onMemorySuggestion,
   ),
+);
+// Internal API for the resources extension running inside each Pi process.
+app.use(
+  "/internal/resources",
+  createInternalResourcesRouter(store, resourceCatalog),
 );
 // Internal API for the session extension running inside each Pi process.
 app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));

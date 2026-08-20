@@ -3,6 +3,45 @@ export type ColorScheme = "light" | "dark" | "system";
 /** Delivery routing for a prompt, mirroring the server's `MessageDelivery`. */
 export type MessageDelivery = "auto" | "steer" | "followUp";
 
+/** What a catalogued resource is, by origin. Mirrors the server's `ResourceKind`. */
+export type EmbedResourceKind =
+  | "file"
+  | "memory"
+  | "attachment"
+  | "artifact"
+  | "host";
+
+/**
+ * A catalogued piece of content in a session, as returned to the host. The
+ * bytes live elsewhere (a workspace path or a `memory://` / host URI); this is
+ * the catalog entry pointing at them.
+ */
+export interface EmbedResource {
+  id: string;
+  sessionId: string;
+  kind: EmbedResourceKind;
+  name: string;
+  uri: string;
+  authorParticipantId?: string;
+  meta?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/**
+ * A resource the host may seed at session create or add afterwards. A `memory`
+ * entry writes the session (or global) memory store the agent reads; a `host`
+ * entry is host-owned content (e.g. a known pipeline) whose `meta` is free-form
+ * JSON the shell does not interpret.
+ */
+export type HostResourceInput =
+  | { kind: "memory"; scope?: "session" | "global"; content: string }
+  | {
+      kind: "host";
+      name: string;
+      uri: string;
+      meta?: Record<string, unknown>;
+    };
+
 /** Host-driven theme inputs forwarded to `<tangent-provider>`. */
 export interface TangentThemeInputs {
   /** `system` follows the host's `prefers-color-scheme`. Defaults to `light`. */
@@ -26,6 +65,12 @@ export interface NewSessionOptions {
   delivery?: MessageDelivery;
   /** Attachments to send with the opening prompt. */
   attachments?: unknown[];
+  /**
+   * Resources to seed the session with. Applied server-side before the agent
+   * spawns, so memory seeds and host entries are standing context from the
+   * first turn.
+   */
+  resources?: HostResourceInput[];
 }
 
 export interface NewSessionResult {
@@ -39,6 +84,12 @@ export interface EmbedRuntimeHandle {
     bundleId: string,
     options?: NewSessionOptions,
   ): Promise<NewSessionResult>;
+  listResources(sessionId: string): Promise<EmbedResource[]>;
+  addResource(
+    sessionId: string,
+    input: HostResourceInput,
+  ): Promise<EmbedResource>;
+  removeResource(sessionId: string, uri: string): Promise<void>;
 }
 
 export interface TangentProviderElementLike extends HTMLElement {

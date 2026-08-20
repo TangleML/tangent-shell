@@ -3,6 +3,8 @@ import { type Request, type Response, Router } from "express";
 import type { ParticipantService } from "../../conversation/participantService.ts";
 import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
 import { getValidated, validate } from "../../middleware/validate.ts";
+import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
+import type { MemoryManager } from "../../pi/memory.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
@@ -17,6 +19,7 @@ import {
   handleMarkSessionViewed,
   handleUpdateSession,
   handleUploadFiles,
+  type SessionCreateDeps,
   uploadFiles,
 } from "./handlers.ts";
 import { registerParticipantRoutes } from "./participants.ts";
@@ -36,13 +39,10 @@ import { registerTriggerRoutes } from "./triggers.ts";
 /** Registers the session collection routes (`GET /` list, `POST /` create). */
 function registerSessionCollectionRoutes(
   router: Router,
-  store: SessionStore,
-  pi: PiAgentManager,
-  triggerEngine: TriggerEngine,
-  agentBundleStore: AgentBundleStore,
+  createDeps: SessionCreateDeps,
 ): void {
   router.get("/", (req: Request, res: Response) =>
-    handleListSessions(store, req, res),
+    handleListSessions(createDeps.store, req, res),
   );
 
   router.post(
@@ -50,10 +50,7 @@ function registerSessionCollectionRoutes(
     validate({ body: createSessionSchema }),
     (req: Request, res: Response) =>
       handleCreateSession(
-        store,
-        pi,
-        triggerEngine,
-        agentBundleStore,
+        createDeps,
         req,
         getValidated<CreateSessionInput>(req).body,
         res,
@@ -140,21 +137,35 @@ export function createSessionsRouter(
   agentBundleStore: AgentBundleStore,
   participants: ParticipantService,
   resources: ResourceCatalog,
+  memory: MemoryManager,
+  hostPreamble: HostResourcePreamble,
+  emitResourcesUpdated: (sessionId: string) => void,
 ): Router {
   const router = Router();
 
-  registerSessionCollectionRoutes(
-    router,
+  const createDeps: SessionCreateDeps = {
     store,
     pi,
     triggerEngine,
     agentBundleStore,
-  );
+    memory,
+    resources,
+    hostPreamble,
+    emitResourcesUpdated,
+  };
+
+  registerSessionCollectionRoutes(router, createDeps);
   registerSessionItemRoutes(router, store, pi, triggerEngine);
   registerSessionActivityRoutes(router, store);
   registerTriggerRoutes(router, store, triggers, triggerEngine);
   registerParticipantRoutes(router, store, participants);
-  registerResourceRoutes(router, store, resources);
+  registerResourceRoutes(router, {
+    store,
+    resources,
+    memory,
+    hostPreamble,
+    emitResourcesUpdated,
+  });
 
   // Declared after the trigger routes so the `*splat` catch-all doesn't shadow
   // the more specific `/:id/triggers/...` paths.
