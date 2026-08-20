@@ -58,9 +58,12 @@ COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 COPY packages/build/package.json packages/build/
 COPY packages/ui-primitives/package.json packages/ui-primitives/
+COPY packages/ui-extensions-sdk/package.json packages/ui-extensions-sdk/
 COPY packages/windows/package.json packages/windows/
 COPY packages/analytics/package.json packages/analytics/
 COPY packages/utils/package.json packages/utils/
+COPY packages/embed-react/package.json packages/embed-react/
+COPY packages/remote-subagent/package.json packages/remote-subagent/
 RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false
 
 # Server + UI source plus the shared workspace packages they build against

@@ -6,6 +6,7 @@ import {
   type RemoteAgentEventPayload,
   RemoteEnvEvents,
   type RemoteSpawnCommand,
+  type RemoteToolCallRequest,
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 
@@ -30,16 +31,33 @@ const ENV_TOKEN = "test-env-token";
 /** HMAC secret for scoped tokens in this harness. */
 const SCOPED_SECRET = "test-signing-secret";
 
+/** One thing an environment's socket was sent, with any ack callback. */
+interface SentEntry {
+  event: string;
+  payload: unknown;
+  ack?: (err: Error | null, response: unknown) => void;
+}
+
 /** An environment's socket: what it was sent, and what it listens for. */
 function fakeSocket(auth: Record<string, unknown>) {
-  const listeners = new Map<string, (payload: unknown) => void>();
-  const sent: Array<{ event: string; payload: unknown }> = [];
+  const listeners = new Map<string, (...args: unknown[]) => void>();
+  const sent: SentEntry[] = [];
+  const emit = (event: string, payload: unknown, ack?: unknown) =>
+    sent.push({
+      event,
+      payload,
+      ack: ack as SentEntry["ack"],
+    });
   const socket = {
     handshake: { auth },
     data: {} as Record<string, unknown>,
-    on: (event: string, handler: (payload: unknown) => void) =>
+    connected: true,
+    on: (event: string, handler: (...args: unknown[]) => void) =>
       listeners.set(event, handler),
-    emit: (event: string, payload: unknown) => sent.push({ event, payload }),
+    emit,
+    // The ack path (`socket.timeout(ms).emit(event, payload, cb)`) chains off a
+    // timeout; the fake ignores the duration and reuses the same emit.
+    timeout: () => ({ emit }),
     disconnect: () => listeners.get("disconnect")?.(undefined),
   } as unknown as Socket;
   return { socket, listeners, sent };
@@ -416,4 +434,108 @@ test("a remote spawn resolves tools and prompt from the session's editor templat
   assert.ok(command.tools.includes("csom_edit"));
   assert.match(command.systemPrompt, /You edit the spec\./);
   assert.equal(command.template, "editor");
+});
+
+const ECHO_TOOL = {
+  name: "echo",
+  description: "Echo the input back.",
+  inputSchema: { type: "object" },
+};
+
+test("an environment's registered tools are listed for its session", () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+
+  assert.deepEqual(h.gateway.listTools("s1"), []);
+
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  assert.deepEqual(h.gateway.listTools("s1"), [ECHO_TOOL]);
+});
+
+test("re-registering replaces the prior catalog", () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  env.send(RemoteEnvEvents.ToolsRegister, { sessionId: "s1", tools: [] });
+
+  assert.deepEqual(h.gateway.listTools("s1"), []);
+});
+
+test("a tool call routes to the environment and resolves with its result", async () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  const pending = h.gateway.callTool("s1", "prime", "echo", { text: "hi" });
+  const call = env.sent.findLast((e) => e.event === RemoteEnvEvents.ToolsCall);
+  assert.ok(call);
+  const request = call.payload as RemoteToolCallRequest;
+  assert.equal(request.name, "echo");
+  assert.equal(request.agentId, "prime");
+  assert.deepEqual(request.arguments, { text: "hi" });
+  call.ack?.(null, { ok: true, result: "hi" });
+
+  assert.deepEqual(await pending, { ok: true, result: "hi" });
+});
+
+test("calling a tool no environment registered rejects", async () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  await assert.rejects(
+    () => h.gateway.callTool("s1", "prime", "missing", {}),
+    /No remote tool named "missing"/,
+  );
+});
+
+test("calling a tool with no environment connected rejects", async () => {
+  const h = makeHarness();
+
+  await assert.rejects(
+    () => h.gateway.callTool("s1", "prime", "echo", {}),
+    /No remote environment is connected/,
+  );
+});
+
+test("a disconnecting environment drops its tool catalog", () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  env.disconnect();
+
+  assert.deepEqual(h.gateway.listTools("s1"), []);
+});
+
+test("a scoped environment cannot register tools for another session", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const env = h.connect("ignored", {
+    token: mintScoped(scoped, "env-a", "sA"),
+  });
+
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "sB",
+    tools: [ECHO_TOOL],
+  });
+
+  assert.deepEqual(h.gateway.listTools("sA"), []);
 });

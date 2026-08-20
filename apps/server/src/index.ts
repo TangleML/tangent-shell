@@ -36,6 +36,7 @@ import { createInternalEgressRouter } from "./routes/internalEgress.ts";
 import { createInternalExternalAgentsRouter } from "./routes/internalExternalAgents.ts";
 import { createInternalMcpRelayRouter } from "./routes/internalMcpRelay.ts";
 import { createInternalMemoryRouter } from "./routes/internalMemory.ts";
+import { createInternalRemoteToolsRouter } from "./routes/internalRemoteTools.ts";
 import { createInternalResourcesRouter } from "./routes/internalResources.ts";
 import { createInternalSessionRouter } from "./routes/internalSession.ts";
 import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
@@ -358,6 +359,12 @@ app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
 // Internal API for bundle extensions to open/answer/close generic MCP relay
 // channels bound to their session (remote-runtime specifics stay in the bundle).
 app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
+// Internal API for the remote-tools extension: list and invoke the RPC tools a
+// connected remote environment offers, without spawning a browser sub-agent.
+app.use(
+  "/internal/remote-tools",
+  createInternalRemoteToolsRouter(remoteGateway),
+);
 
 // Mounted last: async failures from any handler above land here with a
 // consistent `{ error }` shape (Express 5 forwards rejected promises to it).

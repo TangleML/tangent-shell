@@ -47,8 +47,6 @@ export function useSessionChat(sessionId: string) {
     () => (sessionId ? peekSessionChat(sessionId) : EMPTY_SESSION_CHAT),
     () => EMPTY_SESSION_CHAT,
   );
-  const room = sessionId ? peekSessionChatRoom(sessionId) : null;
-
   const pinnedPaths = new Set(snapshot.artifacts.map((a) => a.path));
 
   function messagesFor(conversationId: string): ChatMessage[] {
@@ -80,14 +78,17 @@ export function useSessionChat(sessionId: string) {
     artifacts: snapshot.artifacts,
     pinnedPaths,
     pinArtifact: (path: string, title: string) =>
-      room?.pinArtifact(path, title),
-    unpinArtifact: (path: string) => room?.unpinArtifact(path),
+      peekSessionChatRoom(sessionId)?.pinArtifact(path, title),
+    unpinArtifact: (path: string) =>
+      peekSessionChatRoom(sessionId)?.unpinArtifact(path),
     connected: snapshot.connected,
     historyLoaded: snapshot.historyLoaded,
     rosterReady: snapshot.rosterReady,
     memorySuggestions: snapshot.memorySuggestions,
-    confirmMemory: (suggestionId: string) => room?.confirmMemory(suggestionId),
-    dismissMemory: (suggestionId: string) => room?.dismissMemory(suggestionId),
+    confirmMemory: (suggestionId: string) =>
+      peekSessionChatRoom(sessionId)?.confirmMemory(suggestionId),
+    dismissMemory: (suggestionId: string) =>
+      peekSessionChatRoom(sessionId)?.dismissMemory(suggestionId),
     agentBusy: isConversationBusy(snapshot, snapshot.primaryConversationId),
     isConversationBusy: (conversationId: string) =>
       isConversationBusy(snapshot, conversationId),
@@ -101,11 +102,13 @@ export function useSessionChat(sessionId: string) {
         delivery?: MessageDelivery;
         attachments?: Attachment[];
       },
-    ) => room?.send(content, options),
-    abort: (conversationId: string) => room?.abort(conversationId),
+    ) => peekSessionChatRoom(sessionId)?.send(content, options),
+    abort: (conversationId: string) =>
+      peekSessionChatRoom(sessionId)?.abort(conversationId),
     getAgentModel,
     setAgentModel: (agentId: string, selection: AgentModelSelection) =>
-      room?.setAgentModel(agentId, selection),
-    dismissSubagent: (id: string) => room?.dismissSubagent(id),
+      peekSessionChatRoom(sessionId)?.setAgentModel(agentId, selection),
+    dismissSubagent: (id: string) =>
+      peekSessionChatRoom(sessionId)?.dismissSubagent(id),
   };
 }

@@ -15,6 +15,10 @@ export default defineConfig({
     // No dev-only absolute API origin in the embed bundle; the base is
     // configured at runtime through <tangent-provider>.
     __API_ORIGIN__: JSON.stringify(""),
+    // Vite lib mode does not replace process.env.NODE_ENV (only app builds do),
+    // so bundled React-ecosystem deps would ship raw `process.env.NODE_ENV`
+    // reads and crash the browser-loaded bundle with `process is not defined`.
+    "process.env.NODE_ENV": JSON.stringify("production"),
   },
   plugins: [
     babel({
