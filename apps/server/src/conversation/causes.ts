@@ -10,7 +10,8 @@
 export type TerminationCause =
   | { kind: "wave-depth-exhausted"; participantId: string; limit: number }
   | { kind: "reaction-budget-exhausted"; limit: number }
-  | { kind: "wake-refused"; participantId: string };
+  | { kind: "wake-refused"; participantId: string }
+  | { kind: "correlation-timeout"; askedBy: string; askedOf?: string };
 
 /** The text a cause is surfaced as. */
 export function describeCause(cause: TerminationCause): string {
@@ -22,6 +23,10 @@ export function describeCause(cause: TerminationCause): string {
       `Stopped here: this chain of reactions reached its limit of ${cause.limit} ` +
       `hops, so nothing further was woken.`
     );
+  }
+  if (cause.kind === "correlation-timeout") {
+    const target = cause.askedOf ? ` to ${cause.askedOf}` : "";
+    return `No answer arrived in time for ${cause.askedBy}'s question${target}.`;
   }
   return (
     `Stopped here: this conversation reached its limit of ${cause.limit} ` +

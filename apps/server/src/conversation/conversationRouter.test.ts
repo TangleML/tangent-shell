@@ -11,11 +11,14 @@ import type { Server } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { DeliveryRequest } from "../connectors/types.ts";
+import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryMembershipStore } from "../store/inMemoryMembershipStore.ts";
 import { InMemoryResourceStore } from "../store/inMemoryResourceStore.ts";
+import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import { ConversationRouter, deliveryText } from "./conversationRouter.ts";
+import { type CorrelationClock, CorrelationEngine } from "./correlation.ts";
 import { MembershipRegistry } from "./membershipRegistry.ts";
 import { ResourceCatalog } from "./resourceCatalog.ts";
 
@@ -64,7 +67,43 @@ function makeRouter() {
     new ResourceCatalog(resourceStore),
   );
   router.useConnectors(connectors);
-  return { router, sessions, emitted, delivered, resourceStore };
+  return {
+    router,
+    io,
+    sessions,
+    memberships,
+    connectors,
+    emitted,
+    delivered,
+    resourceStore,
+  };
+}
+
+/** A clock that never fires, so a correlation stays outstanding under test. */
+const frozenClock: CorrelationClock = {
+  now: () => 0,
+  schedule: () => () => {},
+};
+
+/** A router wired with a correlation engine, so a posted request/reply moves the
+ * outstanding set. */
+function makeRouterWithCorrelations() {
+  const h = makeRouter();
+  const correlations = new CorrelationEngine(
+    new RunRegistry(new InMemoryRunStore()),
+    frozenClock,
+  );
+  const resourceStore = new InMemoryResourceStore();
+  const router = new ConversationRouter(
+    h.io,
+    h.sessions,
+    h.memberships,
+    new ResourceCatalog(resourceStore),
+    undefined,
+    correlations,
+  );
+  router.useConnectors(h.connectors);
+  return { ...h, router, correlations };
 }
 
 /** A persisted sub-agent, so its Conversation's memberships derive from a row. */
@@ -246,5 +285,52 @@ test("an opaque member is sent the addressing Message plain, a shared one framed
   assert.match(
     deliveryText(msg, shared, "prime"),
     /posted in another conversation/,
+  );
+});
+
+test("posting a Message with a correlationId opens an outstanding correlation", async () => {
+  const h = makeRouterWithCorrelations();
+  await withWorker(h.sessions);
+
+  await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: WORKER,
+    content: "which zone?",
+    mentions: ["prime"],
+    correlationId: "c1",
+  });
+
+  const [outstanding] = h.correlations.listForSession("s1");
+  assert.equal(outstanding.id, "c1");
+  assert.equal(outstanding.askedBy, "sub-1");
+  assert.equal(outstanding.askedOf, "prime");
+});
+
+test("posting a reply that names a correlation resolves it", async () => {
+  const h = makeRouterWithCorrelations();
+  await withWorker(h.sessions);
+
+  await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: WORKER,
+    content: "which zone?",
+    correlationId: "c1",
+  });
+  assert.equal(h.correlations.listForSession("s1").length, 1);
+
+  await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: PI_AGENT,
+    content: "zone-42",
+    inReplyTo: "c1",
+  });
+
+  assert.deepEqual(
+    h.correlations.listForSession("s1"),
+    [],
+    "the reply cleared the outstanding correlation",
   );
 });

@@ -10,6 +10,7 @@ import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
 import { EMBED_ALLOWED_ORIGINS, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
+import { CorrelationEngine } from "./conversation/correlation.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
 import { ParticipantRegistry } from "./conversation/participantRegistry.ts";
 import { ParticipantService } from "./conversation/participantService.ts";
@@ -146,12 +147,27 @@ const hostResourcePreamble = new HostResourcePreamble(resourceCatalog);
 // Constructed here so the table is live; installs are an in-process API this PR
 // adds and a later PR exposes over HTTP. Empty for every existing session.
 const reactors = new ReactorRegistry(new SqliteReactorStore(db));
+// Tracks which participant is working under which run id, so every stream is
+// attributable and cancellation has a run to act on. Rows left `running` by a
+// previous process are settled once here: nothing can run before we start.
+// Constructed before the router so a correlation can be keyed by its asker's
+// open run.
+const runs = new RunRegistry(new SqliteRunStore(db));
+void runs.failStaleRuns().then((failed) => {
+  if (failed > 0) console.log(`[runs] settled ${failed} stale run(s)`);
+});
+// Holds the outstanding request/reply correlations posted Messages open and
+// resolve, so "who is blocked on whom" is a listable fact and a timeout is
+// engine policy rather than a connector's private table. Empty until a Message
+// carries a `correlationId`.
+const correlations = new CorrelationEngine(runs);
 const conversations = new ConversationRouter(
   io,
   store,
   memberships,
   resourceCatalog,
   reactors,
+  correlations,
 );
 
 // Shared event sink: a participant's streaming events, roster changes and posted
@@ -163,14 +179,6 @@ const agentHandlers: ConversationEventSink = {
   onAgentMessage: createAgentMessageHandler(conversations),
   onSessionStatus: createSessionStatusHandler(io),
 };
-
-// Tracks which participant is working under which run id, so every stream is
-// attributable and cancellation has a run to act on. Rows left `running` by a
-// previous process are settled once here: nothing can run before we start.
-const runs = new RunRegistry(new SqliteRunStore(db));
-void runs.failStaleRuns().then((failed) => {
-  if (failed > 0) console.log(`[runs] settled ${failed} stale run(s)`);
-});
 
 // No participant outlives the server, so every sub-agent row still claiming to
 // be live is stale. Marking them `detached` here is what keeps the sessions list
@@ -318,7 +326,7 @@ app.use(
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Public MCP relay dialed by an external client; per-channel bearer in the URL.
-app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport));
+app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
 app.use("/api/embed", createEmbedRouter(store));
@@ -363,8 +371,8 @@ app.use(
 );
 // Internal API for the session extension running inside each Pi process.
 app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
-// Internal API for bundle extensions to open/answer/close generic MCP relay
-// channels bound to their session (remote-runtime specifics stay in the bundle).
+// Internal API for bundle extensions to open/close generic MCP relay channels
+// bound to their session (remote-runtime specifics stay in the bundle).
 app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
 // Internal API for the remote-tools extension: list and invoke the RPC tools a
 // connected remote environment offers, without spawning a browser sub-agent.

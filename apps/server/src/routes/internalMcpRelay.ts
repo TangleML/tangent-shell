@@ -14,13 +14,6 @@ export const openSchema = z.object({
 });
 export type OpenInput = z.infer<typeof openSchema>;
 
-/** Answer body: resolve a pending `ask_prime` question on a channel. */
-export const answerSchema = z.object({
-  request_id: z.string(),
-  answer: z.string(),
-});
-export type AnswerInput = z.infer<typeof answerSchema>;
-
 async function handleOpen(
   registry: RelayRegistry,
   store: SessionStore,
@@ -56,32 +49,6 @@ async function handleOpen(
   res.json({ channelId, secret, url });
 }
 
-function handlePending(
-  registry: RelayRegistry,
-  channelId: string,
-  res: Response,
-): void {
-  if (!registry.get(channelId)) {
-    res.status(404).json({ error: "Unknown channel" });
-    return;
-  }
-  res.json({ pending: registry.pending(channelId) });
-}
-
-function handleAnswer(
-  registry: RelayRegistry,
-  channelId: string,
-  body: AnswerInput,
-  res: Response,
-): void {
-  if (!registry.get(channelId)) {
-    res.status(404).json({ error: "Unknown channel" });
-    return;
-  }
-  const delivered = registry.answer(channelId, body.request_id, body.answer);
-  res.json({ delivered });
-}
-
 function handleClose(
   registry: RelayRegistry,
   channelId: string,
@@ -92,10 +59,14 @@ function handleClose(
 
 /**
  * Internal API used by a bundle extension (running inside a Pi process) to open
- * a generic MCP relay channel bound to its session, poll/answer questions the
- * remote peer raised, and close the channel. Guarded by the same bearer token
- * as the other internal APIs. Aquifer-agnostic: the extension owns the remote
- * runtime; the server only relays to the session's Prime.
+ * and close a generic MCP relay channel bound to its session. Guarded by the
+ * same bearer token as the other internal APIs. Aquifer-agnostic: the extension
+ * owns the remote runtime; the server only relays to the session's Prime.
+ *
+ * A peer's `ask_prime` no longer has a poll/answer pair here: a question is a
+ * Message carrying a `correlationId`, and its answer is a Message whose
+ * `inReplyTo` names it, so request/reply lives on the envelope rather than in a
+ * per-channel table.
  */
 export function createInternalMcpRelayRouter(
   registry: RelayRegistry,
@@ -110,22 +81,6 @@ export function createInternalMcpRelayRouter(
     validate({ body: openSchema }),
     (req: Request, res: Response) =>
       handleOpen(registry, store, getValidated<OpenInput>(req).body, res),
-  );
-
-  router.get("/:channelId/pending", (req: Request, res: Response) =>
-    handlePending(registry, String(req.params.channelId), res),
-  );
-
-  router.post(
-    "/:channelId/answer",
-    validate({ body: answerSchema }),
-    (req: Request, res: Response) =>
-      handleAnswer(
-        registry,
-        String(req.params.channelId),
-        getValidated<AnswerInput>(req).body,
-        res,
-      ),
   );
 
   router.post("/:channelId/close", (req: Request, res: Response) =>

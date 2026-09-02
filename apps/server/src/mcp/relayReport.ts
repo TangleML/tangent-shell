@@ -8,10 +8,18 @@ import {
 import type { SessionStore } from "../store/sessionStore.ts";
 import type { RelayChannel } from "./relayRegistry.ts";
 
+/** Correlation fields a relay peer's words may carry: a question opens one, a
+ * reply resolves one. */
+export interface RelayEnvelope {
+  correlationId?: string;
+  inReplyTo?: string;
+}
+
 /** Carries what a relay peer said back into the session it belongs to. */
 export type RelayReport = (
   channel: RelayChannel,
   text: string,
+  envelope?: RelayEnvelope,
 ) => Promise<void>;
 
 /**
@@ -32,7 +40,7 @@ export function createRelayReport(
   conversations: ConversationRouter,
   store: SessionStore,
 ): RelayReport {
-  return async (channel, text) => {
+  return async (channel, text, envelope) => {
     const orchestratorId = await orchestratorIdFor(store, channel.sessionId);
     const author = channel.participantId
       ? subagentAuthor(connectors, channel.sessionId, channel.participantId)
@@ -58,6 +66,8 @@ export function createRelayReport(
       content: text,
       mentions: [orchestratorId],
       ingress: "tool",
+      correlationId: envelope?.correlationId,
+      inReplyTo: envelope?.inReplyTo,
     });
   };
 }
