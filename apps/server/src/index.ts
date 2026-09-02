@@ -9,6 +9,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
 import { EMBED_ALLOWED_ORIGINS, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
+import { AdmissionEngine } from "./conversation/admission.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { CorrelationEngine } from "./conversation/correlation.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
@@ -161,6 +162,15 @@ void runs.failStaleRuns().then((failed) => {
 // engine policy rather than a connector's private table. Empty until a Message
 // carries a `correlationId`.
 const correlations = new CorrelationEngine(runs);
+// Decides what a wake does when its participant already has an open Run
+// (queue/coalesce/preempt/reject). Preempt cancels through the connector
+// registry, wired below; the closure defers reading it until a wake actually
+// preempts, long after startup. Releasing a held wake when a Run settles is the
+// registry's one settle listener.
+const admission = new AdmissionEngine(runs, (request) =>
+  connectors.cancelRun(request),
+);
+runs.useOnSettled((run) => admission.release(run));
 const conversations = new ConversationRouter(
   io,
   store,
@@ -168,6 +178,7 @@ const conversations = new ConversationRouter(
   resourceCatalog,
   reactors,
   correlations,
+  admission,
 );
 
 // Shared event sink: a participant's streaming events, roster changes and posted

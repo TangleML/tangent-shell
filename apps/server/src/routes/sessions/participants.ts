@@ -60,6 +60,7 @@ function toMembershipView(
     conversationId: membership.conversationId,
     reaction: membership.reaction,
     ingress: membership.ingress,
+    admission: membership.admission,
     muted: kind === "agent" && membership.reaction === NEVER,
   };
 }

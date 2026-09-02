@@ -7,7 +7,9 @@ import type {
 } from "@tangent/shared/contracts.ts";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
+import type { DeliveryRequest } from "../connectors/types.ts";
 import type { Membership } from "../store/membershipStore.ts";
+import type { AdmissionEngine } from "./admission.ts";
 import { describeCause, type TerminationCause } from "./causes.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
 import { type MessageFacts, messageFacts } from "./reaction.ts";
@@ -93,6 +95,9 @@ export class FanOutEngine {
   private readonly notify: Notify;
   /** Stateful reactors folded over every Message, or absent when none are wired. */
   private readonly reactors?: ReactorRegistry;
+  /** Decides what a wake does mid-Run (queue/coalesce/preempt/reject), or absent
+   * when no admission policy is wired — every wake then delivers immediately. */
+  private readonly admission?: AdmissionEngine;
   /** The wave each participant was last woken in, by session. */
   private readonly waves = new Map<string, Wave>();
   /** Reactions already dispatched into one Conversation within one wave. */
@@ -105,11 +110,13 @@ export class FanOutEngine {
     connectors: () => ConnectorRegistry,
     notify: Notify,
     reactors?: ReactorRegistry,
+    admission?: AdmissionEngine,
   ) {
     this.memberships = memberships;
     this.connectors = connectors;
     this.notify = notify;
     this.reactors = reactors;
+    this.admission = admission;
   }
 
   /**
@@ -212,7 +219,10 @@ export class FanOutEngine {
     );
   }
 
-  /** Wakes one member, recording the hop so its own output stays in this wave. */
+  /** Wakes one member, recording the hop so its own output stays in this wave.
+   * A wake arriving while the member has an open Run is admitted by its
+   * Membership's policy: delivered now, held until the Run settles, or refused
+   * with a cause. */
   private deliver(
     request: FanOutRequest,
     member: Membership,
@@ -225,26 +235,71 @@ export class FanOutEngine {
       depth: wave.depth + 1,
     });
 
-    const { delivered, reason } = this.connectors()
-      .resolve(message.sessionId, member.participantId)
-      .deliver({
-        sessionId: message.sessionId,
+    const deliveryRequest: DeliveryRequest = {
+      sessionId: message.sessionId,
+      participantId: member.participantId,
+      conversationId: message.conversationId,
+      text: request.project(message, member),
+      ingress: request.ingress ?? member.ingress,
+      delivery: request.delivery,
+    };
+    const performNow = () =>
+      this.connectors()
+        .resolve(message.sessionId, member.participantId)
+        .deliver(deliveryRequest);
+
+    const decision = this.admission?.admit({
+      sessionId: message.sessionId,
+      participantId: member.participantId,
+      conversationId: message.conversationId,
+      policy: member.admission,
+      deliver: () => this.deferredDeliver(member.participantId, performNow),
+    }) ?? { action: "now" as const };
+
+    if (decision.action === "rejected") {
+      this.announce(message, decision.cause);
+      result.refused.push({
         participantId: member.participantId,
-        conversationId: message.conversationId,
-        text: request.project(message, member),
-        ingress: request.ingress ?? member.ingress,
-        delivery: request.delivery,
+        reason: describeCause(decision.cause),
       });
-    if (delivered) {
+      return;
+    }
+    if (decision.action === "held") {
       result.woke.push(member.participantId);
       return;
     }
-    // The connector already said why in the addressed conversation; the sender
-    // hears it in the result.
+    this.deliverNow(member.participantId, performNow, result);
+  }
+
+  /** Delivers now and records the outcome. A refusal is what a sender needs to
+   * hear: the connector already said why in the addressed conversation. */
+  private deliverNow(
+    participantId: string,
+    performNow: () => { delivered: boolean; reason?: string },
+    result: FanOutResult,
+  ): void {
+    const { delivered, reason } = performNow();
+    if (delivered) {
+      result.woke.push(participantId);
+      return;
+    }
     result.refused.push({
-      participantId: member.participantId,
+      participantId,
       reason: reason ?? "The message wasn't delivered.",
     });
+  }
+
+  /** Runs a delivery the admission engine deferred to a Run's settle. The sender
+   * has long since had its result, so a refusal here is only logged. */
+  private deferredDeliver(
+    participantId: string,
+    performNow: () => { delivered: boolean; reason?: string },
+  ): void {
+    const { delivered, reason } = performNow();
+    if (delivered) return;
+    console.log(
+      `[conversation] deferred wake for ${participantId} refused: ${reason ?? ""}`,
+    );
   }
 
   /**
@@ -259,21 +314,54 @@ export class FanOutEngine {
     if (!wave) return false;
 
     this.waves.set(keyFor(wake.sessionId, wake.participantId), wave);
-    const { delivered, reason } = this.connectors()
-      .resolve(wake.sessionId, wake.participantId)
-      .deliver({
-        sessionId: wake.sessionId,
-        participantId: wake.participantId,
-        conversationId: wake.conversationId,
-        text: wake.text,
-        ingress: wake.ingress,
-      });
+    const deliveryRequest: DeliveryRequest = {
+      sessionId: wake.sessionId,
+      participantId: wake.participantId,
+      conversationId: wake.conversationId,
+      text: wake.text,
+      ingress: wake.ingress,
+    };
+    const performNow = () =>
+      this.connectors()
+        .resolve(wake.sessionId, wake.participantId)
+        .deliver(deliveryRequest);
+
+    const decision = await this.admitReactorWake(wake, performNow);
+    if (decision.action === "rejected") {
+      this.announceIn(wake.sessionId, wake.conversationId, decision.cause);
+      return false;
+    }
+    if (decision.action === "held") return true;
+
+    const { delivered, reason } = performNow();
     if (!delivered) {
       console.log(
         `[conversation] reactor wake for ${wake.participantId} refused: ${reason ?? ""}`,
       );
     }
     return delivered;
+  }
+
+  /** Admits a reactor wake against the target's Membership policy, the same as
+   * an ordinary reaction. A wake into a Conversation the target holds no
+   * membership in (none derived yet) defaults to delivering now. */
+  private async admitReactorWake(
+    wake: ReactorWake,
+    performNow: () => { delivered: boolean; reason?: string },
+  ) {
+    if (!this.admission) return { action: "now" as const };
+    const member = await this.memberships.memberIn(
+      wake.sessionId,
+      wake.conversationId,
+      wake.participantId,
+    );
+    return this.admission.admit({
+      sessionId: wake.sessionId,
+      participantId: wake.participantId,
+      conversationId: wake.conversationId,
+      policy: member?.admission ?? "queue",
+      deliver: () => this.deferredDeliver(wake.participantId, performNow),
+    });
   }
 
   /** The wave a wake would run in, or nothing when depth or budget refuses it —

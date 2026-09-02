@@ -271,6 +271,7 @@ test("an opaque member is sent the addressing Message plain, a shared one framed
     conversationId: "room",
     reaction: "mentionsMe",
     ingress: "reaction",
+    admission: "queue",
     transcriptVisibility: "opaque",
   };
   const shared: Membership = {

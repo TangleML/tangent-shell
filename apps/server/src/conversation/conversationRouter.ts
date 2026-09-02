@@ -20,6 +20,7 @@ import { messageRoomFor } from "../sockets/rooms.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { CatalogInput } from "../store/resourceStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import type { AdmissionEngine } from "./admission.ts";
 import type { CorrelationEngine } from "./correlation.ts";
 import { FanOutEngine, type FanOutResult } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
@@ -248,6 +249,7 @@ export class ConversationRouter {
     resources?: ResourceCatalog,
     reactors?: ReactorRegistry,
     correlations?: CorrelationEngine,
+    admission?: AdmissionEngine,
   ) {
     this.io = io;
     this.store = store;
@@ -266,6 +268,7 @@ export class ConversationRouter {
         });
       },
       reactors,
+      admission,
     );
     // The engine owns the wave budget and the connector lookup a reactor wake
     // needs; the registry owns the folded state. Close the loop here.

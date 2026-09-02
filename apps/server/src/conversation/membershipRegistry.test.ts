@@ -51,6 +51,18 @@ test("an auto-relaying sub-agent's conversation puts Prime on its run ends", asy
     ["sub-1", "fromHumans+mentionsMe"],
     ["prime", "atRunEnd+mentionsMe"],
   ]);
+  // The worker queues wakes in its own thread; the orchestrator watching it
+  // coalesces a burst of run-end relays into one follow-up.
+  assert.equal(members[0].admission, "queue");
+  assert.equal(members[1].admission, "coalesce");
+});
+
+test("the orchestrator's own conversation queues wakes", async () => {
+  const h = makeRegistry();
+
+  const members = await h.registry.membersOf("s1", "prime");
+
+  assert.equal(members[0].admission, "queue");
 });
 
 test("a sub-agent that does not auto-relay is reachable only by being addressed", async () => {
@@ -194,6 +206,7 @@ test("a stored membership wins over what the roster would derive", async () => {
     conversationId: "sub-1",
     reaction: "never",
     ingress: "reaction",
+    admission: "queue",
     transcriptVisibility: "shared",
   });
 

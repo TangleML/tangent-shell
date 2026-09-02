@@ -694,6 +694,17 @@ export type RunStatus = "running" | "completed" | "cancelled" | "failed";
 export type RunIngress = "reaction" | "schedule" | "webhook" | "tool";
 
 /**
+ * What a Membership does with a wake that arrives while its participant already
+ * has an open {@link Run}. `queue` (the default) lets the wake reach the
+ * connector as it does today — a mid-run delivery joins the Run in flight;
+ * `coalesce` holds a single latest wake and releases it when the Run settles;
+ * `preempt` cancels the Run and delivers; `reject` refuses and emits a cause.
+ * Per Membership, so the same agent can queue in one Conversation and preempt
+ * in another.
+ */
+export type AdmissionPolicy = "queue" | "coalesce" | "preempt" | "reject";
+
+/**
  * One unit of work by one participant: what a stream of agent events is
  * attributable to, and what cancellation acts on. Runs are serial per
  * participant — opening one settles whichever Run that participant still had
@@ -920,6 +931,7 @@ export interface MembershipView {
   conversationId: string;
   reaction: ReactionSpec;
   ingress: RunIngress;
+  admission: AdmissionPolicy;
   muted: boolean;
 }
 
