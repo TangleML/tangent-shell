@@ -10,7 +10,9 @@ import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import { describeCause, type TerminationCause } from "./causes.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
-import { type MessageFacts, messageFacts, parseReaction } from "./reaction.ts";
+import { type MessageFacts, messageFacts } from "./reaction.ts";
+import { fromReaction } from "./reactor.ts";
+import type { ReactorRegistry, ReactorWake } from "./reactorRegistry.ts";
 
 /**
  * How many hops one chain may take. Deliberate work — a tool call, a schedule,
@@ -89,6 +91,8 @@ export class FanOutEngine {
   private readonly memberships: MembershipRegistry;
   private readonly connectors: () => ConnectorRegistry;
   private readonly notify: Notify;
+  /** Stateful reactors folded over every Message, or absent when none are wired. */
+  private readonly reactors?: ReactorRegistry;
   /** The wave each participant was last woken in, by session. */
   private readonly waves = new Map<string, Wave>();
   /** Reactions already dispatched into one Conversation within one wave. */
@@ -100,10 +104,12 @@ export class FanOutEngine {
     memberships: MembershipRegistry,
     connectors: () => ConnectorRegistry,
     notify: Notify,
+    reactors?: ReactorRegistry,
   ) {
     this.memberships = memberships;
     this.connectors = connectors;
     this.notify = notify;
+    this.reactors = reactors;
   }
 
   /**
@@ -135,14 +141,17 @@ export class FanOutEngine {
   private async dispatch(request: FanOutRequest): Promise<FanOutResult> {
     const { message } = request;
     const result: FanOutResult = { woke: [], refused: [] };
-    // A notice about why something stopped is not itself a stimulus.
+    const facts = messageFacts(message);
+    await this.observeReactors(message, facts);
+
+    // A notice about why something stopped is not itself a stimulus for the
+    // membership fan-out, even though a reactor may have observed it above.
     if (message.source.kind === "system") return result;
 
     const members = await this.memberships.membersOf(
       message.sessionId,
       message.conversationId,
     );
-    const facts = messageFacts(message);
     const reacting = members.filter((member) => this.reacts(member, facts));
     this.announceRefusals(message, members, facts, reacting, result);
     if (reacting.length === 0) return result;
@@ -174,11 +183,33 @@ export class FanOutEngine {
     return result;
   }
 
-  /** Whether a member acts on this Message. A participant never reacts to itself. */
+  /** Folds a Message into every installed reactor watching this Conversation.
+   * Total — system notices included — because a completion count depends on
+   * seeing the Messages that wake nobody. A no-op when no registry is wired. */
+  private async observeReactors(
+    message: ChatMessage,
+    facts: MessageFacts,
+  ): Promise<void> {
+    if (!this.reactors) return;
+    await this.reactors.observe(
+      message.sessionId,
+      message.conversationId,
+      facts,
+    );
+  }
+
+  /**
+   * Whether a member acts on this Message. A participant never reacts to itself.
+   * The predicate runs through its Reactor form — the stateless `Reactor<void>`
+   * of §4.1 — so membership reaction and reactor memory are one mechanism.
+   */
   private reacts(member: Membership, facts: MessageFacts): boolean {
     if (member.participantId === facts.authorId) return false;
     if (member.participantId === facts.sourceFrom) return false;
-    return parseReaction(member.reaction)(facts, member.participantId);
+    const reactor = fromReaction(member.reaction, member.participantId);
+    return reactor.ready(
+      reactor.observe(reactor.initial, facts, member.participantId),
+    );
   }
 
   /** Wakes one member, recording the hop so its own output stays in this wave. */
@@ -214,6 +245,61 @@ export class FanOutEngine {
       participantId: member.participantId,
       reason: reason ?? "The message wasn't delivered.",
     });
+  }
+
+  /**
+   * Wakes a ready reactor's participant in its home Conversation. Charged against
+   * the same wave budget an ordinary reaction is: a message-driven wake inherits
+   * the stimulus author's chain so a join cannot launder depth by hopping into a
+   * quiet home, and a timer-driven one (no stimulus) starts a fresh chain the way
+   * a schedule does. Refusing to deliver leaves the reactor ready to try again.
+   */
+  async wakeReactor(wake: ReactorWake): Promise<boolean> {
+    const wave = this.reserveWakeWave(wake);
+    if (!wave) return false;
+
+    this.waves.set(keyFor(wake.sessionId, wake.participantId), wave);
+    const { delivered, reason } = this.connectors()
+      .resolve(wake.sessionId, wake.participantId)
+      .deliver({
+        sessionId: wake.sessionId,
+        participantId: wake.participantId,
+        conversationId: wake.conversationId,
+        text: wake.text,
+        ingress: wake.ingress,
+      });
+    if (!delivered) {
+      console.log(
+        `[conversation] reactor wake for ${wake.participantId} refused: ${reason ?? ""}`,
+      );
+    }
+    return delivered;
+  }
+
+  /** The wave a wake would run in, or nothing when depth or budget refuses it —
+   * announced in the home Conversation, so a stalled join says why. */
+  private reserveWakeWave(wake: ReactorWake): Wave | undefined {
+    const inherited = wake.stimulus
+      ? this.waves.get(keyFor(wake.sessionId, wake.stimulus.authorId))
+      : undefined;
+    const base = inherited ?? { id: randomUUID(), depth: 0 };
+
+    if (base.depth + 1 > MAX_WAVE_DEPTH) {
+      this.announceIn(wake.sessionId, wake.conversationId, {
+        kind: "wave-depth-exhausted",
+        participantId: wake.participantId,
+        limit: MAX_WAVE_DEPTH,
+      });
+      return undefined;
+    }
+    if (!this.spend(base.id, wake.conversationId)) {
+      this.announceIn(wake.sessionId, wake.conversationId, {
+        kind: "reaction-budget-exhausted",
+        limit: MAX_CONVERSATION_REACTIONS,
+      });
+      return undefined;
+    }
+    return { id: base.id, depth: base.depth + 1 };
   }
 
   /**
@@ -276,10 +362,14 @@ export class FanOutEngine {
   }
 
   private announce(message: ChatMessage, cause: TerminationCause): void {
-    this.notify(
-      message.sessionId,
-      message.conversationId,
-      describeCause(cause),
-    );
+    this.announceIn(message.sessionId, message.conversationId, cause);
+  }
+
+  private announceIn(
+    sessionId: string,
+    conversationId: string,
+    cause: TerminationCause,
+  ): void {
+    this.notify(sessionId, conversationId, describeCause(cause));
   }
 }
