@@ -5,6 +5,7 @@ import type { ChatMessage } from "@tangent/shared/contracts.ts";
 
 import type { MessageFacts } from "./reaction.ts";
 import { messageFacts, parseReaction, reactionSpec } from "./reaction.ts";
+import { fromReaction } from "./reactor.ts";
 
 /** Envelope facts with sane defaults, overridable per field. */
 function facts(overrides: Partial<MessageFacts> = {}): MessageFacts {
@@ -72,6 +73,41 @@ test("never refuses what always accepts", () => {
     true,
   );
   assert.equal(parseReaction("never")(facts(), "p"), false);
+});
+
+test("a stateless reaction is exactly its Reactor form", () => {
+  // Section 4.1's predicate is Reactor<void>: fold the one Message and test it.
+  // The two must agree for every spec, or wrapping would change delivery.
+  const specs = [
+    "fromHumans",
+    "mentionsMe",
+    "atRunEnd",
+    "always",
+    "never",
+    "atRunEnd+mentionsMe",
+  ];
+  const cases: Partial<MessageFacts>[] = [
+    {},
+    { sourceKind: "agent", endsRun: true },
+    { mentions: ["p"] },
+    { sourceKind: "system" },
+    { sourceKind: "agent", endsRun: true, mentions: ["p"] },
+  ];
+  for (const spec of specs) {
+    for (const override of cases) {
+      const f = facts(override);
+      const direct = parseReaction(spec)(f, "p");
+      const reactor = fromReaction(spec, "p");
+      const viaReactor = reactor.ready(
+        reactor.observe(reactor.initial, f, "p"),
+      );
+      assert.equal(
+        viaReactor,
+        direct,
+        `${spec} on ${JSON.stringify(override)}`,
+      );
+    }
+  }
 });
 
 test("messageFacts exposes the envelope and not the body", () => {

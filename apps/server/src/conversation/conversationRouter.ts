@@ -23,6 +23,7 @@ import type { SessionStore } from "../store/sessionStore.ts";
 import { FanOutEngine, type FanOutResult } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
 import { participantForConversation } from "./participantRegistry.ts";
+import type { ReactorRegistry } from "./reactorRegistry.ts";
 import type { ResourceCatalog } from "./resourceCatalog.ts";
 
 /**
@@ -232,6 +233,7 @@ export class ConversationRouter {
     store: SessionStore,
     memberships: MembershipRegistry,
     resources?: ResourceCatalog,
+    reactors?: ReactorRegistry,
   ) {
     this.io = io;
     this.store = store;
@@ -248,7 +250,11 @@ export class ConversationRouter {
           content: text,
         });
       },
+      reactors,
     );
+    // The engine owns the wave budget and the connector lookup a reactor wake
+    // needs; the registry owns the folded state. Close the loop here.
+    reactors?.useDelivery((wake) => this.engine.wakeReactor(wake));
   }
 
   /**

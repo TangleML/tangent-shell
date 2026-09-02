@@ -13,6 +13,7 @@ import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
 import { ParticipantRegistry } from "./conversation/participantRegistry.ts";
 import { ParticipantService } from "./conversation/participantService.ts";
+import { ReactorRegistry } from "./conversation/reactorRegistry.ts";
 import { ResourceCatalog } from "./conversation/resourceCatalog.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
@@ -65,6 +66,7 @@ import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
 import { SqliteMembershipStore } from "./store/sqliteMembershipStore.ts";
 import { SqliteParticipantStore } from "./store/sqliteParticipantStore.ts";
+import { SqliteReactorStore } from "./store/sqliteReactorStore.ts";
 import { SqliteResourceStore } from "./store/sqliteResourceStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
@@ -140,11 +142,16 @@ const resourceCatalog = new ResourceCatalog(resourceStore);
 // Spawn-time projection of each session's host resources, appended to every
 // agent's preamble and refreshed on every resource mutation.
 const hostResourcePreamble = new HostResourcePreamble(resourceCatalog);
+// Stateful reactions (fan-in, quorum, deadline, ...) with engine-owned state.
+// Constructed here so the table is live; installs are an in-process API this PR
+// adds and a later PR exposes over HTTP. Empty for every existing session.
+const reactors = new ReactorRegistry(new SqliteReactorStore(db));
 const conversations = new ConversationRouter(
   io,
   store,
   memberships,
   resourceCatalog,
+  reactors,
 );
 
 // Shared event sink: a participant's streaming events, roster changes and posted

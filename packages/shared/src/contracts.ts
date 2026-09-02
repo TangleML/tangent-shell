@@ -751,6 +751,83 @@ export type ReactionName =
 export type ReactionSpec = string;
 
 /**
+ * A named stateful reaction — a {@link Reactor} with memory across Messages, and
+ * across Conversations when its scope spans several. Where a {@link ReactionName}
+ * decides from the Message in hand, a Reactor folds a running state and tests it:
+ * - `awaitAll` — ready once every named participant (or run) has completed.
+ * - `awaitQuorum` — ready once `n` of a named set have completed.
+ * - `firstOf` — ready on the first completion from a named set.
+ * - `awaitDeadline` — ready when a wall-clock instant passes (single scope only).
+ * - `debounce` — ready once a quiet window elapses after the last Message
+ *   (single scope only).
+ */
+export type ReactorName =
+  | "awaitAll"
+  | "awaitQuorum"
+  | "firstOf"
+  | "awaitDeadline"
+  | "debounce";
+
+/**
+ * The stored configuration of a {@link ReactorName}. A completion is a Message
+ * carrying `endsRun`; `participants` matches it by author id and `runs` by run
+ * id, so a caller waits on whichever identity it holds. Serialized as JSON in
+ * `reactor_state.spec`.
+ */
+export type ReactorSpec =
+  | { name: "awaitAll"; participants?: string[]; runs?: string[] }
+  | { name: "awaitQuorum"; n: number; of: string[] }
+  | { name: "firstOf"; participants?: string[]; runs?: string[] }
+  | { name: "awaitDeadline"; at: string }
+  | { name: "debounce"; windowMs: number };
+
+/**
+ * Where a Reactor watches and where its wake lands. `memberships` are the
+ * `(conversation, participant)` attachments it folds, all held by the same
+ * Participant (the installer). `homeConversationId` is the Conversation the Run
+ * it opens belongs to — required, and never inferred from whichever Message
+ * completed a set, because that would hand the output thread to whichever worker
+ * finished last.
+ */
+export interface ReactorScope {
+  memberships: { conversationId: string; participantId: string }[];
+  homeConversationId: string;
+}
+
+/**
+ * The running state a Reactor folds. Serialized as JSON in `reactor_state.state`,
+ * so it is inspectable ("2 of 3") without executing anything — which is what the
+ * workflow view later reads. Each shape is discriminated by `kind`:
+ * - `await` — the completion ids seen so far (dedup, order-insensitive).
+ * - `first` — whether a first completion has fired.
+ * - `deadline` — whether the instant has passed.
+ * - `debounce` — the last Message's `seq` and whether the quiet window elapsed.
+ */
+export type ReactorState =
+  | { kind: "await"; seen: string[] }
+  | { kind: "first"; fired: boolean }
+  | { kind: "deadline"; due: boolean }
+  | { kind: "debounce"; lastSeq: number; due: boolean };
+
+/**
+ * An installed Reactor as persisted and inspected: its configuration, scope, and
+ * current folded state. The row the workflow-view API will later wrap over HTTP.
+ */
+export interface ReactorRecord {
+  id: string;
+  sessionId: string;
+  /** The Participant this wakes — the installer, holder of every scope membership. */
+  participantId: string;
+  /** The Conversation the Run it opens belongs to. */
+  homeConversationId: string;
+  spec: ReactorSpec;
+  scope: ReactorScope;
+  state: ReactorState;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
  * How much of a Conversation a Membership may see. `summarized` is a declared
  * label until the context-budget work makes it a mechanism.
  */

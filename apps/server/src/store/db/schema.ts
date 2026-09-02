@@ -422,6 +422,55 @@ export const resourceGrants = sqliteTable(
   ],
 );
 
+/**
+ * The durable state of an installed Reactor (unified-model §9.3): a stateful
+ * reaction that folds a running `state` over the Messages in its `scope` and
+ * wakes its participant when `ready`. The engine owns this state rather than a
+ * predicate's closure, which is precisely what makes it serializable, listable
+ * and replayable — the workflow view reads it without executing anything.
+ *
+ * `scope` and `spec` are JSON blobs (a {@link ReactorScope} / {@link ReactorSpec});
+ * `scope_key` is a deterministic digest of the scope so reinstalling the same
+ * set upserts rather than stacking duplicate joins. Additive and empty for every
+ * session written before Phase 3 — no backfill, because no such row has a Reactor.
+ */
+export const reactorState = sqliteTable(
+  "reactor_state",
+  {
+    /** Reactor id: a fresh uuid. */
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** The participant this wakes — the installer, holder of every scope membership. */
+    participantId: text("participant_id").notNull(),
+    /** The Conversation the Run it opens belongs to. */
+    homeConversationId: text("home_conversation_id").notNull(),
+    /** A deterministic digest of `scope`, so the same scope upserts in place. */
+    scopeKey: text("scope_key").notNull(),
+    /** JSON-encoded {@link ReactorSpec}. */
+    spec: text("spec").notNull(),
+    /** JSON-encoded {@link ReactorScope}. */
+    scope: text("scope").notNull(),
+    /** JSON-encoded {@link ReactorState} — the running fold. */
+    state: text("state").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    unique("reactor_state_session_participant_scope").on(
+      table.sessionId,
+      table.participantId,
+      table.scopeKey,
+    ),
+    index("reactor_state_session_idx").on(table.sessionId),
+    index("reactor_state_session_participant_idx").on(
+      table.sessionId,
+      table.participantId,
+    ),
+  ],
+);
+
 /** When each user last opened a session. `user_key` is the email, or `local`. */
 export const sessionViews = sqliteTable(
   "session_views",
@@ -448,3 +497,4 @@ export type ParticipantRow = typeof participants.$inferSelect;
 export type ResourceRow = typeof resources.$inferSelect;
 export type ResourceReferenceRow = typeof resourceReferences.$inferSelect;
 export type ResourceGrantRow = typeof resourceGrants.$inferSelect;
+export type ReactorStateRow = typeof reactorState.$inferSelect;
