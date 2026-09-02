@@ -11,12 +11,17 @@ a distinct job:
 | Layer                                                              | Direction                               | Who uses it                                                     |
 | ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
 | **Pi-RPC** (JSONL over stdin/stdout)                               | server ↔ a single Pi child process      | `PiAgentManager` ↔ each `pi --mode rpc` subprocess              |
-| **Internal HTTP API** (`/internal/*` + bearer token)               | Pi child → server                       | extension tools (orchestrator, memory, triggers, session)       |
+| **Internal HTTP API** (`/internal/*` + bearer token)               | Pi child → server                       | extension tools (orchestrator, memory, triggers, session, resources) |
 | **WebSockets** (Socket.IO rooms)                                   | server → browser                        | the UI                                                          |
 | **Remote sub-agent transport** (Socket.IO `/remote-env` namespace) | server ↔ a connected remote environment | `RemoteEnvironmentGateway` ↔ the `@tangent/remote-subagent` SDK |
+| **External-inbound** (internal HTTP, streamed into a tab)          | a bundle tool's runtime → server        | `ExternalSubagentGateway` (+ the generic MCP relay)            |
+| **A2A** (agent-to-agent protocol, dialed outbound)                 | server ↔ an independently deployed agent | `A2aPeerGateway` ↔ the peer's service                          |
 
-The `PiAgentManager` (`apps/server/src/pi/piAgentManager.ts`) is the single hub.
-Every "A talks to B" path actually goes A → server → B.
+The **`ConnectorRegistry`** (`apps/server/src/connectors/connectorRegistry.ts`) is
+the hub: it resolves any participant to exactly one of these transports, and the
+[conversation layer](./conversations.md) decides who a message reaches. Every "A
+talks to B" path still goes A → server → B; the server just no longer branches on
+a host label to pick the transport.
 
 Topology:
 
@@ -102,9 +107,12 @@ env (`config.ts:119-128`). The bearer token (`requireInternalToken.ts`) ensures
 only the spawned Pi processes — which were handed the token — can drive agents;
 arbitrary local callers are rejected.
 
-These requests land on `createInternalAgentsRouter` (`routes/internalAgents.ts`),
-mounted at `/internal/agents` in `index.ts:105`. Each route just calls a
-`PiAgentManager` method:
+These requests land on `createInternalAgentsRouter`
+(`routes/internalAgents.ts`), mounted at `/internal/agents`. The routes resolve
+the target participant through the `ConnectorRegistry` and post through the
+`ConversationRouter` rather than calling `PiAgentManager` directly — so the table
+below shows the local Pi path, but the same routes reach a remote, external, or
+A2A participant when the registry resolves one:
 
 | Tool (in Pi)       | HTTP endpoint               | Manager method                                         |
 | ------------------ | --------------------------- | ------------------------------------------------------ |
@@ -133,10 +141,13 @@ async function handleRoom(
 ```
 
 Crucially, every agent's output — Prime's, each sub-agent's, the human's, and
-directed messages — is written into that one shared transcript (keyed by
-`conversationId` = the producing agent's id). So `read_room` lets Prime see what
-sub-agents said. But the _primary_ way Prime learns of sub-agent work isn't
-polling `read_room` — it's an automatic relay (next section).
+directed messages — is written into a persisted transcript keyed by
+`conversationId` (a Conversation id, no longer necessarily the producing agent's
+id). So `read_room` lets Prime see what sub-agents said. But the _primary_ way
+Prime learns of sub-agent work isn't polling `read_room` — it's the automatic
+relay (next section). Which agents actually **wake** on a given message is decided
+by each participant's Membership reaction predicate (see
+[conversations.md](./conversations.md)), not by these tools.
 
 ## 3. Where Pi-RPC plays
 
@@ -265,11 +276,13 @@ sub-agents instead. It receives the same orchestration commands (`spawn`,
 `message`, `kill`, read transcript) and streams the same events back, so a
 remote sub-agent renders and persists exactly like a local one.
 
-The host is chosen **per spawn**: `spawn_subagent`'s `environment` param
-(`local` default, or `remote`) flows through `POST /internal/agents/spawn`
-(`environment` field). `createInternalAgentsRouter` dispatches to either
-`PiAgentManager` (local) or `RemoteEnvironmentGateway` (remote), and resolves
-the host of a later `message`/`kill` by checking which one owns the agent id.
+The connector is chosen **per spawn**: `spawn_subagent`'s `environment` param
+(`local` default, or `remote`) flows through `POST /internal/agents/spawn`. The
+`ConnectorRegistry` picks the connector that may spawn that kind, and resolves the
+connector for a later `message`/`kill` by asking which one holds the participant
+id — a total lookup across all four connectors (`pi-stdio`, `remote-env`,
+`external-inbound`, `a2a`), with an unknown id refused in its own conversation
+rather than mis-routed. See [connectors.md](./connectors.md).
 
 - **Server side:** `RemoteEnvironmentGateway`
   (`apps/server/src/remote/remoteEnvironmentGateway.ts`) owns the `/remote-env`

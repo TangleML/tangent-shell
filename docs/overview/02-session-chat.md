@@ -15,11 +15,14 @@ visible sense of what it's doing: thinking, running a tool, or writing a file.
 - **More than text.** Attach files to a message, and the agent can hand back
   real [Artifacts](06-artifacts.md) and embedded [Pages](07-pages.md) instead of
   walls of text.
-- **A shared room.** The transcript is the single source of truth for the whole
-  session — you, Prime, and any [sub-agents](05-subagent-orchestration.md) it
-  spawns all appear in it, with specialists in their own threads.
-- **Always resumable.** Rejoin a session and the full history is restored
-  instantly.
+- **A shared transcript.** A [Conversation](11-conversations-and-participants.md)
+  is the single source of truth for everyone in it — you, Prime, other people,
+  and any [sub-agents](05-subagent-orchestration.md) or specialists — each turn
+  attributed to its author.
+- **More than one voice.** A session can hold several people and agents. You can
+  address a specific member with an `@mention`, and everyone's turns interleave
+  in a stable order even when several are typing or streaming at once.
+- **Always resumable.** Rejoin a session and its history is restored instantly.
 
 ## Tradeoffs to be honest about
 
@@ -79,6 +82,24 @@ sequenceDiagram
   deactivate UI
 ```
 
+## A conversation with more than one voice
+
+A Conversation can hold more than you and Prime. When it does, the chat stays
+readable because the server, not the client, decides who each message reaches:
+
+- **Attribution.** Every turn shows its author — a person, Prime, a specialist,
+  or an automation. A [sub-agent](05-subagent-orchestration.md) reporting a result
+  cross-thread renders as a **report**, not as a peer turn.
+- **@mentions.** Type `@` to address a specific participant. The client only
+  writes the name; the server resolves it to a stable id when the message is
+  saved, so renaming a participant never breaks past mentions.
+- **Ordering.** Two people typing while an agent streams is the normal case.
+  Every message carries a sequence number, and all clients render against it, so
+  the transcript reads the same for everyone.
+- **Who wakes.** Each participant reacts by its own rule — everything, only when
+  mentioned, or never (a muted member). Addressing the room does not force
+  every agent to run.
+
 ## Rejoining a session
 
 ```mermaid
@@ -90,10 +111,10 @@ sequenceDiagram
 
   User->>UI: Open an existing session
   activate UI
-  UI->>Tangent: Join the room
+  UI->>Tangent: Join, subscribe to your Conversations
   activate Tangent
-  Tangent-->>UI: Full chat history
-  Tangent-->>UI: Sub-agent roster + active triggers
+  Tangent-->>UI: History for each Conversation you can see
+  Tangent-->>UI: Participant roster + presence + active triggers
   deactivate Tangent
   UI-->>User: Conversation restored, ready to continue
   deactivate UI
@@ -101,6 +122,8 @@ sequenceDiagram
 
 ## Where this shows up next
 
+- See who can be in a session in
+  [Conversations & Participants](11-conversations-and-participants.md).
 - See what the agent can build for you in [Artifacts](06-artifacts.md) and
   [Pages](07-pages.md).
 - Watch the agent bring in helpers in

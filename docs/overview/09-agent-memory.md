@@ -80,6 +80,11 @@ sequenceDiagram
 > still get the confirming "Remembered" card. The approval step is specifically
 > for memory the **agent** proposes on its own.
 
+The "Remembered" card appears in the transcript as a message authored by the
+memory system itself — a built-in **automation**
+[participant](11-conversations-and-participants.md), not Prime — so it's clear the
+note is ground truth about what was stored rather than the agent's paraphrase.
+
 ## Memory in every new session
 
 When a session starts, the agent is given the current memory up front — so it

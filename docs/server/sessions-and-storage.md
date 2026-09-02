@@ -2,51 +2,78 @@
 
 [< Back to index](./index.md)
 
-A **session** is the unit of work: a chat thread, a scoped workspace folder on
-disk, a roster of `pi` processes, plus its triggers, memory, and pinned
-artifacts. This doc covers the session model, the `SessionStore` abstraction, the
-per-session root folder layout, and the path-traversal-guarded file server for
-artifacts and uploads.
+A **session** is the unit of work: its Conversations, a scoped workspace folder
+on disk, its Participants and connectors, plus its triggers, memory, and
+Resources. This doc covers the session model, the `SessionStore` abstraction, the
+SQLite schema, the per-session root folder layout, and the path-traversal-guarded
+file server for artifacts and uploads.
 
 ---
 
 ## The session model
 
-The wire `Session` ([shared/contracts.ts](../../shared/contracts.ts)):
+The wire `Session` ([packages/shared/src/contracts.ts](../../packages/shared/src/contracts.ts)):
 `id`, `name`, `rootPath` (absolute path to the scoped folder), `status`
 (`"created"`), optional `config` (`SessionConfigMeta` when created from a
-bundle), and `createdAt`/`updatedAt`. Chat history is a list of `ChatMessage`,
-each tagged with a `conversationId` (`"prime"` or a sub-agent id) so the client
-buckets it into the right transcript.
+bundle), and `createdAt`/`updatedAt`. Each chat message is a `ChatMessage` tagged
+with a `conversationId` — now a **Conversation id** (a fresh uuid, or a legacy
+agent id whose transcript the `conversations` table maps), not necessarily an
+agent id — so the client buckets it into the right transcript.
 
 ---
 
 ## The `SessionStore` abstraction
 
-[store/sessionStore.ts](../../server/src/store/sessionStore.ts) is the storage
-interface; the routes and socket handlers depend only on it, so a persistent
-backend (DB, file) can be swapped in later without touching them. Today the only
+[store/sessionStore.ts](../../apps/server/src/store/sessionStore.ts) is the storage
+interface; the routes and socket handlers depend only on it. The production
 implementation is
-[`InMemorySessionStore`](../../server/src/store/inMemorySessionStore.ts), which
-keeps three maps: sessions, messages (by session), and pinned artifacts (by
-session).
-
-Methods: `listSessions`, `getSession`, `createSession`, `updateSession`,
-`attachConfig`, `deleteSession`, `getMessages`, `appendMessage`, `getArtifacts`,
-`pinArtifact`, `unpinArtifact`.
+[`SqliteSessionStore`](../../apps/server/src/store/sqliteSessionStore.ts), backed by
+the shared `tangent.db` connection (`openDb()` applies pending drizzle migrations
+on startup). It composes the participant and resource stores so a roster write
+mirrors into the `participants` table and a pinned artifact into the resource
+catalog. `InMemorySessionStore` still exists but is a test fake, not the
+production backend.
 
 `createSession` allocates a `randomUUID()`, derives `rootPath =
 SESSIONS_ROOT/<id>`, creates that folder plus its `artifacts/` subfolder, and
-names the session `Session <n>` when no name is given.
+names the session `Session <n>` when no name is given. `pinArtifact` dedupes by
+`path` (re-pinning refreshes the title in place, preserving order; a new path
+appends), so the list reads oldest-first.
 
-> **Persistence caveat.** Sessions, chat history, and pinned-artifact lists are
-> in-memory and lost on restart. The on-disk side effects (the root folder,
-> triggers, memory files, installed bundle tree, artifacts, uploads) survive, so
-> a restarted server can re-arm triggers and re-serve files but cannot replay
-> chat history for a session whose in-memory record is gone.
+> **Durability.** Sessions, the agent roster, participants, memberships, runs,
+> and the resource catalog are persisted in `tangent.db`; chat transcripts are
+> append-only JSONL under each session's `.tangent/chats/`. Both survive a
+> restart. Transcript files are **never rewritten in place** — a new `ChatMessage`
+> field is defaulted on read in
+> [chatLog.ts](../../apps/server/src/store/chatLog.ts) so a legacy line still
+> parses.
 
-`pinArtifact` dedupes by `path` (re-pinning refreshes the title in place,
-preserving order; a new path appends), so the list reads oldest-first.
+---
+
+## The SQLite schema
+
+The relational state lives in [db/schema.ts](../../apps/server/src/store/db/schema.ts).
+Chat history is deliberately **not** a table — it stays as JSONL on disk. Schema
+changes go exclusively through drizzle migrations; never alter tables ad-hoc.
+
+| Table                 | Holds                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `sessions`            | one row per session (mirrors the `Session` wire contract, plus `archived`, `user_identity`).  |
+| `session_assets`      | pinned artifacts, scoped to a session, oldest-first.                                           |
+| `session_agents`      | the agent roster (Prime + sub-agents) with connector facets; still the write authority today. |
+| `participants`        | session-scoped actor identities (`human` / `agent` / `automation`), capabilities, presence.   |
+| `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript.|
+| `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.     |
+| `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.  |
+| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact`, pointing at bytes by `uri`.       |
+| `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).         |
+| `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing). |
+| `session_views`       | when each user last opened a session.                                                          |
+
+`session_agents` remains the write authority for the roster; `participants` is
+mirrored from it (and derived read-through for a session the backfill never
+touched). The deprecated `host` column survives beside the connector facets. A
+later cleanup folds these away.
 
 ---
 
@@ -68,6 +95,7 @@ activity it looks like:
     prompts/ skills/ workflows/ agents/ tools/ ui/
     triggers/<name>.js  # compiled trigger handlers
     triggers.json       # persisted trigger definitions
+    chats/<conversationId>.jsonl  # append-only transcripts, one per Conversation
 ```
 
 Every `pi` process for the session runs with `cwd` set to this root, and the
@@ -119,9 +147,8 @@ sequenceDiagram
   deactivate Route
 ```
 
-The handler keys off the deterministic `SESSIONS_ROOT/<id>` path rather than the
-in-memory session record, so artifacts stay servable across server restarts even
-though the session record itself is volatile. `path.resolve` + the `isWithin`
+The handler keys off the deterministic `SESSIONS_ROOT/<id>` path, so artifacts
+stay servable regardless of connector state. `path.resolve` + the `isWithin`
 checks prevent escaping the allowed subtrees.
 
 ---

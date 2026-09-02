@@ -3,21 +3,29 @@
 ## The pitch
 
 A **session** is your private workspace with an AI teammate. Open one and you get
-a dedicated folder on disk, a full chat transcript, and an agent that's ready to
-work — all isolated from every other session. Think of it as opening a fresh
-project room: everything you do, every file the agent creates, and everything it
-learns stays in that room until you come back.
+a dedicated folder on disk, one or more chat [Conversations](11-conversations-and-participants.md),
+and an agent that's ready to work — all isolated from every other session. Think
+of it as opening a fresh project room: everything you do, every file the agent
+creates, and everything it learns stays in that room until you come back.
+
+A session owns four things: its **Conversations** (the transcripts), its
+**Participants** (you, the agent, any helpers), its **Resources** (files,
+artifacts, attachments, memory), and its workspace folder on disk.
 
 ## Why it's useful
 
 - **Clean separation.** Each piece of work gets its own space — no cross-talk,
   no leaking files or context between projects.
-- **Persistent.** The workspace, its files, and its results survive restarts.
+- **Persistent.** Sessions, their transcripts, roster, and pinned resources are
+  stored durably (in a database plus on-disk files), so they survive restarts.
   Close the tab and pick up exactly where you left off.
 - **Instantly expert.** Start blank, or launch from an [Agent Bundle](03-agent-bundles.md)
   so the session arrives pre-loaded with the right prompts, tools, and skills.
-- **One agent, real hands.** Every session comes with **Prime** — an agent that
+- **A teammate, real hands.** Every session comes with **Prime** — an agent that
   can read and write files, call tools, and coordinate helpers, not just chat.
+  Prime is the face of a new session, but it is no longer the only actor: a
+  session can hold several [Participants](11-conversations-and-participants.md) —
+  more humans, specialist agents, and automations.
 
 ## Tradeoffs to be honest about
 
@@ -105,4 +113,6 @@ sequenceDiagram
 ## Where this shows up next
 
 - Talk to the agent in [Session Chat](02-session-chat.md).
+- See who can be in a session and how their threads work in
+  [Conversations & Participants](11-conversations-and-participants.md).
 - Pre-load a session with an [Agent Bundle](03-agent-bundles.md).

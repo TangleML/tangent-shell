@@ -42,9 +42,9 @@ The subsystem has four parts:
 ## Definitions + persistence (`TriggerManager`)
 
 Triggers persist on disk under each session's `.tangent/triggers.json`, so they
-survive a server restart even though the session list is in-memory. The manager
-is the single writer; the scheduler, callback route, REST routes, and Prime's
-tool all go through it.
+survive a server restart alongside the durable session state in `tangent.db`. The
+manager is the single writer; the scheduler, callback route, REST routes, and
+Prime's tool all go through it.
 
 - `StoredTrigger` mirrors the wire `Trigger` but keeps server-only fields: the
   callback `secret` (embedded in the URL, never surfaced as a field) and
@@ -128,10 +128,13 @@ sequenceDiagram
   deactivate Prime
 ```
 
-The firing is surfaced in the transcript attributed to the `TRIGGER_AUTHOR`
-(named after the trigger's title), then delivered to the trigger's target. The
-diagram above shows the `prime` target; a `subagent` target instead revives (if
-needed) and prompts the trigger's dedicated sub-agent, which reacts in isolation.
+The firing is posted through the `ConversationRouter` into the target's
+Conversation, attributed to the `TRIGGER_AUTHOR` (named after the trigger's
+title), then delivered to the trigger's target. The diagram above shows the
+`prime` target; a `subagent` target instead revives (if needed) and prompts the
+trigger's dedicated sub-agent, which reacts in isolation. The `TriggerEngine` is
+constructed with the router and the `ParticipantService`, so an automation
+Participant authors the firing rather than a bare wire author.
 
 ### Inbound callback
 
