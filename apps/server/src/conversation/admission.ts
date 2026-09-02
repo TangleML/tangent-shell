@@ -32,6 +32,9 @@ export interface AdmissionRequest {
   participantId: string;
   conversationId: string;
   policy: AdmissionPolicy;
+  /** The fan-out wave depth this wake arrived in, stamped onto a rejection
+   * cause so a supervisor can locate it. */
+  waveDepth: number;
   /** Performs the connector delivery. Called now for `queue`/idle, or on release
    * for a held `coalesce`/`preempt`. */
   deliver: () => void;
@@ -188,8 +191,11 @@ export class AdmissionEngine {
   private cause(request: AdmissionRequest): TerminationCause {
     return {
       kind: "admission-rejected",
-      participantId: request.participantId,
       policy: request.policy,
+      participantId: request.participantId,
+      conversationId: request.conversationId,
+      runId: this.runs.current(request.sessionId, request.participantId)?.id,
+      waveDepth: request.waveDepth,
     };
   }
 }

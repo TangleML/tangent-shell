@@ -149,6 +149,18 @@ function deadlineReactor(): Reactor<ReactorState> {
   };
 }
 
+function superviseReactor(): Reactor<ReactorState> {
+  return {
+    initial: { kind: "cause", fired: false },
+    observe: (state, message) => {
+      if (state.kind !== "cause" || state.fired) return state;
+      return message.cause ? { kind: "cause", fired: true } : state;
+    },
+    ready: (state) => state.kind === "cause" && state.fired,
+    onWake: () => ({ kind: "cause", fired: false }),
+  };
+}
+
 function debounceReactor(): Reactor<ReactorState> {
   return {
     initial: { kind: "debounce", lastSeq: 0, due: false },
@@ -185,6 +197,7 @@ export function reactorFor(spec: ReactorSpec): Reactor<ReactorState> {
     return firstOfReactor(participants, runs);
   }
   if (spec.name === "awaitDeadline") return deadlineReactor();
+  if (spec.name === "supervise") return superviseReactor();
   return debounceReactor();
 }
 

@@ -447,7 +447,7 @@ test("recordAgent dual-writes the participant projection", async () => {
   const session = await store.createSession({ name: "S" });
   const prime = await participants.get(session.id, "prime");
   assert.equal(prime?.kind, "agent");
-  assert.deepEqual(prime?.capabilities, ["orchestrator"]);
+  assert.deepEqual(prime?.capabilities, ["orchestrator", "supervisor"]);
 
   await store.recordAgent(session.id, {
     id: "sub-1",

@@ -44,6 +44,7 @@ function admit(
     participantId: PARTICIPANT,
     conversationId,
     policy,
+    waveDepth: 0,
     deliver: () => delivered.push(text),
   });
   if (decision.action === "now") delivered.push(text);
@@ -122,6 +123,7 @@ test("preempt whose cancel settles synchronously delivers now", () => {
     participantId: PARTICIPANT,
     conversationId: CONVERSATION,
     policy: "preempt",
+    waveDepth: 0,
     deliver: () => delivered.push("restart"),
   });
   if (decision.action === "now") delivered.push("restart");

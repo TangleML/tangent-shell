@@ -170,7 +170,6 @@ const correlations = new CorrelationEngine(runs);
 const admission = new AdmissionEngine(runs, (request) =>
   connectors.cancelRun(request),
 );
-runs.useOnSettled((run) => admission.release(run));
 const conversations = new ConversationRouter(
   io,
   store,
@@ -180,13 +179,28 @@ const conversations = new ConversationRouter(
   correlations,
   admission,
 );
+// The one settle listener: release a wake held behind the Run, and — when it
+// settled `failed` — surface a `run-error` cause in its home Conversation so a
+// supervisor can react. A boot-stale row is settled by `failStaleRuns` writing
+// the store directly, not through `settle`, so it never reaches here.
+runs.useOnSettled((run) => {
+  admission.release(run);
+  if (run.status !== "failed") return;
+  conversations.announceCause(run.sessionId, {
+    kind: "run-error",
+    participantId: run.participantId,
+    conversationId: run.homeConversationId,
+    runId: run.id,
+    waveDepth: conversations.waveDepth(run.sessionId, run.participantId),
+  });
+});
 
 // Shared event sink: a participant's streaming events, roster changes and posted
 // messages land the same way whether it runs locally (PiAgentManager), in a
 // remote environment, or entirely outside Tangent.
 const agentHandlers: ConversationEventSink = {
   onAgentEvent: createAgentEventHandler(io, store, conversations),
-  onSubagentUpdate: createSubagentUpdateHandler(io, store),
+  onSubagentUpdate: createSubagentUpdateHandler(io, store, conversations),
   onAgentMessage: createAgentMessageHandler(conversations),
   onSessionStatus: createSessionStatusHandler(io),
 };

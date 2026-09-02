@@ -6,6 +6,7 @@ import type {
   ChatAuthor,
   ChatMessage,
   MessageSourceKind,
+  TerminationCause,
 } from "@tangent/shared/contracts.ts";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
@@ -85,7 +86,11 @@ function makeEngine(
   refuse: (participantId: string) => boolean = () => false,
 ) {
   const delivered: DeliveryRequest[] = [];
-  const notices: { conversationId: string; text: string }[] = [];
+  const notices: {
+    conversationId: string;
+    text: string;
+    cause: TerminationCause;
+  }[] = [];
 
   const memberships = {
     membersOf: async (_sessionId: string, conversationId: string) =>
@@ -105,8 +110,8 @@ function makeEngine(
   const engine = new FanOutEngine(
     memberships,
     () => connectors,
-    (_sessionId, conversationId, text) =>
-      notices.push({ conversationId, text }),
+    (_sessionId, conversationId, text, cause) =>
+      notices.push({ conversationId, text, cause }),
   );
 
   return { engine, delivered, notices };
@@ -116,7 +121,11 @@ function makeEngine(
  * so a fan-in is exercised end to end: install, observe, then wake in home. */
 function makeEngineWithReactors(rows: Membership[]) {
   const delivered: DeliveryRequest[] = [];
-  const notices: { conversationId: string; text: string }[] = [];
+  const notices: {
+    conversationId: string;
+    text: string;
+    cause: TerminationCause;
+  }[] = [];
 
   const memberships = {
     membersOf: async (_sessionId: string, conversationId: string) =>
@@ -136,8 +145,8 @@ function makeEngineWithReactors(rows: Membership[]) {
   const engine = new FanOutEngine(
     memberships,
     () => connectors,
-    (_sessionId, conversationId, text) =>
-      notices.push({ conversationId, text }),
+    (_sessionId, conversationId, text, cause) =>
+      notices.push({ conversationId, text, cause }),
     reactors,
   );
   reactors.useDelivery((wake) => engine.wakeReactor(wake));
@@ -155,6 +164,23 @@ function finished(who: string, conversationId: string): ChatMessage {
     source: { kind: "agent", from: who },
     endsRun: true,
     content: "done",
+  });
+}
+
+/** The system notice the roster handler posts when a worker's connection drops:
+ * a connector-detached cause in the worker's own home conversation. */
+function detached(who: string, conversationId: string): ChatMessage {
+  return message({
+    conversationId,
+    author: { id: "system", kind: "agent", name: "System" },
+    source: { kind: "system" },
+    content: "This agent's connection dropped.",
+    cause: {
+      kind: "connector-detached",
+      participantId: who,
+      conversationId,
+      waveDepth: 0,
+    },
   });
 }
 
@@ -348,6 +374,14 @@ test("a cycle of reactions stops at the depth limit, and says why once", async (
   assert.equal(h.delivered.length, 24, "the chain runs to the hop limit");
   assert.equal(h.notices.length, 1, "and announces the stop exactly once");
   assert.match(h.notices[0].text, /reached its limit of 24 hops/);
+  // The notice carries the structured cause, attributed, so a supervisor can act
+  // on it rather than parse the sentence.
+  const cause = h.notices[0].cause;
+  assert.equal(cause.kind, "budget-exhausted");
+  assert.equal(cause.kind === "budget-exhausted" && cause.budget, "wave-depth");
+  assert.equal(cause.kind === "budget-exhausted" && cause.limit, 24);
+  assert.equal(cause.conversationId, h.notices[0].conversationId);
+  assert.equal(typeof cause.waveDepth, "number");
 });
 
 test("a cycle that changes rooms on every hop is bounded just the same", async () => {
@@ -475,6 +509,54 @@ test("a fan-in wakes once, in its home, only after every worker finishes", async
     h.delivered[0].conversationId,
     "A",
     "in the declared home, not whichever worker thread finished last",
+  );
+});
+
+test("a detached worker mid-join wakes a supervisor while the join stays pending", async () => {
+  // The working-at-end claim: awaitAll and supervise share the three worker
+  // threads. Two workers finish; the third's connection drops. The supervisor
+  // must get something to act on, and the join must stay unfinished.
+  const h = makeEngineWithReactors([
+    membership("prime", "B1", "mentionsMe"),
+    membership("prime", "B2", "mentionsMe"),
+    membership("prime", "B3", "mentionsMe"),
+  ]);
+  const scope = {
+    memberships: [
+      { conversationId: "B1", participantId: "prime" },
+      { conversationId: "B2", participantId: "prime" },
+      { conversationId: "B3", participantId: "prime" },
+    ],
+    homeConversationId: "A",
+  };
+  const join = await h.reactors.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "awaitAll", participants: ["w1", "w2", "w3"] },
+    scope,
+  });
+  await h.reactors.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "supervise" },
+    scope,
+  });
+
+  await h.engine.fanOut({ message: finished("w1", "B1"), project });
+  await h.engine.fanOut({ message: finished("w2", "B2"), project });
+  assert.equal(h.delivered.length, 0, "two completions wake no one yet");
+
+  await h.engine.fanOut({ message: detached("w3", "B3"), project });
+
+  assert.equal(h.delivered.length, 1, "the supervisor wakes on the failure");
+  assert.equal(h.delivered[0].participantId, "prime");
+  assert.equal(h.delivered[0].conversationId, "A", "in its home, not B3");
+  assert.match(h.delivered[0].text, /connector-detached/);
+  assert.match(h.delivered[0].text, /B3/);
+  assert.equal(
+    (await h.reactors.inspect(join.id))?.ready,
+    false,
+    "the join still waits on the third worker",
   );
 });
 

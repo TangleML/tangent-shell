@@ -139,5 +139,6 @@ test("messageFacts exposes the envelope and not the body", () => {
     mentions: ["prime"],
     endsRun: true,
     runId: "run-1",
+    cause: undefined,
   });
 });

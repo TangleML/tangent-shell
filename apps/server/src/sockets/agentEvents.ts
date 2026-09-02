@@ -287,18 +287,36 @@ function relayTerminalEvent(
   }
 }
 
-/** Builds the handler that broadcasts sub-agent roster changes to the room. */
+/** Builds the handler that broadcasts sub-agent roster changes to the room. A
+ * live participant that drops to `detached` surfaces a `connector-detached`
+ * cause so a supervisor can react — only on a real transition, so a restart
+ * reattaching an already-detached row does not flood old sessions. */
 export function createSubagentUpdateHandler(
   io: Server,
   store: SessionStore,
+  conversations: ConversationRouter,
 ): SubagentUpdateHandler {
-  return (sessionId, subagent) => {
+  return async (sessionId, subagent) => {
     const payload: SubagentUpdatePayload = { sessionId, subagent };
     io.to(roomFor(sessionId)).emit(SocketEvents.SubagentUpdate, payload);
 
+    // The store still holds the previous status until this handler persists the
+    // new one, so read it before the write to tell a real transition apart.
+    const previous = (await store.listAgents(sessionId)).find(
+      (agent) => agent.id === subagent.id,
+    )?.status;
     // Persisted as-is: a participant's lifecycle is transcript-visible history,
     // so nothing is collapsed on the way to the row.
-    void store.setAgentStatus(sessionId, subagent.id, subagent.status);
+    await store.setAgentStatus(sessionId, subagent.id, subagent.status);
+
+    if (previous === "active" && subagent.status === "detached") {
+      conversations.announceCause(sessionId, {
+        kind: "connector-detached",
+        participantId: subagent.id,
+        conversationId: subagent.conversationId,
+        waveDepth: conversations.waveDepth(sessionId, subagent.id),
+      });
+    }
   };
 }
 

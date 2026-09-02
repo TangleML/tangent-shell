@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   OutstandingCorrelation,
   RunId,
+  TerminationCause,
 } from "@tangent/shared/contracts.ts";
 
 import type { RunRegistry } from "../runs/runRegistry.ts";
@@ -42,11 +43,13 @@ export const systemCorrelationClock: CorrelationClock = {
   },
 };
 
-/** Posts a system notice into a Conversation, matching the fan-out engine's. */
+/** Posts a system notice into a Conversation, matching the fan-out engine's:
+ * the text plus the structured cause it describes. */
 export type CorrelationNotify = (
   sessionId: string,
   conversationId: string,
   text: string,
+  cause: TerminationCause,
 ) => void;
 
 /** What opening a correlation requires. `id` is minted when a caller does not
@@ -242,14 +245,20 @@ export class CorrelationEngine {
     for (const waiter of entry.waiters) {
       waiter({ status: "timeout" });
     }
+    const cause: TerminationCause = {
+      kind: "correlation-timeout",
+      askedBy: entry.correlation.askedBy,
+      askedOf: entry.askedOf,
+      participantId: entry.correlation.askedBy,
+      conversationId: entry.correlation.conversationId,
+      runId: entry.correlation.runId,
+      waveDepth: 0,
+    };
     this.notify?.(
       entry.sessionId,
       entry.correlation.conversationId,
-      describeCause({
-        kind: "correlation-timeout",
-        askedBy: entry.correlation.askedBy,
-        askedOf: entry.askedOf,
-      }),
+      describeCause(cause),
+      cause,
     );
   }
 

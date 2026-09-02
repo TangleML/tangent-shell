@@ -208,6 +208,85 @@ test("debounce restarts its window on each message and fires once when quiet", a
   );
 });
 
+test("supervise readies on a message carrying a cause and clears on wake", () => {
+  const reactor = reactorFor({ name: "supervise" });
+  let state = reactor.observe(
+    reactor.initial,
+    facts({ endsRun: true }),
+    "prime",
+  );
+  assert.equal(
+    reactor.ready(state),
+    false,
+    "an ordinary completion carries no cause",
+  );
+  assert.equal(state, reactor.initial, "and leaves state untouched");
+
+  state = reactor.observe(
+    state,
+    facts({
+      authorId: "w3",
+      cause: {
+        kind: "connector-detached",
+        participantId: "w3",
+        conversationId: "B3",
+        waveDepth: 0,
+      },
+    }),
+    "prime",
+  );
+  assert.equal(reactor.ready(state), true);
+  assert.deepEqual(state, { kind: "cause", fired: true });
+  assert.deepEqual(reactor.onWake(state), { kind: "cause", fired: false });
+});
+
+test("supervise may span the many conversations it watches, and wakes on a cause in any", async () => {
+  const registry = new ReactorRegistry(new InMemoryReactorStore());
+  const wakes: ReactorWake[] = [];
+  registry.useDelivery(async (wake) => {
+    wakes.push(wake);
+    return true;
+  });
+  await registry.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "supervise" },
+    scope: {
+      memberships: [
+        { conversationId: "B1", participantId: "prime" },
+        { conversationId: "B2", participantId: "prime" },
+        { conversationId: "B3", participantId: "prime" },
+      ],
+      homeConversationId: "A",
+    },
+  });
+
+  await registry.observe("s1", "B1", facts({ authorId: "w1", endsRun: true }));
+  assert.equal(wakes.length, 0, "an ordinary completion is not a failure");
+
+  await registry.observe(
+    "s1",
+    "B3",
+    facts({
+      authorId: "w3",
+      cause: {
+        kind: "connector-detached",
+        participantId: "w3",
+        conversationId: "B3",
+        waveDepth: 0,
+      },
+    }),
+  );
+  assert.equal(wakes.length, 1, "a cause in any watched conversation wakes it");
+  assert.equal(
+    wakes[0].conversationId,
+    "A",
+    "the supervisor wakes in its home",
+  );
+  assert.match(wakes[0].text, /connector-detached/);
+  assert.match(wakes[0].text, /B3/);
+});
+
 test("a reactor over an unreadable spec never readies", () => {
   // A misconfigured awaitAll (no targets) is rejected at install rather than
   // treated as vacuously ready — an empty set must not wake on the first message.

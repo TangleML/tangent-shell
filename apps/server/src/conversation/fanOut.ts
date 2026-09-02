@@ -45,11 +45,13 @@ export interface FanOutRequest {
   project: (message: ChatMessage, recipient: Membership) => string;
 }
 
-/** Posts a system notice into a Conversation. */
+/** Posts a system notice into a Conversation, carrying the structured cause it
+ * describes so a Reactor can observe the failure without parsing the text. */
 export type Notify = (
   sessionId: string,
   conversationId: string,
   text: string,
+  cause: TerminationCause,
 ) => void;
 
 /**
@@ -166,9 +168,12 @@ export class FanOutEngine {
     const wave = this.waveFor(message, request.ingress);
     if (wave.depth + 1 > MAX_WAVE_DEPTH) {
       const cause: TerminationCause = {
-        kind: "wave-depth-exhausted",
-        participantId: reacting[0].participantId,
+        kind: "budget-exhausted",
+        budget: "wave-depth",
         limit: MAX_WAVE_DEPTH,
+        participantId: reacting[0].participantId,
+        conversationId: message.conversationId,
+        waveDepth: wave.depth,
       };
       this.announce(message, cause);
       result.refused.push(...refusedBy(reacting, describeCause(cause)));
@@ -178,8 +183,12 @@ export class FanOutEngine {
     for (const member of reacting) {
       if (!this.spend(wave.id, message.conversationId)) {
         const cause: TerminationCause = {
-          kind: "reaction-budget-exhausted",
+          kind: "budget-exhausted",
+          budget: "conversation-reactions",
           limit: MAX_CONVERSATION_REACTIONS,
+          participantId: member.participantId,
+          conversationId: message.conversationId,
+          waveDepth: wave.depth,
         };
         this.announce(message, cause);
         result.refused.push(...refusedBy(reacting, describeCause(cause)));
@@ -253,6 +262,7 @@ export class FanOutEngine {
       participantId: member.participantId,
       conversationId: message.conversationId,
       policy: member.admission,
+      waveDepth: wave.depth,
       deliver: () => this.deferredDeliver(member.participantId, performNow),
     }) ?? { action: "now" as const };
 
@@ -326,7 +336,7 @@ export class FanOutEngine {
         .resolve(wake.sessionId, wake.participantId)
         .deliver(deliveryRequest);
 
-    const decision = await this.admitReactorWake(wake, performNow);
+    const decision = await this.admitReactorWake(wake, wave, performNow);
     if (decision.action === "rejected") {
       this.announceIn(wake.sessionId, wake.conversationId, decision.cause);
       return false;
@@ -347,6 +357,7 @@ export class FanOutEngine {
    * membership in (none derived yet) defaults to delivering now. */
   private async admitReactorWake(
     wake: ReactorWake,
+    wave: Wave,
     performNow: () => { delivered: boolean; reason?: string },
   ) {
     if (!this.admission) return { action: "now" as const };
@@ -360,6 +371,7 @@ export class FanOutEngine {
       participantId: wake.participantId,
       conversationId: wake.conversationId,
       policy: member?.admission ?? "queue",
+      waveDepth: wave.depth,
       deliver: () => this.deferredDeliver(wake.participantId, performNow),
     });
   }
@@ -374,16 +386,23 @@ export class FanOutEngine {
 
     if (base.depth + 1 > MAX_WAVE_DEPTH) {
       this.announceIn(wake.sessionId, wake.conversationId, {
-        kind: "wave-depth-exhausted",
-        participantId: wake.participantId,
+        kind: "budget-exhausted",
+        budget: "wave-depth",
         limit: MAX_WAVE_DEPTH,
+        participantId: wake.participantId,
+        conversationId: wake.conversationId,
+        waveDepth: base.depth,
       });
       return undefined;
     }
     if (!this.spend(base.id, wake.conversationId)) {
       this.announceIn(wake.sessionId, wake.conversationId, {
-        kind: "reaction-budget-exhausted",
+        kind: "budget-exhausted",
+        budget: "conversation-reactions",
         limit: MAX_CONVERSATION_REACTIONS,
+        participantId: wake.participantId,
+        conversationId: wake.conversationId,
+        waveDepth: base.depth,
       });
       return undefined;
     }
@@ -410,6 +429,13 @@ export class FanOutEngine {
     if (ingress && ingress !== "reaction")
       return { id: randomUUID(), depth: 0 };
     return inherited ?? { id: randomUUID(), depth: 0 };
+  }
+
+  /** The depth of the wave a participant was last woken in, or `0` when it holds
+   * no chain — the wave depth a structured cause names, read by the engines that
+   * emit one outside a fan-out (admission on release, a settled Run, a detach). */
+  waveDepth(sessionId: string, participantId: string): number {
+    return this.waves.get(keyFor(sessionId, participantId))?.depth ?? 0;
   }
 
   /** Charges one reaction to a wave's budget in a Conversation. */
@@ -440,6 +466,8 @@ export class FanOutEngine {
       const cause: TerminationCause = {
         kind: "wake-refused",
         participantId: member.participantId,
+        conversationId: message.conversationId,
+        waveDepth: this.waveDepth(message.sessionId, member.participantId),
       };
       this.announce(message, cause);
       result.refused.push({
@@ -458,6 +486,6 @@ export class FanOutEngine {
     conversationId: string,
     cause: TerminationCause,
   ): void {
-    this.notify(sessionId, conversationId, describeCause(cause));
+    this.notify(sessionId, conversationId, describeCause(cause), cause);
   }
 }
