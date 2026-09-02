@@ -4,6 +4,7 @@ import type {
   ReactorRecord,
   ReactorScope,
   ReactorSpec,
+  ReactorState,
   RunIngress,
 } from "@tangent/shared/contracts.ts";
 
@@ -233,7 +234,7 @@ export class ReactorRegistry {
       sessionId: record.sessionId,
       participantId: record.participantId,
       conversationId: record.homeConversationId,
-      text: wakeText(record),
+      text: wakeText(record, stimulus),
       ingress: stimulus ? "reaction" : "schedule",
       stimulus,
     });
@@ -277,9 +278,14 @@ export class ReactorRegistry {
 
 /** A short, body-free notice of why a reactor woke — provenance, not content;
  * reading the watched threads is the context work of a later PR. */
-function wakeText(record: ReactorRecord): string {
+/** The completed set an await-family reactor has folded, for its wake line. */
+function seenList(state: ReactorState): string {
+  return state.kind === "await" ? state.seen.join(", ") : "";
+}
+
+function wakeText(record: ReactorRecord, stimulus?: MessageFacts): string {
   const { spec, state } = record;
-  const seen = state.kind === "await" ? state.seen.join(", ") : "";
+  const seen = seenList(state);
   if (spec.name === "awaitAll") {
     return `All awaited participants have finished: ${seen}.`;
   }
@@ -292,5 +298,16 @@ function wakeText(record: ReactorRecord): string {
   if (spec.name === "awaitDeadline") {
     return "The deadline you set has passed.";
   }
-  return "Activity has settled after the quiet window.";
+  if (spec.name === "debounce") {
+    return "Activity has settled after the quiet window.";
+  }
+  return superviseText(stimulus);
+}
+
+/** A short provenance line for a supervise wake: which cause fired, in which
+ * Conversation. Reading the failed worker's transcript is 3.5's context work. */
+function superviseText(stimulus?: MessageFacts): string {
+  const cause = stimulus?.cause;
+  if (!cause) return "A worker you are supervising reported a failure.";
+  return `A worker you are supervising reported a failure (${cause.kind}) in conversation ${cause.conversationId}.`;
 }

@@ -797,13 +797,16 @@ export type ReactionSpec = string;
  * - `awaitDeadline` — ready when a wall-clock instant passes (single scope only).
  * - `debounce` — ready once a quiet window elapses after the last Message
  *   (single scope only).
+ * - `supervise` — ready on the next Message in scope carrying a structured
+ *   {@link TerminationCause}, so a supervisor wakes on a failure (§9.7).
  */
 export type ReactorName =
   | "awaitAll"
   | "awaitQuorum"
   | "firstOf"
   | "awaitDeadline"
-  | "debounce";
+  | "debounce"
+  | "supervise";
 
 /**
  * The stored configuration of a {@link ReactorName}. A completion is a Message
@@ -816,7 +819,8 @@ export type ReactorSpec =
   | { name: "awaitQuorum"; n: number; of: string[] }
   | { name: "firstOf"; participants?: string[]; runs?: string[] }
   | { name: "awaitDeadline"; at: string }
-  | { name: "debounce"; windowMs: number };
+  | { name: "debounce"; windowMs: number }
+  | { name: "supervise" };
 
 /**
  * Where a Reactor watches and where its wake lands. `memberships` are the
@@ -839,12 +843,14 @@ export interface ReactorScope {
  * - `first` — whether a first completion has fired.
  * - `deadline` — whether the instant has passed.
  * - `debounce` — the last Message's `seq` and whether the quiet window elapsed.
+ * - `cause` — whether a Message carrying a structured cause has been observed.
  */
 export type ReactorState =
   | { kind: "await"; seen: string[] }
   | { kind: "first"; fired: boolean }
   | { kind: "deadline"; due: boolean }
-  | { kind: "debounce"; lastSeq: number; due: boolean };
+  | { kind: "debounce"; lastSeq: number; due: boolean }
+  | { kind: "cause"; fired: boolean };
 
 /**
  * An installed Reactor as persisted and inspected: its configuration, scope, and
@@ -880,12 +886,14 @@ export type TranscriptVisibility = "shared" | "summarized" | "opaque";
 export type ParticipantKind = "human" | "agent" | "automation";
 
 /**
- * An ability a Participant holds independently of its kind. `orchestrator` is
- * the one Prime carries today: it grants the spawn/message/list tools and marks
- * the at-most-one Participant a Session directs its sub-agents through.
- * Designation is by capability, not by a reserved id.
+ * An ability a Participant holds independently of its kind. `orchestrator`
+ * grants the spawn/message/list tools and marks the at-most-one Participant a
+ * Session directs its sub-agents through. `supervisor` marks a Participant whose
+ * Reactor observes structured termination causes and retries, compensates, or
+ * escalates (unified-model §9.7) — a capability like `orchestrator`, never a
+ * kind. Designation is by capability, not by a reserved id.
  */
-export type Capability = "orchestrator";
+export type Capability = "orchestrator" | "supervisor";
 
 /**
  * Whether a Participant is reachable right now: `connected`, `away`, or
@@ -897,11 +905,13 @@ export type Presence = "connected" | "away" | "detached";
 /**
  * The capabilities an agent's `role` carries. Prime holds `orchestrator` — the
  * successor to `PRIME_AGENT_ID` being a reserved id, so authority reads a
- * capability rather than comparing an id to a constant — and a sub-agent holds
- * none. A Session designates at most one orchestrator by convention.
+ * capability rather than comparing an id to a constant — and `supervisor`, since
+ * today's orchestrator is also the implicit watcher of its workers' failures. A
+ * sub-agent holds none. A Session designates at most one orchestrator by
+ * convention.
  */
 export function capabilitiesForRole(role: AgentRole): Capability[] {
-  return role === "prime" ? ["orchestrator"] : [];
+  return role === "prime" ? ["orchestrator", "supervisor"] : [];
 }
 
 /**
@@ -1025,6 +1035,61 @@ export function sourceFromAuthor(author: ChatAuthor): MessageSource {
   return { kind: author.kind };
 }
 
+/**
+ * Which bound the fan-out engine hit when a cascade stopped: the per-chain hop
+ * limit (`wave-depth`) or one Conversation's per-wave reaction budget
+ * (`conversation-reactions`).
+ */
+export type BudgetKind = "wave-depth" | "conversation-reactions";
+
+/**
+ * Attribution every {@link TerminationCause} carries so a supervisor can act on
+ * it rather than read it: the Membership it happened to (`participantId` in
+ * `conversationId`), the {@link Run} involved when one is attributable, and the
+ * fan-out wave depth at the point it stopped. A cause a supervisor cannot locate
+ * is just a log line (unified-model §9.7).
+ */
+export interface CauseAttribution {
+  /** The Membership's participant. */
+  participantId: string;
+  /** The Membership's Conversation. */
+  conversationId: string;
+  /** The Run involved, when one is attributable. */
+  runId?: RunId;
+  /** The fan-out wave depth where it stopped; `0` when no wave was in flight. */
+  waveDepth: number;
+}
+
+/**
+ * Why an abnormal termination happened, surfaced as a system Message in the
+ * Conversation it happened in, at a `seq`, so nothing terminates silently
+ * (unified-model §4.4, §9.7). Each variant carries {@link CauseAttribution} so a
+ * `supervisor` Participant's Reactor can retry, compensate, or escalate:
+ *
+ * - `budget-exhausted` — a chain hit its hop limit or a Conversation its per-wave
+ *   reaction budget.
+ * - `run-error` — a Run settled `failed`.
+ * - `connector-detached` — a Participant's connection dropped mid-work.
+ * - `admission-rejected` — a wake was refused against an open Run by policy.
+ * - `correlation-timeout` — a request expired with no answer.
+ * - `wake-refused` — an addressed Participant declined to act.
+ */
+export type TerminationCause =
+  | ({
+      kind: "budget-exhausted";
+      budget: BudgetKind;
+      limit: number;
+    } & CauseAttribution)
+  | ({ kind: "run-error" } & CauseAttribution)
+  | ({ kind: "connector-detached" } & CauseAttribution)
+  | ({ kind: "admission-rejected"; policy: AdmissionPolicy } & CauseAttribution)
+  | ({
+      kind: "correlation-timeout";
+      askedBy: string;
+      askedOf?: string;
+    } & CauseAttribution)
+  | ({ kind: "wake-refused" } & CauseAttribution);
+
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
@@ -1077,6 +1142,12 @@ export interface ChatMessage {
   correlationId?: string;
   /** The `correlationId` this Message answers, when it answers a request. */
   inReplyTo?: string;
+  /**
+   * The structured reason an abnormal termination happened, when this Message is
+   * the system notice of one. Present only on `source.kind: "system"` cause
+   * notices; a Reactor observes it to react to a failure (unified-model §9.7).
+   */
+  cause?: TerminationCause;
   /** ISO-8601 timestamp. */
   createdAt: string;
 }

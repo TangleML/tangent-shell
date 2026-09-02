@@ -120,9 +120,12 @@ export class RunRegistry {
     const run = this.byId.get(runId);
     if (!run) return;
     this.forget(run);
-    this.persist(run.id, { status, endedAt: new Date().toISOString() });
-    // After `forget`, the participant reads as idle, so a listener can release
-    // whatever was held behind this Run.
+    // Stamp the terminal status on the object handed to the listener, so a
+    // `failed` Run is distinguishable from a clean one there (the store write
+    // follows behind). After `forget`, the participant already reads idle.
+    run.status = status;
+    run.endedAt = new Date().toISOString();
+    this.persist(run.id, { status, endedAt: run.endedAt });
     this.onSettled?.(run);
   }
 

@@ -195,6 +195,11 @@ test("a line written before the envelope existed reads back with one", async () 
       messages.map((message) => message.mentions),
       [[], [], []],
     );
+    assert.deepEqual(
+      messages.map((message) => message.cause),
+      [undefined, undefined, undefined],
+      "a line predating structured causes reads back with none",
+    );
   } finally {
     cleanup();
   }

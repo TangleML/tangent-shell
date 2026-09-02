@@ -253,6 +253,46 @@ test("posting into the conversation it was written from is an ordinary post", as
   );
 });
 
+test("announceCause posts the structured cause as a system message in its conversation", async () => {
+  const h = makeRouter();
+  await withWorker(h.sessions);
+
+  h.router.announceCause("s1", {
+    kind: "run-error",
+    participantId: "sub-1",
+    conversationId: "sub-1",
+    runId: "run-1",
+    waveDepth: 0,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const persisted = await h.sessions.getMessages("s1");
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].source.kind, "system");
+  assert.equal(persisted[0].cause?.kind, "run-error");
+  assert.equal(
+    persisted[0].cause?.kind === "run-error" && persisted[0].cause.runId,
+    "run-1",
+  );
+  assert.match(persisted[0].content, /run ended with an error/);
+});
+
+test("an ordinary post carries no cause on the envelope", async () => {
+  const h = makeRouter();
+  await withWorker(h.sessions);
+
+  const { message } = await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: WORKER,
+    content: "done",
+  });
+
+  assert.equal(message.cause, undefined);
+  const [persisted] = await h.sessions.getMessages("s1");
+  assert.equal(persisted.cause, undefined, "absent, not a null on the wire");
+});
+
 test("an opaque member is sent the addressing Message plain, a shared one framed", () => {
   const msg: ChatMessage = {
     id: "m1",

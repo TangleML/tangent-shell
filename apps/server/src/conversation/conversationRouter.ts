@@ -12,6 +12,7 @@ import {
   SocketEvents,
   sourceFromAuthor,
   SYSTEM_AUTHOR,
+  type TerminationCause,
 } from "@tangent/shared/contracts.ts";
 import type { Server } from "socket.io";
 
@@ -21,6 +22,7 @@ import type { Membership } from "../store/membershipStore.ts";
 import type { CatalogInput } from "../store/resourceStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import type { AdmissionEngine } from "./admission.ts";
+import { describeCause } from "./causes.ts";
 import type { CorrelationEngine } from "./correlation.ts";
 import { FanOutEngine, type FanOutResult } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
@@ -50,6 +52,8 @@ export interface PostInput {
   correlationId?: string;
   /** The `correlationId` this Message answers, resolving that correlation. */
   inReplyTo?: string;
+  /** The structured cause this Message is the system notice of, when one. */
+  cause?: TerminationCause;
   memory?: { scope: MemoryScope };
   /**
    * The Conversation the author wrote this from, when it is not this one. Set
@@ -135,6 +139,7 @@ function buildMessage(input: PostInput & { seq: number }): ChatMessage {
     endsRun: input.endsRun,
     correlationId: input.correlationId,
     inReplyTo: input.inReplyTo,
+    cause: input.cause,
     ...whatIsThere(input),
     createdAt: new Date().toISOString(),
   };
@@ -259,12 +264,13 @@ export class ConversationRouter {
     this.engine = new FanOutEngine(
       memberships,
       () => this.requireConnectors(),
-      (sessionId, conversationId, text) => {
+      (sessionId, conversationId, text, cause) => {
         void this.post({
           sessionId,
           conversationId,
           author: SYSTEM_AUTHOR,
           content: text,
+          cause,
         });
       },
       reactors,
@@ -275,12 +281,13 @@ export class ConversationRouter {
     reactors?.useDelivery((wake) => this.engine.wakeReactor(wake));
     // A timed-out correlation surfaces as a system notice in the Conversation it
     // was asked in, posted back through this router.
-    correlations?.useNotify((sessionId, conversationId, text) => {
+    correlations?.useNotify((sessionId, conversationId, text, cause) => {
       void this.post({
         sessionId,
         conversationId,
         author: SYSTEM_AUTHOR,
         content: text,
+        cause,
       });
     });
   }
@@ -380,6 +387,31 @@ export class ConversationRouter {
         memoryResource(message, message.memory.scope),
       );
     }
+  }
+
+  /**
+   * The fan-out wave depth a participant currently holds, so a cause emitted
+   * outside a fan-out (a settled Run, a dropped connection) can name the depth
+   * it stopped at. `0` when the participant holds no chain.
+   */
+  waveDepth(sessionId: string, participantId: string): number {
+    return this.engine.waveDepth(sessionId, participantId);
+  }
+
+  /**
+   * Posts a structured termination cause as a system Message in the Conversation
+   * it names, the same shape the fan-out and correlation engines post. For a
+   * cause discovered outside a fan-out — a Run settling `failed`, a connector
+   * dropping — so a supervisor can react to it.
+   */
+  announceCause(sessionId: string, cause: TerminationCause): void {
+    void this.post({
+      sessionId,
+      conversationId: cause.conversationId,
+      author: SYSTEM_AUTHOR,
+      content: describeCause(cause),
+      cause,
+    });
   }
 
   private broadcast(
