@@ -728,6 +728,32 @@ export interface Run {
 }
 
 /**
+ * A request awaiting its answer (unified-model §9.4). A Message carrying a
+ * `correlationId` opens one; a later Message whose `inReplyTo` names it resolves
+ * it. The engine holds the outstanding set — keyed by the asking participant's
+ * open {@link Run} when it has one — so "who is blocked on whom" is a listable
+ * fact rather than a table inside one connector. It promises an answer will be
+ * *identifiable* when it arrives, not that one will arrive: an unanswered
+ * correlation expires into a structured cause.
+ */
+export interface OutstandingCorrelation {
+  /** The correlation id, carried by the asking Message and every reply to it. */
+  id: string;
+  /** The Run the asking participant had open, when one was open. */
+  runId?: RunId;
+  /** The participant that asked. */
+  askedBy: string;
+  /** The participant it was addressed to, when the ask named one. */
+  askedOf?: string;
+  /** The asking Message, when it was opened from a persisted one. */
+  messageId?: string;
+  /** The Conversation the ask was posted in. */
+  conversationId: string;
+  /** ISO-8601 timestamp the correlation expires if still unanswered. */
+  expiresAt: string;
+}
+
+/**
  * A named reaction predicate a Membership can declare:
  * - `always` — act on every Message in the Conversation (self excluded).
  * - `fromHumans` — act only on what a person typed.
@@ -1031,9 +1057,13 @@ export interface ChatMessage {
   runId?: RunId;
   /** Whether this Message is the last of its Run. */
   endsRun?: boolean;
-  /** Groups a request with its answers. Semantics arrive with the Reactor. */
+  /**
+   * Marks this Message as a request awaiting an answer. The engine holds an
+   * {@link OutstandingCorrelation} for it until a Message with a matching
+   * `inReplyTo` arrives or it times out (unified-model §9.4).
+   */
   correlationId?: string;
-  /** The Message this one answers, when it answers one. */
+  /** The `correlationId` this Message answers, when it answers a request. */
   inReplyTo?: string;
   /** ISO-8601 timestamp. */
   createdAt: string;

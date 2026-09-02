@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { CorrelationEngine } from "../conversation/correlation.ts";
 import type { RelayChannel, RelayRegistry } from "./relayRegistry.ts";
 import type { RelayReport } from "./relayReport.ts";
 
@@ -26,10 +27,6 @@ interface JsonRpcResponse {
   result?: unknown;
   error?: { code: number; message: string };
 }
-
-/** Max time `ask_prime` blocks for an answer, safely under MCP's 30s cap. */
-const ASK_TIMEOUT_MS = 25_000;
-const ASK_POLL_MS = 300;
 
 const PROTOCOL_VERSION = "2024-11-05";
 
@@ -68,6 +65,7 @@ interface Ctx {
   channel: RelayChannel;
   message: JsonRpcRequest;
   report: RelayReport;
+  correlations: CorrelationEngine;
   id: string | number;
 }
 
@@ -89,6 +87,7 @@ export async function dispatchMcp(
   channel: RelayChannel,
   message: JsonRpcRequest,
   report: RelayReport,
+  correlations: CorrelationEngine,
 ): Promise<JsonRpcResponse | null> {
   const method = String(message.method ?? "");
   const id = message.id;
@@ -108,7 +107,7 @@ export async function dispatchMcp(
       error: { code: -32601, message: `method not found: ${method}` },
     };
   }
-  return handler({ registry, channel, message, report, id });
+  return handler({ registry, channel, message, report, correlations, id });
 }
 
 function handleInitialize({ message, id }: Ctx): JsonRpcResponse {
@@ -164,26 +163,19 @@ async function sendToPrimeTool(
 }
 
 async function askPrimeTool(
-  { registry, channel, report }: Ctx,
+  { channel, report, correlations }: Ctx,
   args: Record<string, unknown>,
 ): Promise<string> {
   const question = String(args.question ?? "").trim();
   if (!question) return "Empty question; nothing to ask.";
-  const requestId = randomUUID().replace(/-/g, "").slice(0, 12);
-  registry.addQuestion(channel.channelId, requestId, question);
-  // The request id is part of what the peer is asking, not framing around it:
-  // whoever answers has to be told which question they are answering.
-  await report(
-    channel,
-    `${question}\n\n` +
-      `Reply by supplying an answer for request_id "${requestId}".`,
-  );
-  const deadline = Date.now() + ASK_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const answer = registry.takeAnswer(channel.channelId, requestId);
-    if (answer !== undefined) return answer;
-    await sleep(ASK_POLL_MS);
-  }
+  // The correlation is the request/reply fact; the connector's only remaining
+  // job is to hold the call open until the engine says it resolved. Subscribing
+  // before posting means the reply can never arrive between the two.
+  const correlationId = randomUUID().replace(/-/g, "").slice(0, 12);
+  const outcome = correlations.waitFor(correlationId);
+  await report(channel, question, { correlationId });
+  const result = await outcome;
+  if (result.status === "answered") return result.message.content;
   return (
     "Prime did not answer in time. Proceed using your best judgment and " +
     "report what you decided with send_to_prime."
@@ -192,8 +184,4 @@ async function askPrimeTool(
 
 function ok(id: string | number, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

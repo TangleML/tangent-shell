@@ -20,6 +20,7 @@ import { messageRoomFor } from "../sockets/rooms.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { CatalogInput } from "../store/resourceStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import type { CorrelationEngine } from "./correlation.ts";
 import { FanOutEngine, type FanOutResult } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
 import { participantForConversation } from "./participantRegistry.ts";
@@ -43,6 +44,11 @@ export interface PostInput {
   attachments?: Attachment[];
   runId?: RunId;
   endsRun?: boolean;
+  /** Marks this Message as a request awaiting an answer; the engine opens an
+   * outstanding correlation for it. */
+  correlationId?: string;
+  /** The `correlationId` this Message answers, resolving that correlation. */
+  inReplyTo?: string;
   memory?: { scope: MemoryScope };
   /**
    * The Conversation the author wrote this from, when it is not this one. Set
@@ -126,6 +132,8 @@ function buildMessage(input: PostInput & { seq: number }): ChatMessage {
     content: input.content,
     runId: input.runId,
     endsRun: input.endsRun,
+    correlationId: input.correlationId,
+    inReplyTo: input.inReplyTo,
     ...whatIsThere(input),
     createdAt: new Date().toISOString(),
   };
@@ -225,6 +233,11 @@ export class ConversationRouter {
    * test) skips the mirror.
    */
   private readonly resources?: ResourceCatalog;
+  /**
+   * Holds the outstanding request/reply correlations a posted Message opens or
+   * resolves. Optional so a bare router (e.g. a test) skips correlation.
+   */
+  private readonly correlations?: CorrelationEngine;
   private readonly engine: FanOutEngine;
   private connectors?: ConnectorRegistry;
 
@@ -234,11 +247,13 @@ export class ConversationRouter {
     memberships: MembershipRegistry,
     resources?: ResourceCatalog,
     reactors?: ReactorRegistry,
+    correlations?: CorrelationEngine,
   ) {
     this.io = io;
     this.store = store;
     this.memberships = memberships;
     this.resources = resources;
+    this.correlations = correlations;
     this.engine = new FanOutEngine(
       memberships,
       () => this.requireConnectors(),
@@ -255,6 +270,16 @@ export class ConversationRouter {
     // The engine owns the wave budget and the connector lookup a reactor wake
     // needs; the registry owns the folded state. Close the loop here.
     reactors?.useDelivery((wake) => this.engine.wakeReactor(wake));
+    // A timed-out correlation surfaces as a system notice in the Conversation it
+    // was asked in, posted back through this router.
+    correlations?.useNotify((sessionId, conversationId, text) => {
+      void this.post({
+        sessionId,
+        conversationId,
+        author: SYSTEM_AUTHOR,
+        content: text,
+      });
+    });
   }
 
   /**
@@ -274,6 +299,10 @@ export class ConversationRouter {
     // Persist before broadcasting so a reconnecting client sees it in history.
     await this.store.appendMessage(message);
     await this.catalogContent(message);
+    // A request opens a correlation and a reply resolves one — request/reply is
+    // a fact about Messages, not a per-connector table.
+    this.correlations?.openFromMessage(message);
+    this.correlations?.resolve(message);
     this.broadcast(message, input.broadcast);
     if (input.provokes === false) {
       return { message, woke: [], refused: [] };

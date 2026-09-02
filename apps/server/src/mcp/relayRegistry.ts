@@ -26,10 +26,6 @@ export interface RelayChannel {
   participantId?: string;
   /** The credential this channel — and only this channel — is opened by. */
   credential: ConnectorCredential;
-  /** Open questions awaiting an answer, keyed by request id. */
-  pending: Map<string, { question: string; createdAt: number }>;
-  /** Answers supplied for pending questions, keyed by request id. */
-  answers: Map<string, string>;
   createdAt: number;
 }
 
@@ -38,11 +34,6 @@ export interface OpenChannelInput {
   label?: string;
   /** The Participant the channel belongs to, when a connector owns it. */
   participantId?: string;
-}
-
-export interface PendingQuestion {
-  request_id: string;
-  question: string;
 }
 
 /**
@@ -63,8 +54,6 @@ export class RelayRegistry {
       label: input.label?.trim() || "remote agent",
       participantId: input.participantId,
       credential,
-      pending: new Map(),
-      answers: new Map(),
       createdAt: Date.now(),
     });
     return { channelId, secret: credential.secret };
@@ -72,42 +61,6 @@ export class RelayRegistry {
 
   get(channelId: string): RelayChannel | undefined {
     return this.channels.get(channelId);
-  }
-
-  /** Registers a question awaiting an answer. */
-  addQuestion(channelId: string, requestId: string, question: string): void {
-    const channel = this.channels.get(channelId);
-    if (!channel) return;
-    channel.pending.set(requestId, { question, createdAt: Date.now() });
-  }
-
-  /** Records an answer for a pending question. Returns whether it was open. */
-  answer(channelId: string, requestId: string, text: string): boolean {
-    const channel = this.channels.get(channelId);
-    if (!channel) return false;
-    const wasPending = channel.pending.has(requestId);
-    channel.answers.set(requestId, text);
-    return wasPending;
-  }
-
-  /** Consumes an answer if present, clearing the matching pending question. */
-  takeAnswer(channelId: string, requestId: string): string | undefined {
-    const channel = this.channels.get(channelId);
-    if (!channel) return undefined;
-    const answer = channel.answers.get(requestId);
-    if (answer === undefined) return undefined;
-    channel.answers.delete(requestId);
-    channel.pending.delete(requestId);
-    return answer;
-  }
-
-  /** Lists open questions for a channel (oldest first). */
-  pending(channelId: string): PendingQuestion[] {
-    const channel = this.channels.get(channelId);
-    if (!channel) return [];
-    return [...channel.pending.entries()]
-      .sort((a, b) => a[1].createdAt - b[1].createdAt)
-      .map(([request_id, value]) => ({ request_id, question: value.question }));
   }
 
   close(channelId: string): boolean {
