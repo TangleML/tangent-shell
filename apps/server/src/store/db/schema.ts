@@ -236,6 +236,8 @@ export const memberships = sqliteTable(
     reaction: text("reaction").notNull().default("never"),
     /** `reaction` | `schedule` | `webhook` | `tool`. */
     ingress: text("ingress").notNull().default("reaction"),
+    /** `queue` | `coalesce` | `preempt` | `reject`: what a wake does mid-Run. */
+    admission: text("admission").notNull().default("queue"),
     /** `shared` | `summarized` | `opaque`. */
     transcriptVisibility: text("transcript_visibility")
       .notNull()

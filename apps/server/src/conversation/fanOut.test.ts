@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type {
+  AdmissionPolicy,
   ChatAuthor,
   ChatMessage,
   MessageSourceKind,
@@ -55,6 +56,7 @@ function membership(
   participantId: string,
   conversationId: string,
   reaction: string,
+  admission: AdmissionPolicy = "queue",
 ): Membership {
   return {
     sessionId: "s1",
@@ -62,6 +64,7 @@ function membership(
     conversationId,
     reaction,
     ingress: "reaction",
+    admission,
     transcriptVisibility: "shared",
   };
 }

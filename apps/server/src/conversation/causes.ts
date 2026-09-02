@@ -1,3 +1,5 @@
+import type { AdmissionPolicy } from "@tangent/shared/contracts.ts";
+
 /**
  * Why the fan-out engine stopped instead of waking someone. A bound that cuts a
  * cascade without saying so converts a runaway loop into a stall, which is
@@ -11,12 +13,29 @@ export type TerminationCause =
   | { kind: "wave-depth-exhausted"; participantId: string; limit: number }
   | { kind: "reaction-budget-exhausted"; limit: number }
   | { kind: "wake-refused"; participantId: string }
-  | { kind: "correlation-timeout"; askedBy: string; askedOf?: string };
+  | { kind: "correlation-timeout"; askedBy: string; askedOf?: string }
+  | {
+      kind: "admission-rejected";
+      participantId: string;
+      policy: AdmissionPolicy;
+    };
+
+/** Why a wake was refused mid-Run: a `preempt` nothing could cancel, or any
+ * other policy that declined concurrent work. */
+function describeAdmissionRejected(policy: AdmissionPolicy): string {
+  if (policy === "preempt") {
+    return "This agent couldn't be interrupted to take a new message, so nothing was delivered.";
+  }
+  return "This agent is already working and doesn't take concurrent messages, so nothing was delivered.";
+}
 
 /** The text a cause is surfaced as. */
 export function describeCause(cause: TerminationCause): string {
   if (cause.kind === "wake-refused") {
     return "This agent doesn't react to messages here, so nothing was delivered.";
+  }
+  if (cause.kind === "admission-rejected") {
+    return describeAdmissionRejected(cause.policy);
   }
   if (cause.kind === "wave-depth-exhausted") {
     return (

@@ -31,6 +31,7 @@ function membership(overrides: Partial<Membership> & { sessionId: string }) {
     conversationId: "sub-1",
     reaction: "atRunEnd+mentionsMe",
     ingress: "reaction",
+    admission: "queue",
     transcriptVisibility: "shared",
     ...overrides,
   } satisfies Membership;
@@ -54,6 +55,19 @@ test("put upserts on (session, conversation, participant)", async () => {
   const rows = await store.listForSession(sessionId);
   assert.equal(rows.length, 1, "re-declaring a membership edits it");
   assert.equal(rows[0].reaction, "never");
+});
+
+test("a membership's admission policy round-trips and upserts", async () => {
+  const { store, sessionId } = await newStore();
+  await store.put(membership({ sessionId, admission: "coalesce" }));
+
+  assert.equal(
+    (await store.listForSession(sessionId))[0].admission,
+    "coalesce",
+  );
+
+  await store.put(membership({ sessionId, admission: "preempt" }));
+  assert.equal((await store.listForSession(sessionId))[0].admission, "preempt");
 });
 
 test("one participant holds a membership per conversation", async () => {

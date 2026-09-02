@@ -53,9 +53,18 @@ export class RunRegistry {
   private readonly byParticipant = new Map<string, Run>();
   /** The same runs by id, so a client-supplied run id resolves directly. */
   private readonly byId = new Map<RunId, Run>();
+  /** Notified after a Run settles, so a participant becoming idle can release a
+   * wake that was held behind it. */
+  private onSettled?: (run: Run) => void;
 
   constructor(store: RunStore) {
     this.store = store;
+  }
+
+  /** Registers the one listener told when a Run settles. Separate from the
+   * constructor because the admission engine that listens is wired after. */
+  useOnSettled(handler: (run: Run) => void): void {
+    this.onSettled = handler;
   }
 
   /**
@@ -112,6 +121,9 @@ export class RunRegistry {
     if (!run) return;
     this.forget(run);
     this.persist(run.id, { status, endedAt: new Date().toISOString() });
+    // After `forget`, the participant reads as idle, so a listener can release
+    // whatever was held behind this Run.
+    this.onSettled?.(run);
   }
 
   /** Settles the Run a participant has open, if it has one. */

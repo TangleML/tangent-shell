@@ -1,4 +1,5 @@
 import type {
+  AdmissionPolicy,
   RunIngress,
   TranscriptVisibility,
 } from "@tangent/shared/contracts.ts";
@@ -16,6 +17,7 @@ function toMembership(row: MembershipRow): Membership {
     conversationId: row.conversationId,
     reaction: row.reaction,
     ingress: row.ingress as RunIngress,
+    admission: row.admission as AdmissionPolicy,
     transcriptVisibility: row.transcriptVisibility as TranscriptVisibility,
   };
 }
@@ -76,7 +78,7 @@ export class SqliteMembershipStore implements MembershipStore {
   }
 
   async put(membership: Membership): Promise<void> {
-    const { reaction, ingress, transcriptVisibility } = membership;
+    const { reaction, ingress, admission, transcriptVisibility } = membership;
     this.db
       .insert(memberships)
       .values({
@@ -85,6 +87,7 @@ export class SqliteMembershipStore implements MembershipStore {
         sessionId: membership.sessionId,
         reaction,
         ingress,
+        admission,
         transcriptVisibility,
         createdAt: new Date().toISOString(),
       })
@@ -94,7 +97,7 @@ export class SqliteMembershipStore implements MembershipStore {
           memberships.conversationId,
           memberships.participantId,
         ],
-        set: { reaction, ingress, transcriptVisibility },
+        set: { reaction, ingress, admission, transcriptVisibility },
       })
       .run();
   }
