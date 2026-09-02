@@ -2,42 +2,49 @@
 
 [< Back to index](./index.md)
 
-This document covers the choreography between the three actors in a session: the
+This document covers the choreography between the actors in a session: the
 **human**, the session's **Prime** agent, and the **sub-agents** Prime spawns.
+It is the common Prime-in-the-middle shape of the general
+[conversation layer](./conversations.md): delegation and relay are no longer
+hardcoded routes but ordinary fan-out over memberships and reaction predicates.
 It builds on the mechanics in [orchestrator.md](./orchestrator.md).
 
 ## The roles and the rules
 
-From [server/src/pi/primeSystemPrompt.md](../../server/src/pi/primeSystemPrompt.md) and the
-orchestrator extension's role gating:
+Routing is decided by each participant's **Membership** — its reaction predicate
+over the [conversation layer](./conversations.md) — not by hardcoded "who talks to
+whom" branches. In a default session that configuration produces the familiar
+Prime-centric behavior:
 
-- **The human talks to Prime, and can nudge any sub-agent.** Human messages
-  default to Prime (`pi.prompt` -> `sendToAgent("prime", ...)`), but a
-  `chat:message` carrying a sub-agent `conversationId` is relayed to that
-  sub-agent (`sendToAgent(<subId>, ...)`) so the user can steer or follow-up an
-  in-flight sub-agent from its own thread tab. Prime still owns spawning and
-  directing sub-agents.
-- **Only Prime directs sub-agents.** Prime alone has `spawn_subagent`,
-  `message_subagent`, `kill_subagent`, and `list_subagents`.
-- **Sub-agents are read-only observers of each other.** Every agent (Prime and
-  sub-agents) has `read_room` to read the shared transcript, but a sub-agent
-  cannot message or spawn other agents. It can only push a directed update _up_
-  to Prime via `message_prime`. Prime relays information between sub-agents when
-  they need to coordinate.
-- **All work shares one workspace.** Every agent's `cwd` is the same session root
-  folder, so sub-agents see each other's files.
+- **Prime reacts to the human by default.** A human's `chat:message` posts into a
+  Conversation and fans out; Prime's membership reacts, so it runs. A human can
+  also address a specific member with an `@mention` (resolved to a participant id
+  at write time) or write into a sub-agent's thread to steer or follow up an
+  in-flight run. Prime still holds the `orchestrator` capability that grants
+  spawning and directing sub-agents.
+- **The orchestrator capability gates the spawn tools.** The agent holding
+  `orchestrator` (Prime today) gets `spawn_subagent`, `message_subagent`,
+  `kill_subagent`, and `list_subagents`; a plain sub-agent holds none.
+- **Sub-agents read the room and report up.** Every agent has `read_room`; a
+  sub-agent's own upward channel is `message_prime`. Coordination between
+  sub-agents still goes through the orchestrator — but this is a consequence of
+  how their memberships are configured, not a special case in the router.
+- **Heterogeneous members fall out of the same mechanism.** An agent reached over
+  A2A is an ordinary member with its own reaction predicate (opaque by default),
+  not something the orchestrator proxies for. See [connectors.md](./connectors.md).
+- **All work shares one workspace.** Every local agent's `cwd` is the same session
+  root folder, so sub-agents see each other's files.
 
 ## Transcript threading
 
-Every message carries a `conversationId`:
-
-- `"prime"` — the main human/Prime thread.
-- a sub-agent's id — that sub-agent's drill-in thread.
-
-The single Socket.IO room receives all of them; the client filters by the
-selected thread. Directed tasks (Prime -> sub) and reports (sub -> Prime) are
-surfaced into the relevant thread so each reads as a real conversation, while
-also being delivered to the target's stdin so the agent reacts.
+Every message carries a `conversationId` — a Conversation id. In a default
+session Prime's home Conversation is the main human/Prime thread and each
+sub-agent has its own; the ids are no longer required to equal an agent id (see
+[conversations.md](./conversations.md)). Each Conversation has its own Socket.IO
+room, and a client receives only the Conversations its participant is authorized
+for. Directed tasks (Prime -> sub) and reports (sub -> Prime) are surfaced into
+the relevant thread — a report renders as a relay — while also being delivered to
+the target so it reacts.
 
 ---
 

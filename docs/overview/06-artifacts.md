@@ -84,6 +84,15 @@ sequenceDiagram
   deactivate UI
 ```
 
+## Part of the session's resources
+
+An artifact is one kind of session **Resource** — the same catalog that also
+tracks your uploads, memory notes, and other files. Pinning still works exactly
+as before; the catalog just gives every piece of content a single, citable home.
+When a session has several [Conversations](11-conversations-and-participants.md),
+a resource can be surfaced into the threads where it's relevant. With no explicit
+grants set, resources stay visible to the session's members by default.
+
 ## Where this shows up next
 
 - Rich, viewable artifacts open **inside** the app as

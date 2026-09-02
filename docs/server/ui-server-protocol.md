@@ -7,8 +7,12 @@ The web UI talks to the server over **two transports**:
 - **REST (`/api/*`)** — request/response CRUD for sessions, agent bundles,
   triggers, file uploads, and serving artifact/upload files.
 - **Socket.IO** — the live, bidirectional chat/stream protocol. The client joins
-  one room per session (`session:<id>`) and receives all streaming agent output,
-  roster changes, memory cards, trigger roster, and generic UI directives there.
+  a session and subscribes to the **Conversations** its participant may see. A
+  Message is delivered to its Conversation room (`conv:<sessionId>:<conversationId>`),
+  so who receives it is a server-side decision derived from Membership. Session-level
+  events (roster, presence, memory cards, trigger roster, generic UI directives)
+  use the session-wide room `session:<id>`. Setting `ROOM_PER_CONVERSATION=0`
+  collapses delivery back to one session room as a rollback.
 
 The wire shapes for both are defined once in
 [packages/shared/src/contracts.ts](../../packages/shared/src/contracts.ts) and
@@ -24,7 +28,7 @@ protocol lives in
 Routers are created in [server/src/index.ts](../../server/src/index.ts) and
 implemented under [server/src/routes/](../../server/src/routes).
 
-### Sessions — [routes/sessions.ts](../../server/src/routes/sessions.ts)
+### Sessions — [routes/sessions/index.ts](../../apps/server/src/routes/sessions/index.ts)
 
 | Method + path                                                 | Purpose                                                                                                        |
 | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -33,13 +37,27 @@ implemented under [server/src/routes/](../../server/src/routes).
 | `GET /api/sessions/:id`                                       | Fetch one session.                                                                                             |
 | `PATCH /api/sessions/:id`                                     | Rename a session.                                                                                              |
 | `DELETE /api/sessions/:id`                                    | Delete a session; disposes its `pi` processes and triggers.                                                    |
+| `POST /api/sessions/:id/viewed`                               | Record that the current user opened the session.                                                              |
 | `POST /api/sessions/:id/files`                                | Upload chat attachments into the session's `uploads/`.                                                         |
 | `GET /api/sessions/:id/triggers`                              | List the session's triggers.                                                                                   |
 | `POST /api/sessions/:id/triggers`                             | Create a runtime trigger.                                                                                      |
 | `PATCH /api/sessions/:id/triggers/:triggerId`                 | Update a mutable trigger field.                                                                                |
 | `DELETE /api/sessions/:id/triggers/:triggerId`                | Delete a trigger.                                                                                              |
 | `POST /api/sessions/:id/triggers/:triggerId/callback/:secret` | Public, secret-guarded inbound callback that fires a callback trigger.                                         |
+| `GET /api/sessions/:id/participants`                          | List every Participant with its Memberships (roster + presence).                                              |
+| `POST /api/sessions/:id/participants`                         | Invite a Participant (e.g. a human) into the session.                                                         |
+| `DELETE /api/sessions/:id/participants/:participantId`        | Revoke a Participant (the row is kept so past attributions still resolve).                                    |
+| `POST /api/sessions/:id/participants/:participantId/memberships` | Join a Participant to a Conversation.                                                                       |
+| `DELETE /api/sessions/:id/participants/:participantId/memberships/:conversationId` | Leave a Conversation.                                                     |
+| `PATCH /api/sessions/:id/participants/:participantId/memberships/:conversationId` | Mute/unmute a membership (mute = reaction `never`).                        |
+| `GET /api/sessions/:id/resources`                            | List the resource catalog (optionally scoped to `?conversationId=&participantId=`).                            |
+| `POST /api/sessions/:id/resources`                           | Catalog a host resource (a workspace file, etc.).                                                             |
+| `DELETE /api/sessions/:id/resources`                         | Remove a catalog entry.                                                                                       |
 | `GET /api/sessions/:id/files/*splat`                          | Serve a file from the session's `artifacts/` or `uploads/` subtree (path-traversal guarded).                   |
+
+Other API mounts: `/api/agent-bundles`, `/api/global-memory`, `/api/mcp` (public
+MCP relay), `/api/me` (current user), `/api/embed`, and the token-guarded
+`/internal/*` routers the agent extensions call.
 
 ### Agent bundles — [routes/agentBundles.ts](../../server/src/routes/agentBundles.ts)
 
@@ -66,15 +84,20 @@ Event names come from `SocketEvents` in
 ### Client -> Server
 
 - `chat:join` `{ sessionId }` — join the session room.
+- `conversation:subscribe` — subscribe to a Conversation the participant is
+  authorized for; the server joins its `conv:<sessionId>:<conversationId>` room
+  and can reply with that Conversation's history.
 - `chat:message` `{ sessionId, author, content, conversationId?, delivery?, attachments? }` —
-  post a human message. `conversationId` targets the thread (`"prime"` by
-  default, or a sub-agent id so users can steer it from its own tab).
-  `delivery` (`"auto" | "steer" | "followUp"`, default `"auto"`) controls how a
-  message is queued when the target agent is mid-run: `"steer"` nudges it before
-  the next LLM call, `"followUp"` waits until the run stops; both are ignored
-  when the agent is idle.
-- `agent:abort` `{ sessionId, conversationId }` — abort an agent's in-progress
-  run (`conversationId` is `"prime"` or a sub-agent id).
+  post a human message. `conversationId` targets a Conversation (the primary
+  thread by default, or another the participant may write to). Any `@mentions` in
+  the text are resolved to participant ids server-side at write time. `delivery`
+  (`"auto" | "steer" | "followUp"`, default `"auto"`) controls how a message is
+  queued when the target agent is mid-run: `"steer"` nudges it before the next LLM
+  call, `"followUp"` waits until the run stops; both are ignored when the agent is
+  idle.
+- `agent:abort` `{ sessionId, conversationId }` — abort an in-progress **Run**;
+  the server resolves the participant's open run id and cancels it through
+  whichever connector holds it.
 - `memory:confirm` `{ sessionId, suggestionId }` — accept a memory suggestion.
 - `memory:dismiss` `{ sessionId, suggestionId }` — decline a memory suggestion.
 - `artifact:pin` `{ sessionId, path, title }` — pin an artifact.
@@ -83,9 +106,12 @@ Event names come from `SocketEvents` in
 
 ### Server -> Client
 
-- `chat:history` `ChatMessage[]` — full transcript, sent on join.
+- `chat:history` `ChatMessage[]` — a Conversation's transcript, sent on join /
+  subscribe for each Conversation the participant may see.
+- `conversation:history` — history for one subscribed Conversation.
 - `chat:message` `ChatMessage` — a persisted message (human, directed sub-agent
-  task, sub-agent report, memory highlight, or trigger prompt).
+  task, sub-agent report rendered as a relay, memory highlight, or trigger
+  prompt). Carries `seq` so concurrent writers interleave deterministically.
 - `agent:start` `{ message }` — an agent opened a new (empty) reply bubble.
 - `agent:delta` `{ sessionId, messageId, delta }` — a streamed text chunk.
 - `agent:thinking` `{ sessionId, messageId, delta }` — a streamed reasoning chunk.
@@ -102,6 +128,10 @@ Event names come from `SocketEvents` in
 - `subagent:roster` `{ sessionId, subagents }` — full roster on join.
 - `subagent:update` `{ sessionId, subagent }` — one sub-agent's spawn/status
   change (upserted by id).
+- `participant:presence` — a participant's presence changed (`connected` /
+  `away` / `detached`); drives the roster's presence dots.
+- `resources:updated` `{ sessionId }` — the resource catalog changed; open
+  clients refetch (used where a mutation has no `ChatMessage` to piggyback on).
 - `memory:suggestion` `{ sessionId, suggestionId, scope, text }` — a
   confirm/dismiss card.
 - `trigger:roster` `{ sessionId, triggers }` — full trigger roster on join.
@@ -110,10 +140,13 @@ Event names come from `SocketEvents` in
 - `ui:command` `{ sessionId, command }` — the generic agent->UI directive
   channel (`session.update`, `artifacts.update`).
 
-Each message carries a `conversationId` that tells the client which transcript
-to bucket it into: `"prime"` for the main human/Prime thread, or a sub-agent id
-for that sub-agent's drill-in thread. The author's `agentRole` (`prime` vs
-`subagent`) drives rendering differences.
+Each message carries a `conversationId` — a **Conversation id** — that tells the
+client which transcript to bucket it into. It is no longer necessarily an agent
+id: a Conversation can hold several participants, and legacy agent-id-named
+transcripts stay valid because the `conversations` table maps them. Every message
+is attributed to its author (a stable participant id, resolved from any
+`@mention` at write time), and a `source.kind === "relay"` message renders as a
+report rather than a peer turn.
 
 ---
 
@@ -151,18 +184,21 @@ sequenceDiagram
   activate TE
   TE-->>Handlers: (schedules re-armed)
   deactivate TE
-  Handlers->>Store: getMessages(id)
+  Handlers->>Store: getMessages(id) per authorized Conversation
   activate Store
   Store-->>Handlers: history
   deactivate Store
-  Handlers-->>UI: chat:history
-  Handlers-->>UI: subagent:roster
+  Handlers-->>UI: chat:history (for each Conversation the participant may see)
+  Handlers-->>UI: subagent:roster + participant roster / presence
   Handlers-->>UI: agent:activity (per live agent, replayed)
   Handlers-->>UI: trigger:roster
   Handlers-->>UI: ui:command { artifacts.update }
   deactivate Handlers
   deactivate Socket
 ```
+
+History is fetched per Conversation and scoped to the Conversations the joining
+participant is authorized for, rather than one flat dump of the whole session.
 
 Note: the replayed current activity (from `pi.listActivities`) and the artifact
 list are both sent to _only the joining socket_. Activity reuses the same
@@ -263,8 +299,11 @@ sequenceDiagram
   deactivate Handlers
 ```
 
-The process stays alive; the `aborted` flag ensures a half-finished sub-agent
-reply is not relayed back to Prime as if it had completed.
+The diagram shows the local Pi path; in general `agent:abort` resolves the
+participant's open **Run** and cancels it through whichever connector holds it
+(see [connectors.md](./connectors.md)). The process stays alive; the `aborted`
+flag ensures a half-finished sub-agent reply is not relayed back as if it had
+completed.
 
 ---
 
