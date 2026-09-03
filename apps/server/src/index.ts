@@ -10,6 +10,7 @@ import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
 import { EMBED_ALLOWED_ORIGINS, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { AdmissionEngine } from "./conversation/admission.ts";
+import { ContextEngine, projectRoom } from "./conversation/context.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { CorrelationEngine } from "./conversation/correlation.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
@@ -141,6 +142,10 @@ const participantRegistry = new ParticipantRegistry(store, participants);
 // call, a finalized agent turn — goes through it. It also mirrors the content a
 // Message carries (attachments, memory writes) into the resource catalog.
 const resourceCatalog = new ResourceCatalog(resourceStore);
+// Turns a Membership's `transcriptVisibility` into what its Participant reads:
+// `shared` the log, `opaque` only what addresses it, `summarized` a budgeted
+// tail plus cacheable digests catalogued as `Resource(kind: "memory")`.
+const contextEngine = new ContextEngine(resourceCatalog);
 // Spawn-time projection of each session's host resources, appended to every
 // agent's preamble and refreshed on every resource mutation.
 const hostResourcePreamble = new HostResourcePreamble(resourceCatalog);
@@ -148,6 +153,20 @@ const hostResourcePreamble = new HostResourcePreamble(resourceCatalog);
 // Constructed here so the table is live; installs are an in-process API this PR
 // adds and a later PR exposes over HTTP. Empty for every existing session.
 const reactors = new ReactorRegistry(new SqliteReactorStore(db));
+// A `supervise` wake cites the failed thread projected through the supervisor's
+// visibility, so the provenance line points at a digest it can read rather than
+// only naming the cause kind.
+reactors.useSuperviseCitation(async (sessionId, cause, supervisorId) => {
+  const { digests } = await projectRoom(contextEngine, store, memberships, {
+    sessionId,
+    conversationId: cause.conversationId,
+    participantId: supervisorId,
+  });
+  const digest = digests[0];
+  return digest
+    ? `Context digest of the failed thread: ${digest.uri}`
+    : undefined;
+});
 // Tracks which participant is working under which run id, so every stream is
 // attributable and cancellation has a run to act on. Rows left `running` by a
 // previous process are settled once here: nothing can run before we start.
@@ -231,6 +250,9 @@ const remoteGateway = new RemoteEnvironmentGateway(
   store,
   runs,
 );
+// A remote room read naming a Conversation + Participant is projected through
+// its Membership's visibility, the same as the internal `read_room` path.
+remoteGateway.useContextProjection(contextEngine, memberships);
 
 // Generic MCP relay: bridges an external MCP client (dialed by a gateway) back
 // into a session. A connector opens a channel for the participant it registers;
@@ -364,6 +386,8 @@ app.use(
     conversations,
     a2aGateway,
     participantService,
+    contextEngine,
+    memberships,
   ),
 );
 // Internal API a bundle tool uses to drive external sub-agent tabs: register a

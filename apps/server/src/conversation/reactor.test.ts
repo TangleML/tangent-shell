@@ -287,6 +287,46 @@ test("supervise may span the many conversations it watches, and wakes on a cause
   assert.match(wakes[0].text, /B3/);
 });
 
+test("a supervise wake cites the context projection when one is wired", async () => {
+  const registry = new ReactorRegistry(new InMemoryReactorStore());
+  const wakes: ReactorWake[] = [];
+  registry.useDelivery(async (wake) => {
+    wakes.push(wake);
+    return true;
+  });
+  registry.useSuperviseCitation(async (sessionId, cause, supervisorId) => {
+    assert.equal(sessionId, "s1");
+    assert.equal(supervisorId, "prime");
+    return `Context digest of the failed thread: memory://digest/${cause.conversationId}/1-3`;
+  });
+  await registry.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "supervise" },
+    scope: {
+      memberships: [{ conversationId: "B1", participantId: "prime" }],
+      homeConversationId: "A",
+    },
+  });
+
+  await registry.observe(
+    "s1",
+    "B1",
+    facts({
+      authorId: "w1",
+      cause: {
+        kind: "connector-detached",
+        participantId: "w1",
+        conversationId: "B1",
+        waveDepth: 0,
+      },
+    }),
+  );
+
+  assert.equal(wakes.length, 1);
+  assert.match(wakes[0].text, /memory:\/\/digest\/B1\/1-3/);
+});
+
 test("a reactor over an unreadable spec never readies", () => {
   // A misconfigured awaitAll (no targets) is rejected at install rather than
   // treated as vacuously ready — an empty set must not wake on the first message.
