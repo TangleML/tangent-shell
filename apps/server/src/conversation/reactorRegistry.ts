@@ -6,6 +6,7 @@ import type {
   ReactorSpec,
   ReactorState,
   RunIngress,
+  TerminationCause,
 } from "@tangent/shared/contracts.ts";
 
 import type { ReactorStore } from "../store/reactorStore.ts";
@@ -33,6 +34,18 @@ export interface ReactorWake {
 /** How the registry delivers a wake. Provided by the fan-out engine, which owns
  * the wave budget and the connector lookup. Returns whether it was delivered. */
 export type WakeDelivery = (wake: ReactorWake) => Promise<boolean>;
+
+/**
+ * Projects the failed worker's Conversation into a citation for a `supervise`
+ * wake — a digest reference the supervisor can read — so the provenance line is
+ * more than a cause kind (unified-model §9.6/§9.7). Returns nothing when the
+ * projection yields no digest (a `shared` supervisor reads the thread directly).
+ */
+export type SuperviseCitation = (
+  sessionId: string,
+  cause: TerminationCause,
+  supervisorId: string,
+) => Promise<string | undefined>;
 
 /** What installing a reactor requires. `homeConversationId` lives on the scope. */
 export interface InstallReactorInput {
@@ -132,6 +145,7 @@ export class ReactorRegistry {
   /** Pending timers for time-driven reactors, so a re-arm cancels the last. */
   private readonly timers = new Map<string, () => void>();
   private wake?: WakeDelivery;
+  private supervise?: SuperviseCitation;
 
   constructor(store: ReactorStore, clock: ReactorClock = systemClock) {
     this.store = store;
@@ -142,6 +156,12 @@ export class ReactorRegistry {
    * constructor because the engine needs the registry that needs the engine. */
   useDelivery(wake: WakeDelivery): void {
     this.wake = wake;
+  }
+
+  /** Hands the registry the context projection a `supervise` wake cites. Wired
+   * after construction, like {@link ReactorRegistry.useDelivery}. */
+  useSuperviseCitation(supervise: SuperviseCitation): void {
+    this.supervise = supervise;
   }
 
   async install(input: InstallReactorInput): Promise<ReactorRecord> {
@@ -234,7 +254,7 @@ export class ReactorRegistry {
       sessionId: record.sessionId,
       participantId: record.participantId,
       conversationId: record.homeConversationId,
-      text: wakeText(record, stimulus),
+      text: await this.wakeTextFor(record, stimulus),
       ingress: stimulus ? "reaction" : "schedule",
       stimulus,
     });
@@ -242,6 +262,25 @@ export class ReactorRegistry {
     record.state = reactor.onWake(record.state);
     record.updatedAt = nowIso();
     await this.store.put(record);
+  }
+
+  /** The wake line, with a `supervise` reactor's cause citation appended when a
+   * context projection is wired and yields one. */
+  private async wakeTextFor(
+    record: ReactorRecord,
+    stimulus?: MessageFacts,
+  ): Promise<string> {
+    const base = wakeText(record, stimulus);
+    const cause = stimulus?.cause;
+    if (record.spec.name !== "supervise" || !this.supervise || !cause) {
+      return base;
+    }
+    const citation = await this.supervise(
+      record.sessionId,
+      cause,
+      record.participantId,
+    );
+    return citation ? `${base}\n\n${citation}` : base;
   }
 
   /** Arms the timer a time-driven reactor needs at install. */

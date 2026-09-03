@@ -871,10 +871,37 @@ export interface ReactorRecord {
 }
 
 /**
- * How much of a Conversation a Membership may see. `summarized` is a declared
- * label until the context-budget work makes it a mechanism.
+ * How much of a Conversation a Membership may see. Each label is a preset of the
+ * {@link ContextPolicy} the projection engine applies (unified-model §9.6):
+ * `shared` is everything verbatim, `opaque` keeps only what addresses the
+ * Participant, and `summarized` spends a budget newest-first and digests the
+ * rest.
  */
 export type TranscriptVisibility = "shared" | "summarized" | "opaque";
+
+/**
+ * What the projection does with one Message: keep it as written, fold it into a
+ * digest, or drop it entirely. Applied newest-first until the budget is spent
+ * (unified-model §9.6).
+ */
+export type ContextDisposition = "verbatim" | "summarize" | "omit";
+
+/**
+ * Who produces the digests the `summarize` band reads from: a Participant id
+ * (that Participant authors the digest), `"connector"` for a far end that
+ * compacts its own context so Tangent produces none, or `"none"` to omit the
+ * band rather than summarize it.
+ */
+export type ContextSummarizer = string | "connector" | "none";
+
+/**
+ * What a Participant's context may cost for one Run. Bounded in characters, not
+ * tokens: this layer bounds context, not spend (unified-model §9.9 — "no cost
+ * model"), and characters are honest and deterministic to test against.
+ */
+export interface TokenBudget {
+  maxChars: number;
+}
 
 /**
  * The kind of a {@link Participant}: a person (`human`), a coding agent

@@ -10,7 +10,9 @@ import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
+import { ContextEngine, projectRoom } from "../conversation/context.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
+import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import {
   homeConversationFor,
   orchestratorConversationFor,
@@ -78,10 +80,16 @@ export const listQuerySchema = z.object({
 });
 export type ListQuery = z.infer<typeof listQuerySchema>;
 
-/** `?sessionId=&limit=` for reading the shared transcript. */
+/**
+ * `?sessionId=&limit=` for reading the shared transcript. `conversationId` +
+ * `participantId` opt into a per-Membership context projection of one
+ * Conversation (unified-model §9.6); omitting them keeps the session-wide tail.
+ */
 export const roomQuerySchema = z.object({
   sessionId: z.string(),
   limit: z.string().optional(),
+  conversationId: z.string().optional(),
+  participantId: z.string().optional(),
 });
 export type RoomQuery = z.infer<typeof roomQuerySchema>;
 
@@ -308,18 +316,38 @@ function handleList(
   res.json({ subagents: connectors.list(query.sessionId) });
 }
 
-/** Returns the tail of the shared transcript, clamped to the room limit. */
+/** Clamps a requested room limit to the allowed range, or the default. */
+function roomLimit(requested: string | undefined): number {
+  const value = Number(requested);
+  if (Number.isFinite(value) && value > 0)
+    return Math.min(value, MAX_ROOM_LIMIT);
+  return DEFAULT_ROOM_LIMIT;
+}
+
+/**
+ * Returns a transcript tail. With `conversationId` + `participantId` and a wired
+ * context engine, it is that Conversation projected through the reader's
+ * {@link import("../conversation/context.ts").ContextPolicy} — verbatim tail plus
+ * any digests; otherwise the session-wide tail, unchanged.
+ */
 async function handleRoom(
   store: SessionStore,
   query: RoomQuery,
   res: Response,
+  context: ContextEngine | undefined,
+  memberships: MembershipRegistry | undefined,
 ): Promise<void> {
-  const requested = Number(query.limit);
-  const limit =
-    Number.isFinite(requested) && requested > 0
-      ? Math.min(requested, MAX_ROOM_LIMIT)
-      : DEFAULT_ROOM_LIMIT;
-
+  const limit = roomLimit(query.limit);
+  if (context && memberships && query.conversationId && query.participantId) {
+    const projected = await projectRoom(context, store, memberships, {
+      sessionId: query.sessionId,
+      conversationId: query.conversationId,
+      participantId: query.participantId,
+      limit,
+    });
+    res.json(projected);
+    return;
+  }
   const all = await store.getMessages(query.sessionId);
   res.json({ messages: all.slice(-limit) });
 }
@@ -337,6 +365,8 @@ export function createInternalAgentsRouter(
   conversations: ConversationRouter,
   a2a: A2aPeerGateway,
   participants: ParticipantService,
+  context?: ContextEngine,
+  memberships?: MembershipRegistry,
 ): Router {
   const router = Router();
 
@@ -398,6 +428,8 @@ export function createInternalAgentsRouter(
       store,
       getValidated<unknown, unknown, RoomQuery>(req).query,
       res,
+      context,
+      memberships,
     ),
   );
 

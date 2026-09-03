@@ -15,6 +15,7 @@ import type {
   AgentActivity,
   ChatMessage,
   MessageDelivery,
+  Resource,
   RunId,
   SubagentStatus,
   ThinkingLevel,
@@ -170,11 +171,22 @@ export interface RemoteRoomReadRequest {
   sessionId: string;
   /** Max number of most recent messages to return. */
   limit?: number;
+  /**
+   * Opt into a per-Membership context projection of one Conversation
+   * (unified-model §9.6): with both set, the reply is that Conversation seen
+   * through `participantId`'s `transcriptVisibility`. Omitting them keeps the
+   * session-wide tail.
+   */
+  conversationId?: string;
+  participantId?: string;
 }
 
 /** server -> remote (ack response): the tail of the shared session transcript. */
 export interface RemoteRoomReadResponse {
   messages: ChatMessage[];
+  /** Digest Resources standing in for summarized ranges, when the read was
+   * projected through a `summarized` Membership. */
+  digests?: Resource[];
 }
 
 /**
