@@ -29,7 +29,7 @@ export function isWithin(target: string, dir: string): boolean {
  * `const session = await loadSession(store, res, id); if (!session) return;`.
  */
 export async function loadSession(
-  store: SessionStore,
+  store: Pick<SessionStore, "getSession">,
   res: Response,
   id: string,
 ): Promise<Session | undefined> {

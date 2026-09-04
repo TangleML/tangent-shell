@@ -18,4 +18,19 @@ export const SessionQueryKeys = {
         ] as const)
       : (["sessions", id, "resources"] as const),
   Participants: (id: string) => ["sessions", id, "participants"] as const,
+  Workflow: (
+    id: string,
+    scope?: { conversationId?: string; participantId?: string },
+  ) =>
+    scope?.conversationId
+      ? scope.participantId
+        ? ([
+            "sessions",
+            id,
+            "workflow",
+            scope.conversationId,
+            scope.participantId,
+          ] as const)
+        : (["sessions", id, "workflow", scope.conversationId] as const)
+      : (["sessions", id, "workflow"] as const),
 } as const;

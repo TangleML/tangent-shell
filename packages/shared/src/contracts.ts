@@ -986,6 +986,114 @@ export interface ListParticipantsResponse {
   participants: ParticipantWithMemberships[];
 }
 
+/**
+ * A serializable snapshot of the {@link ContextPolicy} a Membership's
+ * {@link TranscriptVisibility} expands to (unified-model §9.8, "each
+ * Participant's ... context policy"). The engine's policy carries a `classify`
+ * function that cannot cross the wire; this keeps the parts a reader can act on:
+ * the preset it came from, the character budget, and who — if anyone — authors
+ * its digests.
+ */
+export interface ContextPolicyView {
+  visibility: TranscriptVisibility;
+  budget?: TokenBudget;
+  summarizer: ContextSummarizer;
+  pinned: string[];
+}
+
+/**
+ * One Membership as the workflow view reports it: its standing in a Conversation
+ * plus the {@link ContextPolicyView} its visibility resolves to. Distinct from
+ * {@link MembershipView} (the roster DTO): this pairs a Membership with its
+ * policy and names its Participant, where the roster inlines Memberships under a
+ * Participant.
+ */
+export interface WorkflowMembership {
+  conversationId: string;
+  participantId: string;
+  reaction: ReactionSpec;
+  ingress: RunIngress;
+  admission: AdmissionPolicy;
+  policy: ContextPolicyView;
+}
+
+/**
+ * An installed Reactor's inspectable state (unified-model §9.8, "each Reactor's
+ * current `S` and whether `ready` holds"): its config, scope, folded state, and
+ * whether it would fire now — read without executing anything, because the
+ * engine owns `S`.
+ */
+export interface WorkflowReactor {
+  id: string;
+  participantId: string;
+  homeConversationId: string;
+  spec: ReactorSpec;
+  scope: ReactorScope;
+  state: ReactorState;
+  ready: boolean;
+}
+
+/**
+ * An open Run as the workflow view reports it (unified-model §9.8, "open Runs,
+ * with ingress, home Conversation, admission queue depth and external id"):
+ * {@link Run} identity plus how many wakes are held behind it.
+ */
+export interface WorkflowRun {
+  id: string;
+  participantId: string;
+  homeConversationId: string;
+  ingress: RunIngress;
+  externalId?: string;
+  admissionQueueDepth: number;
+}
+
+/**
+ * A participant's live reaction chain and the budget it spends against
+ * (unified-model §9.8, "the live wave's depth against budget"). `depth` is how
+ * far along the chain the participant was last woken; `budget` is the per-chain
+ * hop cap.
+ */
+export interface WorkflowWave {
+  participantId: string;
+  depth: number;
+  budget: number;
+}
+
+/**
+ * One Participant's projected read of a Conversation, surfaced by the workflow
+ * view when it is asked for a specific `(conversation, participant)`: the
+ * verbatim tail, the digests standing in for summarized ranges, and the ranges
+ * shown as neither. Mirrors the agent-facing room read, plus the `omitted`
+ * ranges the projection already computes (unified-model §9.6/§9.8).
+ */
+export interface WorkflowRoom {
+  messages: ChatMessage[];
+  digests: Resource[];
+  omitted: { fromSeq: number; toSeq: number }[];
+}
+
+/**
+ * The workflow state of a Conversation (or a whole Session, when no Conversation
+ * is named): everything unified-model §9.8 says is derivable from state the
+ * model already keeps, folded into one read. Costs nothing to produce because
+ * §9.2 made the state a fold and §9.3 put it in the engine.
+ */
+export interface WorkflowView {
+  memberships: WorkflowMembership[];
+  reactors: WorkflowReactor[];
+  runs: WorkflowRun[];
+  waves: WorkflowWave[];
+  correlations: OutstandingCorrelation[];
+  digests: Resource[];
+  causes: TerminationCause[];
+  room?: WorkflowRoom;
+}
+
+/** Response of `GET /api/sessions/:id/workflow`. */
+export interface WorkflowViewResponse {
+  workflow: WorkflowView;
+}
+
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
