@@ -23,7 +23,7 @@ import type { ReactorRegistry, ReactorWake } from "./reactorRegistry.ts";
  * it stays in its author's chain however it was made, and each round trip
  * between two participants spends two hops.
  */
-const MAX_WAVE_DEPTH = 24;
+export const MAX_WAVE_DEPTH = 24;
 
 /** How many reactions one chain may dispatch into a single Conversation. */
 const MAX_CONVERSATION_REACTIONS = 24;
@@ -436,6 +436,23 @@ export class FanOutEngine {
    * emit one outside a fan-out (admission on release, a settled Run, a detach). */
   waveDepth(sessionId: string, participantId: string): number {
     return this.waves.get(keyFor(sessionId, participantId))?.depth ?? 0;
+  }
+
+  /** Every live wave in a session — each participant that holds a chain and the
+   * depth it was last woken at, for the workflow view (unified-model §9.8). */
+  listForSession(
+    sessionId: string,
+  ): { participantId: string; depth: number }[] {
+    const prefix = `${sessionId}\u0000`;
+    const waves: { participantId: string; depth: number }[] = [];
+    for (const [key, wave] of this.waves) {
+      if (!key.startsWith(prefix)) continue;
+      waves.push({
+        participantId: key.slice(prefix.length),
+        depth: wave.depth,
+      });
+    }
+    return waves;
   }
 
   /** Charges one reaction to a wave's budget in a Conversation. */

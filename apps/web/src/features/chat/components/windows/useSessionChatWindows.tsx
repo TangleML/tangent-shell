@@ -11,6 +11,8 @@ import { ResourcesWindow } from "./ResourcesWindow";
 import { ResourcesWindowHeader } from "./ResourcesWindowHeader";
 import { SessionSwitcherWindow } from "./SessionSwitcherWindow";
 import { WindowHeaderContent } from "./WindowHeaderContent";
+import { WorkflowWindow } from "./WorkflowWindow";
+import { WorkflowWindowHeader } from "./WorkflowWindowHeader";
 
 const SHARED_OPTIONS = {
   defaultDockState: "left",
@@ -51,6 +53,12 @@ export function useSessionChatWindows() {
       id: "resources",
       title: "Resources",
       header: <ResourcesWindowHeader />,
+    });
+    store.openWindow(<WorkflowWindow />, {
+      ...SHARED_OPTIONS,
+      id: "workflow",
+      title: "Workflow",
+      header: <WorkflowWindowHeader />,
     });
     store.openWindow(<SessionSwitcherWindow />, {
       ...SHARED_OPTIONS,

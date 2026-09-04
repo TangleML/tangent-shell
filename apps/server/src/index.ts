@@ -368,6 +368,17 @@ app.use(
     memory,
     hostResourcePreamble,
     emitResourcesUpdated,
+    {
+      store,
+      memberships,
+      membershipStore,
+      reactors,
+      runs,
+      admission,
+      waves: conversations,
+      correlations,
+      context: contextEngine,
+    },
   ),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));

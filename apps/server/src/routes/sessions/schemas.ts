@@ -58,6 +58,17 @@ export const listResourcesQuerySchema = z.object({
 });
 export type ListResourcesQuery = z.infer<typeof listResourcesQuerySchema>;
 
+/**
+ * Optional query for `GET /:id/workflow`. A `conversationId` scopes the view to
+ * one Conversation; adding a `participantId` projects that Participant's room
+ * read. Absent, the whole session's workflow state is returned.
+ */
+export const workflowQuerySchema = z.object({
+  conversationId: z.string().optional(),
+  participantId: z.string().optional(),
+});
+export type WorkflowQuery = z.infer<typeof workflowQuerySchema>;
+
 const triggerScheduleSchema = z.object({
   every: z.string().optional(),
   cron: z.string().optional(),
