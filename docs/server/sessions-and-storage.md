@@ -29,9 +29,9 @@ interface; the routes and socket handlers depend only on it. The production
 implementation is
 [`SqliteSessionStore`](../../apps/server/src/store/sqliteSessionStore.ts), backed by
 the shared `tangent.db` connection (`openDb()` applies pending drizzle migrations
-on startup). It composes the participant and resource stores so a roster write
-mirrors into the `participants` table and a pinned artifact into the resource
-catalog. `InMemorySessionStore` still exists but is a test fake, not the
+on startup). It reads and writes the roster on the `participants` table directly
+and composes the resource store so a pinned artifact is mirrored into the
+resource catalog. `InMemorySessionStore` still exists but is a test fake, not the
 production backend.
 
 `createSession` allocates a `randomUUID()`, derives `rootPath =
@@ -56,24 +56,24 @@ The relational state lives in [db/schema.ts](../../apps/server/src/store/db/sche
 Chat history is deliberately **not** a table — it stays as JSONL on disk. Schema
 changes go exclusively through drizzle migrations; never alter tables ad-hoc.
 
-| Table                 | Holds                                                                                          |
-| --------------------- | ---------------------------------------------------------------------------------------------- |
-| `sessions`            | one row per session (mirrors the `Session` wire contract, plus `archived`, `user_identity`).   |
-| `session_assets`      | pinned artifacts, scoped to a session, oldest-first.                                           |
-| `session_agents`      | the agent roster (Prime + sub-agents) with connector facets; still the write authority today.  |
-| `participants`        | session-scoped actor identities (`human` / `agent` / `automation`), capabilities, presence.    |
-| `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript. |
-| `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.     |
-| `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.  |
-| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact`, pointing at bytes by `uri`.        |
-| `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).         |
-| `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing). |
-| `session_views`       | when each user last opened a session.                                                          |
+| Table                 | Holds                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sessions`            | one row per session (mirrors the `Session` wire contract, plus `archived`, `user_identity`).                                                                 |
+| `session_assets`      | pinned artifacts, scoped to a session, oldest-first.                                                                                                         |
+| `participants`        | the roster: session-scoped actor identities (`human` / `agent` / `automation`), capabilities, presence, and each agent's connector facets + `agent_payload`. |
+| `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript.                                                               |
+| `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.                                                                   |
+| `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.                                                                |
+| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact`, pointing at bytes by `uri`.                                                                      |
+| `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).                                                                       |
+| `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing).                                                               |
+| `session_views`       | when each user last opened a session.                                                                                                                        |
 
-`session_agents` remains the write authority for the roster; `participants` is
-mirrored from it (and derived read-through for a session the backfill never
-touched). The deprecated `host` column survives beside the connector facets. A
-later cleanup folds these away.
+`participants` is the roster's only store. The old `session_agents` table (and
+its deprecated `host` column) is gone; `SessionStore.listAgents` /
+`recordAgent` / `setAgentStatus` now read and write `participants` directly,
+mapping an agent's `agent_payload` back to a `SessionAgent`. Connector kind is a
+facet column, defaulting to `pi-stdio` when unset.
 
 ---
 
