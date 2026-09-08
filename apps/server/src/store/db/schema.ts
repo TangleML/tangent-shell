@@ -61,74 +61,6 @@ export const sessionAssets = sqliteTable(
 );
 
 /**
- * The roster of agents created in a session (prime + every spawned subagent),
- * persisted so it survives a server restart instead of living only in
- * `PiAgentManager`'s memory. Deliberately tracks no message counts/timestamps
- * (those stay decoupled from the chat hot path and can be derived from the
- * JSONL files when needed).
- */
-export const sessionAgents = sqliteTable(
-  "session_agents",
-  {
-    /** Agent id: `prime` for the prime agent, the subagent uuid otherwise. */
-    id: text("id").notNull(),
-    sessionId: text("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
-    /** `prime` | `subagent`. */
-    role: text("role").notNull(),
-    name: text("name").notNull(),
-    /** The agent's task/description, when known. */
-    purpose: text("purpose"),
-    /** `active` | `detached` | `completed` | `killed` | `error`. */
-    status: text("status").notNull().default("active"),
-    model: text("model"),
-    thinkingDepth: text("thinking_depth"),
-    /** Template the agent was spawned from, if any. */
-    template: text("template"),
-    /**
-     * JSON-encoded tool allowlist the sub-agent was spawned with, persisted so a
-     * revive can rebuild the exact `--tools` set (Prime's tools are derived from
-     * its config, so this stays null for Prime).
-     */
-    tools: text("tools"),
-    /**
-     * The sub-agent's resolved appended system prompt, persisted so an inline
-     * (template-less) sub-agent can be re-spawned faithfully after a restart.
-     */
-    systemPrompt: text("system_prompt"),
-    /**
-     * Whether the sub-agent's finalized replies auto-relay back to Prime.
-     * Defaults to true; trigger-owned sub-agents persist false so a revive keeps
-     * them reacting in isolation.
-     */
-    autoRelayToPrime: integer("auto_relay_to_prime", { mode: "boolean" })
-      .notNull()
-      .default(true),
-    /**
-     * The agent's connector facets (`ConnectorDescriptor`). Defaults to
-     * `pi-stdio`/`owned` on a row that never set them. `spawnAuthority` and
-     * `credentialScheme` are not stored: both follow from the kind, and
-     * persisting them would let the two disagree.
-     */
-    connectorKind: text("connector_kind"),
-    connectorLifecycle: text("connector_lifecycle"),
-    connectorEnvironmentId: text("connector_environment_id"),
-    /**
-     * Where a dialling connector reaches this participant — an A2A peer's Agent
-     * Card base URL. Null for every participant that connects to Tangent rather
-     * than the other way round.
-     */
-    connectorEndpointUrl: text("connector_endpoint_url"),
-    createdAt: text("created_at").notNull(),
-  },
-  (table) => [
-    unique("session_agents_session_id").on(table.sessionId, table.id),
-    index("session_agents_session_idx").on(table.sessionId),
-  ],
-);
-
-/**
  * One unit of work by one participant: what a stream of agent events is
  * attributable to, and what cancellation acts on. Runs are serial per
  * participant, so `(session_id, participant_id)` with `status = 'running'`
@@ -255,15 +187,15 @@ export const memberships = sqliteTable(
  * A session-scoped actor identity: the unification of today's `ChatAuthor` and
  * `SubagentInfo`. `kind` describes role only (`human` | `agent` | `automation`);
  * authority rides on `capabilities` (a JSON array — Prime holds `orchestrator`),
- * not on a reserved id. The connector facets that used to live on
- * `session_agents` move here; the agent-only columns (`role`, `model`,
+ * not on a reserved id. The connector facets that used to live on the old
+ * `session_agents` table live here; the agent-only columns (`role`, `model`,
  * `template`, `tools`, `system_prompt`, `auto_relay_to_prime`, `purpose`,
- * `status`) become a per-kind `agent_payload` blob rather than
- * participant-shaped columns.
+ * `status`) are a per-kind `agent_payload` blob rather than participant-shaped
+ * columns.
  *
- * `session_agents` stays the write authority for this PR; these rows are
- * backfilled from it and kept in sync on record, and derived read-through for a
- * session the backfill never touched. A later cleanup drops `session_agents`.
+ * This is the roster's only store since C.2 dropped `session_agents`: an agent
+ * is written here on `recordAgent` and read back through `listAgents`, and a
+ * human or automation lands here through the participant service.
  */
 export const participants = sqliteTable(
   "participants",
@@ -487,7 +419,6 @@ export const sessionViews = sqliteTable(
 
 export type SessionRow = typeof sessions.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
-export type SessionAgentRow = typeof sessionAgents.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;
 export type MembershipRow = typeof memberships.$inferSelect;

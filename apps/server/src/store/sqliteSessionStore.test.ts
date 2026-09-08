@@ -30,24 +30,6 @@ function newStore() {
   return new SqliteSessionStore(openDb(":memory:"));
 }
 
-/**
- * The backfill statement drizzle-kit's 0011 migration appended by hand. C.1
- * dropped `session_agents.host`, so the historical statement's `'host', host`
- * pair is stripped before replaying it against the current schema — the column
- * it read is gone, and the legacy key it wrote is no longer carried.
- */
-function backfillStatement(): string {
-  const file = fileURLToPath(
-    new URL("./db/migrations/0011_small_magneto.sql", import.meta.url),
-  );
-  const statement = readFileSync(file, "utf8")
-    .split("--> statement-breakpoint")
-    .map((chunk) => chunk.trim())
-    .find((chunk) => chunk.startsWith("INSERT OR IGNORE INTO `participants`"));
-  assert.ok(statement, "0011 carries a participants backfill statement");
-  return statement.replace(/\s*'host', `host`,/, "");
-}
-
 test("getLastViewedMap is empty before anything is viewed", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });
@@ -445,12 +427,14 @@ test("deleting a session cascades its read state", async () => {
   assert.equal((await store.getLastViewedMap("a@x")).size, 0);
 });
 
-test("recordAgent dual-writes the participant projection", async () => {
+test("recordAgent writes the agent's participant row, read back by listAgents", async () => {
   const db = openDb(":memory:");
   const participants = new SqliteParticipantStore(db);
-  const store = new SqliteSessionStore(db, participants);
+  // No participant arg: `session_agents` is gone, so the store writes the
+  // roster straight into the `participants` table the same DB backs.
+  const store = new SqliteSessionStore(db);
 
-  // createSession seeds the Prime roster row, which mirrors as an orchestrator.
+  // createSession seeds Prime straight into the roster as an orchestrator.
   const session = await store.createSession({ name: "S" });
   const prime = await participants.get(session.id, "prime");
   assert.equal(prime?.kind, "agent");
@@ -465,12 +449,15 @@ test("recordAgent dual-writes the participant projection", async () => {
   const sub = await participants.get(session.id, "sub-1");
   assert.deepEqual(sub?.capabilities, []);
   assert.equal(sub?.connector.environmentId, "env-1");
+
+  // listAgents reads the same participant rows back as the roster.
+  const roster = await store.listAgents(session.id);
+  assert.deepEqual(roster.map((a) => a.id).sort(), ["prime", "sub-1"]);
 });
 
-test("the 0011 backfill materializes participants and leaves seq seeding alone", async () => {
+test("setAgentStatus detaches the agent participant's status and presence", async () => {
   const db = openDb(":memory:");
-  // A store with no participant projection, so nothing is dual-written: this is
-  // exactly the pre-0011 shape the migration has to backfill.
+  const participants = new SqliteParticipantStore(db);
   const store = new SqliteSessionStore(db);
   const session = await store.createSession({ name: "S" });
   await store.recordAgent(session.id, {
@@ -479,36 +466,78 @@ test("the 0011 backfill materializes participants and leaves seq seeding alone",
     name: "Worker",
   });
 
+  await store.setAgentStatus(session.id, "sub-1", "detached");
+
+  const detached = await participants.get(session.id, "sub-1");
+  assert.equal(detached?.agent?.status, "detached");
+  assert.equal(detached?.presence, "detached");
+});
+
+test("setAgentStatus to a non-detached status keeps the far end reachable", async () => {
+  const db = openDb(":memory:");
   const participants = new SqliteParticipantStore(db);
-  assert.equal((await participants.listForSession(session.id)).length, 0);
-  const countConversations = () =>
-    (db.get(sql`select count(*) as n from conversations`) as { n: number }).n;
-  const conversationsBefore = countConversations();
+  const store = new SqliteSessionStore(db);
+  const session = await store.createSession({ name: "S" });
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+  });
 
-  const statement = backfillStatement();
-  db.run(sql.raw(statement));
+  // Matches the read-time mapping the roster projection used before C.2:
+  // everything but a detached far end is `connected`.
+  await store.setAgentStatus(session.id, "sub-1", "completed");
 
-  const backfilled = await participants.listForSession(session.id);
+  const completed = await participants.get(session.id, "sub-1");
+  assert.equal(completed?.agent?.status, "completed");
+  assert.equal(completed?.presence, "connected");
+});
+
+test("detachActiveSubagents flips live sub-agents in the participant roster", async () => {
+  const db = openDb(":memory:");
+  const participants = new SqliteParticipantStore(db);
+  const store = new SqliteSessionStore(db);
+  const session = await store.createSession({ name: "S" });
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    status: "active",
+  });
+
+  assert.equal(await store.detachActiveSubagents(), 1);
+  const sub = await participants.get(session.id, "sub-1");
+  assert.equal(sub?.agent?.status, "detached");
+  assert.equal(sub?.presence, "detached");
+});
+
+test("listAgents returns only agent participants, not humans", async () => {
+  const db = openDb(":memory:");
+  const participants = new SqliteParticipantStore(db);
+  const store = new SqliteSessionStore(db);
+  const session = await store.createSession({ name: "S" });
+  await participants.put({
+    id: "ada@example.com",
+    sessionId: session.id,
+    kind: "human",
+    displayName: "Ada",
+    capabilities: [],
+    presence: "connected",
+    connector: connectorFor("unresolved"),
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  const roster = await store.listAgents(session.id);
   assert.deepEqual(
-    backfilled.map((p) => [p.id, p.capabilities]).sort(),
-    [
-      ["prime", ["orchestrator"]],
-      ["sub-1", []],
-    ].sort(),
+    roster.map((a) => a.id),
+    ["prime"],
   );
-
-  // Idempotent: the `INSERT OR IGNORE` re-run adds nothing.
-  db.run(sql.raw(statement));
-  assert.equal((await participants.listForSession(session.id)).length, 2);
-
-  // The promotion never invents `next_seq` rows — seeding stays a read concern.
-  assert.equal(countConversations(), conversationsBefore);
 });
 
 test("pinning an artifact mirrors it into the resource catalog", async () => {
   const db = openDb(":memory:");
   const resources = new SqliteResourceStore(db);
-  const store = new SqliteSessionStore(db, undefined, resources);
+  const store = new SqliteSessionStore(db, resources);
   const session = await store.createSession({ name: "S" });
 
   await store.pinArtifact(session.id, {

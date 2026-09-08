@@ -18,9 +18,9 @@ after(() => rmSync(ROOT, { recursive: true, force: true }));
 test("0012 adds a nullable revoked_at without touching existing rows", async () => {
   const db = openDb(":memory:");
   const store = new SqliteParticipantStore(db);
-  // createSession dual-writes a `prime` participant with no revoked_at set —
+  // createSession writes a `prime` agent participant with no revoked_at set —
   // exactly the shape a row backfilled before 0012 has.
-  const session = await new SqliteSessionStore(db, store).createSession({
+  const session = await new SqliteSessionStore(db).createSession({
     name: "S",
   });
 

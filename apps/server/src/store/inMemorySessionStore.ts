@@ -310,10 +310,14 @@ export class InMemorySessionStore implements SessionStore {
   ): Promise<void> {
     const existing = this.agents.get(sessionId);
     if (!existing) return;
-    this.agents.set(
-      sessionId,
-      existing.map((a) => (a.id === agentId ? { ...a, status } : a)),
+    const updated = existing.map((a) =>
+      a.id === agentId ? { ...a, status } : a,
     );
+    this.agents.set(sessionId, updated);
+    // Keep the participant projection in step; the SQLite store does the same
+    // status/presence write directly on the `participants` row.
+    const changed = updated.find((a) => a.id === agentId);
+    if (changed) await this.participants?.put(participantFromAgent(changed));
   }
 
   async listAgents(sessionId: string): Promise<SessionAgent[]> {
@@ -322,15 +326,21 @@ export class InMemorySessionStore implements SessionStore {
 
   async detachActiveSubagents(): Promise<number> {
     let detached = 0;
+    const changed: SessionAgent[] = [];
     for (const [sessionId, agents] of this.agents) {
       const next = agents.map((agent) => {
         if (agent.role !== "subagent" || agent.status !== "active")
           return agent;
         detached += 1;
-        return { ...agent, status: "detached" as const };
+        const row = { ...agent, status: "detached" as const };
+        changed.push(row);
+        return row;
       });
       this.agents.set(sessionId, next);
     }
+    // Mirror each detach into the participant projection, matching SQLite.
+    for (const row of changed)
+      await this.participants?.put(participantFromAgent(row));
     return detached;
   }
 

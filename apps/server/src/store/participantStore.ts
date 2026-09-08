@@ -1,10 +1,11 @@
-import type {
-  AgentRole,
-  Capability,
-  ConnectorDescriptor,
-  ParticipantKind,
-  Presence,
-  SubagentStatus,
+import {
+  type AgentRole,
+  capabilitiesForRole,
+  type Capability,
+  type ConnectorDescriptor,
+  type ParticipantKind,
+  type Presence,
+  type SubagentStatus,
 } from "@tangent/shared/contracts.ts";
 
 import type { SessionAgent } from "./sessionStore.ts";
@@ -65,10 +66,10 @@ function agentPayload(agent: SessionAgent): AgentPayload {
 }
 
 /**
- * Builds the {@link Participant} a roster row stands for. `session_agents` is
- * the write authority for this PR, so this is the one place a roster row becomes
- * a participant — used both by the backfill's read-through derivation and by the
- * dual-write on {@link import("./sessionStore.ts").SessionStore.recordAgent}.
+ * Builds the {@link Participant} a roster agent stands for. Since C.2 dropped
+ * `session_agents`, this is how {@link
+ * import("./sessionStore.ts").SessionStore.recordAgent} shapes the row it writes
+ * into `participants`, the roster's only store.
  */
 export function participantFromAgent(agent: SessionAgent): Participant {
   return {
@@ -88,12 +89,49 @@ export function participantFromAgent(agent: SessionAgent): Participant {
 }
 
 /**
+ * Recovers the {@link SessionAgent} an agent Participant stands for — the
+ * inverse of {@link participantFromAgent}. Since C.2 dropped `session_agents`,
+ * `participants` is the roster's only store, so this is the one place a
+ * participant row becomes a roster agent for {@link
+ * import("./sessionStore.ts").SessionStore.listAgents}. Capabilities are
+ * re-derived from the role rather than trusting the stored column, matching
+ * every prior roster read.
+ */
+export function sessionAgentFromParticipant(
+  participant: Participant,
+  homeConversationId: string,
+): SessionAgent {
+  const payload: AgentPayload = participant.agent ?? {
+    role: "subagent",
+    status: "active",
+  };
+  return {
+    id: participant.id,
+    sessionId: participant.sessionId,
+    role: payload.role,
+    name: participant.displayName,
+    capabilities: capabilitiesForRole(payload.role),
+    purpose: payload.purpose,
+    status: payload.status,
+    model: payload.model,
+    thinkingDepth: payload.thinkingDepth,
+    template: payload.template,
+    tools: payload.tools,
+    systemPrompt: payload.systemPrompt,
+    autoRelayToPrime: payload.autoRelayToPrime,
+    connector: participant.connector,
+    homeConversationId,
+    createdAt: participant.createdAt,
+  };
+}
+
+/**
  * Durable home of the session's {@link Participant}s. Kept apart from
  * {@link import("./sessionStore.ts").SessionStore} for the same reason
  * {@link import("./membershipStore.ts").MembershipStore} is: it is read by one
- * registry, not by the REST routes. `session_agents` stays the write authority
- * for this PR, so these rows are backfilled from it and kept in sync on record;
- * a session the backfill never touched is derived read-through.
+ * registry, not by the REST routes. Since C.2 dropped `session_agents`, this is
+ * the roster's only store: agents land here through the session store, humans
+ * and automations through the participant service.
  */
 export interface ParticipantStore {
   /** Every participant in a session, oldest first. */
