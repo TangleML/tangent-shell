@@ -74,7 +74,7 @@ function toConnector(row: ParticipantRow): ConnectorDescriptor {
 }
 
 /** Maps a participants row onto the domain {@link Participant}. */
-function toParticipant(row: ParticipantRow): Participant {
+export function toParticipant(row: ParticipantRow): Participant {
   const agent = parseAgentPayload(row.agentPayload);
   return {
     id: row.id,
