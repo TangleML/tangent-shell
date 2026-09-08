@@ -11,8 +11,7 @@ The web UI talks to the server over **two transports**:
   Message is delivered to its Conversation room (`conv:<sessionId>:<conversationId>`),
   so who receives it is a server-side decision derived from Membership. Session-level
   events (roster, presence, memory cards, trigger roster, generic UI directives)
-  use the session-wide room `session:<id>`. Setting `ROOM_PER_CONVERSATION=0`
-  collapses delivery back to one session room as a rollback.
+  use the session-wide room `session:<id>`.
 
 The wire shapes for both are defined once in
 [packages/shared/src/contracts.ts](../../packages/shared/src/contracts.ts) and
