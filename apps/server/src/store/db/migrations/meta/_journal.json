@@ -127,6 +127,13 @@
       "when": 1788325539193,
       "tag": "0017_stormy_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1788547504624,
+      "tag": "0018_sudden_crystal",
+      "breakpoints": true
     }
   ]
 }

@@ -30,7 +30,12 @@ function newStore() {
   return new SqliteSessionStore(openDb(":memory:"));
 }
 
-/** The backfill statement drizzle-kit's 0011 migration appended by hand. */
+/**
+ * The backfill statement drizzle-kit's 0011 migration appended by hand. C.1
+ * dropped `session_agents.host`, so the historical statement's `'host', host`
+ * pair is stripped before replaying it against the current schema — the column
+ * it read is gone, and the legacy key it wrote is no longer carried.
+ */
 function backfillStatement(): string {
   const file = fileURLToPath(
     new URL("./db/migrations/0011_small_magneto.sql", import.meta.url),
@@ -40,7 +45,7 @@ function backfillStatement(): string {
     .map((chunk) => chunk.trim())
     .find((chunk) => chunk.startsWith("INSERT OR IGNORE INTO `participants`"));
   assert.ok(statement, "0011 carries a participants backfill statement");
-  return statement;
+  return statement.replace(/\s*'host', `host`,/, "");
 }
 
 test("getLastViewedMap is empty before anything is viewed", async () => {
@@ -196,7 +201,6 @@ test("recordAgent round-trips a connector descriptor", async () => {
     id: "sub-1",
     role: "subagent",
     name: "Worker",
-    host: "remote",
     connector: {
       kind: "remote-env",
       lifecycle: "owned",
@@ -259,27 +263,26 @@ test("an attached peer's endpoint round-trips, and nothing else carries one", as
   );
 });
 
-test("a row recorded without a connector reads back from its host", async () => {
+test("a row recorded without a connector defaults to pi-stdio", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });
 
-  // Exactly the shape of a row written before the connector columns existed:
-  // `host` set, connector columns null.
+  // A row written with no connector descriptor at all — the C.1 default fills
+  // it in on read rather than deriving from a dropped `host` label.
   const recorded = await store.recordAgent(session.id, {
     id: "legacy",
     role: "subagent",
     name: "Old",
-    host: "remote",
   });
 
   assert.deepEqual(recorded.connector, {
-    kind: "remote-env",
+    kind: "pi-stdio",
     lifecycle: "owned",
-    spawnAuthority: "remote-env",
-    credentialScheme: "shared-token",
+    spawnAuthority: "server",
+    credentialScheme: "inherited-token",
   });
 
-  // Prime is recorded by `createSession` with no host at all.
+  // Prime is recorded by `createSession` with no connector either.
   const prime = (await store.listAgents(session.id)).find(
     (a) => a.id === "prime",
   );
@@ -344,7 +347,6 @@ test("listAgentsForEnvironment finds one environment's sub-agents across session
     id,
     role: "subagent" as const,
     name: id,
-    host: "remote" as const,
     connector: {
       kind: "remote-env" as const,
       lifecycle: "owned" as const,
@@ -356,12 +358,17 @@ test("listAgentsForEnvironment finds one environment's sub-agents across session
   await store.recordAgent(a.id, remote("mine-a", "env-1"));
   await store.recordAgent(b.id, remote("mine-b", "env-1"));
   await store.recordAgent(a.id, remote("theirs", "env-2"));
-  // A row written before the connector columns existed records no environment.
+  // A remote row with no environment bound to it is not found by an env lookup.
   await store.recordAgent(a.id, {
     id: "legacy",
     role: "subagent",
     name: "legacy",
-    host: "remote",
+    connector: {
+      kind: "remote-env",
+      lifecycle: "owned",
+      spawnAuthority: "remote-env",
+      credentialScheme: "shared-token",
+    },
   });
 
   const found = await store.listAgentsForEnvironment("env-1");
@@ -453,7 +460,6 @@ test("recordAgent dual-writes the participant projection", async () => {
     id: "sub-1",
     role: "subagent",
     name: "Worker",
-    host: "remote",
     connector: connectorFor("remote-env", "env-1"),
   });
   const sub = await participants.get(session.id, "sub-1");

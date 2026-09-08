@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  connectorFields,
   connectorFor,
   isTerminalStatus,
   type Run,
@@ -79,7 +78,7 @@ function toInfo(subagent: ExternalSubagent): SubagentInfo {
     conversationId: subagent.homeConversationId,
     name: subagent.name,
     status: subagent.status,
-    ...connectorFields("external-inbound"),
+    connector: connectorFor("external-inbound"),
     template: subagent.template,
     model: subagent.model,
     thinkingDepth: subagent.thinkingDepth,
@@ -191,7 +190,6 @@ export class ExternalSubagentGateway {
         model: subagent.model,
         thinkingDepth: subagent.thinkingDepth,
         template: subagent.template,
-        host: "external",
         connector: connectorFor("external-inbound"),
         homeConversationId,
       })

@@ -71,7 +71,7 @@ test("register records a roster entry and surfaces it as active", () => {
     [id],
   );
   const info = h.rosterUpdates.at(-1);
-  assert.equal(info?.host, "external");
+  assert.equal(info?.connector.kind, "external-inbound");
   assert.equal(info?.status, "active");
 });
 
