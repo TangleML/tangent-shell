@@ -19,8 +19,11 @@ extensions present that token as `Authorization: Bearer <token>` on every call
 to the server's internal API.
 
 `INTERNAL_TOKEN` ([config.ts](../../server/src/config.ts)) is a per-start
-`randomUUID()` unless pinned via env. Every internal router installs a middleware
-that rejects any request whose bearer does not match:
+`randomUUID()` unless pinned via env. Every internal router installs
+`requireInternalToken` — `requireCredential(piCredential)`
+([requireInternalToken.ts](../../server/src/middleware/requireInternalToken.ts)) —
+which rejects any request the Pi connector's credential does not verify. The byte
+comparison lives in the credential facet, not the route:
 
 - `/internal/agents` ([internalAgents.ts](../../server/src/routes/internalAgents.ts))
 - `/internal/memory` ([internalMemory.ts](../../server/src/routes/internalMemory.ts))
