@@ -2,7 +2,6 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
-  type SubagentHost,
   THINKING_LEVELS,
   type ThinkingLevel,
 } from "@tangent/shared/contracts.ts";
@@ -166,10 +165,10 @@ export interface SubagentSpawnRequest {
    */
   autoRelayToPrime?: boolean;
   /**
-   * Which host runs the sub-agent: `local` (a `pi` child) or `remote` (a
+   * Which environment runs the sub-agent: `local` (a `pi` child) or `remote` (a
    * connected remote environment). Defaults to `local` when omitted.
    */
-  environment?: SubagentHost;
+  environment?: "local" | "remote";
 }
 
 /** Narrows an arbitrary string to a valid {@link ThinkingLevel}, else undefined. */

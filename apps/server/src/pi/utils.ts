@@ -1,10 +1,7 @@
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
-import {
-  connectorFields,
-  type SubagentInfo,
-} from "@tangent/shared/contracts.ts";
+import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
 
 import type {
   AgentDescriptor,
@@ -179,7 +176,7 @@ export function toSubagentInfo(agent: AgentProcess): SubagentInfo {
     conversationId: agent.homeConversationId,
     name: agent.name,
     status: agent.status,
-    ...connectorFields("pi-stdio"),
+    connector: connectorFor("pi-stdio"),
     ...(agent.template ? { template: agent.template } : {}),
     ...(agent.config.model ? { model: agent.config.model } : {}),
     ...(agent.config.thinkingDepth

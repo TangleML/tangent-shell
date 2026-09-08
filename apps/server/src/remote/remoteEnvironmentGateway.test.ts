@@ -188,7 +188,6 @@ async function seedAgent(
     role: "subagent",
     name: id,
     status,
-    host: "remote",
     connector: connectorFor("remote-env", environmentId),
   });
 }
@@ -218,7 +217,6 @@ test("the remote roster describes its connector and environment", () => {
     environmentId: "env-1",
   };
   assert.deepEqual(info.connector, expected);
-  assert.equal(info.host, "remote");
   assert.deepEqual(h.gateway.listSubagents("s1")[0].connector, expected);
 });
 
@@ -301,13 +299,13 @@ test("reattach ignores a row that never recorded its environment", async () => {
     role: "subagent",
     name: "legacy",
     status: "active",
-    host: "remote",
+    connector: connectorFor("remote-env"),
   });
 
   h.gateway.reattach("s1", (await h.store.listAgents("s1"))[0]);
 
-  // Pre-connector-column rows never recorded which environment hosted them, so
-  // there is nothing to reattach them to.
+  // A remote row that never recorded which environment hosted it has no
+  // environment to reattach to.
   assert.deepEqual(h.gateway.listSubagents("s1"), []);
 });
 

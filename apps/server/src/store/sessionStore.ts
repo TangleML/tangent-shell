@@ -3,12 +3,9 @@ import {
   type Capability,
   type ChatMessage,
   type ConnectorDescriptor,
-  connectorFor,
-  type ConnectorKind,
   type PinnedArtifact,
   type Session,
   type SessionConfigMeta,
-  type SubagentHost,
   type SubagentStatus,
   type UpdateSessionRequest,
   type UserIdentity,
@@ -22,24 +19,6 @@ import {
  * participant's lifecycle unreadable as history.
  */
 export type SessionAgentStatus = SubagentStatus;
-
-/** The connector kind each legacy `host` label stood for. */
-const CONNECTOR_KIND_BY_HOST: Record<SubagentHost, ConnectorKind> = {
-  local: "pi-stdio",
-  remote: "remote-env",
-  external: "external-inbound",
-};
-
-/**
- * The connector a roster row's legacy `host` label describes. Used for rows
- * written before the connector columns existed, and as the default for a row
- * recorded without a descriptor.
- */
-export function connectorFromHost(
-  host: SubagentHost | undefined,
-): ConnectorDescriptor {
-  return connectorFor(host ? CONNECTOR_KIND_BY_HOST[host] : "pi-stdio");
-}
 
 /**
  * Input accepted by {@link SessionStore.createSession}: the public wire request
@@ -81,14 +60,7 @@ export interface SessionAgent {
   systemPrompt?: string;
   /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
   autoRelayToPrime?: boolean;
-  /**
-   * Which host runs the sub-agent: `local` (a `pi` child) or `remote` (a
-   * connected remote environment). Defaults to `local` on legacy rows.
-   *
-   * @deprecated Read {@link SessionAgent.connector} instead.
-   */
-  host?: SubagentHost;
-  /** The connector that runs the agent; derived from `host` on legacy rows. */
+  /** The connector that runs the agent. */
   connector: ConnectorDescriptor;
   /**
    * The Conversation this agent posts into as its home thread. A fresh id for an
@@ -118,8 +90,6 @@ export interface RecordAgentInput {
   systemPrompt?: string;
   /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
   autoRelayToPrime?: boolean;
-  /** Which host runs the sub-agent (`local` default, `remote`, or `external`). */
-  host?: SubagentHost;
   /** The connector running the agent; omitted leaves the stored one in place. */
   connector?: ConnectorDescriptor;
   /**

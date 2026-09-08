@@ -4,7 +4,6 @@ import { test } from "node:test";
 import {
   capabilitiesForRole,
   type ConnectorDescriptor,
-  connectorFields,
   connectorFor,
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
@@ -45,7 +44,7 @@ function rosterEntry(
     conversationId: id,
     name: id,
     status: "active",
-    ...connectorFields(kind),
+    connector: connectorFor(kind),
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }
@@ -392,7 +391,7 @@ test("revive routes each persisted row to the connector that recorded it", () =>
       conversationId: "ext-1",
       name: "ext-1",
       status: "detached",
-      ...connectorFields("external-inbound"),
+      connector: connectorFor("external-inbound"),
       template: undefined,
       model: undefined,
       thinkingDepth: undefined,

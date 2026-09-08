@@ -49,7 +49,7 @@ test("put then get round-trips capabilities, connector, and agent payload", asyn
     displayName: "Prime",
     capabilities: ["orchestrator"],
     connector: connectorFor("remote-env", "env-1"),
-    agent: { role: "prime", host: "remote", status: "active", tools: ["a"] },
+    agent: { role: "prime", status: "active", tools: ["a"] },
   });
 
   await store.put(row);

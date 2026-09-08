@@ -106,16 +106,10 @@ export const sessionAgents = sqliteTable(
       .notNull()
       .default(true),
     /**
-     * Which host runs the agent: `local` (a `pi` child) or `remote` (a
-     * connected remote environment). Defaults to `local`.
-     */
-    host: text("host").notNull().default("local"),
-    /**
-     * The agent's connector facets (`ConnectorDescriptor`), backfilled from
-     * `host`. Null on rows written before they existed, which the store reads
-     * back through `host`. `spawnAuthority` and `credentialScheme` are not
-     * stored: both follow from the kind, and persisting them would let the two
-     * disagree.
+     * The agent's connector facets (`ConnectorDescriptor`). Defaults to
+     * `pi-stdio`/`owned` on a row that never set them. `spawnAuthority` and
+     * `credentialScheme` are not stored: both follow from the kind, and
+     * persisting them would let the two disagree.
      */
     connectorKind: text("connector_kind"),
     connectorLifecycle: text("connector_lifecycle"),
@@ -263,8 +257,8 @@ export const memberships = sqliteTable(
  * authority rides on `capabilities` (a JSON array — Prime holds `orchestrator`),
  * not on a reserved id. The connector facets that used to live on
  * `session_agents` move here; the agent-only columns (`role`, `model`,
- * `template`, `tools`, `system_prompt`, `auto_relay_to_prime`, `host`,
- * `purpose`, `status`) become a per-kind `agent_payload` blob rather than
+ * `template`, `tools`, `system_prompt`, `auto_relay_to_prime`, `purpose`,
+ * `status`) become a per-kind `agent_payload` blob rather than
  * participant-shaped columns.
  *
  * `session_agents` stays the write authority for this PR; these rows are
@@ -293,7 +287,9 @@ export const participants = sqliteTable(
     /**
      * JSON-encoded kind-specific payload. For an agent: `role`, `model`,
      * `thinkingDepth`, `template`, `tools`, `systemPrompt`, `autoRelayToPrime`,
-     * `host`, `purpose`, `status` — everything that was an agent-only column.
+     * `purpose`, `status` — everything that was an agent-only column. A row
+     * backfilled before C.1 may still carry a legacy `host` key, which is
+     * ignored on read.
      */
     agentPayload: text("agent_payload"),
     /**

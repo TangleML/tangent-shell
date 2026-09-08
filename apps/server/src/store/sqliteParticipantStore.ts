@@ -6,7 +6,6 @@ import {
   type ConnectorLifecycle,
   type ParticipantKind,
   type Presence,
-  type SubagentHost,
 } from "@tangent/shared/contracts.ts";
 import { and, asc, eq } from "drizzle-orm";
 
@@ -17,7 +16,6 @@ import type {
   Participant,
   ParticipantStore,
 } from "./participantStore.ts";
-import { connectorFromHost } from "./sessionStore.ts";
 
 /** Coerces a stored JSON value to `undefined` when it is absent or SQL null. */
 function orUndefined<T>(value: T | null | undefined): T | undefined {
@@ -47,7 +45,6 @@ function parseAgentPayload(raw: string | null): AgentPayload | undefined {
       tools: Array.isArray(p.tools) ? (p.tools as string[]) : undefined,
       systemPrompt: orUndefined(p.systemPrompt as string | null),
       autoRelayToPrime: orUndefined(p.autoRelayToPrime as boolean | null),
-      host: orUndefined(p.host as SubagentHost | null),
       purpose: orUndefined(p.purpose as string | null),
       status: (p.status as AgentPayload["status"]) ?? "active",
     };
@@ -57,17 +54,13 @@ function parseAgentPayload(raw: string | null): AgentPayload | undefined {
 }
 
 /**
- * Reads a participant row's connector facets, falling back to the legacy `host`
- * label (kept in `agent_payload`) for rows backfilled before the connector
- * columns were ever set — the same read-time fallback the roster store uses.
+ * Reads a participant row's connector facets, defaulting to `pi-stdio` for a row
+ * that never had its connector columns set — the same read-time default the
+ * roster store uses.
  */
-function toConnector(
-  row: ParticipantRow,
-  agent: AgentPayload | undefined,
-): ConnectorDescriptor {
-  if (!row.connectorKind) return connectorFromHost(agent?.host);
+function toConnector(row: ParticipantRow): ConnectorDescriptor {
   return {
-    ...connectorFor(row.connectorKind as ConnectorKind),
+    ...connectorFor((row.connectorKind as ConnectorKind) ?? "pi-stdio"),
     ...(row.connectorLifecycle
       ? { lifecycle: row.connectorLifecycle as ConnectorLifecycle }
       : {}),
@@ -90,7 +83,7 @@ function toParticipant(row: ParticipantRow): Participant {
     displayName: row.displayName,
     capabilities: parseCapabilities(row.capabilities),
     presence: row.presence as Presence,
-    connector: toConnector(row, agent),
+    connector: toConnector(row),
     agent,
     revokedAt: orUndefined(row.revokedAt),
     createdAt: row.createdAt,
