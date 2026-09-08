@@ -193,8 +193,7 @@ exit.
   Conversation rooms its participant is authorized for — so who receives a Message
   is a server-side decision derived from Membership, not a client-side filter.
   Session-level events (roster, presence, triggers, artifacts) still use the
-  session-wide room `session:<id>`. Setting `ROOM_PER_CONVERSATION=0` falls back
-  to the single session room as a rollback.
+  session-wide room `session:<id>`.
 - **Durable state, on-disk transcripts.** Sessions, the agent roster,
   participants, memberships, runs, and the resource catalog live in
   `tangent.db`; chat transcripts are append-only JSONL under each session's
@@ -249,8 +248,6 @@ From [apps/server/src/config.ts](../../apps/server/src/config.ts):
   per-session subtrees served over HTTP.
 - `PI_BIN` (`pi`), `PI_PROVIDER`, `PI_MODEL`, `PI_THINKING`, `PI_PROXY_URL`,
   `PI_DEBUG` (on by default).
-- `ROOM_PER_CONVERSATION` (on by default) — per-Conversation delivery; set to
-  `0` to fall back to a single session room.
 - `INTERNAL_URL` (loopback on `PORT`) + `INTERNAL_TOKEN` (per-start UUID).
 - `REMOTE_ENV_TOKEN` / `REMOTE_ENV_SIGNING_SECRET` — auth for the remote-env
   connector; `A2A_TOKEN` — the outbound bearer for A2A peers.

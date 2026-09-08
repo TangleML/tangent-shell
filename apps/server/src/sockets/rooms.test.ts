@@ -22,7 +22,7 @@ test("a Conversation room is scoped by session id", () => {
   );
 });
 
-test("messageRoomFor delivers per Conversation when the flag is on (default)", () => {
+test("messageRoomFor delivers per Conversation", () => {
   assert.equal(
     messageRoomFor("s1", "sub-1"),
     roomForConversation("s1", "sub-1"),
