@@ -17,16 +17,18 @@ synthesizes one clean answer for you.
   reviewer, optimizer…). Each sub-agent gets only the context and tools it needs.
 - **Cleaner thinking.** Narrow context per task beats one giant, sprawling
   conversation — specialists stay sharp and on-topic.
-- **You still talk to one teammate.** Prime is the single face you converse
-  with. The orchestration happens behind it, visible but not in your way.
+- **One face by default, but not a wall.** Prime is the teammate you usually
+  talk to, and delegation happens behind it. When you want to, you can address a
+  specialist directly with an `@mention` and follow up in its own thread.
 
 ## Tradeoffs to be honest about
 
 - **More moving parts.** Each sub-agent is real work running in parallel, so
   complex tasks cost more than a single thread.
-- **Prime is the only conductor.** Sub-agents don't command each other — they do
-  their slice and report up. This keeps coordination simple and predictable, at
-  the cost of fully peer-to-peer agent chatter.
+- **Coordination is deliberate.** Prime is the usual coordinator, and the common
+  shape is delegate-and-report. Agents don't chatter freely; who reacts to a
+  given message is decided by each participant's rule (react to everything, only
+  when mentioned, or never), not by a free-for-all.
 
 ## The shape of it
 
@@ -87,11 +89,11 @@ sequenceDiagram
   deactivate Prime
 ```
 
-## The shared room
+## The shared transcript
 
-Every agent can read the session's shared transcript, so a specialist can catch
-up on what's already happened before acting. The human only ever talks to Prime;
-specialists do their slice and report up.
+Every agent can read the session's transcript, so a specialist can catch up on
+what's already happened before acting. Delegate-and-report is the usual flow, but
+it isn't the only one it can express:
 
 ```mermaid
 sequenceDiagram
@@ -99,9 +101,9 @@ sequenceDiagram
   actor User
   participant Prime as Prime
   participant Sub as Sub-agent
-  participant Room as Shared room
+  participant Room as Conversation
 
-  User->>Prime: Message (only Prime hears the human)
+  User->>Prime: Message (Prime reacts by default)
   activate Prime
   Prime->>Sub: Delegate a task
   deactivate Prime
@@ -115,8 +117,25 @@ sequenceDiagram
   deactivate Prime
 ```
 
+## Beyond one coordinator
+
+The same machinery covers shapes that aren't strictly Prime-in-the-middle:
+
+- **Shared threads.** A [Conversation](11-conversations-and-participants.md) can
+  hold several participants at once — more than one human, plus agents — instead
+  of one agent per thread.
+- **Reaction rules.** Each participant decides what wakes it: an observer that
+  follows everything (`always`), a specialist that only acts when mentioned
+  (`mentionsMe`), or a muted member that never runs (`never`).
+- **Outside agents as ordinary members.** An independently deployed agent
+  (reached over the A2A protocol) can join a shared thread as a normal member. By
+  default it's **opaque** — it receives the message that addresses it rather than
+  subscribing to the whole log — but it participates like any other peer.
+
 ## Where this shows up next
 
+- See threads and roles in detail in
+  [Conversations & Participants](11-conversations-and-participants.md).
 - Specialists are defined by [Agent Bundles](03-agent-bundles.md) (the `agents/`
   templates).
 - The tools each agent can use: [Tools & Extensions](10-tools-and-extensions.md).

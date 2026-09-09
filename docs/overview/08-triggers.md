@@ -6,8 +6,10 @@ Your agent shouldn't only work when you're typing. **Triggers** let a session
 wake up on its own and act — either on a **schedule** (every hour, every morning,
 on a cron) or when an **external system calls it** (a webhook from CI, an
 incident tool, a form). A trigger turns an outside signal into a prompt delivered
-straight to Prime, exactly as if you'd typed it — so the agent can monitor,
-react, and report without you in the loop.
+into the session, exactly as if you'd typed it — so the agent can monitor,
+react, and report without you in the loop. By default a firing goes to a
+dedicated helper agent working in isolation, so background automation doesn't
+interrupt your conversation with Prime.
 
 ## Why it's useful
 
@@ -25,12 +27,18 @@ react, and report without you in the loop.
 ```mermaid
 flowchart TB
   subgraph schedule [Schedule]
-    timer["Timer / cron fires"] --> prompt1["Prompt to Prime"]
+    timer["Timer / cron fires"] --> prompt1["Prompt to the target"]
   end
   subgraph callback [Callback]
-    ext["External system POSTs<br/>to a secret URL"] --> prompt2["Prompt to Prime"]
+    ext["External system POSTs<br/>to a secret URL"] --> prompt2["Prompt to the target"]
   end
 ```
+
+A trigger's **target** is who reacts to a firing: by default a dedicated helper
+agent that works in isolation (its replies don't interrupt Prime), or Prime
+itself for the older behavior. Either way, the firing posts into a
+[Conversation](11-conversations-and-participants.md) so its work shows up in the
+transcript.
 
 |             | **Schedule**                                      | **Callback**                             |
 | ----------- | ------------------------------------------------- | ---------------------------------------- |
@@ -50,8 +58,10 @@ flowchart TB
 
 ## A scheduled trigger firing
 
-On its cadence, Tangent composes the trigger's prompt and delivers it to Prime
-just like a user message — so the result lands right in the session transcript.
+On its cadence, Tangent composes the trigger's prompt and delivers it to the
+trigger's target just like a user message — so the result lands right in the
+session transcript. (The diagram shows Prime as the target; by default it's a
+dedicated helper agent instead.)
 
 ```mermaid
 sequenceDiagram
