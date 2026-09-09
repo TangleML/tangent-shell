@@ -105,7 +105,7 @@ function makeManager(): {
 
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
-  const pi = new PiAgentManager(handlers, memory, runs, fakeSpawn);
+  const pi = new PiAgentManager(handlers, memory, runs, undefined, fakeSpawn);
   return { pi, spawns, rosterUpdates, events, runs, runStore };
 }
 

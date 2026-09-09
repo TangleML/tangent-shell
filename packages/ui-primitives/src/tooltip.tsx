@@ -5,6 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { PropsWithChildren, ReactNode } from "react";
 import * as React from "react";
 
+import { usePortalContainer } from "./portal-container";
 import { cn } from "./utils";
 
 function TooltipProvider({
@@ -50,8 +51,9 @@ function TooltipContent({
   arrowClassName,
   ...props
 }: TooltipContentProps) {
+  const portalContainer = usePortalContainer();
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={portalContainer ?? undefined}>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}

@@ -6,14 +6,13 @@ import {
 } from "@tangent/shared/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { type PropsWithChildren, useEffect, useState } from "react";
-import { io } from "socket.io-client";
 
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
 import {
   SessionStatusContext,
   type SessionStatusMap,
 } from "@/features/sessions/model/sessionStatusContext";
-import { BASE_PREFIX } from "@/shared/lib/basePath";
+import { createSocket } from "@/shared/lib/socket";
 
 /**
  * Holds one shared socket subscribed to the sessions lobby and exposes every
@@ -26,9 +25,8 @@ export function SessionStatusProvider({ children }: PropsWithChildren) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    // Same connection style as `useSessionChat`: Vite proxies /socket.io to the
-    // dev server, and the path is mount-prefix aware for the pod-proxy sub-path.
-    const socket = io({ autoConnect: true, path: `${BASE_PREFIX}socket.io` });
+    // Same connection style as `useSessionChat` (see createSocket).
+    const socket = createSocket();
 
     socket.on("connect", () => {
       // The snapshot repopulates state on (re)connect, so clear first.

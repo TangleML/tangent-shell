@@ -52,6 +52,7 @@ COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 COPY packages/build/package.json packages/build/
+COPY packages/ui-extensions-sdk/package.json packages/ui-extensions-sdk/
 RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false \
   --filter @tangent/server...
 
@@ -61,6 +62,7 @@ RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false \
 COPY apps/server ./apps/server
 COPY packages/shared ./packages/shared
 COPY packages/build ./packages/build
+COPY packages/ui-extensions-sdk ./packages/ui-extensions-sdk
 
 # Produces apps/server/dist/index.js plus its runtime assets (prompts, agents,
 # extensions, migrations). Invoked via node directly to avoid pnpm's pre-run

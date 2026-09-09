@@ -26,6 +26,7 @@ import {
   BUNDLE_UI_ELEMENT_NAMES,
   hostAdapters,
 } from "./components/host-registry";
+import { createBundleUiWorker } from "./createBundleUiWorker";
 import { createHostBridge, TARGET_URL_ENDPOINT } from "./hostBridge";
 import type { BundleUiKind, HostBridge, UICommand, WorkerApi } from "./types";
 
@@ -137,10 +138,7 @@ export function BundleUiHost({
 
   useEffect(() => {
     let cancelled = false;
-    const worker = new Worker(
-      new URL("./bundle-ui.worker.ts", import.meta.url),
-      { type: "module" },
-    );
+    const worker = createBundleUiWorker();
 
     worker.addEventListener("error", (event) => {
       if (!cancelled) {

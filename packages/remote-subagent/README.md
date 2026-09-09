@@ -66,6 +66,45 @@ const client = connectRemoteEnvironment({
 const messages = await client.readRoom(sessionId, 30);
 ```
 
+## Remote tools (RPC, no sub-agent)
+
+An environment can also offer **remote tools**: named async functions the
+session's agents (Prime and local sub-agents) call directly over this same
+connection, without hosting a browser agent. Register them with `tools`;
+`handlers` stay optional, so an environment may host tools, sub-agents, or both.
+
+```ts
+const client = connectRemoteEnvironment({
+  url: "http://localhost:8787",
+  token,
+  environmentId,
+  sessionId, // the session these tools are registered for
+  tools: {
+    get_pipeline_state: {
+      description: "Get the current pipeline spec as JSON.",
+      inputSchema: { type: "object", properties: {} },
+      execute: async () => JSON.stringify(getSpec()),
+    },
+    add_task: {
+      description: "Add a task node to the pipeline.",
+      inputSchema: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+      },
+      execute: async (args) => addTask(args),
+    },
+  },
+});
+```
+
+The catalog is registered on connect and re-registered on reconnect; the server
+drops it when the socket falls. Agents discover it with `list_remote_tools` and
+invoke it with `call_remote_tool` — the server routes each call here and hands
+the result (any JSON-serializable value) back to the agent that asked. The
+runtime serializes nothing for you: if two calls can race a shared mutable state,
+serialize them in your `execute`.
+
 ## Outbound helpers
 
 - `client.agentEvent(sessionId, agentId, event)` — stream a single agent event

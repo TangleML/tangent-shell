@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import {
   connectorFields,
@@ -22,19 +23,28 @@ import {
   type RemoteRoomReadResponse,
   type RemoteSpawnCommand,
   type RemoteSubagentUpdatePayload,
+  type RemoteToolCallRequest,
+  type RemoteToolCallResponse,
+  type RemoteToolDef,
+  type RemoteToolsRegisterPayload,
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Namespace, Server as SocketIOServer, Socket } from "socket.io";
 
+import { SESSIONS_ROOT } from "../config.ts";
 import {
   type ConnectorCredential,
   remoteEnvCredential,
+  scopedRemoteEnvCredential,
+  type ScopedTokenCredential,
 } from "../connectors/credentials.ts";
 import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
 import {
   parseThinkingLevel,
+  type ResolvedSessionConfig,
   resolveSubagentConfig,
   type SubagentSpawnRequest,
 } from "../pi/agentConfig.ts";
+import { loadInstalledConfig } from "../pi/config/bundleLoader.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
@@ -43,6 +53,9 @@ import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 /** Default and maximum number of transcript messages a room read returns. */
 const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
+
+/** How long a remote tool call waits for the environment's ack before failing. */
+const TOOL_CALL_TIMEOUT_MS = 30_000;
 
 /** One message to deliver to one remote sub-agent. */
 export interface RemoteSendOptions {
@@ -58,7 +71,38 @@ export interface RemoteSendOptions {
 /** A connected remote environment and its live Socket.IO connection. */
 interface RemoteEnvConnection {
   environmentId: string;
+  /** Set when the environment authenticated with a scoped per-session token. */
+  sessionId?: string;
   socket: Socket;
+  /** The RPC tools this environment currently offers, keyed by tool name. */
+  tools: Map<string, RemoteToolDef>;
+}
+
+/** Looks up a session's installed bundle config for remote spawn resolution. */
+export type SessionConfigLookup = (
+  sessionId: string,
+) => ResolvedSessionConfig | undefined;
+
+/** Re-resolves the session's installed bundle, or `undefined` for a plain session. */
+function loadSessionBundleConfig(
+  sessionId: string,
+): ResolvedSessionConfig | undefined {
+  try {
+    return loadInstalledConfig(path.join(SESSIONS_ROOT, sessionId));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[remote-env] failed to load installed bundle config for "${sessionId}"; using default config. ${message}`,
+    );
+    return undefined;
+  }
+}
+
+/** Reads a non-empty string off `socket.data`, or `undefined`. */
+function socketDataString(socket: Socket, key: string): string | undefined {
+  const value: unknown = socket.data[key];
+  if (typeof value !== "string" || !value) return undefined;
+  return value;
 }
 
 /** A sub-agent hosted in a remote environment, tracked in the gateway roster. */
@@ -125,9 +169,13 @@ export class RemoteEnvironmentGateway {
   private readonly store: SessionStore;
   private readonly runs: RunRegistry;
   private readonly credential: ConnectorCredential;
+  private readonly scoped: ScopedTokenCredential;
+  private readonly sessionConfig: SessionConfigLookup;
 
-  /** Connected environments, keyed by their handshake `environmentId`. */
+  /** Connected environments, keyed by `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
+  /** Scoped environment bound to a session, keyed by sessionId. */
+  private readonly sessionEnvironments = new Map<string, string>();
   /** Per-session remote sub-agent rosters, keyed by sessionId then agentId. */
   private readonly sessions = new Map<string, Map<string, RemoteSubagent>>();
 
@@ -137,12 +185,16 @@ export class RemoteEnvironmentGateway {
     store: SessionStore,
     runs: RunRegistry,
     credential: ConnectorCredential = remoteEnvCredential,
+    scoped: ScopedTokenCredential = scopedRemoteEnvCredential,
+    sessionConfig: SessionConfigLookup = loadSessionBundleConfig,
   ) {
     this.io = io;
     this.handlers = handlers;
     this.store = store;
     this.runs = runs;
     this.credential = credential;
+    this.scoped = scoped;
+    this.sessionConfig = sessionConfig;
     this.setupNamespace();
   }
 
@@ -165,22 +217,26 @@ export class RemoteEnvironmentGateway {
 
   /**
    * Spawns a sub-agent on a connected remote environment. Resolves the
-   * effective config from the global templates/defaults (remote environments
-   * are bundle-agnostic in this iteration), records the roster entry, and emits
-   * the spawn command. Throws when no environment is connected.
+   * effective config from the session's installed bundle templates/defaults
+   * (falling back to the global templates), records the roster entry, and emits
+   * the spawn command. Throws when no environment is connected for the session.
    */
   spawnSubagent(
     sessionId: string,
     request: SubagentSpawnRequest,
   ): SpawnedSubagent {
-    const environment = this.pickEnvironment();
+    const environment = this.pickEnvironment(sessionId);
     if (!environment) {
       throw new Error("No remote environment is connected.");
     }
 
     const agentId = randomUUID();
     const homeConversationId = randomUUID();
-    const config = resolveSubagentConfig(request);
+    const sessionConfig = this.sessionConfig(sessionId);
+    const config = resolveSubagentConfig(request, {
+      templates: sessionConfig?.templates,
+      defaults: sessionConfig?.subagentDefaults,
+    });
     const autoRelayToPrime = request.autoRelayToPrime ?? true;
     const tools = [...config.tools];
 
@@ -333,10 +389,27 @@ export class RemoteEnvironmentGateway {
     this.environments.get(environmentId)?.socket.emit(event, payload);
   }
 
-  /** Picks a connected environment to host a new sub-agent (first connected). */
-  private pickEnvironment(): RemoteEnvConnection | undefined {
-    const first = this.environments.values().next();
-    return first.done ? undefined : first.value;
+  /** The environment bound to `sessionId`, or the first unscoped shared-secret env. */
+  private pickEnvironment(sessionId: string): RemoteEnvConnection | undefined {
+    const bound = this.boundEnvironment(sessionId);
+    if (bound) return bound;
+    return this.firstUnscopedEnvironment();
+  }
+
+  /** The live environment recorded against `sessionId`, if still connected. */
+  private boundEnvironment(sessionId: string): RemoteEnvConnection | undefined {
+    const boundId = this.sessionEnvironments.get(sessionId);
+    if (!boundId) return undefined;
+    return this.environments.get(boundId);
+  }
+
+  /** First connected environment that is not bound to a session. */
+  private firstUnscopedEnvironment(): RemoteEnvConnection | undefined {
+    for (const environment of this.environments.values()) {
+      if (environment.sessionId) continue;
+      return environment;
+    }
+    return undefined;
   }
 
   /** Returns (creating if needed) the session's remote sub-agent roster. */
@@ -377,6 +450,13 @@ export class RemoteEnvironmentGateway {
   /** Rejects connections lacking a valid token / environment id. */
   private authenticate(socket: Socket, next: (err?: Error) => void): void {
     const auth = socket.handshake.auth as Partial<RemoteEnvHandshake>;
+    const scoped = this.scoped.parse(auth.token);
+    if (scoped) {
+      socket.data.environmentId = scoped.environmentId;
+      socket.data.sessionId = scoped.sessionId;
+      next();
+      return;
+    }
     if (!this.credential.verify({ token: auth.token })) {
       next(new Error("Unauthorized"));
       return;
@@ -385,38 +465,165 @@ export class RemoteEnvironmentGateway {
       next(new Error("Missing environmentId"));
       return;
     }
+    socket.data.environmentId = auth.environmentId;
     next();
   }
 
   /** Registers a connected environment and wires its inbound listeners. */
   private onConnection(_namespace: Namespace, socket: Socket): void {
-    const { environmentId } = socket.handshake.auth as RemoteEnvHandshake;
-    this.environments.set(environmentId, { environmentId, socket });
+    const environmentId = socketDataString(socket, "environmentId");
+    if (!environmentId) return;
+    const sessionId = socketDataString(socket, "sessionId");
+
+    if (sessionId) this.bindSessionEnvironment(sessionId, environmentId);
+    this.environments.set(environmentId, {
+      environmentId,
+      sessionId,
+      socket,
+      tools: new Map(),
+    });
     console.log(`[remote-env] connected: ${environmentId}`);
 
-    socket.on(RemoteEnvEvents.AgentEvent, (payload: RemoteAgentEventPayload) =>
-      this.handleAgentEvent(payload),
+    this.wireInbound(socket, sessionId);
+    socket.on("disconnect", () => this.onDisconnect(environmentId, socket));
+
+    void this.replayRoster(environmentId);
+  }
+
+  /**
+   * Records `environmentId` as the host for `sessionId`, disconnecting any
+   * previous scoped environment still bound to that session.
+   */
+  private bindSessionEnvironment(
+    sessionId: string,
+    environmentId: string,
+  ): void {
+    const previousId = this.sessionEnvironments.get(sessionId);
+    this.sessionEnvironments.set(sessionId, environmentId);
+    if (!previousId || previousId === environmentId) return;
+    this.environments.get(previousId)?.socket.disconnect();
+  }
+
+  /** True when an unscoped env may speak for any session, or the ids match. */
+  private acceptsSession(
+    boundSessionId: string | undefined,
+    sessionId: string,
+  ): boolean {
+    if (!boundSessionId) return true;
+    return boundSessionId === sessionId;
+  }
+
+  /** Wires protocol listeners, dropping cross-session traffic on scoped envs. */
+  private wireInbound(socket: Socket, sessionId: string | undefined): void {
+    socket.on(
+      RemoteEnvEvents.AgentEvent,
+      (payload: RemoteAgentEventPayload) => {
+        if (!this.acceptsSession(sessionId, payload.sessionId)) return;
+        this.handleAgentEvent(payload);
+      },
     );
     socket.on(
       RemoteEnvEvents.SubagentUpdate,
-      (payload: RemoteSubagentUpdatePayload) =>
-        this.handleSubagentUpdate(payload),
+      (payload: RemoteSubagentUpdatePayload) => {
+        if (!this.acceptsSession(sessionId, payload.sessionId)) return;
+        this.handleSubagentUpdate(payload);
+      },
     );
     socket.on(
       RemoteEnvEvents.AgentMessage,
-      (payload: RemoteAgentMessagePayload) =>
-        void this.handleAgentMessage(payload),
+      (payload: RemoteAgentMessagePayload) => {
+        if (!this.acceptsSession(sessionId, payload.sessionId)) return;
+        void this.handleAgentMessage(payload);
+      },
     );
     socket.on(
       RemoteEnvEvents.RoomRead,
       (
         request: RemoteRoomReadRequest,
         callback: (response: RemoteRoomReadResponse) => void,
-      ) => void this.handleRoomRead(request, callback),
+      ) => {
+        if (!this.acceptsSession(sessionId, request.sessionId)) {
+          callback({ messages: [] });
+          return;
+        }
+        void this.handleRoomRead(request, callback);
+      },
     );
-    socket.on("disconnect", () => this.onDisconnect(environmentId));
+    socket.on(
+      RemoteEnvEvents.ToolsRegister,
+      (payload: RemoteToolsRegisterPayload) => {
+        if (!this.acceptsSession(sessionId, payload.sessionId)) return;
+        this.handleToolsRegister(socket, payload);
+      },
+    );
+  }
 
-    void this.replayRoster(environmentId);
+  /** Records the catalog an environment declares, replacing any prior one. */
+  private handleToolsRegister(
+    socket: Socket,
+    payload: RemoteToolsRegisterPayload,
+  ): void {
+    const environmentId = socketDataString(socket, "environmentId");
+    if (!environmentId) return;
+    const environment = this.environments.get(environmentId);
+    if (!environment || environment.socket !== socket) return;
+    environment.tools = new Map(payload.tools.map((tool) => [tool.name, tool]));
+    console.log(
+      `[remote-env] ${environmentId} registered ${environment.tools.size} tool(s)`,
+    );
+  }
+
+  /**
+   * The tools available to a session: the catalog of the environment bound to it
+   * (or the shared unscoped one it would spawn on). Empty when no environment is
+   * connected, so a caller can tell "no host" from "host offers nothing".
+   */
+  listTools(sessionId: string): RemoteToolDef[] {
+    const environment = this.pickEnvironment(sessionId);
+    if (!environment) return [];
+    return [...environment.tools.values()];
+  }
+
+  /**
+   * Invokes one registered tool on the session's environment and resolves with
+   * its result. Rejects when no environment is connected, the tool is not in the
+   * environment's catalog, or the environment does not ack before the timeout.
+   */
+  async callTool(
+    sessionId: string,
+    agentId: string,
+    name: string,
+    args: unknown,
+  ): Promise<RemoteToolCallResponse> {
+    const environment = this.pickEnvironment(sessionId);
+    if (!environment) {
+      throw new Error("No remote environment is connected.");
+    }
+    if (!environment.tools.has(name)) {
+      throw new Error(`No remote tool named "${name}" is registered.`);
+    }
+    const request: RemoteToolCallRequest = {
+      callId: randomUUID(),
+      sessionId,
+      agentId,
+      name,
+      arguments: args,
+    };
+    return new Promise<RemoteToolCallResponse>((resolve, reject) => {
+      environment.socket
+        .timeout(TOOL_CALL_TIMEOUT_MS)
+        .emit(
+          RemoteEnvEvents.ToolsCall,
+          request,
+          (err: Error | null, response: RemoteToolCallResponse) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve(response);
+          },
+        );
+    });
   }
 
   /**
@@ -529,8 +736,29 @@ export class RemoteEnvironmentGateway {
   }
 
   /** Drops a disconnected environment and detaches its sub-agents. */
-  private onDisconnect(environmentId: string): void {
+  private onDisconnect(environmentId: string, socket: Socket): void {
+    const current = this.environments.get(environmentId);
+    if (current?.socket && current.socket !== socket) return;
+    this.dropEnvironment(environmentId, current?.sessionId);
+  }
+
+  /** Clears the session binding if it still names this environment. */
+  private unbindSession(
+    boundSessionId: string | undefined,
+    environmentId: string,
+  ): void {
+    if (!boundSessionId) return;
+    if (this.sessionEnvironments.get(boundSessionId) !== environmentId) return;
+    this.sessionEnvironments.delete(boundSessionId);
+  }
+
+  /** Removes a dropped environment from the maps and detaches its agents. */
+  private dropEnvironment(
+    environmentId: string,
+    boundSessionId: string | undefined,
+  ): void {
     this.environments.delete(environmentId);
+    this.unbindSession(boundSessionId, environmentId);
     for (const [sessionId, roster] of this.sessions) {
       this.detachEnvironmentAgents(sessionId, roster, environmentId);
     }

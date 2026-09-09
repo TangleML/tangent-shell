@@ -30,8 +30,17 @@ import {
   type RemoteRoomReadResponse,
   type RemoteSpawnCommand,
   type RemoteSubagentUpdatePayload,
+  type RemoteToolCallRequest,
+  type RemoteToolCallResponse,
+  type RemoteToolDef,
+  type RemoteToolsRegisterPayload,
 } from "@tangent/shared/remoteSubagent.ts";
-import { io, type Socket } from "socket.io-client";
+import {
+  io,
+  type ManagerOptions,
+  type Socket,
+  type SocketOptions,
+} from "socket.io-client";
 
 /** How long {@link RemoteEnvironmentClient.readRoom} waits for the server ack. */
 const READ_ROOM_TIMEOUT_MS = 10_000;
@@ -50,16 +59,48 @@ export interface RemoteEnvironmentHandlers {
   onKill(command: RemoteKillCommand): void | Promise<void>;
 }
 
+/**
+ * One RPC tool this environment hosts: a named async function the server can
+ * invoke on behalf of an agent, without spawning a sub-agent. The `description`
+ * and JSON `inputSchema` are advertised to agents; `execute` runs the call and
+ * returns any JSON-serializable value (typically a string).
+ */
+export interface RemoteTool {
+  description: string;
+  inputSchema: Record<string, unknown>;
+  execute(args: unknown): unknown | Promise<unknown>;
+}
+
+/** The tool catalog an environment offers, keyed by tool name. */
+export type RemoteToolMap = Record<string, RemoteTool>;
+
 /** Options for {@link connectRemoteEnvironment}. */
 export interface ConnectRemoteEnvironmentOptions {
   /** Base server URL, e.g. `http://localhost:8787` (namespace is appended). */
   url: string;
+  /**
+   * engine.io transport path for mounted-prefix deployments
+   * (e.g. `/tangent/socket.io`); defaults to Socket.IO's `/socket.io`.
+   */
+  socketPath?: string;
   /** Shared bearer token the server validates against `REMOTE_ENV_TOKEN`. */
   token: string;
   /** Stable id identifying this environment when several are connected. */
   environmentId: string;
   /** Command handlers; any omitted handler throws when its command arrives. */
   handlers?: Partial<RemoteEnvironmentHandlers>;
+  /**
+   * RPC tools this environment offers. Registered on connect and re-registered
+   * on reconnect. Independent of {@link handlers}: an environment may host tools,
+   * sub-agents, or both. Omit to host no tools.
+   */
+  tools?: RemoteToolMap;
+  /**
+   * The session this environment's {@link tools} are registered for. Required
+   * when `tools` is set: a scoped embed host knows its session, and the server
+   * only accepts a catalog matching the socket's bound session.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -132,6 +173,29 @@ function normalizeUrl(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
+/**
+ * Builds the `io()` connection arguments from the connect options. Forwards an
+ * explicit `path` only when {@link ConnectRemoteEnvironmentOptions.socketPath}
+ * is set, so a mounted-prefix deployment reaches the right transport path while
+ * the default `/socket.io` behavior is untouched otherwise.
+ */
+export function buildRemoteEnvConnectArgs(
+  options: ConnectRemoteEnvironmentOptions,
+): { uri: string; opts: Partial<ManagerOptions & SocketOptions> } {
+  const auth: RemoteEnvHandshake = {
+    token: options.token,
+    environmentId: options.environmentId,
+  };
+  return {
+    uri: `${normalizeUrl(options.url)}${REMOTE_ENV_NAMESPACE}`,
+    opts: {
+      auth,
+      transports: ["websocket"],
+      ...(options.socketPath ? { path: options.socketPath } : {}),
+    },
+  };
+}
+
 /** Wires the inbound command listeners onto the socket. */
 function registerCommandHandlers(
   socket: Socket,
@@ -148,6 +212,68 @@ function registerCommandHandlers(
   });
 }
 
+/** Projects a tool map onto the wire catalog the server advertises. */
+function toolCatalog(tools: RemoteToolMap): RemoteToolDef[] {
+  return Object.entries(tools).map(([name, tool]) => ({
+    name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+  }));
+}
+
+/**
+ * Wires the tool-call listener and (re)registers the catalog on every connect,
+ * so a reconnect re-declares the tools the server dropped when the socket fell.
+ * No-op when the environment hosts no tools.
+ */
+function registerToolHost(
+  socket: Socket,
+  tools: RemoteToolMap | undefined,
+  sessionId: string | undefined,
+): void {
+  if (!tools || Object.keys(tools).length === 0) return;
+
+  const announce = (): void => {
+    const payload: RemoteToolsRegisterPayload = {
+      sessionId: sessionId ?? "",
+      tools: toolCatalog(tools),
+    };
+    socket.emit(RemoteEnvEvents.ToolsRegister, payload);
+  };
+  socket.on("connect", announce);
+  if (socket.connected) announce();
+
+  socket.on(
+    RemoteEnvEvents.ToolsCall,
+    (
+      request: RemoteToolCallRequest,
+      callback: (response: RemoteToolCallResponse) => void,
+    ) => {
+      void runToolCall(tools, request, callback);
+    },
+  );
+}
+
+/** Runs one tool call and acks its result, turning a throw into an error ack. */
+async function runToolCall(
+  tools: RemoteToolMap,
+  request: RemoteToolCallRequest,
+  callback: (response: RemoteToolCallResponse) => void,
+): Promise<void> {
+  const tool = tools[request.name];
+  if (!tool) {
+    callback({ ok: false, error: `Unknown tool: ${request.name}` });
+    return;
+  }
+  try {
+    const result = await tool.execute(request.arguments);
+    callback({ ok: true, result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    callback({ ok: false, error: message });
+  }
+}
+
 /**
  * Connects to the server's remote sub-agent gateway and returns a client. The
  * connection authenticates with the supplied token/environmentId; inbound
@@ -158,16 +284,11 @@ export function connectRemoteEnvironment(
   options: ConnectRemoteEnvironmentOptions,
 ): RemoteEnvironmentClient {
   const handlers = withDefaultHandlers(options.handlers ?? {});
-  const auth: RemoteEnvHandshake = {
-    token: options.token,
-    environmentId: options.environmentId,
-  };
-  const socket = io(`${normalizeUrl(options.url)}${REMOTE_ENV_NAMESPACE}`, {
-    auth,
-    transports: ["websocket"],
-  });
+  const { uri, opts } = buildRemoteEnvConnectArgs(options);
+  const socket = io(uri, opts);
 
   registerCommandHandlers(socket, handlers);
+  registerToolHost(socket, options.tools, options.sessionId);
 
   return {
     socket,
@@ -221,4 +342,7 @@ export type {
   RemoteKillCommand,
   RemoteMessageCommand,
   RemoteSpawnCommand,
+  RemoteToolCallRequest,
+  RemoteToolCallResponse,
+  RemoteToolDef,
 } from "@tangent/shared/remoteSubagent.ts";

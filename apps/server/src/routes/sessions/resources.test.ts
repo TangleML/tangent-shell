@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +15,9 @@ const { Router } = await import("express");
 const { registerResourceRoutes } = await import("./resources.ts");
 const { ResourceCatalog } =
   await import("../../conversation/resourceCatalog.ts");
+const { HostResourcePreamble } =
+  await import("../../pi/hostResourcePreamble.ts");
+const { MemoryManager } = await import("../../pi/memory.ts");
 const { InMemoryResourceStore } =
   await import("../../store/inMemoryResourceStore.ts");
 const { InMemorySessionStore } =
@@ -51,7 +54,13 @@ async function serve() {
   const app = express();
   app.use(express.json());
   const router = Router();
-  registerResourceRoutes(router, sessions, catalog);
+  registerResourceRoutes(router, {
+    store: sessions,
+    resources: catalog,
+    memory: new MemoryManager(),
+    hostPreamble: new HostResourcePreamble(catalog),
+    emitResourcesUpdated: () => {},
+  });
   app.use("/api/sessions", router);
 
   const server = app.listen(0);
@@ -66,12 +75,32 @@ async function serve() {
     return {
       status: res.status,
       json: (text ? JSON.parse(text) : undefined) as {
-        resources: { id: string }[];
+        resources: { id: string; kind: string; uri: string }[];
       },
     };
   };
 
-  return { get, catalog, sessionId: session.id, a, b };
+  const post = async (pathname: string, body: unknown) => {
+    const res = await fetch(`${base}${pathname}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    return {
+      status: res.status,
+      json: (text ? JSON.parse(text) : undefined) as {
+        resource?: { id: string; kind: string; uri: string; name: string };
+      },
+    };
+  };
+
+  const del = async (pathname: string) => {
+    const res = await fetch(`${base}${pathname}`, { method: "DELETE" });
+    return { status: res.status };
+  };
+
+  return { get, post, del, catalog, session, sessionId: session.id, a, b };
 }
 
 test("GET resources returns the whole session catalog unscoped", async () => {
@@ -113,4 +142,81 @@ test("GET resources scoped to a participant consults surfacedFor", async () => {
     `/${sessionId}/resources?conversationId=prime&participantId=ana`,
   );
   assert.equal(other.json.resources.length, 2);
+});
+
+test("POST a host resource catalogs it and it appears in GET", async () => {
+  const { get, post, sessionId } = await serve();
+
+  const created = await post(`/${sessionId}/resources`, {
+    kind: "host",
+    name: "Orders pipeline",
+    uri: "https://tangent.example/pipelines/orders",
+    meta: { description: "Ingests orders." },
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.resource?.kind, "host");
+  assert.equal(created.json.resource?.name, "Orders pipeline");
+
+  const listed = await get(`/${sessionId}/resources`);
+  const host = listed.json.resources.find((r) => r.kind === "host");
+  assert.equal(host?.uri, "https://tangent.example/pipelines/orders");
+});
+
+test("POST a memory resource writes MEMORY.md and catalogs it", async () => {
+  const { post, session, sessionId } = await serve();
+
+  const created = await post(`/${sessionId}/resources`, {
+    kind: "memory",
+    scope: "session",
+    content: "Prefer concise plans.",
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.resource?.uri, "memory://session");
+
+  const file = readFileSync(path.join(session.rootPath, "MEMORY.md"), "utf8");
+  assert.match(file, /Prefer concise plans\./);
+});
+
+test("POST rejects a non-host-writable kind", async () => {
+  const { post, sessionId } = await serve();
+  const rejected = await post(`/${sessionId}/resources`, {
+    kind: "artifact",
+    name: "A",
+    uri: "artifacts/a.html",
+  });
+  assert.equal(rejected.status, 400);
+});
+
+test("DELETE drops a host row", async () => {
+  const { get, post, del, sessionId } = await serve();
+  const uri = "https://tangent.example/pipelines/orders";
+  await post(`/${sessionId}/resources`, { kind: "host", name: "Orders", uri });
+
+  const removed = await del(
+    `/${sessionId}/resources?uri=${encodeURIComponent(uri)}`,
+  );
+  assert.equal(removed.status, 204);
+
+  const listed = await get(`/${sessionId}/resources`);
+  assert.equal(
+    listed.json.resources.some((r) => r.uri === uri),
+    false,
+  );
+});
+
+test("DELETE a memory resource clears the store", async () => {
+  const { post, del, session, sessionId } = await serve();
+  await post(`/${sessionId}/resources`, {
+    kind: "memory",
+    scope: "session",
+    content: "remember-me-secret",
+  });
+
+  const removed = await del(
+    `/${sessionId}/resources?uri=${encodeURIComponent("memory://session")}`,
+  );
+  assert.equal(removed.status, 204);
+
+  const file = readFileSync(path.join(session.rootPath, "MEMORY.md"), "utf8");
+  assert.doesNotMatch(file, /remember-me-secret/);
 });

@@ -109,6 +109,22 @@ that the condition is reached and you have acted on it, tear down **both** sides
 dedicated sub-agent). Do not leave a trigger firing or a watcher idling after its
 goal is met.
 
+## Host tools
+
+The app embedding this session may connect a host environment that offers its
+own tools over an RPC channel (for example, a browser editor exposing functions
+to read and mutate what the user is looking at). These are not sub-agents and
+cost no extra context — they are plain function calls you make directly.
+
+- `list_remote_tools` — see what the connected host currently offers, including
+  each tool's arguments. The catalog is dynamic: it appears when a host connects
+  and is empty when none is, so check it rather than assuming.
+- `call_remote_tool` — invoke one by name with a JSON `arguments` object.
+
+Prefer host tools over spawning a sub-agent when the host exposes the capability
+you need. If a call reports no host is connected, tell the human the host
+(e.g. the editor) is not currently available.
+
 ## Session naming
 
 Sessions keep the name they had when they were created. Do not call

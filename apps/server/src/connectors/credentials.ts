@@ -1,14 +1,25 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { CredentialScheme } from "@tangent/shared/contracts.ts";
 
-import { A2A_TOKEN, INTERNAL_TOKEN, REMOTE_ENV_TOKEN } from "../config.ts";
+import {
+  A2A_TOKEN,
+  INTERNAL_TOKEN,
+  REMOTE_ENV_SIGNING_SECRET,
+  REMOTE_ENV_TOKEN,
+} from "../config.ts";
 
 /** Env var a spawned Pi child reads its inherited credential from. */
 const INHERITED_TOKEN_VAR = "TANGENT_INTERNAL_TOKEN";
 
 /** Bytes of entropy in a minted per-subject secret. */
 const MINTED_SECRET_BYTES = 24;
+
+/** Prefix so a scoped token cannot collide with a raw shared-secret UUID. */
+const SCOPED_TOKEN_PREFIX = "re1";
+
+/** Lifetime of a minted scoped remote-env token. */
+export const SCOPED_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 /**
  * What a caller presented, whatever transport it arrived on. Both fields are
@@ -112,6 +123,180 @@ export class HandshakeTokenCredential implements ConnectorCredential {
   }
 }
 
+/** Claims encoded in a scoped remote-env token. */
+export interface ScopedTokenClaims {
+  scope: "remote-env";
+  environmentId: string;
+  sessionId: string;
+  sub: string;
+  iat: number;
+  exp: number;
+}
+
+/** Inputs {@link ScopedTokenCredential.mint} signs into a token. */
+export interface MintScopedTokenInput {
+  environmentId: string;
+  sessionId: string;
+  sub: string;
+}
+
+/** A minted scoped token and the instant it stops verifying. */
+export interface MintedScopedToken {
+  token: string;
+  expiresAt: string;
+}
+
+/** HMAC-SHA256 of `payload` using `secret`, encoded base64url. */
+function scopedMac(payload: string, secret: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+/** Constant-time compare of two base64url MAC strings. */
+function macEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/** Reads a non-empty string field, or `null`. */
+function stringClaim(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = record[key];
+  if (typeof value !== "string" || !value) return null;
+  return value;
+}
+
+/** Reads a finite number field, or `null`. */
+function unixClaim(
+  record: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
+/** Narrows decoded JSON to an object record. */
+function asRecord(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  return raw as Record<string, unknown>;
+}
+
+/** Reads the string claims of a scoped token payload. */
+function readStringClaims(
+  record: Record<string, unknown>,
+): Pick<ScopedTokenClaims, "environmentId" | "sessionId" | "sub"> | null {
+  if (record.scope !== "remote-env") return null;
+  const environmentId = stringClaim(record, "environmentId");
+  const sessionId = stringClaim(record, "sessionId");
+  const sub = stringClaim(record, "sub");
+  if (!environmentId || !sessionId || !sub) return null;
+  return { environmentId, sessionId, sub };
+}
+
+/** Parses and validates the JSON claims object from a scoped token payload. */
+function claimsFromUnknown(raw: unknown): ScopedTokenClaims | null {
+  const record = asRecord(raw);
+  if (!record) return null;
+  const strings = readStringClaims(record);
+  if (!strings) return null;
+  const iat = unixClaim(record, "iat");
+  const exp = unixClaim(record, "exp");
+  if (iat === null || exp === null) return null;
+  return { scope: "remote-env", ...strings, iat, exp };
+}
+
+/** Decodes a base64url payload segment into claims, or `null` if malformed. */
+function decodeClaims(payload: string): ScopedTokenClaims | null {
+  try {
+    const json = Buffer.from(payload, "base64url").toString("utf8");
+    return claimsFromUnknown(JSON.parse(json) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+/** Splits a `re1.payload.mac` token into verified-shape segments. */
+function splitScopedToken(
+  token: string | undefined,
+): { payload: string; mac: string } | null {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [prefix, payload, mac] = parts;
+  if (prefix !== SCOPED_TOKEN_PREFIX) return null;
+  if (!payload || !mac) return null;
+  return { payload, mac };
+}
+
+/** Drops claims that are missing or past `exp`. */
+function liveClaims(
+  claims: ScopedTokenClaims | null,
+): ScopedTokenClaims | null {
+  if (!claims) return null;
+  if (claims.exp <= Math.floor(Date.now() / 1000)) return null;
+  return claims;
+}
+
+/**
+ * A short-lived HMAC token minted for one embed host + session, presented in
+ * the Socket.IO handshake. The gateway derives `environmentId` and `sessionId`
+ * from the claims rather than trusting the handshake fields.
+ */
+export class ScopedTokenCredential implements ConnectorCredential {
+  readonly scheme: CredentialScheme = "scoped-token";
+  private readonly secret: string;
+  private readonly ttlMs: number;
+
+  constructor(secret: string, ttlMs: number = SCOPED_TOKEN_TTL_MS) {
+    this.secret = secret;
+    this.ttlMs = ttlMs;
+  }
+
+  get configured(): boolean {
+    return this.secret.length > 0;
+  }
+
+  mint(input: MintScopedTokenInput): MintedScopedToken {
+    if (!this.configured) {
+      throw new Error("Scoped remote-env tokens are not configured.");
+    }
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + Math.floor(this.ttlMs / 1000);
+    const claims: ScopedTokenClaims = {
+      scope: "remote-env",
+      environmentId: input.environmentId,
+      sessionId: input.sessionId,
+      sub: input.sub,
+      iat,
+      exp,
+    };
+    const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+    const token = `${SCOPED_TOKEN_PREFIX}.${payload}.${scopedMac(payload, this.secret)}`;
+    return { token, expiresAt: new Date(exp * 1000).toISOString() };
+  }
+
+  parse(token: string | undefined): ScopedTokenClaims | null {
+    if (!this.configured) return null;
+    const parts = splitScopedToken(token);
+    if (!parts) return null;
+    if (!macEqual(parts.mac, scopedMac(parts.payload, this.secret)))
+      return null;
+    return liveClaims(decodeClaims(parts.payload));
+  }
+
+  verify(presented: CredentialPresentation): boolean {
+    return this.parse(presented.token) !== null;
+  }
+
+  spawnEnv(): Record<string, string> {
+    return {};
+  }
+}
+
 /**
  * A secret minted for one subject rather than for the server: the peer is told
  * it when its channel is opened, and it opens nothing else. This is the scheme
@@ -194,6 +379,11 @@ export const piCredential = new InheritedTokenCredential(INTERNAL_TOKEN);
 /** Remote environments: the `REMOTE_ENV_TOKEN` handshake. */
 export const remoteEnvCredential = new HandshakeTokenCredential(
   REMOTE_ENV_TOKEN,
+);
+
+/** Embed hosts: a per-session HMAC token minted by `POST /api/embed/remote-env-token`. */
+export const scopedRemoteEnvCredential = new ScopedTokenCredential(
+  REMOTE_ENV_SIGNING_SECRET,
 );
 
 /** External registrants: the same internal token, presented as a bearer. */

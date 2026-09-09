@@ -1,6 +1,6 @@
 import type { Trigger, UpdateTriggerRequest } from "@tangent/shared/contracts";
 
-import { apiUrl } from "@/shared/lib/basePath";
+import { apiFetch } from "@/shared/lib/apiFetch";
 
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -17,7 +17,7 @@ export async function updateTrigger(
   input: UpdateTriggerRequest,
 ): Promise<Trigger> {
   const data = await parseJson<{ trigger: Trigger }>(
-    await fetch(apiUrl(`/api/sessions/${sessionId}/triggers/${triggerId}`), {
+    await apiFetch(`/api/sessions/${sessionId}/triggers/${triggerId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -31,8 +31,8 @@ export async function deleteTrigger(
   sessionId: string,
   triggerId: string,
 ): Promise<void> {
-  const res = await fetch(
-    apiUrl(`/api/sessions/${sessionId}/triggers/${triggerId}`),
+  const res = await apiFetch(
+    `/api/sessions/${sessionId}/triggers/${triggerId}`,
     {
       method: "DELETE",
     },

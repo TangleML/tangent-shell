@@ -57,6 +57,10 @@ export const RemoteEnvEvents = {
   AgentMessage: "remote:agent-message",
   /** remote -> server (ack): read the shared session transcript. */
   RoomRead: "remote:room:read",
+  /** remote -> server: (re)declare the tool catalog this environment offers. */
+  ToolsRegister: "remote:tools:register",
+  /** server -> remote (ack): invoke one registered tool and await its result. */
+  ToolsCall: "remote:tools:call",
 } as const;
 
 export type RemoteEnvEvent =
@@ -171,4 +175,51 @@ export interface RemoteRoomReadRequest {
 /** server -> remote (ack response): the tail of the shared session transcript. */
 export interface RemoteRoomReadResponse {
   messages: ChatMessage[];
+}
+
+/**
+ * One tool a remote environment offers. It is a named async function the
+ * environment implements, not a participant: the server routes a call to the
+ * environment and hands the result back to the agent that asked, without a
+ * Conversation, roster entry, or second LLM. `inputSchema` is JSON Schema so an
+ * agent's tool runtime can validate arguments before the call.
+ */
+export interface RemoteToolDef {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+/**
+ * remote -> server: the full tool catalog this environment offers for a session.
+ * Idempotent and total — each register replaces the environment's prior catalog,
+ * and an empty `tools` clears it. Disconnecting drops it entirely.
+ */
+export interface RemoteToolsRegisterPayload {
+  sessionId: string;
+  tools: RemoteToolDef[];
+}
+
+/**
+ * server -> remote (ack request): invoke one registered tool. `agentId` names
+ * the agent (Prime or a local sub-agent) that called it, so the environment can
+ * attribute or scope the work; `callId` correlates the ack.
+ */
+export interface RemoteToolCallRequest {
+  callId: string;
+  sessionId: string;
+  agentId: string;
+  name: string;
+  arguments: unknown;
+}
+
+/**
+ * remote -> server (ack response): the outcome of one tool call. `result` is any
+ * JSON-serializable value (typically a string); `error` is set instead when the
+ * environment could not run the tool.
+ */
+export interface RemoteToolCallResponse {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
 }

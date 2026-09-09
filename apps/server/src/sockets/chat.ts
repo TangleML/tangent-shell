@@ -111,7 +111,11 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
 
   // Resolved once per connection: the identity is the connection's, and the
   // client never gets a say in who its messages are attributed to.
-  const author = resolveSocketAuthor(socket.handshake.headers.cookie);
+  const handshakeToken = socket.handshake.auth?.token;
+  const author = resolveSocketAuthor(
+    socket.handshake.headers.cookie,
+    typeof handshakeToken === "string" ? handshakeToken : undefined,
+  );
 
   // (sessionId\0participantId) pairs whose presence this socket is holding up,
   // so the last of a person's tabs to close is what marks them detached.
@@ -391,13 +395,19 @@ export async function mentionCandidates(
 
 /**
  * The chat identity of whoever is on the other end of a socket, read from the
- * connection's own cookie rather than from anything the client sends. Falls back
- * to {@link DEFAULT_USER} when no JWT is configured or the cookie is absent —
- * the same fallback the UI uses, so both sides agree on the id and a message
- * still renders as your own.
+ * handshake's bearer token (sent cross-origin by the embed) or the connection's
+ * own cookie — never from anything in the message payload. Falls back to
+ * {@link DEFAULT_USER} when no JWT resolves, so both sides agree on the id and a
+ * message still renders as your own.
  */
-export function resolveSocketAuthor(cookieHeader: string | undefined) {
-  return humanAuthor(resolveUserIdentity(cookieHeader) ?? DEFAULT_USER);
+export function resolveSocketAuthor(
+  cookieHeader: string | undefined,
+  authToken?: string | undefined,
+) {
+  const authorization = authToken ? `Bearer ${authToken}` : undefined;
+  return humanAuthor(
+    resolveUserIdentity(cookieHeader, authorization) ?? DEFAULT_USER,
+  );
 }
 
 /** Key of the presence a socket holds for one participant in one session. */
@@ -454,7 +464,7 @@ function markAbsent(deps: ChatHandlerDeps, tracked: Set<string>): void {
  * `pi.ensure` stays because it is lifecycle, not delivery: a cold session has no
  * Prime process for a reaction to reach.
  */
-async function handleChatMessage(
+export async function handleChatMessage(
   socket: Socket,
   deps: ChatHandlerDeps,
   author: ChatAuthor,
@@ -474,15 +484,20 @@ async function handleChatMessage(
     session.id,
   );
   const conversationId = payload.conversationId ?? primaryConversationId;
-  if (conversationId === primaryConversationId)
-    pi.ensure(
-      session.id,
-      session.rootPath,
-      undefined,
-      undefined,
-      undefined,
-      primaryConversationId,
-    );
+  // Always ensure Prime, regardless of which thread the message targets: it is
+  // idempotent, and unconditionally reviving Prime here means a human message
+  // self-heals a cold/raced session at the delivery layer instead of depending
+  // on the client sending the exact primary conversation id. Without this, a
+  // send that races `chat:join` (or arrives right after a backend restart) with
+  // the seed id skips the ensure and falls through to the NullConnector refusal.
+  pi.ensure(
+    session.id,
+    session.rootPath,
+    undefined,
+    undefined,
+    undefined,
+    primaryConversationId,
+  );
 
   await conversations.post({
     sessionId: session.id,

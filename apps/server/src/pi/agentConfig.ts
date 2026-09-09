@@ -44,12 +44,16 @@ export const PRIME_ORCHESTRATION_TOOLS = [
  * all agents since Pi's `--tools` filter would otherwise strip the extension's
  * tool from sub-agents. `pin_artifact` is registered by the session extension
  * for every agent, so it must be in the allowlist or Pi would filter it out.
+ * `list_remote_tools` / `call_remote_tool` are registered by the remote-tools
+ * extension for every agent, so both must be granted or Pi would strip them.
  */
 export const SHARED_AGENT_TOOLS = [
   "read_room",
   "read_memory",
   "message_prime",
   "pin_artifact",
+  "list_remote_tools",
+  "call_remote_tool",
 ] as const;
 
 /**
