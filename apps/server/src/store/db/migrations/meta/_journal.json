@@ -141,6 +141,13 @@
       "when": 1788894435692,
       "tag": "0019_giant_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788909553747,
+      "tag": "0020_stale_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

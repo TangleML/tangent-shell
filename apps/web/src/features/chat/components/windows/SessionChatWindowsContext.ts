@@ -21,8 +21,16 @@ export interface SessionChatWindowsValue {
   assets: Asset[];
   /** The session's catalogued content, surfaced read-only in the Resources panel. */
   resources: Resource[];
+  /** Whether the resources fetch has not resolved yet (spinner, not empty). */
+  resourcesPending: boolean;
+  /** Whether the resources fetch failed (error, not empty). */
+  resourcesError: boolean;
   /** Everyone in the session (people, agents, automations) with live presence. */
   participants: ParticipantWithMemberships[];
+  /** Whether the roster fetch has not resolved yet (spinner, not empty). */
+  participantsPending: boolean;
+  /** Whether the roster fetch failed (error, not empty). */
+  participantsError: boolean;
   /** The Conversation in view; a roster mute toggle acts on its Membership. */
   activeConversationId: string;
   /** The current human's participant id, so their own roster row reads as "you". */
@@ -33,6 +41,8 @@ export interface SessionChatWindowsValue {
     conversationId: string,
     muted: boolean,
   ) => void;
+  /** Whether a mute toggle is in flight, so the roster disables its controls. */
+  isTogglingMute: boolean;
   onOpenAgent: (agent: Agent) => void;
   onRemoveAgent: (agent: Agent) => void;
   onOpenAsset: (asset: Asset) => void;

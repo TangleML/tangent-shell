@@ -21,19 +21,13 @@ import {
   type MemorySuggestionPayload,
   type MessageDelivery,
   PI_AGENT,
-  type PinnedArtifact,
   type RunId,
-  type Session,
   SocketEvents,
-  type SubagentInfo,
   type SubagentRosterPayload,
   type SubagentStatus,
   type SubagentUpdatePayload,
-  type ThinkingLevel,
-  type Trigger,
   type TriggerRosterPayload,
   type TriggerUpdatePayload,
-  type UiCommand,
   type UiCommandPayload,
 } from "@tangent/shared/contracts";
 import { type Socket } from "socket.io-client";
@@ -51,77 +45,17 @@ import {
   editInConversation,
   groupByConversation,
   mergeConversation,
-  type MessageMap,
   NO_MESSAGES,
 } from "./sessionChatMessages";
-
-/** An agent's current model/thinking selection (absent fields = server default). */
-export interface AgentModelSelection {
-  model?: string;
-  thinkingDepth?: ThinkingLevel;
-}
-
-export interface SessionChatSnapshot {
-  messagesByConversation: MessageMap;
-  subagents: SubagentInfo[];
-  primaryConversationId: string;
-  conversationByAgent: Map<string, string>;
-  modelByAgent: Map<string, AgentModelSelection>;
-  triggers: Trigger[];
-  artifacts: PinnedArtifact[];
-  connected: boolean;
-  historyLoaded: boolean;
-  rosterReady: boolean;
-  memorySuggestions: MemorySuggestionPayload[];
-  streamingConversations: Set<string>;
-  streamingMessageIds: Set<string>;
-  activityByConversation: Map<string, AgentActivity>;
-}
-
-function emptySessionChat(): SessionChatSnapshot {
-  return {
-    messagesByConversation: new Map(),
-    subagents: [],
-    primaryConversationId: PI_AGENT.id,
-    conversationByAgent: new Map(),
-    modelByAgent: new Map(),
-    triggers: [],
-    artifacts: [],
-    connected: false,
-    historyLoaded: false,
-    rosterReady: false,
-    memorySuggestions: [],
-    streamingConversations: new Set(),
-    streamingMessageIds: new Set(),
-    activityByConversation: new Map(),
-  };
-}
-
-export const EMPTY_SESSION_CHAT: SessionChatSnapshot = emptySessionChat();
-
-function dispatchUiCommand(command: UiCommand): void {
-  if (command.kind === "session.update") applySessionUpdate(command.session);
-}
-
-function applySessionUpdate(session: Session): void {
-  queryClient.setQueryData(SessionQueryKeys.Id(session.id), session);
-  queryClient.setQueryData<Session[]>(SessionQueryKeys.All(), (prev) =>
-    prev?.map((s) => (s.id === session.id ? session : s)),
-  );
-}
-
-function addToSet<T>(prev: Set<T>, value: T): Set<T> {
-  const next = new Set(prev);
-  next.add(value);
-  return next;
-}
-
-function removeFromSet<T>(prev: Set<T>, value: T): Set<T> {
-  if (!prev.has(value)) return prev;
-  const next = new Set(prev);
-  next.delete(value);
-  return next;
-}
+import {
+  addToSet,
+  type AgentModelSelection,
+  dispatchUiCommand,
+  EMPTY_SESSION_CHAT,
+  emptySessionChat,
+  removeFromSet,
+  type SessionChatSnapshot,
+} from "./sessionChatSnapshot";
 
 /**
  * One Socket.IO connection for a session's chat room, shared across React
@@ -531,6 +465,10 @@ class SessionChatRoom {
           this.activities.delete(agentId);
           this.publish(agentId);
         }
+        // A failed Run settles into a run-error cause and drops from the live
+        // set, so refresh the workflow — the poll may have stopped now that it
+        // backs off when nothing is outstanding.
+        this.invalidateWorkflow();
         console.error("[chat] agent error:", message);
       },
     );

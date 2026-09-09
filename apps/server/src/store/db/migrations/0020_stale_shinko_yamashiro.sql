@@ -1,0 +1,1 @@
+ALTER TABLE `memberships` ADD `muted` integer DEFAULT false NOT NULL;
