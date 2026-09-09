@@ -14,9 +14,12 @@ import {
 } from "@tangent/shared/contracts.ts";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
+import { InMemoryParticipantStore } from "./inMemoryParticipantStore.ts";
 import {
+  type Participant,
   participantFromAgent,
   type ParticipantStore,
+  sessionAgentFromParticipant,
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
@@ -79,19 +82,27 @@ export class InMemorySessionStore implements SessionStore {
   private readonly sessions = new Map<string, Session>();
   private readonly messages = new Map<string, ChatMessage[]>();
   private readonly artifacts = new Map<string, PinnedArtifact[]>();
-  private readonly agents = new Map<string, SessionAgent[]>();
   private readonly views = new Map<string, Map<string, string>>();
   /** Per-conversation `seq` counters, keyed `sessionId/conversationId`. */
   private readonly seqs = new Map<string, number>();
-  /** Agent → home Conversation id, keyed by session; mirrors `conversations`. */
+  /**
+   * Agent → home Conversation id, keyed by session; mirrors `conversations`.
+   * Its keys double as the set of sessions that hold a roster, for the
+   * cross-session reads (`detachActiveSubagents`, `listAgentsForEnvironment`).
+   */
   private readonly homeConversations = new Map<string, Map<string, string>>();
-  /** Mirrors each recorded roster row, matching the SQLite store's dual-write. */
-  private readonly participants?: ParticipantStore;
+  /**
+   * The roster's only store, matching SQLite since C.2: an agent is a
+   * `kind: "agent"` participant row here, read back through `listAgents` rather
+   * than a parallel agents map. Defaults to a private store so a bare session
+   * store still works; a caller wiring a registry passes the shared one.
+   */
+  private readonly participants: ParticipantStore;
   /** Mirrors each pinned artifact into the resource catalog, when present. */
   private readonly resources?: ResourceStore;
 
   constructor(participants?: ParticipantStore, resources?: ResourceStore) {
-    this.participants = participants;
+    this.participants = participants ?? new InMemoryParticipantStore();
     this.resources = resources;
   }
 
@@ -176,7 +187,9 @@ export class InMemorySessionStore implements SessionStore {
       if (key.startsWith(`${id}/`)) this.seqs.delete(key);
     }
     this.artifacts.delete(id);
-    this.agents.delete(id);
+    // The roster is participant rows now, dropped the way the SQLite cascade
+    // drops them when the session row goes.
+    await this.participants.deleteForSession(id);
     this.homeConversations.delete(id);
     return this.sessions.delete(id);
   }
@@ -264,20 +277,31 @@ export class InMemorySessionStore implements SessionStore {
     sessionId: string,
     agent: RecordAgentInput,
   ): Promise<SessionAgent> {
-    const existing = this.agents.get(sessionId) ?? [];
-    const prior = existing.find((a) => a.id === agent.id);
+    const priorRow = await this.participants.get(sessionId, agent.id);
+    const prior =
+      priorRow?.kind === "agent"
+        ? sessionAgentFromParticipant(
+            priorRow,
+            this.homeFor(sessionId, agent.id),
+          )
+        : undefined;
     const homeConversationId = this.ensureHomeConversation(
       sessionId,
       agent.id,
       prior?.homeConversationId ?? agent.homeConversationId,
     );
     const next = { ...mergeAgent(sessionId, agent, prior), homeConversationId };
-    const updated = prior
-      ? existing.map((a) => (a.id === agent.id ? next : a))
-      : [...existing, next];
-    this.agents.set(sessionId, updated);
-    await this.participants?.put(participantFromAgent(next));
+    // A revoked agent keeps its `revoked_at` across a re-record, matching SQLite.
+    await this.participants.put({
+      ...participantFromAgent(next),
+      revokedAt: priorRow?.revokedAt,
+    });
     return next;
+  }
+
+  /** The home Conversation a roster agent posts into, or its own id when unmapped. */
+  private homeFor(sessionId: string, agentId: string): string {
+    return this.homeConversations.get(sessionId)?.get(agentId) ?? agentId;
   }
 
   /**
@@ -308,49 +332,61 @@ export class InMemorySessionStore implements SessionStore {
     agentId: string,
     status: SessionAgentStatus,
   ): Promise<void> {
-    const existing = this.agents.get(sessionId);
-    if (!existing) return;
-    const updated = existing.map((a) =>
-      a.id === agentId ? { ...a, status } : a,
-    );
-    this.agents.set(sessionId, updated);
-    // Keep the participant projection in step; the SQLite store does the same
-    // status/presence write directly on the `participants` row.
-    const changed = updated.find((a) => a.id === agentId);
-    if (changed) await this.participants?.put(participantFromAgent(changed));
+    const existing = await this.participants.get(sessionId, agentId);
+    if (existing?.kind !== "agent" || !existing.agent) return;
+    // Presence tracks the roster's lifecycle exactly as the SQLite store does: a
+    // detached far end is detached, everything else reachable.
+    await this.participants.put({
+      ...existing,
+      presence: status === "detached" ? "detached" : "connected",
+      agent: { ...existing.agent, status },
+    });
   }
 
   async listAgents(sessionId: string): Promise<SessionAgent[]> {
-    return this.agents.get(sessionId) ?? [];
+    const rows = await this.agentRowsFor(sessionId);
+    return rows.map((row) =>
+      sessionAgentFromParticipant(row, this.homeFor(sessionId, row.id)),
+    );
   }
 
   async detachActiveSubagents(): Promise<number> {
     let detached = 0;
-    const changed: SessionAgent[] = [];
-    for (const [sessionId, agents] of this.agents) {
-      const next = agents.map((agent) => {
-        if (agent.role !== "subagent" || agent.status !== "active")
-          return agent;
+    for (const sessionId of this.homeConversations.keys()) {
+      for (const row of await this.agentRowsFor(sessionId)) {
+        if (row.agent?.role !== "subagent" || row.agent.status !== "active")
+          continue;
         detached += 1;
-        const row = { ...agent, status: "detached" as const };
-        changed.push(row);
-        return row;
-      });
-      this.agents.set(sessionId, next);
+        await this.participants.put({
+          ...row,
+          presence: "detached",
+          agent: { ...row.agent, status: "detached" },
+        });
+      }
     }
-    // Mirror each detach into the participant projection, matching SQLite.
-    for (const row of changed)
-      await this.participants?.put(participantFromAgent(row));
     return detached;
   }
 
   async listAgentsForEnvironment(
     environmentId: string,
   ): Promise<SessionAgent[]> {
-    return [...this.agents.values()]
-      .flat()
-      .filter((agent) => agent.role === "subagent")
-      .filter((agent) => agent.connector.environmentId === environmentId);
+    const found: SessionAgent[] = [];
+    for (const sessionId of this.homeConversations.keys()) {
+      for (const row of await this.agentRowsFor(sessionId)) {
+        if (row.agent?.role !== "subagent") continue;
+        if (row.connector.environmentId !== environmentId) continue;
+        found.push(
+          sessionAgentFromParticipant(row, this.homeFor(sessionId, row.id)),
+        );
+      }
+    }
+    return found;
+  }
+
+  /** The agent participant rows of a session, the roster's only source. */
+  private async agentRowsFor(sessionId: string): Promise<Participant[]> {
+    const all = await this.participants.listForSession(sessionId);
+    return all.filter((participant) => participant.kind === "agent");
   }
 
   async markViewed(

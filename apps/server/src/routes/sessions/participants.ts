@@ -8,7 +8,6 @@ import type {
 import { type Request, type Response, Router } from "express";
 
 import type { ParticipantService } from "../../conversation/participantService.ts";
-import { reactionSpec } from "../../conversation/reaction.ts";
 import { getValidated, validate } from "../../middleware/validate.ts";
 import type { Membership } from "../../store/membershipStore.ts";
 import type { Participant } from "../../store/participantStore.ts";
@@ -30,8 +29,6 @@ import {
   sessionParamsSchema,
 } from "./schemas.ts";
 import { loadSession } from "./utils.ts";
-
-const NEVER = reactionSpec("never");
 
 /** Projects a {@link Participant} onto the REST DTO, hiding internal payloads. */
 function toParticipantView(participant: Participant): ParticipantView {
@@ -61,7 +58,7 @@ function toMembershipView(
     reaction: membership.reaction,
     ingress: membership.ingress,
     admission: membership.admission,
-    muted: kind === "agent" && membership.reaction === NEVER,
+    muted: kind === "agent" && (membership.muted ?? false),
   };
 }
 
@@ -115,8 +112,18 @@ async function handleRevokeParticipant(
 ): Promise<void> {
   const session = await loadSession(store, res, params.id);
   if (!session) return;
-  if (!(await participants.get(session.id, params.participantId)))
-    return participantNotFound(res);
+  const participant = await participants.get(session.id, params.participantId);
+  if (!participant) return participantNotFound(res);
+  // Revoke is for the humans an invite added. An agent's lifecycle is its
+  // roster status (dismiss detaches it); revoking one would stamp `revokedAt`
+  // on a row `listAgents` still reads, so the roster and the revocation would
+  // disagree. Refuse it rather than leave that inconsistency.
+  if (participant.kind === "agent") {
+    res
+      .status(409)
+      .json({ error: "Agents can't be revoked; dismiss them instead." });
+    return;
+  }
   await participants.revoke(session.id, params.participantId);
   res.status(204).end();
 }

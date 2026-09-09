@@ -12,7 +12,7 @@ import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import {
   homeConversationFor,
   orchestratorConversationFor,
-  orchestratorIdFor,
+  orchestratorIdentity,
 } from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import { reactionSpec } from "../conversation/reaction.ts";
@@ -282,7 +282,7 @@ async function handleReport(
     conversationId: await homeConversationFor(store, sessionId, agentId),
     author,
     content: text,
-    mentions: [await orchestratorIdFor(store, sessionId)],
+    mentions: [(await orchestratorIdentity(store, sessionId)).orchestratorId],
     ingress: "tool",
   });
   res.json({ ok: true });

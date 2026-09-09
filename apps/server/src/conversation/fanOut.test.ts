@@ -288,6 +288,20 @@ test("a participant that ignores a message it was not addressed by stays silent"
   );
 });
 
+test("a muted membership never reacts, whatever its reaction says", async () => {
+  const h = makeEngine([
+    { ...membership("observer", "room", "always"), muted: true },
+  ]);
+
+  const result = await h.engine.fanOut({
+    message: message({ conversationId: "room" }),
+    project,
+  });
+
+  assert.deepEqual(result.woke, []);
+  assert.deepEqual(h.delivered, []);
+});
+
 test("a shared room delivers by predicate to heterogeneous members", async () => {
   // One Conversation holding two humans, an orchestrator, an opaque A2A peer,
   // an observer that follows everything, and a compliance member that only
@@ -348,6 +362,70 @@ test("a connector's refusal reaches the sender instead of reading as success", a
   assert.deepEqual(result.refused, [
     { participantId: "prime", reason: REFUSED.reason },
   ]);
+});
+
+test("mid-wave reaction-budget exhaustion refuses only the members left without a slot", async () => {
+  // More members react in one Conversation than a single wave may dispatch to.
+  const room = "room";
+  const rows: Membership[] = [];
+  for (let n = 0; n < 26; n += 1)
+    rows.push(membership(`m${n}`, room, "always"));
+  const h = makeEngine(rows);
+
+  const result = await h.engine.fanOut({
+    message: message({ conversationId: room }),
+    project,
+  });
+
+  // The first 24 are delivered; the 25th trips the per-Conversation budget, so
+  // only it and the 26th are refused — never a member already in `woke`.
+  assert.equal(result.woke.length, 24);
+  assert.deepEqual(
+    result.refused.map((r) => r.participantId),
+    ["m24", "m25"],
+  );
+  const wokeSet = new Set(result.woke);
+  const overlap = result.refused.filter((r) => wokeSet.has(r.participantId));
+  assert.deepEqual(overlap, [], "no participant is both woke and refused");
+});
+
+test("a settled chain's wave is evicted, so the workflow view stops reporting it", async () => {
+  const h = makeEngine([membership("prime", "prime", "fromHumans+mentionsMe")]);
+
+  await h.engine.fanOut({ message: message(), project });
+  assert.deepEqual(
+    h.engine.listForSession("s1").map((w) => w.participantId),
+    ["prime"],
+    "the woken participant holds a chain",
+  );
+  assert.equal(h.engine.waveDepth("s1", "prime"), 1);
+
+  h.engine.evictWave("s1", "prime");
+
+  assert.deepEqual(h.engine.listForSession("s1"), []);
+  assert.equal(h.engine.waveDepth("s1", "prime"), 0);
+});
+
+test("evicting one rider keeps a wave its co-reactors still hold", async () => {
+  const room = "room";
+  const h = makeEngine([
+    membership("a", room, "always"),
+    membership("b", room, "always"),
+  ]);
+
+  await h.engine.fanOut({
+    message: message({ conversationId: room }),
+    project,
+  });
+  assert.equal(h.engine.listForSession("s1").length, 2);
+
+  h.engine.evictWave("s1", "a");
+
+  assert.deepEqual(
+    h.engine.listForSession("s1").map((w) => w.participantId),
+    ["b"],
+    "b's chain survives a's settle",
+  );
 });
 
 test("a cycle of reactions stops at the depth limit, and says why once", async () => {

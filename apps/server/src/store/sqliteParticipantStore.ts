@@ -187,4 +187,11 @@ export class SqliteParticipantStore implements ParticipantStore {
       )
       .run();
   }
+
+  async deleteForSession(sessionId: string): Promise<void> {
+    this.db
+      .delete(participants)
+      .where(eq(participants.sessionId, sessionId))
+      .run();
+  }
 }

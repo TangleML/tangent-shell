@@ -5,22 +5,39 @@ import type {
 } from "../store/participantStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
+/** The orchestrator's id and the Conversation a message addressed to it lands in. */
+export interface OrchestratorIdentity {
+  orchestratorId: string;
+  homeConversationId: string;
+}
+
 /**
- * The id of the Participant holding the `orchestrator` capability — the
- * successor to the reserved `PRIME_AGENT_ID`. Resolves from the roster, the
- * write authority for this PR, so it is the same fact everywhere. Falls back to
- * `PRIME_AGENT_ID` when a session has no resolved orchestrator, so a caller
- * addressing "Prime" still reaches the conversation it always did.
+ * The orchestrator's identity in one roster read: the id of the Participant
+ * holding the `orchestrator` capability and its home Conversation. Reading both
+ * from one `listAgents` is what stops the id and its home disagreeing — the
+ * split that let a role-derived `orchestratorIdFor` and the stored-caps registry
+ * drift after a revoke. Falls back to `PRIME_AGENT_ID` when a session has no
+ * resolved orchestrator, so a caller addressing "Prime" still reaches the
+ * conversation it always did.
  */
-export async function orchestratorIdFor(
+export async function orchestratorIdentity(
   sessions: Pick<SessionStore, "listAgents">,
   sessionId: string,
-): Promise<string> {
+): Promise<OrchestratorIdentity> {
   const agents = await sessions.listAgents(sessionId);
   const holder = agents.find((agent) =>
     agent.capabilities.includes("orchestrator"),
   );
-  return holder?.id ?? PRIME_AGENT_ID;
+  if (!holder) {
+    return {
+      orchestratorId: PRIME_AGENT_ID,
+      homeConversationId: PRIME_AGENT_ID,
+    };
+  }
+  return {
+    orchestratorId: holder.id,
+    homeConversationId: holder.homeConversationId ?? holder.id,
+  };
 }
 
 /**
@@ -57,18 +74,15 @@ export async function participantForConversation(
 
 /**
  * The orchestrator's home Conversation — where a message addressed to "Prime"
- * lands. The successor to using the orchestrator's participant id as a
- * conversation id, now that the two are distinct.
+ * lands. A thin projection of {@link orchestratorIdentity} kept for the call
+ * sites that need only the home; new code wanting both should read the identity
+ * once rather than resolve the orchestrator twice.
  */
 export async function orchestratorConversationFor(
   sessions: Pick<SessionStore, "listAgents">,
   sessionId: string,
 ): Promise<string> {
-  const agents = await sessions.listAgents(sessionId);
-  const holder = agents.find((agent) =>
-    agent.capabilities.includes("orchestrator"),
-  );
-  return holder?.homeConversationId ?? holder?.id ?? PRIME_AGENT_ID;
+  return (await orchestratorIdentity(sessions, sessionId)).homeConversationId;
 }
 
 /**
@@ -83,48 +97,46 @@ export async function orchestratorConversationFor(
 export class ParticipantRegistry {
   private readonly sessions: SessionStore;
   private readonly store: ParticipantStore;
-  /** sessionId -> participantId -> participant. */
-  private readonly cache = new Map<string, Map<string, Participant>>();
 
   constructor(sessions: SessionStore, store: ParticipantStore) {
     this.sessions = sessions;
     this.store = store;
   }
 
-  /** Every Participant in a session, roster rows reconciled and persisted. */
-  async listForSession(sessionId: string): Promise<Participant[]> {
-    const byId = await this.load(sessionId);
-    return [...byId.values()];
-  }
-
   /**
-   * Drops a session's cached participants so the next read reloads from the
-   * store. Called after a write the registry did not make itself — an
-   * invitation, a revocation, a presence transition — so a human added out of
-   * band is not hidden behind a stale cache.
+   * Every Participant in a session, read straight from the store. No cache:
+   * since C.2 made `participants` the roster's only store, a roster write
+   * (spawn, rename) goes through the store too, so a cache the writes did not
+   * invalidate could only ever go stale.
    */
-  invalidate(sessionId: string): void {
-    this.cache.delete(sessionId);
+  async listForSession(sessionId: string): Promise<Participant[]> {
+    return this.store.listForSession(sessionId);
   }
 
-  /** One Participant by id, or nothing when neither a row nor an agent exists. */
+  /** One Participant by id, or nothing when the session holds no such row. */
   async get(sessionId: string, id: string): Promise<Participant | undefined> {
-    const byId = await this.load(sessionId);
-    return byId.get(id);
+    return this.store.get(sessionId, id);
   }
 
   /**
-   * The id of the Participant holding the `orchestrator` capability — the
-   * successor to the reserved `PRIME_AGENT_ID`. Falls back to that id when a
-   * session has no resolved orchestrator yet, so a caller addressing "Prime"
-   * still reaches the same conversation it always did.
+   * The id of the Participant holding the `orchestrator` capability, resolved
+   * through {@link orchestratorIdentity} so it is the same fact — from the same
+   * read — everywhere. Falls back to `PRIME_AGENT_ID` when a session has no
+   * resolved orchestrator yet.
    */
   async orchestratorId(sessionId: string): Promise<string> {
-    const participants = await this.listForSession(sessionId);
-    const holder = participants.find((participant) =>
-      participant.capabilities.includes("orchestrator"),
-    );
-    return holder?.id ?? PRIME_AGENT_ID;
+    return (await orchestratorIdentity(this.sessions, sessionId))
+      .orchestratorId;
+  }
+
+  /**
+   * The orchestrator's home Conversation — where a Message addressed to it
+   * lands, distinct from its participant id since 2.4. This is where an
+   * Automation's Membership belongs, not the participant id.
+   */
+  async orchestratorConversationId(sessionId: string): Promise<string> {
+    return (await orchestratorIdentity(this.sessions, sessionId))
+      .homeConversationId;
   }
 
   /**
@@ -133,19 +145,5 @@ export class ParticipantRegistry {
    */
   async ownerOf(sessionId: string, conversationId: string): Promise<string> {
     return participantForConversation(this.sessions, sessionId, conversationId);
-  }
-
-  /** Loads a session's participants once from the store. */
-  private async load(sessionId: string): Promise<Map<string, Participant>> {
-    const cached = this.cache.get(sessionId);
-    if (cached) return cached;
-
-    const byId = new Map<string, Participant>();
-    for (const stored of await this.store.listForSession(sessionId)) {
-      byId.set(stored.id, stored);
-    }
-
-    this.cache.set(sessionId, byId);
-    return byId;
   }
 }

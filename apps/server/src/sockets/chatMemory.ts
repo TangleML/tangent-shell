@@ -12,7 +12,7 @@ import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import {
   orchestratorConversationFor,
-  orchestratorIdFor,
+  orchestratorIdentity,
 } from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import type { MemoryManager } from "../pi/memory.ts";
@@ -98,7 +98,9 @@ export async function handleMemoryConfirm(
     suggestion.text,
   );
   await onRemembered(suggestion.sessionId, result.scope, result.added);
-  const orchestratorId = await orchestratorIdFor(store, suggestion.sessionId);
+  const orchestratorId = (
+    await orchestratorIdentity(store, suggestion.sessionId)
+  ).orchestratorId;
   connectors.resolve(suggestion.sessionId, orchestratorId).deliver({
     sessionId: suggestion.sessionId,
     participantId: orchestratorId,
@@ -117,7 +119,9 @@ export async function handleMemoryDismiss(
 ): Promise<void> {
   const suggestion = memory.takeSuggestion(payload?.suggestionId);
   if (!suggestion || suggestion.sessionId !== payload.sessionId) return;
-  const orchestratorId = await orchestratorIdFor(store, suggestion.sessionId);
+  const orchestratorId = (
+    await orchestratorIdentity(store, suggestion.sessionId)
+  ).orchestratorId;
   connectors.resolve(suggestion.sessionId, orchestratorId).deliver({
     sessionId: suggestion.sessionId,
     participantId: orchestratorId,

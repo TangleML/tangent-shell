@@ -1,12 +1,8 @@
-import { Box } from "@tangent/ui-primitives/box";
-import { InlineStack } from "@tangent/ui-primitives/layout";
-import { Spinner } from "@tangent/ui-primitives/spinner";
-
 import { useSessionWorkflow } from "@/features/chat/hooks/useSessionWorkflow";
-import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
 import { WorkflowList } from "../sidebar/workflow/WorkflowList";
 import { useSessionChatWindowsContext } from "./SessionChatWindowsContext";
+import { WindowLoadError, WindowSpinner } from "./WindowStatus";
 
 export function WorkflowWindow() {
   const { sessionId, activeConversationId, participants, currentUserId } =
@@ -20,25 +16,13 @@ export function WorkflowWindow() {
     participantId: currentParticipant?.id,
   });
 
-  if (isPending) {
-    return (
-      <Box padding="base">
-        <InlineStack fill align="center">
-          <Spinner size={20} />
-        </InlineStack>
-      </Box>
-    );
-  }
-
+  if (isPending) return <WindowSpinner />;
   if (isError || !data) {
     return (
-      <Box padding="base">
-        <EmptyState
-          size="sm"
-          title="Couldn't load workflow"
-          description="The workflow view is unavailable right now. It will refresh on its own."
-        />
-      </Box>
+      <WindowLoadError
+        title="Couldn't load workflow"
+        description="The workflow view is unavailable right now. It will refresh on its own."
+      />
     );
   }
 

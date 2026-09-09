@@ -31,6 +31,8 @@ interface ParticipantListProps {
     conversationId: string,
     muted: boolean,
   ) => void;
+  /** Whether a mute toggle is in flight, so the controls disable meanwhile. */
+  isToggleMutePending?: boolean;
 }
 
 const KIND_ICON: Record<ParticipantKind, IconName> = {
@@ -79,6 +81,7 @@ export function ParticipantList({
   activeConversationId,
   currentUserId,
   onToggleMute,
+  isToggleMutePending = false,
 }: ParticipantListProps) {
   const active = participants.filter((p) => !p.revokedAt).sort(rosterOrder);
 
@@ -87,7 +90,7 @@ export function ParticipantList({
       <Box padding="base">
         <EmptyState
           size="sm"
-          title=""
+          title="No one here yet"
           description="Everyone in this session — people, agents, and automations — shows up here with their presence."
         />
       </Box>
@@ -156,6 +159,7 @@ export function ParticipantList({
                         icon={muted ? "BellOff" : "Bell"}
                         size="xs"
                         variant="ghost"
+                        disabled={isToggleMutePending}
                         aria-label={
                           muted
                             ? `Unmute ${participant.displayName}`

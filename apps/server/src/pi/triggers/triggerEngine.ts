@@ -15,7 +15,7 @@ import type { ConversationRouter } from "../../conversation/conversationRouter.t
 import {
   homeConversationFor,
   orchestratorConversationFor,
-  orchestratorIdFor,
+  orchestratorIdentity,
 } from "../../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../../conversation/participantService.ts";
 import { roomFor } from "../../sockets/rooms.ts";
@@ -248,11 +248,8 @@ export class TriggerEngine {
     stored: StoredTrigger,
     prompt: string,
   ): Promise<void> {
-    const orchestratorId = await orchestratorIdFor(this.store, sessionId);
-    const primaryConversationId = await orchestratorConversationFor(
-      this.store,
-      sessionId,
-    );
+    const { orchestratorId, homeConversationId: primaryConversationId } =
+      await orchestratorIdentity(this.store, sessionId);
     this.pi.ensure(
       sessionId,
       rootPath,

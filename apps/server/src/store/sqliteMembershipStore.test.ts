@@ -30,6 +30,7 @@ function membership(overrides: Partial<Membership> & { sessionId: string }) {
     participantId: "prime",
     conversationId: "sub-1",
     reaction: "atRunEnd+mentionsMe",
+    muted: false,
     ingress: "reaction",
     admission: "queue",
     transcriptVisibility: "shared",
@@ -68,6 +69,18 @@ test("a membership's admission policy round-trips and upserts", async () => {
 
   await store.put(membership({ sessionId, admission: "preempt" }));
   assert.equal((await store.listForSession(sessionId))[0].admission, "preempt");
+});
+
+test("a membership's muted flag round-trips and upserts without touching reaction", async () => {
+  const { store, sessionId } = await newStore();
+  await store.put(membership({ sessionId, muted: true }));
+
+  const stored = (await store.listForSession(sessionId))[0];
+  assert.equal(stored.muted, true);
+  assert.equal(stored.reaction, "atRunEnd+mentionsMe", "reaction is untouched");
+
+  await store.put(membership({ sessionId, muted: false }));
+  assert.equal((await store.listForSession(sessionId))[0].muted, false);
 });
 
 test("one participant holds a membership per conversation", async () => {

@@ -51,4 +51,10 @@ export class InMemoryParticipantStore implements ParticipantStore {
       revokedAt: new Date().toISOString(),
     });
   }
+
+  async deleteForSession(sessionId: string): Promise<void> {
+    for (const [key, participant] of this.participants) {
+      if (participant.sessionId === sessionId) this.participants.delete(key);
+    }
+  }
 }

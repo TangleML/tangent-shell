@@ -180,7 +180,7 @@ test("resolution is total: an unheld participant gets a refusing connector", () 
 
 test("every connector's credential agrees with the scheme it publishes", async () => {
   const h = makeHarness();
-  const { id } = h.externalGateway.register("s1", { name: "worker" });
+  const { id } = await h.externalGateway.register("s1", { name: "worker" });
   const peer = await h.a2aGateway.attach("s1", {
     endpointUrl: "https://agent.example.com",
   });
@@ -246,7 +246,7 @@ test("a message to an unknown participant is refused in its own conversation", (
 
 test("a message aimed at an external participant is queued for its driver", async () => {
   const h = makeHarness();
-  const { id } = h.externalGateway.register("s1", { name: "worker" });
+  const { id } = await h.externalGateway.register("s1", { name: "worker" });
 
   const result = h.connectors.resolve("s1", id).deliver({
     sessionId: "s1",
@@ -261,9 +261,9 @@ test("a message aimed at an external participant is queued for its driver", asyn
   assert.deepEqual(h.piDeliveries, [], "and never the local agent map");
 });
 
-test("a message aimed at a detached external participant is refused in its tab", () => {
+test("a message aimed at a detached external participant is refused in its tab", async () => {
   const h = makeHarness();
-  const { id } = h.externalGateway.register("s1", { name: "worker" });
+  const { id } = await h.externalGateway.register("s1", { name: "worker" });
   h.externalGateway.setStatus("s1", id, "detached");
 
   const result = h.connectors.resolve("s1", id).deliver({
@@ -322,9 +322,9 @@ test("cancelling a local participant's run reaches the Pi manager", () => {
   assert.deepEqual(h.piAborts, ["local-1"]);
 });
 
-test("a transport with no cancel protocol refuses, and says why", () => {
+test("a transport with no cancel protocol refuses, and says why", async () => {
   const h = makeHarness();
-  const external = h.externalGateway.register("s1", { name: "worker" });
+  const external = await h.externalGateway.register("s1", { name: "worker" });
 
   const remote = h.connectors.cancelRun({
     sessionId: "s1",
@@ -349,9 +349,9 @@ test("a transport with no cancel protocol refuses, and says why", () => {
   assert.deepEqual(h.piAborts, []);
 });
 
-test("killing an external participant reaches its gateway", () => {
+test("killing an external participant reaches its gateway", async () => {
   const h = makeHarness();
-  const { id } = h.externalGateway.register("s1", { name: "worker" });
+  const { id } = await h.externalGateway.register("s1", { name: "worker" });
 
   h.connectors.resolve("s1", id).kill("s1", id, true);
 
@@ -361,7 +361,7 @@ test("killing an external participant reaches its gateway", () => {
 
 test("list walks every connector's roster", async () => {
   const h = makeHarness();
-  const { id } = h.externalGateway.register("s1", { name: "worker" });
+  const { id } = await h.externalGateway.register("s1", { name: "worker" });
   const peer = await h.a2aGateway.attach("s1", {
     endpointUrl: "https://agent.example.com",
   });
