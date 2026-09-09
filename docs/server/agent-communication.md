@@ -8,14 +8,14 @@ Agent communication in this system is deliberately **server-mediated**. Agents
 never talk to each other directly. There are exactly three transports, each with
 a distinct job:
 
-| Layer                                                              | Direction                               | Who uses it                                                     |
-| ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
-| **Pi-RPC** (JSONL over stdin/stdout)                               | server ↔ a single Pi child process      | `PiAgentManager` ↔ each `pi --mode rpc` subprocess              |
-| **Internal HTTP API** (`/internal/*` + bearer token)               | Pi child → server                       | extension tools (orchestrator, memory, triggers, session, resources) |
-| **WebSockets** (Socket.IO rooms)                                   | server → browser                        | the UI                                                          |
-| **Remote sub-agent transport** (Socket.IO `/remote-env` namespace) | server ↔ a connected remote environment | `RemoteEnvironmentGateway` ↔ the `@tangent/remote-subagent` SDK |
-| **External-inbound** (internal HTTP, streamed into a tab)          | a bundle tool's runtime → server        | `ExternalSubagentGateway` (+ the generic MCP relay)            |
-| **A2A** (agent-to-agent protocol, dialed outbound)                 | server ↔ an independently deployed agent | `A2aPeerGateway` ↔ the peer's service                          |
+| Layer                                                              | Direction                                | Who uses it                                                          |
+| ------------------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------------- |
+| **Pi-RPC** (JSONL over stdin/stdout)                               | server ↔ a single Pi child process       | `PiAgentManager` ↔ each `pi --mode rpc` subprocess                   |
+| **Internal HTTP API** (`/internal/*` + bearer token)               | Pi child → server                        | extension tools (orchestrator, memory, triggers, session, resources) |
+| **WebSockets** (Socket.IO rooms)                                   | server → browser                         | the UI                                                               |
+| **Remote sub-agent transport** (Socket.IO `/remote-env` namespace) | server ↔ a connected remote environment  | `RemoteEnvironmentGateway` ↔ the `@tangent/remote-subagent` SDK      |
+| **External-inbound** (internal HTTP, streamed into a tab)          | a bundle tool's runtime → server         | `ExternalSubagentGateway` (+ the generic MCP relay)                  |
+| **A2A** (agent-to-agent protocol, dialed outbound)                 | server ↔ an independently deployed agent | `A2aPeerGateway` ↔ the peer's service                                |
 
 The **`ConnectorRegistry`** (`apps/server/src/connectors/connectorRegistry.ts`) is
 the hub: it resolves any participant to exactly one of these transports, and the

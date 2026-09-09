@@ -57,15 +57,15 @@ Chat history is deliberately **not** a table — it stays as JSONL on disk. Sche
 changes go exclusively through drizzle migrations; never alter tables ad-hoc.
 
 | Table                 | Holds                                                                                          |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `sessions`            | one row per session (mirrors the `Session` wire contract, plus `archived`, `user_identity`).  |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| `sessions`            | one row per session (mirrors the `Session` wire contract, plus `archived`, `user_identity`).   |
 | `session_assets`      | pinned artifacts, scoped to a session, oldest-first.                                           |
-| `session_agents`      | the agent roster (Prime + sub-agents) with connector facets; still the write authority today. |
-| `participants`        | session-scoped actor identities (`human` / `agent` / `automation`), capabilities, presence.   |
-| `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript.|
+| `session_agents`      | the agent roster (Prime + sub-agents) with connector facets; still the write authority today.  |
+| `participants`        | session-scoped actor identities (`human` / `agent` / `automation`), capabilities, presence.    |
+| `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript. |
 | `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.     |
 | `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.  |
-| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact`, pointing at bytes by `uri`.       |
+| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact`, pointing at bytes by `uri`.        |
 | `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).         |
 | `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing). |
 | `session_views`       | when each user last opened a session.                                                          |

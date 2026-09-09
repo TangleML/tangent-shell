@@ -63,7 +63,7 @@ flowchart TB
 
 ### Cross-conversation posts
 
-`postToConversation` writes into a Conversation the author is *not* writing from —
+`postToConversation` writes into a Conversation the author is _not_ writing from —
 an orchestrator reporting into the human's thread, or issuing a directive in a
 worker's. It is authorized: only a participant that holds a Membership there may
 post there, and the Message records `source.kind = "relay"` so the log can answer
@@ -93,13 +93,13 @@ Predicates are named presets in
 Message envelope's structured facts (addressing, provenance, run boundaries) —
 never its free-text body:
 
-| Preset       | Reacts when                                    |
-| ------------ | ---------------------------------------------- |
+| Preset       | Reacts when                                       |
+| ------------ | ------------------------------------------------- |
 | `always`     | every Message in the Conversation (self excluded) |
-| `fromHumans` | the author is a human                          |
-| `mentionsMe` | the participant is `@mentioned`                |
-| `atRunEnd`   | the Message ends its Run                       |
-| `never`      | never (a muted or contribute-only member)      |
+| `fromHumans` | the author is a human                             |
+| `mentionsMe` | the participant is `@mentioned`                   |
+| `atRunEnd`   | the Message ends its Run                          |
+| `never`      | never (a muted or contribute-only member)         |
 
 A stored `ReactionSpec` is one or more presets joined by `+`, read as a
 disjunction (`fromHumans+mentionsMe`). **Muting** a member is simply its reaction
@@ -114,7 +114,7 @@ projects the text one recipient's transport receives:
 
 - The **owner** of the Conversation (its subject) gets the content as written.
 - A member woken **from another Conversation** gets provenance framing (`X posted
-  in another conversation:` / `Sub-agent "Y" reported:`).
+in another conversation:` / `Sub-agent "Y" reported:`).
 - An **opaque** member (a far end outside Tangent, such as an A2A peer in a shared
   room) is sent the Message plain: framing situates a Message within a transcript,
   and a member that sees none of the log has nothing to situate it against.

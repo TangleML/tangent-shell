@@ -20,19 +20,19 @@ JSONL files on disk. Both survive a restart.
 
 ## Table of contents
 
-| Doc                                                      | What it covers                                                                                                                          |
+| Doc                                                      | What it covers                                                                                                                        |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [ui-server-protocol.md](./ui-server-protocol.md)         | The full UI <-> Server protocol: REST surface, Socket.IO event catalog, and the chat/stream/join sequences.                            |
-| [conversations.md](./conversations.md)                   | The conversation layer: `ConversationRouter`, the fan-out engine, reaction predicates, memberships, participants, and resources.       |
-| [connectors.md](./connectors.md)                         | The connector registry: how a participant is resolved to a transport, connector facets, runs, and the four connector implementations.  |
-| [orchestrator.md](./orchestrator.md)                     | The local Pi connector: `PiAgentManager`, the `pi` RPC stdin/stdout protocol, the stdout event dispatch table, and the callback loop.  |
-| [human-prime-subagents.md](./human-prime-subagents.md)   | The Human / Prime / Sub-agent choreography: delegation, reaction-driven relay, reporting, abort, kill.                                 |
-| [extensions-and-prompts.md](./extensions-and-prompts.md) | How extensions and prompts are applied for a blank session vs a bundle-based session.                                                  |
-| [configuration-bundles.md](./configuration-bundles.md)   | The Configuration Bundle format, install pipeline, and the marketplace store.                                                          |
-| [triggers.md](./triggers.md)                             | The trigger subsystem: manager, engine, scheduling, callbacks, and signal-to-prompt resolution.                                        |
-| [memory.md](./memory.md)                                 | Global + session memory stores, the injected preamble, and the suggest/confirm flow.                                                   |
-| [sessions-and-storage.md](./sessions-and-storage.md)     | The session model, the `SessionStore` abstraction, the SQLite schema, the per-session root folder, and the file server.                |
-| [egress-and-security.md](./egress-and-security.md)       | The internal-token trust model, the egress allowlist proxy, sandboxing, and security findings.                                         |
+| [ui-server-protocol.md](./ui-server-protocol.md)         | The full UI <-> Server protocol: REST surface, Socket.IO event catalog, and the chat/stream/join sequences.                           |
+| [conversations.md](./conversations.md)                   | The conversation layer: `ConversationRouter`, the fan-out engine, reaction predicates, memberships, participants, and resources.      |
+| [connectors.md](./connectors.md)                         | The connector registry: how a participant is resolved to a transport, connector facets, runs, and the four connector implementations. |
+| [orchestrator.md](./orchestrator.md)                     | The local Pi connector: `PiAgentManager`, the `pi` RPC stdin/stdout protocol, the stdout event dispatch table, and the callback loop. |
+| [human-prime-subagents.md](./human-prime-subagents.md)   | The Human / Prime / Sub-agent choreography: delegation, reaction-driven relay, reporting, abort, kill.                                |
+| [extensions-and-prompts.md](./extensions-and-prompts.md) | How extensions and prompts are applied for a blank session vs a bundle-based session.                                                 |
+| [configuration-bundles.md](./configuration-bundles.md)   | The Configuration Bundle format, install pipeline, and the marketplace store.                                                         |
+| [triggers.md](./triggers.md)                             | The trigger subsystem: manager, engine, scheduling, callbacks, and signal-to-prompt resolution.                                       |
+| [memory.md](./memory.md)                                 | Global + session memory stores, the injected preamble, and the suggest/confirm flow.                                                  |
+| [sessions-and-storage.md](./sessions-and-storage.md)     | The session model, the `SessionStore` abstraction, the SQLite schema, the per-session root folder, and the file server.               |
+| [egress-and-security.md](./egress-and-security.md)       | The internal-token trust model, the egress allowlist proxy, sandboxing, and security findings.                                        |
 
 ## Component map
 
@@ -115,7 +115,7 @@ needed. Opening the database applies any pending drizzle migrations first.
 - `db = openDb()` — the single shared SQLite connection; applies migrations on
   startup.
 - `participants = new SqliteParticipantStore(db)`, `resourceStore = new
-  SqliteResourceStore(db)`, `membershipStore = new SqliteMembershipStore(db)` —
+SqliteResourceStore(db)`, `membershipStore = new SqliteMembershipStore(db)` —
   the relational stores for the roster, catalog, and memberships.
 - `store = new SqliteSessionStore(db, participants, resourceStore)` — the durable
   session store backing REST routes and socket handlers.
@@ -146,13 +146,13 @@ needed. Opening the database applies any pending drizzle migrations first.
 - `remoteGateway`, `externalGateway`, `a2aGateway` — the other three connector
   gateways, all sharing `agentHandlers` and `runs`.
 - `connectors = createConnectorRegistry(pi, remoteGateway, externalGateway,
-  a2aGateway, agentHandlers)` — the single, total lookup from a participant to
+a2aGateway, agentHandlers)` — the single, total lookup from a participant to
   its connector; `conversations.useConnectors(connectors)` closes the wiring
   cycle.
 - `participantService = new ParticipantService(…)` — the lifecycle of humans,
   automations, and memberships: invitation, presence, revocation, join/leave/mute.
 - `triggerEngine = new TriggerEngine(io, store, pi, triggers, conversations,
-  participantService)` — arms schedule timers and posts firings into the target's
+participantService)` — arms schedule timers and posts firings into the target's
   Conversation through the router.
 
 The Express app mounts:
