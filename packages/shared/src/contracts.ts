@@ -23,6 +23,31 @@ export interface UserIdentity {
 }
 
 /**
+ * Safety-net identity used when the Oktasso JWT is unavailable (e.g. local
+ * development without `AUTH_JWT_TOKEN_COOKIE_NAME` configured). Shared so the
+ * server's socket-resolved authorship and the UI's own view of "who am I" land
+ * on the same id — a disagreement would render your own messages as somebody
+ * else's.
+ */
+export const DEFAULT_USER: UserIdentity = {
+  email: "maxim.ezhov@shopify.com",
+  first_name: "John",
+  last_name: "Smith",
+};
+
+/**
+ * The user's short display name: first name plus last-name initial (e.g.
+ * `John Smith` -> `John S.`). Falls back to the first name alone, then the
+ * email, when name parts are missing.
+ */
+export function userShortName(user: UserIdentity): string {
+  const first = user.first_name.trim();
+  const lastInitial = user.last_name.trim().charAt(0).toUpperCase();
+  if (first && lastInitial) return `${first} ${lastInitial}.`;
+  return first || user.email;
+}
+
+/**
  * Live run status of a session, derived from its Pi process roster on the
  * server and pushed to clients over the socket:
  * - `idle` — no Pi process is running for the session.
@@ -163,6 +188,21 @@ export interface ChatAuthor {
 }
 
 /**
+ * The chat identity of a human, derived from their resolved {@link
+ * UserIdentity}. The email is the author id so "is this my message?" stays
+ * stable across reloads. Shared between the server (which resolves authorship
+ * from the request's own cookie) and the UI, so there is one definition rather
+ * than two that can drift.
+ */
+export function humanAuthor(user: UserIdentity): ChatAuthor {
+  return {
+    id: user.email || "local-user",
+    kind: "human",
+    name: userShortName(user),
+  };
+}
+
+/**
  * The session's Prime coding agent. It is the only agent a human talks to and
  * the only one allowed to direct sub-agents. Shared across every session.
  */
@@ -201,6 +241,18 @@ export const TRIGGER_AUTHOR: ChatAuthor = {
   id: "trigger",
   kind: "agent",
   name: "Trigger",
+  agentRole: "prime",
+};
+
+/**
+ * Author attributed to messages the server itself emits into a conversation,
+ * such as a message that could not be delivered to its participant. Surfaced in
+ * the conversation it concerns so the failure is visible where it happened.
+ */
+export const SYSTEM_AUTHOR: ChatAuthor = {
+  id: "system",
+  kind: "agent",
+  name: "System",
   agentRole: "prime",
 };
 
@@ -317,6 +369,39 @@ export interface PinnedArtifact {
   pinnedAt: string;
 }
 
+/** What a catalogued resource is: content the session holds, by origin. */
+export type ResourceKind = "file" | "memory" | "attachment" | "artifact";
+
+/**
+ * A catalogued piece of content in a session — a pinned `artifact`, a human
+ * `attachment`, a `memory` document, or a workspace `file` — regardless of
+ * which connector or mechanism produced it. The bytes stay where they are; this
+ * is the catalog entry that points at them by {@link Resource.uri}.
+ */
+export interface Resource {
+  id: string;
+  sessionId: string;
+  kind: ResourceKind;
+  /** Display name / title. */
+  name: string;
+  /**
+   * Where the content lives: a path relative to the session root (e.g.
+   * `artifacts/report.html`) or a `memory://session` / `memory://global`
+   * scheme.
+   */
+  uri: string;
+  /** The participant that produced it, when known. */
+  authorParticipantId?: string;
+  /** Kind-specific facts (e.g. `contentType`, `size`, `scope`). */
+  meta?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** Response from `GET /api/sessions/:id/resources`. */
+export interface ListResourcesResponse {
+  resources: Resource[];
+}
+
 /** Response from `GET /api/sessions/:id/triggers`. */
 export interface ListTriggersResponse {
   triggers: Trigger[];
@@ -344,26 +429,390 @@ export interface UpdateTriggerRequest {
   schedule?: TriggerSchedule;
 }
 
-/** Lifecycle status of a sub-agent, surfaced in the session's agent roster. */
-export type SubagentStatus = "active" | "completed" | "killed" | "error";
+/**
+ * Lifecycle status of a sub-agent, surfaced in the session's agent roster.
+ *
+ * `detached` is the state of a participant that has a place in the roster with
+ * nothing behind it — the far end dropped, or the server restarted and has not
+ * restored it yet. Distinct from `error` (something went wrong) and from the
+ * terminal `completed` / `killed`, and the only non-terminal status a revive or
+ * a reattach can move a participant out of.
+ */
+export type SubagentStatus =
+  | "active"
+  | "detached"
+  | "completed"
+  | "killed"
+  | "error";
+
+/**
+ * The statuses a participant can still be restored from. Everything else is
+ * terminal: a `completed`, `killed` or `error`ed participant stays that way, and
+ * only these two describe one that ought to have something behind it.
+ */
+export const RESTORABLE_STATUSES: SubagentStatus[] = ["active", "detached"];
+
+/** Whether a status is one nothing moves a participant out of. */
+export function isTerminalStatus(status: SubagentStatus): boolean {
+  return !RESTORABLE_STATUSES.includes(status);
+}
 
 /**
  * Which host runs a sub-agent: `local` (a `pi` child process managed by the
  * server), `remote` (a sub-agent hosted inside a connected remote environment
- * over the remote sub-agent transport), or `external` (a display-only tab
- * whose runtime lives outside Tangent, driven by a bundle tool over the
- * `/internal/external-agents` API). Absent on older roster rows, which are
- * treated as `local`.
+ * over the Socket.IO remote sub-agent transport), or `external` (a sub-agent
+ * driven by a connected standalone bridge over the internal HTTP/SSE external
+ * transport). Absent on older roster rows, which are treated as `local`.
+ *
+ * @deprecated Superseded by {@link ConnectorDescriptor}, which keeps the
+ * decisions this label bundles apart. Retained until the `host` column is gone.
  */
 export type SubagentHost = "local" | "remote" | "external";
+
+/**
+ * Which transport a connector drives its participant over: `pi-stdio` (a `pi`
+ * child process the server owns), `remote-env` (a sub-agent inside a connected
+ * remote environment), `external-inbound` (a runtime outside Tangent that
+ * streams in over the internal HTTP/SSE API), or `a2a` (an agent reached over
+ * the A2A protocol).
+ *
+ * `unresolved` is the kind of a participant no connector claims. It exists so
+ * resolution is total — the server answers with a connector that refuses rather
+ * than with `undefined` — and is never persisted or spawned.
+ */
+export type ConnectorKind =
+  | "pi-stdio"
+  | "remote-env"
+  | "external-inbound"
+  | "a2a"
+  | "unresolved";
+
+/**
+ * Whether Tangent created the participant and is responsible for destroying it
+ * (`owned`) or joined one that already existed and outlives the attachment
+ * (`attached`).
+ */
+export type ConnectorLifecycle = "owned" | "attached";
+
+/** Who may create a participant on a connector, if anyone. */
+export type SpawnAuthority = "server" | "remote-env" | "bundle-tool" | "none";
+
+/**
+ * How a connector's far end proves who it is. Only the scheme is named here:
+ * the secret and the check live behind
+ * {@link import("../../../apps/server/src/connectors/credentials.ts").ConnectorCredential},
+ * server-side, because a credential is not something a client may be told.
+ *
+ * `inherited-token` and `internal-bearer` are the same server secret differing
+ * in issuance — one is handed to a process the server spawns, the other is
+ * presented back by a caller that already holds it.
+ *
+ * `peer-bearer` runs the other way: the far end sits outside the trust domain
+ * and Tangent is the caller, so the secret is presented outbound and no inbound
+ * caller ever authenticates under this scheme.
+ */
+export type CredentialScheme =
+  | "inherited-token"
+  | "shared-token"
+  | "internal-bearer"
+  | "minted-secret"
+  | "peer-bearer"
+  | "none";
+
+/**
+ * The independent facets of the connector behind a participant. These are
+ * separate fields rather than one label because they vary independently — the
+ * three combinations in the tree today are a coincidence of having only three
+ * connectors.
+ */
+export interface ConnectorDescriptor {
+  kind: ConnectorKind;
+  lifecycle: ConnectorLifecycle;
+  spawnAuthority: SpawnAuthority;
+  credentialScheme: CredentialScheme;
+  /** The remote environment this participant is bound to, when it has one. */
+  environmentId?: string;
+  /**
+   * Where the far end is reached, for a connector that dials out rather than
+   * being dialled. Its sibling: `environmentId` names an environment that
+   * connects to Tangent, `endpointUrl` an address Tangent connects to.
+   */
+  endpointUrl?: string;
+}
+
+/**
+ * The facets each connector kind runs with today. Adding a connector adds a row
+ * here; the facets stay independent fields on {@link ConnectorDescriptor}, so a
+ * combination this table does not list is still expressible.
+ */
+export const CONNECTOR_FACETS: Record<
+  ConnectorKind,
+  Omit<ConnectorDescriptor, "environmentId">
+> = {
+  "pi-stdio": {
+    kind: "pi-stdio",
+    lifecycle: "owned",
+    spawnAuthority: "server",
+    credentialScheme: "inherited-token",
+  },
+  "remote-env": {
+    kind: "remote-env",
+    lifecycle: "owned",
+    spawnAuthority: "remote-env",
+    credentialScheme: "shared-token",
+  },
+  "external-inbound": {
+    kind: "external-inbound",
+    lifecycle: "owned",
+    spawnAuthority: "bundle-tool",
+    credentialScheme: "internal-bearer",
+  },
+  a2a: {
+    kind: "a2a",
+    lifecycle: "attached",
+    spawnAuthority: "none",
+    credentialScheme: "peer-bearer",
+  },
+  unresolved: {
+    kind: "unresolved",
+    lifecycle: "attached",
+    spawnAuthority: "none",
+    credentialScheme: "none",
+  },
+};
+
+/** The legacy {@link SubagentHost} label each kind collapsed to. */
+const LEGACY_HOST: Record<ConnectorKind, SubagentHost | undefined> = {
+  "pi-stdio": "local",
+  "remote-env": "remote",
+  "external-inbound": "external",
+  a2a: undefined,
+  unresolved: undefined,
+};
+
+/**
+ * How much of a Conversation a Membership on each connector sees by default.
+ * A far end outside Tangent gets `opaque`: it is sent what addresses it, not
+ * the log. Declared as data so no membership becomes `shared` by omission.
+ */
+export const DEFAULT_TRANSCRIPT_VISIBILITY: Record<
+  ConnectorKind,
+  TranscriptVisibility
+> = {
+  "pi-stdio": "shared",
+  "remote-env": "shared",
+  "external-inbound": "opaque",
+  a2a: "opaque",
+  unresolved: "opaque",
+};
+
+/** Builds a connector descriptor, optionally bound to a remote environment. */
+export function connectorFor(
+  kind: ConnectorKind,
+  environmentId?: string,
+): ConnectorDescriptor {
+  return {
+    ...CONNECTOR_FACETS[kind],
+    ...(environmentId ? { environmentId } : {}),
+  };
+}
+
+/**
+ * Builds the connector fields of a roster entry: the descriptor plus the
+ * deprecated `host` label derived from it.
+ */
+export function connectorFields(
+  kind: ConnectorKind,
+  environmentId?: string,
+): Pick<SubagentInfo, "connector" | "host"> {
+  const host = LEGACY_HOST[kind];
+  return {
+    connector: connectorFor(kind, environmentId),
+    ...(host ? { host } : {}),
+  };
+}
+
+/** Identifies a single {@link Run}. */
+export type RunId = string;
+
+/**
+ * Lifecycle of a {@link Run}: `running` while the participant works, then one
+ * of three terminal states — it finished (`completed`), it was cancelled by a
+ * human or a supervisor (`cancelled`), or it stopped without finishing
+ * (`failed`). "Finished its task" and "was stopped" are different facts, so a
+ * settled Run keeps which one happened.
+ */
+export type RunStatus = "running" | "completed" | "cancelled" | "failed";
+
+/**
+ * What started a {@link Run}: the participant reacting to a message
+ * (`reaction`), a schedule firing (`schedule`), an inbound callback
+ * (`webhook`), or a tool call creating work (`tool`). A reaction vocabulary
+ * alone cannot describe a schedule or a tool, which is why ingress is its own
+ * field.
+ */
+export type RunIngress = "reaction" | "schedule" | "webhook" | "tool";
+
+/**
+ * One unit of work by one participant: what a stream of agent events is
+ * attributable to, and what cancellation acts on. Runs are serial per
+ * participant — opening one settles whichever Run that participant still had
+ * open.
+ */
+export interface Run {
+  id: RunId;
+  sessionId: string;
+  /** The participant doing the work. */
+  participantId: string;
+  /** The conversation this Run's messages land in by default. */
+  homeConversationId: string;
+  status: RunStatus;
+  ingress: RunIngress;
+  /**
+   * The far side's own id for this work, when a connector has one: an Aquifer
+   * World session id today, an A2A `Task.id` later.
+   */
+  externalId?: string;
+  /**
+   * Connector-private resume cursor for this Run (the Aquifer drain's
+   * `lastSeq`), so a far end that streams by cursor has somewhere durable to
+   * keep its position.
+   */
+  cursor?: string;
+  /** ISO-8601 timestamp. */
+  createdAt: string;
+  /** ISO-8601 timestamp. */
+  updatedAt: string;
+  /** ISO-8601 timestamp the Run settled; absent while it is `running`. */
+  endedAt?: string;
+}
+
+/**
+ * A named reaction predicate a Membership can declare:
+ * - `always` — act on every Message in the Conversation (self excluded).
+ * - `fromHumans` — act only on what a person typed.
+ * - `mentionsMe` — act only when addressed. A directed message is one whose
+ *   `mentions` include you; `directed` is not a separate value.
+ * - `atRunEnd` — act only on a Message that ends its Run.
+ * - `never` — a member that declares it does not act.
+ */
+export type ReactionName =
+  | "always"
+  | "fromHumans"
+  | "mentionsMe"
+  | "atRunEnd"
+  | "never";
+
+/**
+ * A Membership's stored reaction: one or more {@link ReactionName}s joined by
+ * `+`, read as a disjunction (`fromHumans+mentionsMe`). Each preset stays
+ * atomic; composition lives in the stored value.
+ */
+export type ReactionSpec = string;
+
+/**
+ * How much of a Conversation a Membership may see. `summarized` is a declared
+ * label until the context-budget work makes it a mechanism.
+ */
+export type TranscriptVisibility = "shared" | "summarized" | "opaque";
+
+/**
+ * The kind of a {@link Participant}: a person (`human`), a coding agent
+ * (`agent`), or an ingress-driven actor with no interactive presence
+ * (`automation`). Kinds describe role only and never placement — a
+ * heterogeneous agent reached over A2A is an `agent`, not a distinct kind.
+ * Authority rides on {@link Capability}, not on kind.
+ */
+export type ParticipantKind = "human" | "agent" | "automation";
+
+/**
+ * An ability a Participant holds independently of its kind. `orchestrator` is
+ * the one Prime carries today: it grants the spawn/message/list tools and marks
+ * the at-most-one Participant a Session directs its sub-agents through.
+ * Designation is by capability, not by a reserved id.
+ */
+export type Capability = "orchestrator";
+
+/**
+ * Whether a Participant is reachable right now: `connected`, `away`, or
+ * `detached` — the same "the far end is gone" state 1.4 gave attached
+ * connectors. A stored default until presence lifecycle (2.2) makes it live.
+ */
+export type Presence = "connected" | "away" | "detached";
+
+/**
+ * The capabilities an agent's `role` carries. Prime holds `orchestrator` — the
+ * successor to `PRIME_AGENT_ID` being a reserved id, so authority reads a
+ * capability rather than comparing an id to a constant — and a sub-agent holds
+ * none. A Session designates at most one orchestrator by convention.
+ */
+export function capabilitiesForRole(role: AgentRole): Capability[] {
+  return role === "prime" ? ["orchestrator"] : [];
+}
+
+/**
+ * A Participant as returned by the REST surface (`/api/sessions/:id/participants`):
+ * the durable actor identity, without the internal `agent_payload` or connector
+ * facets. `revokedAt` is set once a person has been removed from the session —
+ * the row is kept so its transcript attributions still resolve.
+ */
+export interface ParticipantView {
+  id: string;
+  sessionId: string;
+  kind: ParticipantKind;
+  displayName: string;
+  capabilities: Capability[];
+  presence: Presence;
+  /** ISO-8601 timestamp; set once the Participant has been revoked. */
+  revokedAt?: string;
+  createdAt: string;
+}
+
+/**
+ * One of a Participant's Memberships, as returned alongside a
+ * {@link ParticipantView}. `muted` is the read of a `reaction` that has been set
+ * to `never`, so a client need not know the reaction vocabulary to show it.
+ */
+export interface MembershipView {
+  conversationId: string;
+  reaction: ReactionSpec;
+  ingress: RunIngress;
+  muted: boolean;
+}
+
+/**
+ * A {@link ParticipantView} with its Memberships inlined, as returned by
+ * `GET /api/sessions/:id/participants`. The roster reads this to show who is in
+ * the session, their presence, and which Conversations they belong to.
+ */
+export interface ParticipantWithMemberships extends ParticipantView {
+  memberships: MembershipView[];
+}
+
+/** Response of `GET /api/sessions/:id/participants`. */
+export interface ListParticipantsResponse {
+  participants: ParticipantWithMemberships[];
+}
 
 /** A sub-agent in a session's roster, as tracked for the UI sidebar. */
 export interface SubagentInfo {
   /** Stable id; also used as the sub-agent's `ChatAuthor.id`. */
   id: string;
+  /**
+   * The Conversation this sub-agent's thread lives in — what the client
+   * subscribes to and buckets its messages under. Decoupled from {@link
+   * SubagentInfo.id}: a fresh id for a sub-agent spawned after 2.4, the agent's
+   * own id for a legacy one whose transcript is keyed that way.
+   */
+  conversationId: string;
   name: string;
   status: SubagentStatus;
-  /** Which host runs the sub-agent. Defaults to `local` when omitted. */
+  /** The connector that runs the sub-agent. */
+  connector: ConnectorDescriptor;
+  /**
+   * @deprecated Derived from {@link SubagentInfo.connector}; kept so clients
+   * still reading the coarse host label keep working.
+   */
   host?: SubagentHost;
   /** Template the sub-agent was spawned from, if any. */
   template?: string;
@@ -391,17 +840,63 @@ export interface Attachment {
   size: number;
 }
 
+/**
+ * Where a Message came from, as opposed to who wrote it:
+ * - `human` — typed by a person.
+ * - `agent` — produced by an agent's run.
+ * - `system` — emitted by the server itself (an undeliverable message, a
+ *   structured cause).
+ * - `relay` — forwarded from another Conversation on a participant's behalf. No
+ *   producer yet; the auto-relay paths become this rather than mangling content.
+ */
+export type MessageSourceKind = "human" | "agent" | "system" | "relay";
+
+/** Provenance of a Message, independent of its {@link ChatAuthor}. */
+export interface MessageSource {
+  kind: MessageSourceKind;
+  /** The participant it originated from, when distinct from the author. */
+  from?: string;
+  /** The Conversation it was posted from, when it arrived from another. */
+  fromConversation?: string;
+}
+
+/**
+ * Derives a Message's provenance from its author. The write path and the
+ * legacy-line adapter in `chatLog.ts` share this, so a message persisted before
+ * the envelope existed reads back with the same `source` a new one would get.
+ */
+export function sourceFromAuthor(author: ChatAuthor): MessageSource {
+  if (author.id === SYSTEM_AUTHOR.id) return { kind: "system" };
+  return { kind: author.kind };
+}
+
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
   sessionId: string;
   /**
-   * The agent process this message belongs to: `"prime"` for the shared
-   * human/Prime thread, or a sub-agent's id for that sub-agent's thread. Drives
-   * which transcript the client buckets the message into.
+   * The Conversation this message belongs to — which transcript the client
+   * buckets it into. A Conversation id in its own right, no longer an agent's
+   * id: mapped to its owning participant through the `conversations` table, so a
+   * thread can outlive or hold more than the one agent it started with.
    */
   conversationId: string;
+  /**
+   * Position in its Conversation, monotonic from 1 and assigned server-side.
+   * Not gap-free: a stream that reserves a `seq` and then fails leaves a hole.
+   * Messages persisted before this field existed are numbered from their
+   * position in the log on read.
+   */
+  seq: number;
   author: ChatAuthor;
+  /**
+   * Participant ids this Message expects to act, resolved from `@name` at write
+   * time so nothing downstream has to regex the body. Empty means "posted to
+   * the Conversation, addressed to no one in particular".
+   */
+  mentions: string[];
+  /** How the Message came to exist, as opposed to who authored it. */
+  source: MessageSource;
   content: string;
   /**
    * The agent's reasoning (markdown), streamed before/alongside `content`.
@@ -415,6 +910,14 @@ export interface ChatMessage {
    * memory bubble (icon + tonal background) and records which store changed.
    */
   memory?: { scope: MemoryScope };
+  /** The {@link Run} that produced this Message, when one is attributable. */
+  runId?: RunId;
+  /** Whether this Message is the last of its Run. */
+  endsRun?: boolean;
+  /** Groups a request with its answers. Semantics arrive with the Reactor. */
+  correlationId?: string;
+  /** The Message this one answers, when it answers one. */
+  inReplyTo?: string;
   /** ISO-8601 timestamp. */
   createdAt: string;
 }
@@ -489,6 +992,30 @@ export interface ChatJoinPayload {
 }
 
 /**
+ * Payload sent by the client to subscribe to one Conversation that appeared
+ * after it joined (a newly spawned sub-agent). The server authorizes the
+ * subscription against Membership (or session ownership), joins the socket to
+ * that Conversation's room, and replies with its history. Conversations present
+ * at join time are subscribed server-side, so the client only sends this for
+ * ones it learns about later.
+ */
+export interface ConversationSubscribePayload {
+  sessionId: string;
+  conversationId: string;
+}
+
+/**
+ * One Conversation's history, sent in reply to a {@link
+ * ConversationSubscribePayload}. Distinct from `chat:history` (the join-time
+ * bulk seed of every authorized Conversation) so a late subscription merges one
+ * thread's log without disturbing the rest.
+ */
+export interface ConversationHistoryPayload {
+  conversationId: string;
+  messages: ChatMessage[];
+}
+
+/**
  * How a chat message is delivered when its target agent is mid-run:
  * - `"auto"`: normal prompt (queued by Pi as a follow-up only if busy).
  * - `"steer"`: nudge applied after the current tool call, before the next LLM
@@ -498,10 +1025,13 @@ export interface ChatJoinPayload {
  */
 export type MessageDelivery = "auto" | "steer" | "followUp";
 
-/** Payload sent by the client to post a new chat message. */
+/**
+ * Payload sent by the client to post a new chat message. Carries no author: the
+ * server resolves the sender from the socket's own identity, so a client cannot
+ * claim to be someone else.
+ */
 export interface ChatMessagePayload {
   sessionId: string;
-  author: ChatAuthor;
   content: string;
   /**
    * Target agent's id (`"prime"` or a sub-agent id). Defaults to `"prime"` when
@@ -522,10 +1052,15 @@ export interface TerminalDataPayload {
 
 /**
  * Emitted when the Pi agent begins a reply. Carries an empty-content
- * `ChatMessage` that the client appends and then fills in via deltas.
+ * `ChatMessage` that the client appends and then fills in via deltas. Its `seq`
+ * is already reserved, so the placeholder and the finalized Message that
+ * replaces it share one ordinal. `runId` stays beside the message as well,
+ * because the delta and error payloads have no message to carry it.
  */
 export interface AgentStartPayload {
   message: ChatMessage;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** A streamed chunk of the agent's reply, keyed by the message it extends. */
@@ -533,6 +1068,8 @@ export interface AgentDeltaPayload {
   sessionId: string;
   messageId: string;
   delta: string;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** A streamed chunk of the agent's reasoning, keyed by the message it extends. */
@@ -540,11 +1077,15 @@ export interface AgentThinkingPayload {
   sessionId: string;
   messageId: string;
   delta: string;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** Emitted when the agent finishes; carries the final, complete message. */
 export interface AgentEndPayload {
   message: ChatMessage;
+  /** The {@link Run} producing this stream, when one is attributable. */
+  runId?: RunId;
 }
 
 /** Emitted when the agent fails to produce (or finish) a reply. */
@@ -552,6 +1093,8 @@ export interface AgentErrorPayload {
   sessionId: string;
   messageId?: string;
   message: string;
+  /** The {@link Run} that failed, when one is attributable. */
+  runId?: RunId;
 }
 
 /** The kind of work an agent is currently doing, for the ephemeral indicator. */
@@ -579,6 +1122,8 @@ export interface AgentActivityPayload {
   sessionId: string;
   conversationId: string;
   activity: AgentActivity | null;
+  /** The {@link Run} this activity belongs to, when one is attributable. */
+  runId?: RunId;
 }
 
 /**
@@ -594,18 +1139,37 @@ export interface AgentQueuePayload {
   steering: string[];
   /** Follow-up messages waiting until the run fully stops. */
   followUp: string[];
+  /** The {@link Run} these messages are queued behind, when attributable. */
+  runId?: RunId;
 }
 
 /** Full sub-agent roster for a session, emitted on join and on reset. */
 export interface SubagentRosterPayload {
   sessionId: string;
   subagents: SubagentInfo[];
+  /**
+   * The orchestrator's home Conversation — the primary ("Prime") thread the UI
+   * renders in its main tab. Server-derived from the `orchestrator` capability
+   * so the client no longer privileges a reserved `"prime"` id.
+   */
+  primaryConversationId: string;
 }
 
 /** A single sub-agent's spawn or status change. Upserted by `id` on the client. */
 export interface SubagentUpdatePayload {
   sessionId: string;
   subagent: SubagentInfo;
+}
+
+/**
+ * A Participant's live {@link Presence} transition (server -> client): a human
+ * connecting, going away, or dropping ("closed laptop"). Broadcast to the
+ * session room so a client can show who is currently reachable.
+ */
+export interface ParticipantPresencePayload {
+  sessionId: string;
+  participantId: string;
+  presence: Presence;
 }
 
 /**
@@ -669,13 +1233,16 @@ export interface ArtifactUnpinPayload {
 }
 
 /**
- * Sent (client -> server) to abort an agent's in-progress run. `conversationId`
- * is the target agent's id (`"prime"` or a sub-agent id), matching how messages
- * are tagged, so any agent's current work can be cancelled.
+ * Sent (client -> server) to cancel a {@link Run}. `conversationId` is the
+ * target agent's id (`"prime"` or a sub-agent id), matching how messages are
+ * tagged; `runId` names the Run when the client is tracking it, and the server
+ * resolves the participant's open Run when it is absent.
  */
 export interface AgentAbortPayload {
   sessionId: string;
   conversationId: string;
+  /** The {@link Run} to cancel; the server resolves it when omitted. */
+  runId?: RunId;
 }
 
 /**
@@ -752,6 +1319,8 @@ export const SocketEvents = {
   ChatJoin: "chat:join",
   ChatHistory: "chat:history",
   ChatMessage: "chat:message",
+  ConversationSubscribe: "conversation:subscribe",
+  ConversationHistory: "conversation:history",
   TerminalData: "terminal:data",
   AgentStart: "agent:start",
   AgentDelta: "agent:delta",
@@ -765,6 +1334,7 @@ export const SocketEvents = {
   AgentQueue: "agent:queue",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
+  ParticipantPresence: "participant:presence",
   MemorySuggestion: "memory:suggestion",
   MemoryConfirm: "memory:confirm",
   MemoryDismiss: "memory:dismiss",

@@ -15,6 +15,7 @@ import type {
   AgentActivity,
   ChatMessage,
   MessageDelivery,
+  RunId,
   SubagentStatus,
   ThinkingLevel,
 } from "./contracts.ts";
@@ -82,10 +83,17 @@ export interface RemoteSpawnCommand {
   thinkingDepth?: ThinkingLevel;
   /** Template the sub-agent was resolved from, if any (informational). */
   template?: string;
-  /** Optional initial task to start the sub-agent working immediately. */
+  /**
+   * @deprecated No longer sent. An initial task is a Message posted into the new
+   * sub-agent's Conversation, so it arrives as an ordinary
+   * {@link RemoteMessageCommand} immediately after this one. Kept so an
+   * environment built against the older command still type-checks.
+   */
   task?: string;
-  /** Whether finalized replies are auto-relayed back to Prime. */
+  /** Whether Prime reacts to this sub-agent's finalized replies. */
   autoRelayToPrime: boolean;
+  /** @deprecated No longer sent; the initial task's command carries its own Run. */
+  runId?: RunId;
 }
 
 /** server -> remote: deliver a directed message/task to a remote sub-agent. */
@@ -94,6 +102,8 @@ export interface RemoteMessageCommand {
   agentId: string;
   text: string;
   delivery: MessageDelivery;
+  /** The Run this message is work for, to echo back on its events. */
+  runId?: RunId;
 }
 
 /** server -> remote: terminate a remote sub-agent. */
@@ -124,6 +134,13 @@ export interface RemoteAgentEventPayload {
   sessionId: string;
   agentId: string;
   event: RemoteAgentEvent;
+  /**
+   * The Run this event belongs to, echoed from the command that started the
+   * work. Optional: an environment that doesn't echo it (or predates run
+   * attribution) still streams, and the server attributes the event to whatever
+   * Run that participant has open.
+   */
+  runId?: RunId;
 }
 
 /** remote -> server: a remote sub-agent's lifecycle status change. */

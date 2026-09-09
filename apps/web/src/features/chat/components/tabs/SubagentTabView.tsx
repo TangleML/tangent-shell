@@ -8,6 +8,7 @@ import type {
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import {
@@ -19,11 +20,13 @@ import { ChatMessageList } from "../message/ChatMessageList";
 
 interface SubagentTabViewProps {
   sessionId: string;
-  /** The sub-agent (and conversation) this tab is dedicated to. */
+  /** The sub-agent this tab is dedicated to. */
   agentId: string;
+  /** The orchestrator's home Conversation, for the "from Prime's thread" label. */
+  primaryConversationId: string;
   /** Display name, used in the stop control's label. */
   name: string;
-  /** All chat messages; filtered to this sub-agent's conversation. */
+  /** This sub-agent's conversation messages, already scoped by the server room. */
   messages: ChatMessage[];
   currentAuthorId: string;
   /** Bundle this session was created from; enables `tangent-ui:` components. */
@@ -57,6 +60,8 @@ interface SubagentTabViewProps {
   onOpenArtifact: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
   onTogglePinArtifact: (path: string, title: string) => void;
+  /** People/agents the `@mention` picker can address in this sub-agent's composer. */
+  mentionCandidates: MentionCandidate[];
 }
 
 /**
@@ -67,6 +72,8 @@ interface SubagentTabViewProps {
 export function SubagentTabView({
   sessionId,
   agentId,
+  primaryConversationId,
+  name,
   messages,
   currentAuthorId,
   bundleId,
@@ -85,16 +92,18 @@ export function SubagentTabView({
   onRemove,
   pinnedPaths,
   onTogglePinArtifact,
+  mentionCandidates,
 }: SubagentTabViewProps) {
-  const visibleMessages = messages.filter((m) => m.conversationId === agentId);
-
   return (
     <BlockStack grow>
       <ChatMessageList
         sessionId={sessionId}
-        messages={visibleMessages}
+        messages={messages}
         currentAuthorId={currentAuthorId}
+        primaryConversationId={primaryConversationId}
         activity={activity}
+        activityAuthorName={name}
+        activityAuthorRole="subagent"
         historyLoaded={historyLoaded}
         bundleId={bundleId}
         onOpenArtifact={onOpenArtifact}
@@ -119,6 +128,7 @@ export function SubagentTabView({
         disabled={disabled}
         agentBusy={busy}
         agentStatus={status}
+        mentionCandidates={mentionCandidates}
         onRemove={onRemove}
         onAbort={onAbort}
         onSubmit={onSubmit}

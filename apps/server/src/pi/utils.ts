@@ -1,7 +1,10 @@
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
-import type { SubagentInfo } from "@tangent/shared/contracts.ts";
+import {
+  connectorFields,
+  type SubagentInfo,
+} from "@tangent/shared/contracts.ts";
 
 import type {
   AgentDescriptor,
@@ -138,15 +141,22 @@ export function readDelta(
 
 /** Builds the descriptor that tags events with their producing agent. */
 export function toDescriptor(agent: AgentProcess): AgentDescriptor {
-  return { agentId: agent.agentId, role: agent.role, name: agent.name };
+  return {
+    agentId: agent.agentId,
+    role: agent.role,
+    name: agent.name,
+    homeConversationId: agent.homeConversationId,
+  };
 }
 
 /** Maps an internal process record to the roster shape exposed to the UI. */
 export function toSubagentInfo(agent: AgentProcess): SubagentInfo {
   return {
     id: agent.agentId,
+    conversationId: agent.homeConversationId,
     name: agent.name,
     status: agent.status,
+    ...connectorFields("pi-stdio"),
     ...(agent.template ? { template: agent.template } : {}),
     ...(agent.config.model ? { model: agent.config.model } : {}),
     ...(agent.config.thinkingDepth

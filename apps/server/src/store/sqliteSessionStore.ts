@@ -2,25 +2,33 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  AgentRole,
-  ChatMessage,
-  PinnedArtifact,
-  Session,
-  SessionConfigMeta,
-  SubagentHost,
-  UpdateSessionRequest,
-  UserIdentity,
+import {
+  type AgentRole,
+  capabilitiesForRole,
+  type ChatMessage,
+  type ConnectorDescriptor,
+  connectorFor,
+  type ConnectorKind,
+  type ConnectorLifecycle,
+  type PinnedArtifact,
+  type Session,
+  type SessionConfigMeta,
+  type SubagentHost,
+  type UpdateSessionRequest,
+  type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 import { and, asc, count, eq } from "drizzle-orm";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
 import {
   appendMessage as appendChatMessage,
+  highestSeq,
   readAllMessages,
+  readMessages,
 } from "./chatLog.ts";
 import type { Db } from "./db/client.ts";
 import {
+  conversations,
   type SessionAgentRow,
   sessionAgents,
   sessionAssets,
@@ -28,12 +36,18 @@ import {
   sessions,
   sessionViews,
 } from "./db/schema.ts";
-import type {
-  CreateSessionParams,
-  RecordAgentInput,
-  SessionAgent,
-  SessionAgentStatus,
-  SessionStore,
+import {
+  participantFromAgent,
+  type ParticipantStore,
+} from "./participantStore.ts";
+import type { ResourceStore } from "./resourceStore.ts";
+import {
+  connectorFromHost,
+  type CreateSessionParams,
+  type RecordAgentInput,
+  type SessionAgent,
+  type SessionAgentStatus,
+  type SessionStore,
 } from "./sessionStore.ts";
 
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
@@ -58,13 +72,52 @@ function toSession(row: SessionRow): Session {
   };
 }
 
-/** Maps a session_agents row onto the {@link SessionAgent} domain type. */
-function toAgent(row: SessionAgentRow): SessionAgent {
+/**
+ * Reads a row's connector facets, falling back to the legacy `host` label for
+ * rows written before the connector columns existed.
+ */
+function toConnector(row: SessionAgentRow): ConnectorDescriptor {
+  if (!row.connectorKind) return connectorFromHost(row.host as SubagentHost);
+  return {
+    ...connectorFor(row.connectorKind as ConnectorKind),
+    ...(row.connectorLifecycle
+      ? { lifecycle: row.connectorLifecycle as ConnectorLifecycle }
+      : {}),
+    ...(row.connectorEnvironmentId
+      ? { environmentId: row.connectorEnvironmentId }
+      : {}),
+    ...(row.connectorEndpointUrl
+      ? { endpointUrl: row.connectorEndpointUrl }
+      : {}),
+  };
+}
+
+/** The connector columns a record-agent input writes; omitted leaves them as is. */
+function connectorColumns(connector: ConnectorDescriptor | undefined) {
+  return {
+    connectorKind: connector?.kind,
+    connectorLifecycle: connector?.lifecycle,
+    connectorEnvironmentId: connector?.environmentId,
+    connectorEndpointUrl: connector?.endpointUrl,
+  };
+}
+
+/**
+ * Maps a session_agents row onto the {@link SessionAgent} domain type. The home
+ * Conversation is resolved from the `conversations` table by the caller and
+ * passed in (falling back to the agent's own id for a legacy row the mapping
+ * never covered).
+ */
+function toAgent(
+  row: SessionAgentRow,
+  homeConversationId: string,
+): SessionAgent {
   return {
     id: row.id,
     sessionId: row.sessionId,
     role: row.role as AgentRole,
     name: row.name,
+    capabilities: capabilitiesForRole(row.role as AgentRole),
     purpose: row.purpose ?? undefined,
     status: row.status as SessionAgentStatus,
     model: row.model ?? undefined,
@@ -74,6 +127,8 @@ function toAgent(row: SessionAgentRow): SessionAgent {
     systemPrompt: row.systemPrompt ?? undefined,
     autoRelayToPrime: row.autoRelayToPrime,
     host: row.host as SubagentHost,
+    connector: toConnector(row),
+    homeConversationId,
     createdAt: row.createdAt,
   };
 }
@@ -99,9 +154,28 @@ export class SqliteSessionStore implements SessionStore {
   /** Caches sessionId -> rootPath so `appendMessage` avoids a DB read per line. */
   private readonly rootPaths = new Map<string, string>();
   private readonly db: Db;
+  /**
+   * The participant projection this store dual-writes on every `recordAgent`, so
+   * a `participants` row tracks each roster row while `session_agents` stays the
+   * write authority. Optional so a bare store (e.g. a test) skips the mirror.
+   */
+  private readonly participants?: ParticipantStore;
+  /**
+   * The resource catalog a pinned artifact mirrors into, so an artifact is a
+   * catalogued, citable resource on the same path a peer's output takes. The
+   * `session_assets` table stays the write authority for the pin itself;
+   * optional so a bare store (e.g. a test) skips the mirror.
+   */
+  private readonly resources?: ResourceStore;
 
-  constructor(db: Db) {
+  constructor(
+    db: Db,
+    participants?: ParticipantStore,
+    resources?: ResourceStore,
+  ) {
     this.db = db;
+    this.participants = participants;
+    this.resources = resources;
   }
 
   async listSessions(): Promise<Session[]> {
@@ -235,6 +309,15 @@ export class SqliteSessionStore implements SessionStore {
     return readAllMessages(rootPath);
   }
 
+  async getConversationMessages(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<ChatMessage[]> {
+    const rootPath = await this.rootPathFor(sessionId);
+    if (!rootPath) return [];
+    return readMessages(rootPath, conversationId);
+  }
+
   async appendMessage(message: ChatMessage): Promise<void> {
     const rootPath = await this.rootPathFor(message.sessionId);
     if (!rootPath) {
@@ -244,6 +327,70 @@ export class SqliteSessionStore implements SessionStore {
       return;
     }
     await appendChatMessage(rootPath, message);
+  }
+
+  async nextSeq(sessionId: string, conversationId: string): Promise<number> {
+    await this.seedConversation(sessionId, conversationId);
+    // better-sqlite3 is synchronous, so read-then-increment inside one
+    // transaction is genuinely atomic: two concurrent writers get an order
+    // rather than the same number.
+    return this.db.transaction((tx) => {
+      const row = tx
+        .select({ nextSeq: conversations.nextSeq })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.sessionId, sessionId),
+            eq(conversations.id, conversationId),
+          ),
+        )
+        .get();
+      const allocated = row?.nextSeq ?? 1;
+      tx.update(conversations)
+        .set({ nextSeq: allocated + 1 })
+        .where(
+          and(
+            eq(conversations.sessionId, sessionId),
+            eq(conversations.id, conversationId),
+          ),
+        )
+        .run();
+      return allocated;
+    });
+  }
+
+  /**
+   * Creates a conversation's counter row on first use, starting above whatever
+   * its existing JSONL log occupies. Messages written before `seq` existed are
+   * numbered from their position on read, so seeding at 1 would hand out
+   * numbers a legacy transcript already uses.
+   */
+  private async seedConversation(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<void> {
+    const existing = this.db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.sessionId, sessionId),
+          eq(conversations.id, conversationId),
+        ),
+      )
+      .get();
+    if (existing) return;
+
+    const rootPath = await this.rootPathFor(sessionId);
+    const occupied = rootPath ? await highestSeq(rootPath, conversationId) : 0;
+    // A row seeded here (rather than by a mint) is a legacy conversation the
+    // migration never covered — its id is the agent's own id, so it owns itself.
+    this.insertConversation(
+      sessionId,
+      conversationId,
+      conversationId,
+      occupied + 1,
+    );
   }
 
   async getArtifacts(sessionId: string): Promise<PinnedArtifact[]> {
@@ -269,6 +416,14 @@ export class SqliteSessionStore implements SessionStore {
         set: { title: artifact.title },
       })
       .run();
+    // Mirror the pin into the resource catalog so an artifact is citable
+    // content; the pin row stays authoritative for the asset list.
+    await this.resources?.catalog({
+      sessionId,
+      kind: "artifact",
+      name: artifact.title,
+      uri: artifact.path,
+    });
     return this.readArtifacts(sessionId);
   }
 
@@ -285,6 +440,7 @@ export class SqliteSessionStore implements SessionStore {
         ),
       )
       .run();
+    await this.resources?.remove(sessionId, artifactPath);
     return this.readArtifacts(sessionId);
   }
 
@@ -312,6 +468,7 @@ export class SqliteSessionStore implements SessionStore {
         systemPrompt: agent.systemPrompt,
         autoRelayToPrime: agent.autoRelayToPrime,
         host: agent.host,
+        ...connectorColumns(agent.connector),
         createdAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
@@ -328,6 +485,7 @@ export class SqliteSessionStore implements SessionStore {
           systemPrompt: agent.systemPrompt,
           autoRelayToPrime: agent.autoRelayToPrime,
           host: agent.host,
+          ...connectorColumns(agent.connector),
         },
       })
       .run();
@@ -343,7 +501,116 @@ export class SqliteSessionStore implements SessionStore {
       )
       .get();
     // The row was just upserted, so it always exists here.
-    return toAgent(row as SessionAgentRow);
+    const homeConversationId = await this.ensureHomeConversation(
+      sessionId,
+      agent.id,
+      agent.homeConversationId,
+    );
+    const recorded = toAgent(row as SessionAgentRow, homeConversationId);
+    // Mirror it into the participant projection; the roster stays authoritative.
+    await this.participants?.put(participantFromAgent(recorded));
+    return recorded;
+  }
+
+  /**
+   * Resolves an agent's home Conversation, minting one when it has none. Lookup
+   * order: an existing owner row (`agent_id == agentId`) wins; a legacy row
+   * keyed by the agent's own id is adopted as its owner; a caller-supplied id (a
+   * spawner minting up front) is inserted; a legacy JSONL log already on disk
+   * keeps the agent's id so its transcript stays addressable; otherwise a fresh
+   * id is minted so a Conversation id stops naming an agent. Idempotent: a
+   * revive or re-record resolves the same id instead of minting a second.
+   */
+  private async ensureHomeConversation(
+    sessionId: string,
+    agentId: string,
+    provided: string | undefined,
+  ): Promise<string> {
+    const owned = this.db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.sessionId, sessionId),
+          eq(conversations.agentId, agentId),
+        ),
+      )
+      .get();
+    if (owned) return owned.id;
+
+    const legacyRow = this.db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.sessionId, sessionId),
+          eq(conversations.id, agentId),
+        ),
+      )
+      .get();
+    if (legacyRow) {
+      this.db
+        .update(conversations)
+        .set({ agentId })
+        .where(
+          and(
+            eq(conversations.sessionId, sessionId),
+            eq(conversations.id, agentId),
+          ),
+        )
+        .run();
+      return agentId;
+    }
+
+    if (provided) {
+      this.insertConversation(sessionId, provided, agentId, 1);
+      return provided;
+    }
+
+    const rootPath = await this.rootPathFor(sessionId);
+    const occupied = rootPath ? await highestSeq(rootPath, agentId) : 0;
+    if (occupied > 0) {
+      this.insertConversation(sessionId, agentId, agentId, occupied + 1);
+      return agentId;
+    }
+
+    const fresh = randomUUID();
+    this.insertConversation(sessionId, fresh, agentId, 1);
+    return fresh;
+  }
+
+  /** Inserts a conversation counter row that maps `agentId` to `id`. */
+  private insertConversation(
+    sessionId: string,
+    id: string,
+    agentId: string,
+    nextSeq: number,
+  ): void {
+    this.db
+      .insert(conversations)
+      .values({
+        id,
+        sessionId,
+        agentId,
+        nextSeq,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  /** Maps each agent to its home Conversation id for one session. */
+  private homeConversationMap(sessionId: string): Map<string, string> {
+    const rows = this.db
+      .select({ id: conversations.id, agentId: conversations.agentId })
+      .from(conversations)
+      .where(eq(conversations.sessionId, sessionId))
+      .all();
+    const byAgent = new Map<string, string>();
+    for (const row of rows) {
+      if (row.agentId) byAgent.set(row.agentId, row.id);
+    }
+    return byAgent;
   }
 
   async setAgentStatus(
@@ -370,7 +637,48 @@ export class SqliteSessionStore implements SessionStore {
       .where(eq(sessionAgents.sessionId, sessionId))
       .orderBy(asc(sessionAgents.createdAt))
       .all();
-    return rows.map(toAgent);
+    const homes = this.homeConversationMap(sessionId);
+    return rows.map((row) => toAgent(row, homes.get(row.id) ?? row.id));
+  }
+
+  async detachActiveSubagents(): Promise<number> {
+    const rows = this.db
+      .update(sessionAgents)
+      .set({ status: "detached" })
+      .where(
+        and(
+          eq(sessionAgents.role, "subagent"),
+          eq(sessionAgents.status, "active"),
+        ),
+      )
+      .returning({ id: sessionAgents.id })
+      .all();
+    return rows.length;
+  }
+
+  async listAgentsForEnvironment(
+    environmentId: string,
+  ): Promise<SessionAgent[]> {
+    const rows = this.db
+      .select()
+      .from(sessionAgents)
+      .where(
+        and(
+          eq(sessionAgents.role, "subagent"),
+          eq(sessionAgents.connectorEnvironmentId, environmentId),
+        ),
+      )
+      .orderBy(asc(sessionAgents.createdAt))
+      .all();
+    const homesBySession = new Map<string, Map<string, string>>();
+    return rows.map((row) => {
+      let homes = homesBySession.get(row.sessionId);
+      if (!homes) {
+        homes = this.homeConversationMap(row.sessionId);
+        homesBySession.set(row.sessionId, homes);
+      }
+      return toAgent(row, homes.get(row.id) ?? row.id);
+    });
   }
 
   async markViewed(

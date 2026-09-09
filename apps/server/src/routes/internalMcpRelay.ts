@@ -1,7 +1,7 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
-import { PUBLIC_URL } from "../config.ts";
+import { canIssueChannelUrl, channelUrl } from "../mcp/channelUrl.ts";
 import type { RelayRegistry } from "../mcp/relayRegistry.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
@@ -27,7 +27,7 @@ async function handleOpen(
   body: OpenInput,
   res: Response,
 ): Promise<void> {
-  if (!PUBLIC_URL) {
+  if (!canIssueChannelUrl()) {
     res.status(501).json({
       error:
         "TANGENT_PUBLIC_URL is not set. The external MCP client must dial an " +
@@ -48,7 +48,7 @@ async function handleOpen(
     sessionId: body.sessionId,
     label: body.label,
   });
-  const url = `${PUBLIC_URL}/api/mcp/${channelId}`;
+  const url = channelUrl(channelId);
   console.error(
     `[mcp-relay] opened channel ${channelId} for session ${body.sessionId} ` +
       `-> ${url}`,

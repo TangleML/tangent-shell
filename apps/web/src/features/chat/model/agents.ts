@@ -11,7 +11,11 @@ import {
  * status indicator reflects the agent's lifecycle.
  */
 export interface Agent {
-  /** Stable id; also the agent's `ChatAuthor.id` / conversation id. */
+  /**
+   * Stable id; the agent's `ChatAuthor.id`. No longer the conversation id — a
+   * thread is resolved to its Conversation through the roster (`conversationId`)
+   * / `conversationForAgent`, decoupled since 2.4.
+   */
   id: string;
   name: string;
   kind: "prime" | "subagent";

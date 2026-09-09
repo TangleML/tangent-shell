@@ -124,6 +124,18 @@ export const PI_THINKING = process.env.PI_THINKING ?? DEFAULT_THINKING_LEVEL;
 export const PI_DEBUG = !/^(0|false|no)$/i.test(process.env.PI_DEBUG ?? "");
 
 /**
+ * When enabled (the default), a Message is delivered to a room per Conversation
+ * rather than one room per session: a socket joins only the Conversation rooms
+ * its Participant is authorized for, so who receives a Message is a server-side
+ * decision derived from Membership rather than a client-side render filter. Set
+ * `ROOM_PER_CONVERSATION=0/false/no` to fall back to the session-scoped room —
+ * a rollback for this PR only; a later cleanup removes the flag.
+ */
+export const ROOM_PER_CONVERSATION = !/^(0|false|no)$/i.test(
+  process.env.ROOM_PER_CONVERSATION ?? "",
+);
+
+/**
  * Base URL the orchestrator extension (running inside each Pi process) uses to
  * reach this server's internal agent API. Defaults to loopback on {@link PORT}.
  */
@@ -157,6 +169,13 @@ export const PUBLIC_URL = (process.env.TANGENT_PUBLIC_URL ?? "").replace(
  * stray connection can never drive a session's agents.
  */
 export const REMOTE_ENV_TOKEN = process.env.REMOTE_ENV_TOKEN ?? "";
+
+/**
+ * Secret Tangent presents (as a bearer token) to an attached A2A agent. Unlike
+ * the other connector secrets this one travels outbound, so an empty value is
+ * not a lockout: a peer that asks for no credential is still reachable.
+ */
+export const A2A_TOKEN = process.env.A2A_TOKEN ?? "";
 
 /**
  * Name of the cookie holding the Oktasso JWT that `GET /api/me` reads to resolve

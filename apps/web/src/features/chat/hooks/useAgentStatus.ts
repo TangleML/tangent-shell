@@ -9,6 +9,7 @@ import {
 
 const LIFECYCLE_LABELS: Record<SubagentStatus, string> = {
   active: "Ready",
+  detached: "Disconnected",
   completed: "Completed",
   killed: "Killed",
   error: "Error",

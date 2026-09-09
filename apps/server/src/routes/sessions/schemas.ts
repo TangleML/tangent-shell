@@ -20,6 +20,17 @@ export const sessionParamsSchema = z.object({
 });
 export type SessionParams = z.infer<typeof sessionParamsSchema>;
 
+/**
+ * Optional query for `GET /:id/resources`. When both a Conversation and a
+ * Participant are named, the catalog is filtered by the per-Membership grants
+ * (default-permissive); absent, the whole session catalog is returned.
+ */
+export const listResourcesQuerySchema = z.object({
+  conversationId: z.string().optional(),
+  participantId: z.string().optional(),
+});
+export type ListResourcesQuery = z.infer<typeof listResourcesQuerySchema>;
+
 const triggerScheduleSchema = z.object({
   every: z.string().optional(),
   cron: z.string().optional(),
@@ -75,3 +86,41 @@ export const callbackParamsSchema = z.object({
   secret: z.string(),
 });
 export type CallbackParams = z.infer<typeof callbackParamsSchema>;
+
+/**
+ * Invite-participant body. The email is the person's server-resolved id, so it
+ * matches the id their connected socket already authors under.
+ */
+export const inviteParticipantSchema = z.object({
+  email: z.string().email(),
+  displayName: z.string().optional(),
+  conversationIds: z.array(z.string()).optional(),
+});
+export type InviteParticipantInput = z.infer<typeof inviteParticipantSchema>;
+
+/** `:id/:participantId` route params for participant management. */
+export const participantParamsSchema = z.object({
+  id: z.string(),
+  participantId: z.string(),
+});
+export type ParticipantParams = z.infer<typeof participantParamsSchema>;
+
+/** Join-membership body: the Conversation to grant Membership in. */
+export const joinMembershipSchema = z.object({
+  conversationId: z.string().min(1),
+});
+export type JoinMembershipInput = z.infer<typeof joinMembershipSchema>;
+
+/** `:id/:participantId/memberships/:conversationId` route params. */
+export const membershipParamsSchema = z.object({
+  id: z.string(),
+  participantId: z.string(),
+  conversationId: z.string(),
+});
+export type MembershipParams = z.infer<typeof membershipParamsSchema>;
+
+/** Mute/unmute body. */
+export const muteMembershipSchema = z.object({
+  muted: z.boolean(),
+});
+export type MuteMembershipInput = z.infer<typeof muteMembershipSchema>;

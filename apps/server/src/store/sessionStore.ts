@@ -1,20 +1,45 @@
-import type {
-  AgentRole,
-  ChatMessage,
-  PinnedArtifact,
-  Session,
-  SessionConfigMeta,
-  SubagentHost,
-  UpdateSessionRequest,
-  UserIdentity,
+import {
+  type AgentRole,
+  type Capability,
+  type ChatMessage,
+  type ConnectorDescriptor,
+  connectorFor,
+  type ConnectorKind,
+  type PinnedArtifact,
+  type Session,
+  type SessionConfigMeta,
+  type SubagentHost,
+  type SubagentStatus,
+  type UpdateSessionRequest,
+  type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
 /**
- * Persisted lifecycle status of a session agent. `error` is distinct so the
- * sessions list can flag "needs attention"; completions and kills both collapse
- * to `killed`, and only `active` agents are revived on restart.
+ * Persisted lifecycle status of a session agent — the same set as the wire
+ * {@link SubagentStatus}, deliberately. Nothing is collapsed on the way to the
+ * database any more: "finished its task" and "was terminated" are different
+ * facts, and discarding one of them at every restart is what made a
+ * participant's lifecycle unreadable as history.
  */
-export type SessionAgentStatus = "active" | "killed" | "error";
+export type SessionAgentStatus = SubagentStatus;
+
+/** The connector kind each legacy `host` label stood for. */
+const CONNECTOR_KIND_BY_HOST: Record<SubagentHost, ConnectorKind> = {
+  local: "pi-stdio",
+  remote: "remote-env",
+  external: "external-inbound",
+};
+
+/**
+ * The connector a roster row's legacy `host` label describes. Used for rows
+ * written before the connector columns existed, and as the default for a row
+ * recorded without a descriptor.
+ */
+export function connectorFromHost(
+  host: SubagentHost | undefined,
+): ConnectorDescriptor {
+  return connectorFor(host ? CONNECTOR_KIND_BY_HOST[host] : "pi-stdio");
+}
 
 /**
  * Input accepted by {@link SessionStore.createSession}: the public wire request
@@ -37,6 +62,12 @@ export interface SessionAgent {
   sessionId: string;
   role: AgentRole;
   name: string;
+  /**
+   * The capabilities this participant holds, derived from `role`. Prime carries
+   * `orchestrator`; a sub-agent carries none. Authority reads this rather than
+   * comparing the id to a reserved constant.
+   */
+  capabilities: Capability[];
   /** The agent's task/description, when known. */
   purpose?: string;
   status: SessionAgentStatus;
@@ -51,12 +82,22 @@ export interface SessionAgent {
   /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
   autoRelayToPrime?: boolean;
   /**
-   * Which host runs the sub-agent: `local` (a `pi` child), `remote` (a
-   * connected remote environment), or `external` (a tab driven by a bundle
-   * tool). Defaults to `local` on legacy rows; only `local` sub-agents are
-   * revived after a restart.
+   * Which host runs the sub-agent: `local` (a `pi` child) or `remote` (a
+   * connected remote environment). Defaults to `local` on legacy rows.
+   *
+   * @deprecated Read {@link SessionAgent.connector} instead.
    */
   host?: SubagentHost;
+  /** The connector that runs the agent; derived from `host` on legacy rows. */
+  connector: ConnectorDescriptor;
+  /**
+   * The Conversation this agent posts into as its home thread. A fresh id for an
+   * agent created after 2.4 (so a Conversation id no longer names an agent); the
+   * agent's own id for a legacy row, whose JSONL log is named that way and stays
+   * valid because the `conversations` table maps it. Resolved from that table on
+   * read, falling back to {@link SessionAgent.id}.
+   */
+  homeConversationId: string;
   createdAt: string;
 }
 
@@ -79,6 +120,15 @@ export interface RecordAgentInput {
   autoRelayToPrime?: boolean;
   /** Which host runs the sub-agent (`local` default, `remote`, or `external`). */
   host?: SubagentHost;
+  /** The connector running the agent; omitted leaves the stored one in place. */
+  connector?: ConnectorDescriptor;
+  /**
+   * The Conversation id to mint for this agent's home thread. Supplied by a
+   * spawner that mints the id up front (so its roster update and the subscribe
+   * that follows carry it); omitted for Prime and legacy revives, where the
+   * store resolves-or-mints the mapping itself.
+   */
+  homeConversationId?: string;
 }
 
 /**
@@ -105,7 +155,24 @@ export interface SessionStore {
   deleteSession(id: string): Promise<boolean>;
 
   getMessages(sessionId: string): Promise<ChatMessage[]>;
+  /**
+   * One Conversation's messages, in `seq` order. The per-Conversation read the
+   * room-per-Conversation transport uses to seed a single thread's history on
+   * subscribe, rather than merging the whole session's transcript.
+   */
+  getConversationMessages(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<ChatMessage[]>;
   appendMessage(message: ChatMessage): Promise<void>;
+  /**
+   * Allocates the next `seq` in a Conversation. The single allocator: {@link
+   * appendMessage} persists whatever it is handed, and `ChatMessage.seq` is
+   * required, so no writer can skip this. Monotonic but not gap-free — a
+   * streamed turn reserves its `seq` before its content exists, and a stream
+   * that fails leaves the number spent.
+   */
+  nextSeq(sessionId: string, conversationId: string): Promise<number>;
 
   /** Returns the session's pinned artifacts, oldest first. */
   getArtifacts(sessionId: string): Promise<PinnedArtifact[]>;
@@ -136,6 +203,21 @@ export interface SessionStore {
   ): Promise<void>;
   /** Lists a session's agents (Prime first), oldest first. */
   listAgents(sessionId: string): Promise<SessionAgent[]>;
+  /**
+   * Marks every `active` sub-agent row `detached`, returning how many changed.
+   * Run once at boot: no process outlives the server, so such a row is a claim
+   * about a participant that no longer exists. Terminal rows are history and
+   * Prime rows belong to {@link
+   * import("../pi/piAgentManager.ts").PiAgentManager.ensure}, so both are left
+   * alone.
+   */
+  detachActiveSubagents(): Promise<number>;
+  /**
+   * Every sub-agent row hosted by one remote environment, across sessions, so a
+   * reconnecting environment can have its roster replayed. Rows written before
+   * the connector columns existed carry no environment id and never match.
+   */
+  listAgentsForEnvironment(environmentId: string): Promise<SessionAgent[]>;
 
   /** Records that `userKey` viewed `sessionId` at `at` (ISO-8601), upserting. */
   markViewed(sessionId: string, userKey: string, at: string): Promise<void>;

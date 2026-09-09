@@ -2,21 +2,29 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  ChatMessage,
-  PinnedArtifact,
-  Session,
-  SessionConfigMeta,
-  UpdateSessionRequest,
+import {
+  capabilitiesForRole,
+  type ChatMessage,
+  type ConnectorDescriptor,
+  type PinnedArtifact,
+  type Session,
+  type SessionConfigMeta,
+  type UpdateSessionRequest,
 } from "@tangent/shared/contracts.ts";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
-import type {
-  CreateSessionParams,
-  RecordAgentInput,
-  SessionAgent,
-  SessionAgentStatus,
-  SessionStore,
+import {
+  participantFromAgent,
+  type ParticipantStore,
+} from "./participantStore.ts";
+import type { ResourceStore } from "./resourceStore.ts";
+import {
+  connectorFromHost,
+  type CreateSessionParams,
+  type RecordAgentInput,
+  type SessionAgent,
+  type SessionAgentStatus,
+  type SessionStore,
 } from "./sessionStore.ts";
 
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
@@ -35,6 +43,14 @@ function definedAgentFields(
   return out;
 }
 
+/** The connector to store: explicit, else the prior one, else derived from `host`. */
+function mergeConnector(
+  agent: RecordAgentInput,
+  prior: SessionAgent | undefined,
+): ConnectorDescriptor {
+  return agent.connector ?? prior?.connector ?? connectorFromHost(agent.host);
+}
+
 /**
  * Builds the next stored agent. Mirrors the SQLite store's upsert semantics:
  * an omitted (undefined) field leaves the prior value untouched, so a partial
@@ -44,7 +60,7 @@ function mergeAgent(
   sessionId: string,
   agent: RecordAgentInput,
   prior: SessionAgent | undefined,
-): SessionAgent {
+): Omit<SessionAgent, "homeConversationId"> {
   return {
     ...prior,
     ...definedAgentFields(agent),
@@ -52,7 +68,9 @@ function mergeAgent(
     sessionId,
     role: agent.role,
     name: agent.name,
+    capabilities: capabilitiesForRole(agent.role),
     status: agent.status ?? prior?.status ?? "active",
+    connector: mergeConnector(agent, prior),
     createdAt: prior?.createdAt ?? new Date().toISOString(),
   };
 }
@@ -63,6 +81,19 @@ export class InMemorySessionStore implements SessionStore {
   private readonly artifacts = new Map<string, PinnedArtifact[]>();
   private readonly agents = new Map<string, SessionAgent[]>();
   private readonly views = new Map<string, Map<string, string>>();
+  /** Per-conversation `seq` counters, keyed `sessionId/conversationId`. */
+  private readonly seqs = new Map<string, number>();
+  /** Agent → home Conversation id, keyed by session; mirrors `conversations`. */
+  private readonly homeConversations = new Map<string, Map<string, string>>();
+  /** Mirrors each recorded roster row, matching the SQLite store's dual-write. */
+  private readonly participants?: ParticipantStore;
+  /** Mirrors each pinned artifact into the resource catalog, when present. */
+  private readonly resources?: ResourceStore;
+
+  constructor(participants?: ParticipantStore, resources?: ResourceStore) {
+    this.participants = participants;
+    this.resources = resources;
+  }
 
   async listSessions(): Promise<Session[]> {
     return [...this.sessions.values()].sort((a, b) =>
@@ -141,13 +172,26 @@ export class InMemorySessionStore implements SessionStore {
 
   async deleteSession(id: string): Promise<boolean> {
     this.messages.delete(id);
+    for (const key of this.seqs.keys()) {
+      if (key.startsWith(`${id}/`)) this.seqs.delete(key);
+    }
     this.artifacts.delete(id);
     this.agents.delete(id);
+    this.homeConversations.delete(id);
     return this.sessions.delete(id);
   }
 
   async getMessages(sessionId: string): Promise<ChatMessage[]> {
     return this.messages.get(sessionId) ?? [];
+  }
+
+  async getConversationMessages(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<ChatMessage[]> {
+    return (this.messages.get(sessionId) ?? [])
+      .filter((message) => message.conversationId === conversationId)
+      .sort((a, b) => a.seq - b.seq || a.id.localeCompare(b.id));
   }
 
   async appendMessage(message: ChatMessage): Promise<void> {
@@ -157,6 +201,22 @@ export class InMemorySessionStore implements SessionStore {
     } else {
       this.messages.set(message.sessionId, [message]);
     }
+  }
+
+  async nextSeq(sessionId: string, conversationId: string): Promise<number> {
+    const key = `${sessionId}/${conversationId}`;
+    const allocated = this.seqs.get(key) ?? this.seedSeq(sessionId, key);
+    this.seqs.set(key, allocated + 1);
+    return allocated;
+  }
+
+  /** Seeds a counter above whatever the in-memory transcript already holds. */
+  private seedSeq(sessionId: string, key: string): number {
+    const conversationId = key.slice(sessionId.length + 1);
+    const held = (this.messages.get(sessionId) ?? []).filter(
+      (message) => message.conversationId === conversationId,
+    );
+    return Math.max(0, ...held.map((message) => message.seq)) + 1;
   }
 
   async getArtifacts(sessionId: string): Promise<PinnedArtifact[]> {
@@ -180,6 +240,12 @@ export class InMemorySessionStore implements SessionStore {
       ? existing.map((a) => (a.path === artifact.path ? next : a))
       : [...existing, next];
     this.artifacts.set(sessionId, updated);
+    await this.resources?.catalog({
+      sessionId,
+      kind: "artifact",
+      name: artifact.title,
+      uri: artifact.path,
+    });
     return updated;
   }
 
@@ -190,6 +256,7 @@ export class InMemorySessionStore implements SessionStore {
     const existing = this.artifacts.get(sessionId) ?? [];
     const updated = existing.filter((a) => a.path !== path);
     this.artifacts.set(sessionId, updated);
+    await this.resources?.remove(sessionId, path);
     return updated;
   }
 
@@ -199,12 +266,41 @@ export class InMemorySessionStore implements SessionStore {
   ): Promise<SessionAgent> {
     const existing = this.agents.get(sessionId) ?? [];
     const prior = existing.find((a) => a.id === agent.id);
-    const next = mergeAgent(sessionId, agent, prior);
+    const homeConversationId = this.ensureHomeConversation(
+      sessionId,
+      agent.id,
+      prior?.homeConversationId ?? agent.homeConversationId,
+    );
+    const next = { ...mergeAgent(sessionId, agent, prior), homeConversationId };
     const updated = prior
       ? existing.map((a) => (a.id === agent.id ? next : a))
       : [...existing, next];
     this.agents.set(sessionId, updated);
+    await this.participants?.put(participantFromAgent(next));
     return next;
+  }
+
+  /**
+   * Resolves an agent's home Conversation, minting one when it has none. A
+   * caller-supplied id (a spawner minting up front) wins; a legacy agent whose
+   * transcript is already keyed by its own id keeps that id; anything else gets
+   * a fresh one so a Conversation id stops naming an agent.
+   */
+  private ensureHomeConversation(
+    sessionId: string,
+    agentId: string,
+    provided: string | undefined,
+  ): string {
+    const map = this.homeConversations.get(sessionId) ?? new Map();
+    const existing = map.get(agentId);
+    if (existing) return existing;
+
+    const held = this.messages.get(sessionId) ?? [];
+    const legacy = held.some((message) => message.conversationId === agentId);
+    const resolved = provided ?? (legacy ? agentId : randomUUID());
+    map.set(agentId, resolved);
+    this.homeConversations.set(sessionId, map);
+    return resolved;
   }
 
   async setAgentStatus(
@@ -222,6 +318,29 @@ export class InMemorySessionStore implements SessionStore {
 
   async listAgents(sessionId: string): Promise<SessionAgent[]> {
     return this.agents.get(sessionId) ?? [];
+  }
+
+  async detachActiveSubagents(): Promise<number> {
+    let detached = 0;
+    for (const [sessionId, agents] of this.agents) {
+      const next = agents.map((agent) => {
+        if (agent.role !== "subagent" || agent.status !== "active")
+          return agent;
+        detached += 1;
+        return { ...agent, status: "detached" as const };
+      });
+      this.agents.set(sessionId, next);
+    }
+    return detached;
+  }
+
+  async listAgentsForEnvironment(
+    environmentId: string,
+  ): Promise<SessionAgent[]> {
+    return [...this.agents.values()]
+      .flat()
+      .filter((agent) => agent.role === "subagent")
+      .filter((agent) => agent.connector.environmentId === environmentId);
   }
 
   async markViewed(

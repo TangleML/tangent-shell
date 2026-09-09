@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
-import type { UiCommandEmitter } from "../sockets/chat.ts";
+import type { UiCommandEmitter } from "../sockets/sessionRoster.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { loadSession } from "./sessions/utils.ts";
 

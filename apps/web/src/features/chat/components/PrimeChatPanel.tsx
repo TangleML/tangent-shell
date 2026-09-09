@@ -12,6 +12,7 @@ import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
 import type { Asset } from "@/features/chat/model/assets";
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { ActiveTasksIndicator } from "./composer/ActiveTasksIndicator";
@@ -32,6 +33,8 @@ type SendFn = (
 
 interface PrimeChatPanelProps {
   sessionId: string;
+  /** The orchestrator's home Conversation this panel sends/aborts against. */
+  primaryConversationId: string;
   messages: ChatMessage[];
   currentAuthorId: string;
   bundleId?: string;
@@ -43,7 +46,7 @@ interface PrimeChatPanelProps {
   memorySuggestions: MemorySuggestionPayload[];
   confirmMemory: (suggestionId: string) => void;
   dismissMemory: (suggestionId: string) => void;
-  busySubagents: { id: string; name: string }[];
+  busySubagents: { id: string; name: string; conversationId: string }[];
   armedTriggers: Trigger[];
   subagents: SubagentInfo[];
   assets: Asset[];
@@ -56,10 +59,12 @@ interface PrimeChatPanelProps {
   openArtifactTab: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
   togglePinArtifact: (path: string, title: string) => void;
+  mentionCandidates: MentionCandidate[];
 }
 
 export function PrimeChatPanel({
   sessionId,
+  primaryConversationId,
   messages,
   currentAuthorId,
   bundleId,
@@ -84,6 +89,7 @@ export function PrimeChatPanel({
   openArtifactTab,
   pinnedPaths,
   togglePinArtifact,
+  mentionCandidates,
 }: PrimeChatPanelProps) {
   return (
     <BlockStack grow>
@@ -91,7 +97,10 @@ export function PrimeChatPanel({
         sessionId={sessionId}
         messages={messages}
         currentAuthorId={currentAuthorId}
+        primaryConversationId={primaryConversationId}
         activity={activity}
+        activityAuthorName={PI_AGENT.name}
+        activityAuthorRole="prime"
         historyLoaded={historyLoaded}
         bundleId={bundleId}
         onSendPrompt={send}
@@ -136,10 +145,11 @@ export function PrimeChatPanel({
         agentId={PI_AGENT.id}
         disabled={!connected}
         agentBusy={agentBusy}
-        onAbort={() => abort(PI_AGENT.id)}
+        mentionCandidates={mentionCandidates}
+        onAbort={() => abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) =>
           send(content, {
-            conversationId: PI_AGENT.id,
+            conversationId: primaryConversationId,
             delivery,
             attachments,
           })
@@ -151,7 +161,7 @@ export function PrimeChatPanel({
 
 interface PrimeComposerFooterProps {
   sessionId: string;
-  busySubagents: { id: string; name: string }[];
+  busySubagents: { id: string; name: string; conversationId: string }[];
   armedTriggers: Trigger[];
   subagents: SubagentInfo[];
   assets: Asset[];

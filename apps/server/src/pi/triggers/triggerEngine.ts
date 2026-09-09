@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
-
 import type { BundleTrigger } from "@tangent/shared/configBundle.ts";
 import type {
   ChatAuthor,
-  ChatMessage,
+  RunIngress,
   Trigger,
   TriggerRosterPayload,
   TriggerTarget,
@@ -13,9 +11,17 @@ import { SocketEvents, TRIGGER_AUTHOR } from "@tangent/shared/contracts.ts";
 import { Cron } from "croner";
 import type { Server } from "socket.io";
 
+import type { ConversationRouter } from "../../conversation/conversationRouter.ts";
+import {
+  homeConversationFor,
+  orchestratorConversationFor,
+  orchestratorIdFor,
+} from "../../conversation/participantRegistry.ts";
+import type { ParticipantService } from "../../conversation/participantService.ts";
+import { roomFor } from "../../sockets/rooms.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SubagentSpawnRequest } from "../agentConfig.ts";
-import { type PiAgentManager, PRIME_AGENT_ID } from "../piAgentManager.ts";
+import type { PiAgentManager } from "../piAgentManager.ts";
 import { resolveTriggerPrompt } from "./handlerRunner.ts";
 import type { StoredTrigger, TriggerManager } from "./triggerManager.ts";
 
@@ -27,13 +33,14 @@ interface ScheduleHandle {
   stop: () => void;
 }
 
-function roomFor(sessionId: string): string {
-  return `session:${sessionId}`;
-}
-
 /** Author attributed to a trigger's delivered prompt (labelled by the trigger). */
 function triggerAuthor(stored: StoredTrigger): ChatAuthor {
   return { ...TRIGGER_AUTHOR, name: stored.title ?? stored.name };
+}
+
+/** What a firing counts as when it opens a Run: the trigger's own signal. */
+function ingressFor(stored: StoredTrigger): RunIngress {
+  return stored.kind === "schedule" ? "schedule" : "webhook";
 }
 
 /** Builds the spawn request that revives a `subagent`-target trigger's sub-agent. */
@@ -72,10 +79,9 @@ function parseEvery(every: string | undefined): number | undefined {
 
 /**
  * Drives triggers at runtime: arms schedule timers, runs the signal-to-prompt
- * transform, and delivers the result to Prime exactly like a user chat turn
- * (persist + broadcast + `pi.prompt`). One instance is shared across sessions;
- * per-session schedule handles are tracked here while definitions live in the
- * {@link TriggerManager}.
+ * transform, and posts the result into its target's Conversation exactly like a
+ * user chat turn. One instance is shared across sessions; per-session schedule
+ * handles are tracked here while definitions live in the {@link TriggerManager}.
  */
 export class TriggerEngine {
   private readonly timers = new Map<string, Map<string, ScheduleHandle>>();
@@ -83,17 +89,23 @@ export class TriggerEngine {
   private readonly store: SessionStore;
   private readonly pi: PiAgentManager;
   private readonly triggers: TriggerManager;
+  private readonly conversations: ConversationRouter;
+  private readonly participants: ParticipantService | undefined;
 
   constructor(
     io: Server,
     store: SessionStore,
     pi: PiAgentManager,
     triggers: TriggerManager,
+    conversations: ConversationRouter,
+    participants?: ParticipantService,
   ) {
     this.io = io;
     this.store = store;
     this.pi = pi;
     this.triggers = triggers;
+    this.conversations = conversations;
+    this.participants = participants;
   }
 
   /** Seeds a bundle's triggers into a new session and arms its schedules. */
@@ -212,7 +224,7 @@ export class TriggerEngine {
     const prompt = await resolveTriggerPrompt(rootPath, stored, signal);
 
     if (stored.target.type === "subagent") {
-      this.deliverToSubagent(sessionId, rootPath, stored, prompt);
+      await this.deliverToSubagent(sessionId, rootPath, stored, prompt);
     } else {
       await this.deliverToPrime(sessionId, rootPath, stored, prompt);
     }
@@ -226,9 +238,9 @@ export class TriggerEngine {
   }
 
   /**
-   * Delivers a firing to Prime (the legacy, discouraged path): surfaces it in
-   * Prime's thread and relays it to Prime — spawning Prime if needed, exactly as
-   * a user message would.
+   * Delivers a firing to Prime (the legacy, discouraged path): posts it into
+   * Prime's Conversation addressed to Prime — spawning Prime first if needed,
+   * since a cold session has nothing to wake.
    */
   private async deliverToPrime(
     sessionId: string,
@@ -236,33 +248,77 @@ export class TriggerEngine {
     stored: StoredTrigger,
     prompt: string,
   ): Promise<void> {
-    const message: ChatMessage = {
-      id: randomUUID(),
+    const orchestratorId = await orchestratorIdFor(this.store, sessionId);
+    const primaryConversationId = await orchestratorConversationFor(
+      this.store,
       sessionId,
-      conversationId: PRIME_AGENT_ID,
+    );
+    this.pi.ensure(
+      sessionId,
+      rootPath,
+      undefined,
+      undefined,
+      undefined,
+      primaryConversationId,
+    );
+    await this.ensureTriggerParticipant(sessionId, stored);
+    await this.conversations.post({
+      sessionId,
+      conversationId: primaryConversationId,
       author: triggerAuthor(stored),
       content: prompt,
-      createdAt: new Date().toISOString(),
-    };
-    await this.store.appendMessage(message);
-    this.io.to(roomFor(sessionId)).emit(SocketEvents.ChatMessage, message);
-    this.pi.prompt(sessionId, rootPath, prompt);
+      mentions: [orchestratorId],
+      ingress: ingressFor(stored),
+    });
   }
 
   /**
    * Delivers a firing to the trigger's dedicated sub-agent: revives it from the
-   * stored spec if it died (or after a restart), then surfaces the prompt in its
-   * thread and prompts it. The sub-agent reacts in isolation — its replies are
-   * not auto-relayed to Prime, though it may reach Prime via `message_prime`.
+   * stored spec if it died (or after a restart), then posts the prompt into its
+   * Conversation addressed to it. The sub-agent works in isolation — Prime does
+   * not react to its replies, though it may reach Prime by addressing it.
    */
-  private deliverToSubagent(
+  private async deliverToSubagent(
     sessionId: string,
     rootPath: string,
     stored: StoredTrigger,
     prompt: string,
-  ): void {
+  ): Promise<void> {
+    this.pi.ensure(
+      sessionId,
+      rootPath,
+      undefined,
+      undefined,
+      undefined,
+      await orchestratorConversationFor(this.store, sessionId),
+    );
     const { agentId } = this.ensureSubagent(sessionId, rootPath, stored);
-    this.pi.sendToAgent(sessionId, agentId, prompt, triggerAuthor(stored));
+    await this.ensureTriggerParticipant(sessionId, stored);
+    await this.conversations.post({
+      sessionId,
+      conversationId: await homeConversationFor(this.store, sessionId, agentId),
+      author: triggerAuthor(stored),
+      content: prompt,
+      mentions: [agentId],
+      ingress: ingressFor(stored),
+    });
+  }
+
+  /**
+   * Materializes the trigger Automation Participant once per session, so the
+   * actor behind a firing is a real, listable row. The delivered Message still
+   * carries the TRIGGER_AUTHOR label (its title-specific name).
+   */
+  private async ensureTriggerParticipant(
+    sessionId: string,
+    stored: StoredTrigger,
+  ): Promise<void> {
+    await this.participants?.ensureAutomation(
+      sessionId,
+      TRIGGER_AUTHOR.id,
+      TRIGGER_AUTHOR.name,
+      ingressFor(stored),
+    );
   }
 
   /**
@@ -307,7 +363,6 @@ export class TriggerEngine {
       id: info.id,
       role: "subagent",
       name: info.name,
-      purpose: request.task,
       status: "active",
       model: info.model,
       thinkingDepth: info.thinkingDepth,
