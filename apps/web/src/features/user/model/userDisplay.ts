@@ -6,7 +6,7 @@ import type { UserIdentity } from "@tangent/shared/contracts";
  * show.
  */
 export const DEFAULT_USER: UserIdentity = {
-  email: "",
+  email: "maxim.ezhov@shopify.com",
   first_name: "John",
   last_name: "Smith",
 };

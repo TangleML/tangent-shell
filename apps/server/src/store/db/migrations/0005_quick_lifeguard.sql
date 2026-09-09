@@ -1,0 +1,1 @@
+ALTER TABLE `session_agents` ADD `host` text DEFAULT 'local' NOT NULL;
