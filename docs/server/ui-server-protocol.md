@@ -30,30 +30,30 @@ implemented under [server/src/routes/](../../server/src/routes).
 
 ### Sessions — [routes/sessions/index.ts](../../apps/server/src/routes/sessions/index.ts)
 
-| Method + path                                                 | Purpose                                                                                                        |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `GET /api/sessions`                                           | List sessions (sorted by `createdAt`).                                                                         |
-| `POST /api/sessions`                                          | Create a session. Plain JSON, or a multipart `config` ZIP, or `{ bundleId }` referencing a marketplace bundle. |
-| `GET /api/sessions/:id`                                       | Fetch one session.                                                                                             |
-| `PATCH /api/sessions/:id`                                     | Rename a session.                                                                                              |
-| `DELETE /api/sessions/:id`                                    | Delete a session; disposes its `pi` processes and triggers.                                                    |
-| `POST /api/sessions/:id/viewed`                               | Record that the current user opened the session.                                                              |
-| `POST /api/sessions/:id/files`                                | Upload chat attachments into the session's `uploads/`.                                                         |
-| `GET /api/sessions/:id/triggers`                              | List the session's triggers.                                                                                   |
-| `POST /api/sessions/:id/triggers`                             | Create a runtime trigger.                                                                                      |
-| `PATCH /api/sessions/:id/triggers/:triggerId`                 | Update a mutable trigger field.                                                                                |
-| `DELETE /api/sessions/:id/triggers/:triggerId`                | Delete a trigger.                                                                                              |
-| `POST /api/sessions/:id/triggers/:triggerId/callback/:secret` | Public, secret-guarded inbound callback that fires a callback trigger.                                         |
-| `GET /api/sessions/:id/participants`                          | List every Participant with its Memberships (roster + presence).                                              |
-| `POST /api/sessions/:id/participants`                         | Invite a Participant (e.g. a human) into the session.                                                         |
-| `DELETE /api/sessions/:id/participants/:participantId`        | Revoke a Participant (the row is kept so past attributions still resolve).                                    |
-| `POST /api/sessions/:id/participants/:participantId/memberships` | Join a Participant to a Conversation.                                                                       |
-| `DELETE /api/sessions/:id/participants/:participantId/memberships/:conversationId` | Leave a Conversation.                                                     |
-| `PATCH /api/sessions/:id/participants/:participantId/memberships/:conversationId` | Mute/unmute a membership (mute = reaction `never`).                        |
-| `GET /api/sessions/:id/resources`                            | List the resource catalog (optionally scoped to `?conversationId=&participantId=`).                            |
-| `POST /api/sessions/:id/resources`                           | Catalog a host resource (a workspace file, etc.).                                                             |
-| `DELETE /api/sessions/:id/resources`                         | Remove a catalog entry.                                                                                       |
-| `GET /api/sessions/:id/files/*splat`                          | Serve a file from the session's `artifacts/` or `uploads/` subtree (path-traversal guarded).                   |
+| Method + path                                                                      | Purpose                                                                                                        |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET /api/sessions`                                                                | List sessions (sorted by `createdAt`).                                                                         |
+| `POST /api/sessions`                                                               | Create a session. Plain JSON, or a multipart `config` ZIP, or `{ bundleId }` referencing a marketplace bundle. |
+| `GET /api/sessions/:id`                                                            | Fetch one session.                                                                                             |
+| `PATCH /api/sessions/:id`                                                          | Rename a session.                                                                                              |
+| `DELETE /api/sessions/:id`                                                         | Delete a session; disposes its `pi` processes and triggers.                                                    |
+| `POST /api/sessions/:id/viewed`                                                    | Record that the current user opened the session.                                                               |
+| `POST /api/sessions/:id/files`                                                     | Upload chat attachments into the session's `uploads/`.                                                         |
+| `GET /api/sessions/:id/triggers`                                                   | List the session's triggers.                                                                                   |
+| `POST /api/sessions/:id/triggers`                                                  | Create a runtime trigger.                                                                                      |
+| `PATCH /api/sessions/:id/triggers/:triggerId`                                      | Update a mutable trigger field.                                                                                |
+| `DELETE /api/sessions/:id/triggers/:triggerId`                                     | Delete a trigger.                                                                                              |
+| `POST /api/sessions/:id/triggers/:triggerId/callback/:secret`                      | Public, secret-guarded inbound callback that fires a callback trigger.                                         |
+| `GET /api/sessions/:id/participants`                                               | List every Participant with its Memberships (roster + presence).                                               |
+| `POST /api/sessions/:id/participants`                                              | Invite a Participant (e.g. a human) into the session.                                                          |
+| `DELETE /api/sessions/:id/participants/:participantId`                             | Revoke a Participant (the row is kept so past attributions still resolve).                                     |
+| `POST /api/sessions/:id/participants/:participantId/memberships`                   | Join a Participant to a Conversation.                                                                          |
+| `DELETE /api/sessions/:id/participants/:participantId/memberships/:conversationId` | Leave a Conversation.                                                                                          |
+| `PATCH /api/sessions/:id/participants/:participantId/memberships/:conversationId`  | Mute/unmute a membership (mute = reaction `never`).                                                            |
+| `GET /api/sessions/:id/resources`                                                  | List the resource catalog (optionally scoped to `?conversationId=&participantId=`).                            |
+| `POST /api/sessions/:id/resources`                                                 | Catalog a host resource (a workspace file, etc.).                                                              |
+| `DELETE /api/sessions/:id/resources`                                               | Remove a catalog entry.                                                                                        |
+| `GET /api/sessions/:id/files/*splat`                                               | Serve a file from the session's `artifacts/` or `uploads/` subtree (path-traversal guarded).                   |
 
 Other API mounts: `/api/agent-bundles`, `/api/global-memory`, `/api/mcp` (public
 MCP relay), `/api/me` (current user), `/api/embed`, and the token-guarded

@@ -12,7 +12,7 @@ coordinator, and two specialists" without changing how chat feels.
 ## The two ideas
 
 - **Conversation.** A transcript and its membership. It is the unit of "who can
-  see this and who reacts to it." A conversation is *not* tied to a single agent:
+  see this and who reacts to it." A conversation is _not_ tied to a single agent:
   several participants can share one, and one participant can be in several.
 - **Participant.** A session-scoped identity with a kind:
   - **Human** — a person in the session.

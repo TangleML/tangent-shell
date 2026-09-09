@@ -18,7 +18,7 @@ The code lives under [apps/server/src/connectors/](../../apps/server/src/connect
 `ConnectorRegistry.resolve(sessionId, participantId)` is **total**: every
 participant id resolves to a connector. An id no connector holds resolves to the
 [NullConnector](../../apps/server/src/connectors/nullConnector.ts), which refuses
-delivery *in the conversation it was addressed to* rather than falling through to
+delivery _in the conversation it was addressed to_ rather than falling through to
 whichever transport happens to be checked last. There is no branch in which a
 message aimed at one participant is silently mis-delivered to another.
 
@@ -68,12 +68,12 @@ defaults to `opaque`).
 
 ## The four connectors
 
-| Kind               | Implementation                                                                              | Lifecycle | Spawn authority | Runs where                                       |
-| ------------------ | ------------------------------------------------------------------------------------------- | --------- | --------------- | ------------------------------------------------ |
-| `pi-stdio`         | [PiConnector](../../apps/server/src/connectors/piConnector.ts) → `PiAgentManager`           | owned     | `server`        | a local `pi --mode rpc` child process            |
-| `remote-env`       | [RemoteEnvConnector](../../apps/server/src/connectors/remoteEnvConnector.ts) → gateway      | owned     | `remote-env`    | a connected remote environment (`/remote-env`)   |
-| `external-inbound` | [ExternalConnector](../../apps/server/src/connectors/externalConnector.ts) → gateway        | owned     | `bundle-tool`   | outside Tangent, streamed in by a bundle tool    |
-| `a2a`              | [A2aConnector](../../apps/server/src/connectors/a2aConnector.ts) → `A2aPeerGateway`         | attached  | `none`          | an independently deployed agent, dialed over A2A |
+| Kind               | Implementation                                                                         | Lifecycle | Spawn authority | Runs where                                       |
+| ------------------ | -------------------------------------------------------------------------------------- | --------- | --------------- | ------------------------------------------------ |
+| `pi-stdio`         | [PiConnector](../../apps/server/src/connectors/piConnector.ts) → `PiAgentManager`      | owned     | `server`        | a local `pi --mode rpc` child process            |
+| `remote-env`       | [RemoteEnvConnector](../../apps/server/src/connectors/remoteEnvConnector.ts) → gateway | owned     | `remote-env`    | a connected remote environment (`/remote-env`)   |
+| `external-inbound` | [ExternalConnector](../../apps/server/src/connectors/externalConnector.ts) → gateway   | owned     | `bundle-tool`   | outside Tangent, streamed in by a bundle tool    |
+| `a2a`              | [A2aConnector](../../apps/server/src/connectors/a2aConnector.ts) → `A2aPeerGateway`    | attached  | `none`          | an independently deployed agent, dialed over A2A |
 
 Each is a thin adapter over the gateway that already existed; the registry is what
 unifies them. `list` walks every connector's roster; `revive` restores a persisted
