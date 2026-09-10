@@ -1,7 +1,7 @@
 import type { EmbedApiConfig } from "@/shared/lib/basePath";
 
 import { createRuntime, registerRuntime } from "../runtime";
-import type { EmbedTheme, TangentRuntime } from "../types";
+import type { EmbedTheme, HostExtensionKeys, TangentRuntime } from "../types";
 
 const TAG = "tangent-provider";
 
@@ -15,6 +15,10 @@ export class TangentProviderElement extends HTMLElement {
   runtime: TangentRuntime | null = null;
   private currentConfig: EmbedApiConfig = {};
   private currentTheme: EmbedTheme = {};
+  private currentHostExtensions: HostExtensionKeys = {
+    uiNames: [],
+    anchorProtocols: [],
+  };
 
   set config(value: EmbedApiConfig) {
     this.currentConfig = value ?? {};
@@ -32,6 +36,14 @@ export class TangentProviderElement extends HTMLElement {
     return this.currentTheme;
   }
 
+  set hostExtensions(value: HostExtensionKeys) {
+    this.currentHostExtensions = value ?? { uiNames: [], anchorProtocols: [] };
+    this.runtime?.setHostExtensions(this.currentHostExtensions);
+  }
+  get hostExtensions(): HostExtensionKeys {
+    return this.currentHostExtensions;
+  }
+
   connectedCallback(): void {
     this.style.display = "contents";
     this.sync();
@@ -42,12 +54,14 @@ export class TangentProviderElement extends HTMLElement {
     if (this.runtime) {
       this.runtime.setConfig(this.currentConfig);
       this.runtime.setTheme(this.currentTheme);
+      this.runtime.setHostExtensions(this.currentHostExtensions);
       return;
     }
     this.runtime = createRuntime({
       config: this.currentConfig,
       theme: this.currentTheme,
     });
+    this.runtime.setHostExtensions(this.currentHostExtensions);
     registerRuntime(this.getAttribute("instance"), this.runtime);
   }
 }

@@ -1,11 +1,17 @@
 import type { CSSProperties } from "react";
 import { useEffect, useRef } from "react";
 
+import { useTangentContext } from "./context";
 import type { TangentBundledUiElementLike } from "./types";
 
 export interface BundledUISlotProps {
-  /** URL of the compiled bundle component JS. */
+  /** URL of the compiled bundle component JS (the worker fallback). */
   moduleUrl: string;
+  /**
+   * When set and registered in `TangentProvider`'s `uiComponents`, the host's
+   * component renders directly (no sandbox worker) and `moduleUrl` is ignored.
+   */
+  name?: string;
   /** Which surface the component renders on. */
   kind: "message" | "panel";
   /** JSON props for a `message` component (ignored for `panel`). */
@@ -29,6 +35,7 @@ export interface BundledUISlotProps {
  */
 export function BundledUISlot({
   moduleUrl,
+  name,
   kind,
   props,
   stateNamespace,
@@ -39,6 +46,8 @@ export function BundledUISlot({
   style,
 }: BundledUISlotProps) {
   const ref = useRef<HTMLElement | null>(null);
+  const { uiComponents } = useTangentContext();
+  const HostComponent = name ? uiComponents[name] : undefined;
 
   useEffect(() => {
     const element = ref.current as TangentBundledUiElementLike | null;
@@ -74,6 +83,20 @@ export function BundledUISlot({
       element.removeEventListener("collapse", handleCollapse);
     };
   }, [onSendPrompt, onCollapse]);
+
+  if (HostComponent && name) {
+    return (
+      <div className={className} style={style}>
+        <HostComponent
+          name={name}
+          kind={kind}
+          props={props ?? {}}
+          onSendPrompt={onSendPrompt}
+          onCollapse={onCollapse}
+        />
+      </div>
+    );
+  }
 
   return (
     <tangent-bundled-ui

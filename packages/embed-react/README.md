@@ -73,16 +73,18 @@ export function App() {
 
 Loads the runtime once and owns the shared configuration.
 
-| Prop          | Type                                        | Notes                                                             |
-| ------------- | ------------------------------------------- | ----------------------------------------------------------------- |
-| `baseUrl`     | `string`                                    | Tangent origin. API + socket + channel URL derive from this.      |
-| `getToken`    | `() => string \| undefined \| Promise<...>` | Bearer token for API/socket auth. Held in memory, never in URLs.  |
-| `colorScheme` | `"light" \| "dark" \| "system"`             | Defaults to `light`.                                              |
-| `tokens`      | `Record<string, string>`                    | Unstable escape hatch for one-off token overrides.                |
-| `socketUrl`   | `string`                                    | Override the Socket.IO origin (defaults to the API origin).       |
-| `socketPath`  | `string`                                    | Override the Socket.IO path (defaults to `/socket.io`).           |
-| `channelUrl`  | `string`                                    | Override the runtime URL (defaults to `${baseUrl}/embed/v1/...`). |
-| `instance`    | `string`                                    | Disambiguate when a page mounts more than one provider.           |
+| Prop              | Type                                                  | Notes                                                                                      |
+| ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `baseUrl`         | `string`                                              | Tangent origin. API + socket + channel URL derive from this.                               |
+| `getToken`        | `() => string \| undefined \| Promise<...>`           | Bearer token for API/socket auth. Held in memory, never in URLs.                           |
+| `colorScheme`     | `"light" \| "dark" \| "system"`                       | Defaults to `light`.                                                                       |
+| `tokens`          | `Record<string, string>`                              | Unstable escape hatch for one-off token overrides.                                         |
+| `socketUrl`       | `string`                                              | Override the Socket.IO origin (defaults to the API origin).                                |
+| `socketPath`      | `string`                                              | Override the Socket.IO path (defaults to `/socket.io`).                                    |
+| `channelUrl`      | `string`                                              | Override the runtime URL (defaults to `${baseUrl}/embed/v1/...`).                          |
+| `instance`        | `string`                                              | Disambiguate when a page mounts more than one provider.                                    |
+| `uiComponents`    | `Record<string, ComponentType<HostUIComponentProps>>` | Host-owned UI components by name — replace bundle UI. See [Host-owned UI](#host-owned-ui). |
+| `anchorProtocols` | `Record<string, ComponentType<AnchorProtocolProps>>`  | Host renderers for custom link protocols. See [Host-owned UI](#host-owned-ui).             |
 
 ### `useTangent()`
 
@@ -305,16 +307,77 @@ surfaces through `onSendPrompt`, which you typically forward to a `<Chat>`.
 Renders a sandboxed bundle-UI component in a Web Worker (remote-dom). Prompts and
 collapse requests from the component surface via callbacks.
 
-| Prop                 | Type                      | Notes                                       |
-| -------------------- | ------------------------- | ------------------------------------------- |
-| `moduleUrl`          | `string`                  | URL of the compiled component JS.           |
-| `kind`               | `"message" \| "panel"`    | Which surface the component renders on.     |
-| `props`              | `Record<string, unknown>` | JSON props for a `message` component.       |
-| `stateNamespace`     | `string`                  | localStorage namespace for persisted state. |
-| `onSendPrompt`       | `(text) => void`          | A `panel` component composed a prompt.      |
-| `onCollapse`         | `() => void`              | The component asked to collapse.            |
-| `instance`           | `string`                  | Disambiguate multiple providers.            |
-| `className`, `style` | —                         | Forwarded to the element.                   |
+| Prop                 | Type                      | Notes                                                                                                  |
+| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `moduleUrl`          | `string`                  | URL of the compiled component JS (worker fallback).                                                    |
+| `name`               | `string`                  | If registered in `uiComponents`, the host component renders in place (no worker; `moduleUrl` ignored). |
+| `kind`               | `"message" \| "panel"`    | Which surface the component renders on.                                                                |
+| `props`              | `Record<string, unknown>` | JSON props for a `message` component.                                                                  |
+| `stateNamespace`     | `string`                  | localStorage namespace for persisted state.                                                            |
+| `onSendPrompt`       | `(text) => void`          | A `panel` component composed a prompt.                                                                 |
+| `onCollapse`         | `() => void`              | The component asked to collapse.                                                                       |
+| `instance`           | `string`                  | Disambiguate multiple providers.                                                                       |
+| `className`, `style` | —                         | Forwarded to the element.                                                                              |
+
+## Host-owned UI
+
+By default a bundle's UI components run sandboxed in a Web Worker (see
+`<BundledUISlot>`). A host can instead take full responsibility for a component
+and render it directly in its own React tree — with the host's styling, hooks,
+and providers — by registering it on `<TangentProvider>`. Two extension points:
+
+- **`uiComponents`** — replace a bundle UI component by name. A matching
+  `tangent-ui:<name>` message block, a composer `panel`, and any
+  `<BundledUISlot name="…">` render the host component instead of loading the
+  sandboxed one. The worker is never started for that name.
+- **`anchorProtocols`** — render custom markdown link protocols. A link whose
+  href is `<proto>://<path>` renders the mapped component instead of a plain
+  link. `prompt://` is reserved and cannot be overridden.
+
+```tsx
+import { TangentProvider } from "@tangent/embed-react";
+import type {
+  AnchorProtocolProps,
+  HostUIComponentProps,
+} from "@tangent/embed-react";
+
+function PipelineProgress({ props, onSendPrompt }: HostUIComponentProps) {
+  // `props` is the JSON body of the `tangent-ui:pipeline-progress` block.
+  return (
+    <MyProgress
+      percent={Number(props.percent)}
+      onDone={() => onSendPrompt?.("done")}
+    />
+  );
+}
+
+function EntityChip({ path, label }: AnchorProtocolProps) {
+  // href was `entity://<path>`; render your own chip for the entity.
+  return <MyEntityChip id={path}>{label}</MyEntityChip>;
+}
+
+<TangentProvider
+  baseUrl="https://tangent.example"
+  getToken={() => auth.getAccessToken()}
+  uiComponents={{ "pipeline-progress": PipelineProgress }}
+  anchorProtocols={{ entity: EntityChip }}
+>
+  {/* ... */}
+</TangentProvider>;
+```
+
+The components a host passes receive typed props:
+
+- `HostUIComponentProps` — `{ name, kind: "message" | "panel", props, onSendPrompt?, onCollapse? }`
+- `AnchorProtocolProps` — `{ href, protocol, path, label }`
+
+Host components render as light-DOM children projected into the chat via named
+slots, so they inherit the host page's CSS and any providers wrapping
+`TangentProvider`.
+
+**Security.** Host-owned components run with full host-page privileges — they are
+_not_ sandboxed. Only register components you control; the worker sandbox and its
+egress allowlist do not apply to them.
 
 ## Versioning
 
