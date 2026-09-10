@@ -126,15 +126,30 @@ A2A participant when the registry resolves one:
 **How Prime reads a sub-agent's room:** "the room" is the shared session
 transcript persisted in the `SessionStore`. When Prime (or any agent) calls
 `read_room`, the tool hits `GET /internal/agents/room?sessionId=...`, and
-`handleRoom` returns the tail of `store.getMessages(sessionId)`:
+`handleRoom` returns the tail of `store.getMessages(sessionId)` — unless the
+caller names both `conversationId` and `participantId`, in which case it returns
+that Conversation projected through the reader's context policy (verbatim tail
+plus any digests; see [conversations.md](./conversations.md)):
 
-```138:151:apps/server/src/routes/internalAgents.ts
+```327:347:apps/server/src/routes/internalAgents.ts
 async function handleRoom(
   store: SessionStore,
   query: RoomQuery,
   res: Response,
+  context: ContextEngine | undefined,
+  memberships: MembershipRegistry | undefined,
 ): Promise<void> {
-  ...
+  const limit = roomLimit(query.limit);
+  if (context && memberships && query.conversationId && query.participantId) {
+    const projected = await projectRoom(context, store, memberships, {
+      sessionId: query.sessionId,
+      conversationId: query.conversationId,
+      participantId: query.participantId,
+      limit,
+    });
+    res.json(projected);
+    return;
+  }
   const all = await store.getMessages(query.sessionId);
   res.json({ messages: all.slice(-limit) });
 }
@@ -268,7 +283,7 @@ Pi-RPC stdin; the reply is Pi-RPC stdout → manager handler → WS out.
 > `autoRelayToPrime: false`, so they react in isolation and only reach Prime when
 > they explicitly call `message_prime`.
 
-## 5. Remote sub-agents (an alternative host)
+## 5. Remote sub-agents (an alternative connector)
 
 A sub-agent does not have to be a local `pi` child. A **remote environment**
 can connect over a dedicated Socket.IO namespace (`/remote-env`) and host
@@ -302,6 +317,8 @@ rather than mis-routed. See [connectors.md](./connectors.md).
   another agent SDK.
 
 The wire shapes live in `@tangent/shared/remoteSubagent.ts`, shared by both
-sides so the protocol cannot drift. Remote sub-agents are **not** revived after
-a server restart (`reviveSubagents` skips `host: "remote"` rows); they
-re-establish when their environment reconnects.
+sides so the protocol cannot drift. On a server restart, `ConnectorRegistry.revive`
+routes every non-terminal persisted row to its connector by recorded kind. The
+remote connector does not re-spawn a process it does not own: it restores the row
+as a `detached` tab, which becomes reachable again only when the environment
+reconnects and streams a turn.

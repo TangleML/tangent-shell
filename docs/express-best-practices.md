@@ -198,21 +198,25 @@ router.post(
 
 ### Reusable cross-cutting middleware
 
-Factor recurring concerns (auth, token checks, request logging) into small middleware functions. The token guard is the model to follow:
+Factor recurring concerns (auth, token checks, request logging) into small middleware functions. The token guard is the model to follow — a factory parameterized by the connector credential, so the byte comparison lives in the credential and a route only says which far end it is for (`apps/server/src/middleware/requireCredential.ts`):
 
 ```ts
-// ✅ GOOD: a focused, reusable guard (apps/server/src/routes/internalMemory.ts)
-function requireInternalToken(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  if (req.get("authorization") !== `Bearer ${INTERNAL_TOKEN}`) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  next();
+// ✅ GOOD: a focused, reusable guard parameterized by a credential
+export function requireCredential(
+  credential: ConnectorCredential,
+): RequestHandler {
+  return function guard(req: Request, res: Response, next: NextFunction): void {
+    if (!credential.verify({ authorization: req.get("authorization") })) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
+  };
 }
+
+// The internal API's guard is that factory bound to the Pi connector's credential
+// (apps/server/src/middleware/requireInternalToken.ts):
+export const requireInternalToken = requireCredential(piCredential);
 ```
 
 ### Centralize error handling

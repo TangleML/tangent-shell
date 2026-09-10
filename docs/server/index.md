@@ -228,11 +228,12 @@ Every `pi` child is spawned with `TANGENT_INTERNAL_URL` and
 `TANGENT_INTERNAL_TOKEN` in its environment
 ([apps/server/src/pi/piAgentManager.ts](../../apps/server/src/pi/piAgentManager.ts)).
 The extensions present that token as `Authorization: Bearer <token>` on every
-call to `/internal/*`. Each internal router rejects requests whose bearer does not
-match `INTERNAL_TOKEN`, which is a per-start `randomUUID()` unless pinned via env
-([apps/server/src/config.ts](../../apps/server/src/config.ts)). This keeps
-arbitrary local processes from driving a session's agents, memory, triggers, or
-resources. Details in [egress-and-security.md](./egress-and-security.md).
+call to `/internal/*`. Each internal router installs `requireInternalToken`
+(`requireCredential(piCredential)`), which rejects any request the Pi connector's
+credential does not verify against `INTERNAL_TOKEN` — a per-start `randomUUID()`
+unless pinned via env ([apps/server/src/config.ts](../../apps/server/src/config.ts)).
+This keeps arbitrary local processes from driving a session's agents, memory,
+triggers, or resources. Details in [egress-and-security.md](./egress-and-security.md).
 
 ## Configuration / environment surface
 
