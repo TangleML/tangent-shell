@@ -76,12 +76,12 @@ type DeliveriesBody = z.infer<typeof deliveriesSchema>;
  * the tab is still usable one-way, and the caller decides whether that is
  * enough for the runtime it is about to create.
  */
-function handleRegister(
+async function handleRegister(
   gateway: ExternalSubagentGateway,
   body: RegisterBody,
   res: Response,
-): void {
-  const { id, callback } = gateway.register(body.sessionId, {
+): Promise<void> {
+  const { id, callback } = await gateway.register(body.sessionId, {
     name: body.name,
     template: body.template,
     model: body.model,

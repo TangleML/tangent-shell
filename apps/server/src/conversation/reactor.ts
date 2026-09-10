@@ -184,21 +184,49 @@ function debounceReactor(): Reactor<ReactorState> {
  * the registry's clock rather than by a Message, so their `observe` only records
  * position; readiness is flipped by a timer.
  */
-export function reactorFor(spec: ReactorSpec): Reactor<ReactorState> {
-  if (spec.name === "awaitAll") {
-    const { participants, runs } = targetsOf(spec);
-    return awaitAllReactor(participants, runs);
-  }
+/** A reactor that folds a set of completions (by participant or run). */
+type SetSpec = Extract<
+  ReactorSpec,
+  { name: "awaitAll" | "awaitQuorum" | "firstOf" }
+>;
+
+function isSetSpec(spec: ReactorSpec): spec is SetSpec {
+  return (
+    spec.name === "awaitAll" ||
+    spec.name === "awaitQuorum" ||
+    spec.name === "firstOf"
+  );
+}
+
+function setReactor(spec: SetSpec): Reactor<ReactorState> {
   if (spec.name === "awaitQuorum") {
     return quorumReactor(targetsOf(spec).participants, spec.n);
   }
-  if (spec.name === "firstOf") {
-    const { participants, runs } = targetsOf(spec);
-    return firstOfReactor(participants, runs);
+  const { participants, runs } = targetsOf(spec);
+  return spec.name === "awaitAll"
+    ? awaitAllReactor(participants, runs)
+    : firstOfReactor(participants, runs);
+}
+
+export function reactorFor(spec: ReactorSpec): Reactor<ReactorState> {
+  if (isSetSpec(spec)) return setReactor(spec);
+  switch (spec.name) {
+    case "awaitDeadline":
+      return deadlineReactor();
+    case "debounce":
+      return debounceReactor();
+    case "supervise":
+      return superviseReactor();
+    default: {
+      // A corrupt or unrecognized spec must not silently degrade to a debounce:
+      // that would install a reactor that watches nothing and never fires. The
+      // exhaustive `never` makes a new ReactorName a compile error here.
+      const unreachable: never = spec;
+      throw new Error(
+        `Unknown reactor spec: ${JSON.stringify(unreachable as ReactorSpec)}`,
+      );
+    }
   }
-  if (spec.name === "awaitDeadline") return deadlineReactor();
-  if (spec.name === "supervise") return superviseReactor();
-  return debounceReactor();
 }
 
 /** The initial folded state a freshly installed reactor starts from. */

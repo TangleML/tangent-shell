@@ -204,14 +204,25 @@ const conversations = new ConversationRouter(
 // the store directly, not through `settle`, so it never reaches here.
 runs.useOnSettled((run) => {
   admission.release(run);
-  if (run.status !== "failed") return;
-  conversations.announceCause(run.sessionId, {
-    kind: "run-error",
-    participantId: run.participantId,
-    conversationId: run.homeConversationId,
-    runId: run.id,
-    waveDepth: conversations.waveDepth(run.sessionId, run.participantId),
-  });
+  if (run.status === "failed") {
+    conversations.announceCause(run.sessionId, {
+      kind: "run-error",
+      participantId: run.participantId,
+      conversationId: run.homeConversationId,
+      runId: run.id,
+      waveDepth: conversations.waveDepth(run.sessionId, run.participantId),
+    });
+  }
+  // A settled Run that left the participant idle with nothing held ends its
+  // chain: drop the wave so the workflow view stops reporting a finished
+  // cascade's last depth. After `release`, so a fired held wake that reopened a
+  // Run keeps its chain.
+  if (
+    !runs.current(run.sessionId, run.participantId) &&
+    admission.depthFor(run.sessionId, run.participantId) === 0
+  ) {
+    conversations.evictWave(run.sessionId, run.participantId);
+  }
 });
 
 // Shared event sink: a participant's streaming events, roster changes and posted

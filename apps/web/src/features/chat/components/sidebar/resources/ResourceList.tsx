@@ -39,7 +39,7 @@ export function ResourceList({ resources, onOpen }: ResourceListProps) {
       <Box padding="base">
         <EmptyState
           size="sm"
-          title=""
+          title="Nothing catalogued yet"
           description="Artifacts, attachments, memory, and workspace files the session holds show up here."
         />
       </Box>

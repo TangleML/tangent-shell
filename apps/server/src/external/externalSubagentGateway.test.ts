@@ -60,9 +60,9 @@ function agentRow(id: string, overrides: Partial<SessionAgent> = {}) {
   } satisfies SessionAgent;
 }
 
-test("register records a roster entry and surfaces it as active", () => {
+test("register records a roster entry and surfaces it as active", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   assert.ok(id);
   assert.equal(h.gateway.hasAgent("s1", id), true);
@@ -77,7 +77,7 @@ test("register records a roster entry and surfaces it as active", () => {
 
 test("register persists a roster row so a restart has something to reattach to", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", {
+  const { id } = await h.gateway.register("s1", {
     name: "worker",
     model: "claude",
     template: "researcher",
@@ -119,9 +119,9 @@ test("a detached tab reattaches when the far side pushes its next turn", () => {
   );
 });
 
-test("reattach never downgrades a live tab", () => {
+test("reattach never downgrades a live tab", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
   const updatesBefore = h.rosterUpdates.length;
 
   h.gateway.reattach("s1", agentRow(id, { status: "active" }));
@@ -130,9 +130,9 @@ test("reattach never downgrades a live tab", () => {
   assert.equal(h.rosterUpdates.length, updatesBefore, "no roster churn");
 });
 
-test("setStatus to detached keeps the entry, unlike a terminal status", () => {
+test("setStatus to detached keeps the entry, unlike a terminal status", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   h.gateway.setStatus("s1", id, "detached");
 
@@ -140,9 +140,9 @@ test("setStatus to detached keeps the entry, unlike a terminal status", () => {
   assert.equal(h.rosterUpdates.at(-1)?.status, "detached");
 });
 
-test("the roster describes an external sub-agent as owned by its bundle tool", () => {
+test("the roster describes an external sub-agent as owned by its bundle tool", async () => {
   const h = makeHarness();
-  h.gateway.register("s1", { name: "worker" });
+  await h.gateway.register("s1", { name: "worker" });
 
   // Tangent creates the far side in `world_spawn` and destroys it in
   // `world_terminate`, so the participant is owned, not attached.
@@ -154,9 +154,9 @@ test("the roster describes an external sub-agent as owned by its bundle tool", (
   });
 });
 
-test("pushEvent relays a streamed event into the tab", () => {
+test("pushEvent relays a streamed event into the tab", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   h.gateway.pushEvent("s1", id, { type: "start", messageId: "m1" });
   h.gateway.pushEvent("s1", id, {
@@ -179,9 +179,9 @@ test("pushEvent is a no-op for an unknown agent", () => {
   assert.equal(h.events.length, 0);
 });
 
-test("setStatus to a terminal state removes the entry and updates the roster", () => {
+test("setStatus to a terminal state removes the entry and updates the roster", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   h.gateway.setStatus("s1", id, "completed");
 
@@ -190,9 +190,9 @@ test("setStatus to a terminal state removes the entry and updates the roster", (
   assert.equal(h.rosterUpdates.at(-1)?.status, "completed");
 });
 
-test("setStatus to active keeps the entry in the roster", () => {
+test("setStatus to active keeps the entry in the roster", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   h.gateway.setStatus("s1", id, "active");
 
@@ -202,7 +202,7 @@ test("setStatus to active keeps the entry in the roster", () => {
 
 test("a turn's run carries the far side's session id and drain cursor", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   const runId = h.gateway.openRun("s1", id, {
     externalId: "aquifer-1",
@@ -220,9 +220,9 @@ test("a turn's run carries the far side's session id and drain cursor", async ()
   assert.equal(stored?.ingress, "tool");
 });
 
-test("an event with no run id is attributed to the tab's open run", () => {
+test("an event with no run id is attributed to the tab's open run", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
   const runId = h.gateway.openRun("s1", id);
 
   h.gateway.pushEvent("s1", id, { type: "activity", activity: null });
@@ -230,10 +230,10 @@ test("an event with no run id is attributed to the tab's open run", () => {
   assert.equal(h.events.at(-1)?.runId, runId);
 });
 
-test("a run id belonging to another tab is not honored", () => {
+test("a run id belonging to another tab is not honored", async () => {
   const h = makeHarness();
-  const mine = h.gateway.register("s1", { name: "mine" });
-  const theirs = h.gateway.register("s1", { name: "theirs" });
+  const mine = await h.gateway.register("s1", { name: "mine" });
+  const theirs = await h.gateway.register("s1", { name: "theirs" });
   const theirRun = h.gateway.openRun("s1", theirs.id);
   const myRun = h.gateway.openRun("s1", mine.id);
 
@@ -249,7 +249,7 @@ test("a run id belonging to another tab is not honored", () => {
 
 test("a tab going terminal settles the run it was working under", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
   const runId = h.gateway.openRun("s1", id);
   assert.ok(runId);
 
@@ -264,9 +264,9 @@ test("openRun refuses an unknown agent", () => {
   assert.equal(h.gateway.openRun("s1", "nope"), undefined);
 });
 
-test("register opens a callback channel bound to the new participant", () => {
+test("register opens a callback channel bound to the new participant", async () => {
   const h = makeHarness();
-  const { id, callback } = h.gateway.register("s1", { name: "worker" });
+  const { id, callback } = await h.gateway.register("s1", { name: "worker" });
 
   const channel = h.relay.get(callback.channelId);
   assert.equal(channel?.sessionId, "s1");
@@ -278,18 +278,18 @@ test("register opens a callback channel bound to the new participant", () => {
   );
 });
 
-test("a terminal status closes the tab's callback channel", () => {
+test("a terminal status closes the tab's callback channel", async () => {
   const h = makeHarness();
-  const { id, callback } = h.gateway.register("s1", { name: "worker" });
+  const { id, callback } = await h.gateway.register("s1", { name: "worker" });
 
   h.gateway.setStatus("s1", id, "completed");
 
   assert.equal(h.relay.get(callback.channelId), undefined);
 });
 
-test("a detached tab keeps its channel, because it has something to come back to", () => {
+test("a detached tab keeps its channel, because it has something to come back to", async () => {
   const h = makeHarness();
-  const { id, callback } = h.gateway.register("s1", { name: "worker" });
+  const { id, callback } = await h.gateway.register("s1", { name: "worker" });
 
   h.gateway.setStatus("s1", id, "detached");
 
@@ -298,7 +298,7 @@ test("a detached tab keeps its channel, because it has something to come back to
 
 test("a delivery is queued for the driver that next asks for it", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   assert.equal(h.gateway.deliver("s1", id, "do the thing"), true);
 
@@ -309,7 +309,7 @@ test("a delivery is queued for the driver that next asks for it", async () => {
 
 test("a parked poll is answered by a delivery that arrives after it", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
 
   const polled = h.gateway.takeDeliveries("s1", 5_000);
   h.gateway.deliver("s1", id, "do the thing");
@@ -322,9 +322,9 @@ test("a poll with nothing queued is answered empty", async () => {
   assert.deepEqual(await h.gateway.takeDeliveries("s1", 5), []);
 });
 
-test("nothing is queued for an unknown or detached tab", () => {
+test("nothing is queued for an unknown or detached tab", async () => {
   const h = makeHarness();
-  const { id } = h.gateway.register("s1", { name: "worker" });
+  const { id } = await h.gateway.register("s1", { name: "worker" });
   h.gateway.setStatus("s1", id, "detached");
 
   assert.equal(h.gateway.deliver("s1", "nope", "hello"), false);
@@ -333,8 +333,8 @@ test("nothing is queued for an unknown or detached tab", () => {
 
 test("a tab going terminal discards what was queued for it", async () => {
   const h = makeHarness();
-  const gone = h.gateway.register("s1", { name: "gone" });
-  const kept = h.gateway.register("s1", { name: "kept" });
+  const gone = await h.gateway.register("s1", { name: "gone" });
+  const kept = await h.gateway.register("s1", { name: "kept" });
   h.gateway.deliver("s1", gone.id, "lost");
   h.gateway.deliver("s1", kept.id, "still wanted");
 
@@ -345,10 +345,10 @@ test("a tab going terminal discards what was queued for it", async () => {
   ]);
 });
 
-test("listSubagents is scoped per session", () => {
+test("listSubagents is scoped per session", async () => {
   const h = makeHarness();
-  const a = h.gateway.register("s1", { name: "one" });
-  h.gateway.register("s2", { name: "two" });
+  const a = await h.gateway.register("s1", { name: "one" });
+  await h.gateway.register("s2", { name: "two" });
 
   assert.deepEqual(
     h.gateway.listSubagents("s1").map((s) => s.id),

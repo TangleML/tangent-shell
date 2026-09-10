@@ -17,6 +17,12 @@ export interface Membership {
   participantId: string;
   conversationId: string;
   reaction: ReactionSpec;
+  /**
+   * Set when an agent's Membership is muted: it never reacts while true, but its
+   * `reaction` is left intact so unmuting restores the exact standing it held.
+   * Absent means not muted.
+   */
+  muted?: boolean;
   ingress: RunIngress;
   admission: AdmissionPolicy;
   transcriptVisibility: TranscriptVisibility;

@@ -160,6 +160,12 @@ export const memberships = sqliteTable(
       .references(() => sessions.id, { onDelete: "cascade" }),
     /** A `ReactionSpec`: `+`-joined preset names, read as a disjunction. */
     reaction: text("reaction").notNull().default("never"),
+    /**
+     * Whether an agent's Membership is muted: it never reacts while set, and its
+     * `reaction` is preserved so unmuting restores the exact standing it held,
+     * not a generic default.
+     */
+    muted: integer("muted", { mode: "boolean" }).notNull().default(false),
     /** `reaction` | `schedule` | `webhook` | `tool`. */
     ingress: text("ingress").notNull().default("reaction"),
     /** `queue` | `coalesce` | `preempt` | `reject`: what a wake does mid-Run. */
@@ -247,8 +253,8 @@ export const participants = sqliteTable(
  *
  * The bytes stay where they are (on disk under the session root, or in a memory
  * markdown file); this row is the catalog entry that points at them by `uri`.
- * Additive for this PR — the mechanisms above stay the write authority and
- * mirror into this table; a later cleanup can fold them onto it.
+ * The mechanisms above stay the write authority and mirror into this table; a
+ * later cleanup can fold them onto it.
  */
 export const resources = sqliteTable(
   "resources",

@@ -9,7 +9,7 @@ import type { Participant } from "../store/participantStore.ts";
 import {
   homeConversationFor,
   orchestratorConversationFor,
-  orchestratorIdFor,
+  orchestratorIdentity,
   participantForConversation,
   ParticipantRegistry,
 } from "./participantRegistry.ts";
@@ -66,7 +66,9 @@ test("orchestratorId resolves the capability holder", async () => {
 test("orchestrator resolution falls back to the well-known id", async () => {
   const { sessions, registry } = makeRegistry();
   assert.equal(await registry.orchestratorId("empty"), "prime");
-  assert.equal(await orchestratorIdFor(sessions, "empty"), "prime");
+  const identity = await orchestratorIdentity(sessions, "empty");
+  assert.equal(identity.orchestratorId, "prime");
+  assert.equal(identity.homeConversationId, "prime");
 });
 
 test("a stored non-agent participant is returned alongside agents", async () => {
@@ -111,6 +113,40 @@ test("re-recording an agent refreshes its stored participant row", async () => {
     (await registry.get("s1", "prime"))?.displayName,
     "Prime Renamed",
   );
+});
+
+test("a spawn after a list is not hidden behind a stale roster", async () => {
+  const { sessions, registry } = makeRegistry();
+  await sessions.recordAgent("s1", {
+    id: "prime",
+    role: "prime",
+    name: "Prime",
+  });
+
+  // A client lists the roster, then an agent is spawned through recordAgent.
+  await registry.listForSession("s1");
+  await sessions.recordAgent("s1", {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+  });
+
+  const ids = (await registry.listForSession("s1")).map((p) => p.id).sort();
+  assert.deepEqual(ids, ["prime", "sub-1"], "the new agent is visible at once");
+});
+
+test("orchestratorConversationId resolves the orchestrator's home", async () => {
+  const { sessions, registry } = makeRegistry();
+  const prime = await sessions.recordAgent("s1", {
+    id: "prime",
+    role: "prime",
+    name: "Prime",
+  });
+  assert.equal(
+    await registry.orchestratorConversationId("s1"),
+    prime.homeConversationId,
+  );
+  assert.equal(await registry.orchestratorConversationId("empty"), "prime");
 });
 
 test("home conversation resolves and reverses through the mapping", async () => {

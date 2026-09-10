@@ -39,7 +39,7 @@ import {
 } from "../connectors/credentials.ts";
 import { ContextEngine, projectRoom } from "../conversation/context.ts";
 import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
-import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
+import { orchestratorIdentity } from "../conversation/participantRegistry.ts";
 import {
   parseThinkingLevel,
   type ResolvedSessionConfig,
@@ -740,7 +740,10 @@ export class RemoteEnvironmentGateway {
         agentRole: "subagent",
       },
       content: payload.text,
-      mentions: [await orchestratorIdFor(this.store, payload.sessionId)],
+      mentions: [
+        (await orchestratorIdentity(this.store, payload.sessionId))
+          .orchestratorId,
+      ],
       ingress: "tool",
     });
   }

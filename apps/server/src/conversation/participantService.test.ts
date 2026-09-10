@@ -252,16 +252,68 @@ test("closeConversation ends memberships and settles the open run", async () => 
 });
 
 test("ensureAutomation is idempotent and materializes an inert member", async () => {
-  const { service, memberships, participantStore, session } = await harness();
+  const { service, memberships, participantStore, sessions, session } =
+    await harness();
 
   await service.ensureAutomation(session.id, "memory", "Memory", "reaction");
   await service.ensureAutomation(session.id, "memory", "Memory", "reaction");
 
   const memory = await participantStore.get(session.id, "memory");
   assert.equal(memory?.kind, "automation");
-  const membership = await memberships.memberIn(session.id, "prime", "memory");
+  // The Membership lands in the orchestrator's home Conversation (a minted id
+  // since 2.4), not the reserved "prime" participant id.
+  const [prime] = await sessions.listAgents(session.id);
+  const membership = await memberships.memberIn(
+    session.id,
+    prime.homeConversationId,
+    "memory",
+  );
   assert.equal(membership?.reaction, "never");
   assert.equal(membership?.ingress, "reaction");
+});
+
+test("muting preserves the reaction so unmute restores the exact standing", async () => {
+  const { service, memberships, sessions, session } = await harness();
+  const sub = await sessions.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+  });
+
+  // Prime watches the worker's thread at run-end, not the addressable default —
+  // deriving and persisting the row so setMuted has one to edit.
+  const before = await memberships.memberIn(
+    session.id,
+    sub.homeConversationId,
+    "prime",
+  );
+  assert.equal(before?.reaction, "atRunEnd+mentionsMe");
+
+  const muted = await service.setMuted(
+    session.id,
+    "prime",
+    sub.homeConversationId,
+    true,
+  );
+  assert.equal(muted?.muted, true);
+  assert.equal(
+    muted?.reaction,
+    "atRunEnd+mentionsMe",
+    "muting does not rewrite the reaction",
+  );
+
+  const unmuted = await service.setMuted(
+    session.id,
+    "prime",
+    sub.homeConversationId,
+    false,
+  );
+  assert.equal(unmuted?.muted, false);
+  assert.equal(
+    unmuted?.reaction,
+    "atRunEnd+mentionsMe",
+    "unmute restores the standing it held, not fromHumans+mentionsMe",
+  );
 });
 
 test("setPresence writes, broadcasts, and skips a no-op transition", async () => {

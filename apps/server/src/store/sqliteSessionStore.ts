@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   capabilitiesForRole,
   type ChatMessage,
-  type ConnectorDescriptor,
   connectorFor,
   type PinnedArtifact,
   type Session,
@@ -44,7 +43,10 @@ import {
   type SessionAgentStatus,
   type SessionStore,
 } from "./sessionStore.ts";
-import { toParticipant } from "./sqliteParticipantStore.ts";
+import {
+  SqliteParticipantStore,
+  toParticipant,
+} from "./sqliteParticipantStore.ts";
 
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
 const PRIME_AGENT_ID = "prime";
@@ -65,16 +67,6 @@ function toSession(row: SessionRow): Session {
     archived: row.archived,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-  };
-}
-
-/** The connector columns a participant write persists. */
-function connectorColumns(connector: ConnectorDescriptor) {
-  return {
-    connectorKind: connector.kind,
-    connectorLifecycle: connector.lifecycle,
-    connectorEnvironmentId: connector.environmentId,
-    connectorEndpointUrl: connector.endpointUrl,
   };
 }
 
@@ -141,10 +133,15 @@ export class SqliteSessionStore implements SessionStore {
    * optional so a bare store (e.g. a test) skips the mirror.
    */
   private readonly resources?: ResourceStore;
+  /** The roster's write authority since C.2 dropped `session_agents`: an agent
+   * is a `kind: "agent"` participant row, upserted through the same store the
+   * rest of the roster reads. */
+  private readonly participants: SqliteParticipantStore;
 
   constructor(db: Db, resources?: ResourceStore) {
     this.db = db;
     this.resources = resources;
+    this.participants = new SqliteParticipantStore(db);
   }
 
   async listSessions(): Promise<Session[]> {
@@ -431,10 +428,10 @@ export class SqliteSessionStore implements SessionStore {
     );
     // The roster is a `kind: "agent"` participant row now that `session_agents`
     // is gone; a revoked agent keeps its `revoked_at` across a re-record.
-    this.writeAgentParticipant(
-      participantFromAgent(recorded),
-      prior?.revokedAt,
-    );
+    await this.participants.put({
+      ...participantFromAgent(recorded),
+      revokedAt: prior?.revokedAt,
+    });
     return recorded;
   }
 
@@ -455,45 +452,6 @@ export class SqliteSessionStore implements SessionStore {
       )
       .get();
     return row ? toParticipant(row) : undefined;
-  }
-
-  /** Upserts an agent's participant row (its roster home since C.2). */
-  private writeAgentParticipant(
-    participant: Participant,
-    revokedAt: string | undefined,
-  ): void {
-    const capabilities = JSON.stringify(participant.capabilities);
-    const agentPayload = participant.agent
-      ? JSON.stringify(participant.agent)
-      : null;
-    const columns = connectorColumns(participant.connector);
-    this.db
-      .insert(participants)
-      .values({
-        id: participant.id,
-        sessionId: participant.sessionId,
-        kind: "agent",
-        displayName: participant.displayName,
-        capabilities,
-        presence: participant.presence,
-        ...columns,
-        agentPayload,
-        revokedAt: revokedAt ?? null,
-        createdAt: participant.createdAt,
-      })
-      .onConflictDoUpdate({
-        target: [participants.sessionId, participants.id],
-        set: {
-          kind: "agent",
-          displayName: participant.displayName,
-          capabilities,
-          presence: participant.presence,
-          ...columns,
-          agentPayload,
-          revokedAt: revokedAt ?? null,
-        },
-      })
-      .run();
   }
 
   /**

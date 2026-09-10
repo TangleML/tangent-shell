@@ -47,7 +47,7 @@ export interface InviteInput {
 }
 
 /** The reaction a freshly-joined participant of a given kind holds. */
-function reactionFor(kind: ParticipantKind | undefined): string {
+function reactionFor(kind: ParticipantKind | undefined): ReactionSpec {
   return kind === "agent" ? ADDRESSABLE : INERT;
 }
 
@@ -69,6 +69,21 @@ function visibilityFor(
 export interface JoinOptions {
   reaction?: ReactionSpec;
   transcriptVisibility?: TranscriptVisibility;
+}
+
+/**
+ * One Membership to persist. An options object rather than positional strings so
+ * a Conversation id can never be passed where a reaction is meant, and vice
+ * versa — the mix-up that let an Automation join a participant id.
+ */
+interface AddMembershipInput {
+  sessionId: string;
+  participantId: string;
+  conversationId: string;
+  reaction: ReactionSpec;
+  ingress?: RunIngress;
+  transcriptVisibility?: TranscriptVisibility;
+  admission?: AdmissionPolicy;
 }
 
 /**
@@ -152,7 +167,12 @@ export class ParticipantService {
     };
     await this.participants.put(participant);
     for (const conversationId of input.conversationIds ?? [])
-      await this.addMembership(sessionId, input.email, conversationId, INERT);
+      await this.addMembership({
+        sessionId,
+        participantId: input.email,
+        conversationId,
+        reaction: INERT,
+      });
     this.invalidate(sessionId);
     return participant;
   }
@@ -192,14 +212,14 @@ export class ParticipantService {
     options: JoinOptions = {},
   ): Promise<void> {
     const participant = await this.participants.get(sessionId, participantId);
-    await this.addMembership(
+    await this.addMembership({
       sessionId,
       participantId,
       conversationId,
-      options.reaction ?? reactionFor(participant?.kind),
-      "reaction",
-      options.transcriptVisibility ?? visibilityFor(participant),
-    );
+      reaction: options.reaction ?? reactionFor(participant?.kind),
+      transcriptVisibility:
+        options.transcriptVisibility ?? visibilityFor(participant),
+    });
     this.membershipRegistry.invalidate(sessionId);
   }
 
@@ -214,10 +234,12 @@ export class ParticipantService {
   }
 
   /**
-   * Mutes or unmutes an agent's Membership: a muted member never reacts;
-   * unmuting restores the addressable default. Only agent Memberships are
-   * connector-woken, so muting one is what stops it — a human's delivery is the
-   * room, not a reaction.
+   * Mutes or unmutes an agent's Membership: a muted member never reacts. The
+   * `reaction` is left untouched so unmuting restores the exact standing it held
+   * — a worker-thread orchestrator woken at run-end, say, rather than the
+   * addressable default it would get from being rewritten. Only agent
+   * Memberships are connector-woken, so muting one is what stops it; a human's
+   * delivery is the room, not a reaction.
    */
   async setMuted(
     sessionId: string,
@@ -231,10 +253,7 @@ export class ParticipantService {
       participantId,
     );
     if (!existing) return undefined;
-    const next: Membership = {
-      ...existing,
-      reaction: muted ? INERT : ADDRESSABLE,
-    };
+    const next: Membership = { ...existing, muted };
     await this.memberships.put(next);
     this.membershipRegistry.invalidate(sessionId);
     return next;
@@ -270,9 +289,9 @@ export class ParticipantService {
 
   /**
    * Materializes an Automation Participant (memory, a trigger) and its inert
-   * Membership in the orchestrator's Conversation, once per session. The synthetic
-   * `MEMORY_AUTHOR` / `TRIGGER_AUTHOR` still author the Messages; this makes the
-   * actor behind them a real, listable Participant with an ingress.
+   * Membership in the orchestrator's home Conversation, once per session. The
+   * synthetic `MEMORY_AUTHOR` / `TRIGGER_AUTHOR` still author the Messages; this
+   * makes the actor behind them a real, listable Participant with an ingress.
    */
   async ensureAutomation(
     sessionId: string,
@@ -291,9 +310,15 @@ export class ParticipantService {
       connector: connectorFor("unresolved"),
       createdAt: new Date().toISOString(),
     });
-    const orchestratorId =
-      await this.participantRegistry.orchestratorId(sessionId);
-    await this.addMembership(sessionId, id, orchestratorId, INERT, ingress);
+    const conversationId =
+      await this.participantRegistry.orchestratorConversationId(sessionId);
+    await this.addMembership({
+      sessionId,
+      participantId: id,
+      conversationId,
+      reaction: INERT,
+      ingress,
+    });
     this.invalidate(sessionId);
   }
 
@@ -310,7 +335,6 @@ export class ParticipantService {
     if (!existing || existing.revokedAt) return;
     if (existing.presence === presence) return;
     await this.participants.updatePresence(sessionId, participantId, presence);
-    this.participantRegistry.invalidate(sessionId);
     this.onPresence?.({ sessionId, participantId, presence });
   }
 
@@ -320,15 +344,16 @@ export class ParticipantService {
    * so writing a row before the orchestrator/subject rows are persisted would
    * drop them from the set.
    */
-  private async addMembership(
-    sessionId: string,
-    participantId: string,
-    conversationId: string,
-    reaction: string,
-    ingress: RunIngress = "reaction",
-    transcriptVisibility: TranscriptVisibility = "shared",
-    admission: AdmissionPolicy = "queue",
-  ): Promise<void> {
+  private async addMembership(input: AddMembershipInput): Promise<void> {
+    const {
+      sessionId,
+      participantId,
+      conversationId,
+      reaction,
+      ingress = "reaction",
+      transcriptVisibility = "shared",
+      admission = "queue",
+    } = input;
     await this.membershipRegistry.membersOf(sessionId, conversationId);
     await this.memberships.put({
       sessionId,
@@ -342,7 +367,6 @@ export class ParticipantService {
   }
 
   private invalidate(sessionId: string): void {
-    this.participantRegistry.invalidate(sessionId);
     this.membershipRegistry.invalidate(sessionId);
   }
 }
