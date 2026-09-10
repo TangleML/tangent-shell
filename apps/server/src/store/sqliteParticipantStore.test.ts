@@ -10,6 +10,7 @@ const ROOT = mkdtempSync(path.join(tmpdir(), "participant-store-"));
 process.env.SESSIONS_ROOT = ROOT;
 
 const { connectorFor } = await import("@tangent/shared/contracts.ts");
+const { sql } = await import("drizzle-orm");
 const { openDb } = await import("./db/client.ts");
 const { SqliteParticipantStore } = await import("./sqliteParticipantStore.ts");
 const { SqliteSessionStore } = await import("./sqliteSessionStore.ts");
@@ -22,6 +23,9 @@ after(() => rmSync(ROOT, { recursive: true, force: true }));
 async function withSession() {
   const db = openDb(":memory:");
   const session = await new SqliteSessionStore(db).createSession({ name: "S" });
+  // createSession seeds Prime into `participants` now that it is the roster's
+  // only store; clear it so each store-unit test starts from an empty table.
+  db.run(sql`DELETE FROM participants`);
   return { store: new SqliteParticipantStore(db), sessionId: session.id };
 }
 

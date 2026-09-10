@@ -79,15 +79,15 @@ import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 // socket handlers, runs for the run registry, participants for the roster
 // projection.
 const db = openDb();
-// The participant projection each roster write mirrors into. `session_agents`
-// stays the write authority for this PR; this keeps the `participants` table
-// tracking it so Phase 2 consumers read a populated table.
+// The roster's only store since C.2 dropped `session_agents`: the session store
+// writes each agent here, and the participant registry reads it alongside the
+// humans and automations the participant service invites.
 const participants = new SqliteParticipantStore(db);
 // The resource catalog every content path mirrors into: a pinned artifact, a
 // message attachment, a memory write. Additive for now — the existing stores
 // stay authoritative and this table tracks them so a resource is citable.
 const resourceStore = new SqliteResourceStore(db);
-const store = new SqliteSessionStore(db, participants, resourceStore);
+const store = new SqliteSessionStore(db, resourceStore);
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
 
