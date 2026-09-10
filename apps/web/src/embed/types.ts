@@ -40,6 +40,16 @@ export interface NewSessionResult {
   sessionId: string;
 }
 
+/**
+ * The extension keys a host registers on `<tangent-provider>`. The runtime only
+ * needs the names/protocols — the components themselves stay in the host's React
+ * tree and are projected into the shadow DOM via named slots.
+ */
+export interface HostExtensionKeys {
+  uiNames: string[];
+  anchorProtocols: string[];
+}
+
 /** Serializable agent row handed to the host via `open-agent`. */
 export interface EmbedAgentPayload {
   id: string;
@@ -101,9 +111,15 @@ export interface PendingPrompt {
 export interface TangentRuntime {
   readonly config: EmbedApiConfig;
   readonly theme: EmbedTheme;
+  /** Host-owned UI component names that bypass the sandboxed worker. */
+  readonly hostUiNames: ReadonlySet<string>;
+  /** Host-owned markdown anchor protocols (scheme, no `://`). */
+  readonly hostAnchorProtocols: ReadonlySet<string>;
   setConfig(config: EmbedApiConfig): void;
   setTheme(theme: EmbedTheme): void;
+  setHostExtensions(keys: HostExtensionKeys): void;
   subscribeTheme(listener: (theme: EmbedTheme) => void): () => void;
+  subscribeHostExtensions(listener: () => void): () => void;
   queuePrompt(sessionId: string, pending: PendingPrompt): void;
   takePendingPrompt(sessionId: string): PendingPrompt | undefined;
   newSession(

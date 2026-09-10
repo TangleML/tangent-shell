@@ -8,11 +8,19 @@ import { configureEmbedApi, type EmbedApiConfig } from "@/shared/lib/basePath";
 
 import type {
   EmbedTheme,
+  HostExtensionKeys,
   NewSessionOptions,
   NewSessionResult,
   PendingPrompt,
   TangentRuntime,
 } from "./types";
+
+/** True when two string sets hold the same members. */
+function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) if (!b.has(value)) return false;
+  return true;
+}
 
 /**
  * Builds a runtime for one `<tangent-provider>`. Applies the API config
@@ -25,8 +33,11 @@ export function createRuntime(init: {
 }): TangentRuntime {
   let config = init.config;
   let theme = init.theme;
+  let hostUiNames: ReadonlySet<string> = new Set();
+  let hostAnchorProtocols: ReadonlySet<string> = new Set();
   const pending = new Map<string, PendingPrompt>();
   const themeListeners = new Set<(theme: EmbedTheme) => void>();
+  const hostExtListeners = new Set<() => void>();
 
   configureEmbedApi(config);
 
@@ -37,6 +48,12 @@ export function createRuntime(init: {
     get theme() {
       return theme;
     },
+    get hostUiNames() {
+      return hostUiNames;
+    },
+    get hostAnchorProtocols() {
+      return hostAnchorProtocols;
+    },
     setConfig(next) {
       config = next;
       configureEmbedApi(next);
@@ -45,9 +62,26 @@ export function createRuntime(init: {
       theme = next;
       for (const listener of themeListeners) listener(next);
     },
+    setHostExtensions(keys: HostExtensionKeys) {
+      const nextUi = new Set(keys.uiNames);
+      const nextAnchor = new Set(keys.anchorProtocols);
+      if (
+        setsEqual(hostUiNames, nextUi) &&
+        setsEqual(hostAnchorProtocols, nextAnchor)
+      ) {
+        return;
+      }
+      hostUiNames = nextUi;
+      hostAnchorProtocols = nextAnchor;
+      for (const listener of hostExtListeners) listener();
+    },
     subscribeTheme(listener) {
       themeListeners.add(listener);
       return () => themeListeners.delete(listener);
+    },
+    subscribeHostExtensions(listener) {
+      hostExtListeners.add(listener);
+      return () => hostExtListeners.delete(listener);
     },
     queuePrompt(sessionId, prompt) {
       pending.set(sessionId, prompt);

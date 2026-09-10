@@ -17,6 +17,8 @@ import remarkGfm from "remark-gfm";
 
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
 import { apiUrl } from "@/shared/lib/basePath";
+import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
+import { useHostExtensions } from "@/shared/lib/hostSlots";
 import {
   artifactPath,
   isAbsoluteUrl,
@@ -186,14 +188,34 @@ function parsePromptHref(href: string | undefined): string | undefined {
   }
 }
 
+/** Extracts the scheme from a `proto://…` href (lowercased), else undefined. */
+function protocolOf(href: string | undefined): string | undefined {
+  if (typeof href !== "string") return undefined;
+  const match = href.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  return match ? match[1].toLowerCase() : undefined;
+}
+
+/** Flattens a link's markdown children into a plain-text label. */
+function anchorText(children: ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(anchorText).join("");
+  return "";
+}
+
 /**
  * URL sanitizer for `react-markdown`. The default transform drops unknown
  * protocols (keeping only http/https/mailto/etc.), which would blank our
- * `prompt://` links before the `a` handler runs. Preserve those; defer to the
- * default for everything else.
+ * `prompt://` links (and any host-registered protocol) before the `a` handler
+ * runs. Preserve those; defer to the default for everything else.
  */
-function urlTransform(url: string): string {
-  return url.startsWith(PROMPT_SCHEME) ? url : defaultUrlTransform(url);
+function makeUrlTransform(anchorProtocols: ReadonlySet<string>) {
+  return (url: string): string => {
+    if (url.startsWith(PROMPT_SCHEME)) return url;
+    const proto = protocolOf(url);
+    if (proto && anchorProtocols.has(proto)) return url;
+    return defaultUrlTransform(url);
+  };
 }
 
 /** Derives a short tab title from the link text, falling back to the filename. */
@@ -393,6 +415,55 @@ function BundleUiMessage({
   );
 }
 
+/**
+ * Renders an agent-emitted `tangent-ui:<name>` block as a host-owned component
+ * (no sandbox worker) when the host registered that name. While the message is
+ * still streaming its JSON body may be incomplete; a quiet placeholder is shown
+ * until it parses.
+ */
+interface HostUiMessageProps {
+  id: string;
+  name: string;
+  body: string;
+  onSendPrompt?: (text: string) => void;
+  onCollapse?: () => void;
+}
+
+function HostUiMessage({
+  id,
+  name,
+  body,
+  onSendPrompt,
+  onCollapse,
+}: HostUiMessageProps) {
+  let props: Record<string, unknown> | undefined;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      props = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Incomplete/invalid JSON (e.g. mid-stream); fall through to placeholder.
+  }
+
+  if (!props) {
+    return (
+      <Text size="xs" tone="subdued">
+        Loading component...
+      </Text>
+    );
+  }
+
+  return (
+    <HostOwnedSurface
+      id={id}
+      surface="ui"
+      slotKey={name}
+      props={{ name, kind: "message", props, onSendPrompt, onCollapse }}
+    />
+  );
+}
+
 // Props each element component receives: the intrinsic element's attributes
 // plus react-markdown's `node` (enabled via `passNode`). Dynamic render options
 // come from context, not props, so these component types stay referentially
@@ -460,7 +531,7 @@ function MdListItem({ children }: ListItemProps) {
   );
 }
 
-function MdAnchor({ href, title, children }: AnchorProps) {
+function MdAnchor({ href, title, children, node }: AnchorProps) {
   const {
     artifactBaseUrl,
     size,
@@ -469,7 +540,9 @@ function MdAnchor({ href, title, children }: AnchorProps) {
     pinnedPaths,
     onTogglePinArtifact,
     sessionId,
+    messageId,
   } = useMarkdownOptions();
+  const { registry, anchorProtocols } = useHostExtensions();
 
   if (typeof href === "string" && href.startsWith(PROMPT_SCHEME)) {
     const promptText = parsePromptHref(href);
@@ -479,6 +552,20 @@ function MdAnchor({ href, title, children }: AnchorProps) {
       <PromptLink prompt={text} onSend={onSendPrompt} size={size}>
         {children}
       </PromptLink>
+    );
+  }
+
+  const protocol = protocolOf(href);
+  if (registry && protocol && anchorProtocols.has(protocol) && href) {
+    const path = href.slice(protocol.length + "://".length);
+    const id = `anchor:${messageId ?? ""}:${node?.position?.start.offset ?? 0}`;
+    return (
+      <HostOwnedSurface
+        id={id}
+        surface="anchor"
+        slotKey={protocol}
+        props={{ href, protocol, path, label: anchorText(children) }}
+      />
     );
   }
 
@@ -542,29 +629,47 @@ function MdImage({ src, alt, title }: ImageProps) {
 function MdCode({ className, children, node }: CodeProps) {
   const { bundleId, onSendPrompt, sessionId, messageId, onCollapse } =
     useMarkdownOptions();
+  const { registry, uiNames } = useHostExtensions();
 
-  // Bundle-UI message token: render the bundle's sandboxed component when we
-  // know which bundle to load it from; otherwise treat it as code.
-  const bundleMatch = bundleId ? className?.match(BUNDLE_UI_LANGUAGE) : null;
-  if (bundleMatch && bundleId) {
-    const body = String(children).replace(/\n$/, "");
+  const bundleMatch = className?.match(BUNDLE_UI_LANGUAGE);
+  if (bundleMatch) {
     const name = bundleMatch[1];
+    const body = String(children).replace(/\n$/, "");
     // The block's source offset is stable across renders and unique within the
     // message, so it disambiguates repeated components of the same name without
     // a render-time occurrence counter (which would have to mutate per render).
     const instanceKey = String(node?.position?.start.offset ?? 0);
-    return (
-      <BundleUiMessage
-        bundleId={bundleId}
-        name={name}
-        body={body}
-        instanceKey={instanceKey}
-        onSendPrompt={onSendPrompt}
-        sessionId={sessionId}
-        messageId={messageId}
-        onCollapse={onCollapse}
-      />
-    );
+
+    // Host-owned override: render the host's component (no sandbox worker),
+    // even when the session has no bundle to load a compiled component from.
+    if (registry && uiNames.has(name)) {
+      return (
+        <HostUiMessage
+          id={`ui:${messageId ?? ""}:${instanceKey}:${name}`}
+          name={name}
+          body={body}
+          onSendPrompt={onSendPrompt}
+          onCollapse={onCollapse}
+        />
+      );
+    }
+
+    // Bundle-UI message token: render the bundle's sandboxed component when we
+    // know which bundle to load it from; otherwise treat it as code.
+    if (bundleId) {
+      return (
+        <BundleUiMessage
+          bundleId={bundleId}
+          name={name}
+          body={body}
+          instanceKey={instanceKey}
+          onSendPrompt={onSendPrompt}
+          sessionId={sessionId}
+          messageId={messageId}
+          onCollapse={onCollapse}
+        />
+      );
+    }
   }
 
   const match = className?.match(/language-(\w+)/);
@@ -646,6 +751,8 @@ export function Markdown({
   messageId,
   onCollapse,
 }: MarkdownProps) {
+  const { anchorProtocols } = useHostExtensions();
+  const urlTransform = makeUrlTransform(anchorProtocols);
   const options: MarkdownComponentsOptions = {
     artifactBaseUrl,
     size,
