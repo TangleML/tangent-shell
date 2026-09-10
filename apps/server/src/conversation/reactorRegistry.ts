@@ -233,6 +233,22 @@ export class ReactorRegistry {
     return this.store.listForSession(sessionId);
   }
 
+  /** Every reactor in a session as an inspectable view — its config, scope,
+   * folded state, and whether it would fire now. The workflow view's read of
+   * "each Reactor's current `S` and whether `ready` holds" (unified-model §9.8). */
+  async inspectAll(sessionId: string): Promise<ReactorView[]> {
+    const records = await this.store.listForSession(sessionId);
+    return records.map((record) => ({
+      id: record.id,
+      participantId: record.participantId,
+      homeConversationId: record.homeConversationId,
+      spec: record.spec,
+      scope: record.scope,
+      state: record.state,
+      ready: reactorFor(record.spec).ready(record.state),
+    }));
+  }
+
   async listForParticipant(
     sessionId: string,
     participantId: string,

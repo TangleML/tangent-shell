@@ -56,7 +56,7 @@ type WindowLayoutStorageMap = Record<string, PersistedWindowLayout>;
 
 const storage = getStorage<string, WindowLayoutStorageMap>();
 
-const CURRENT_VERSION = 4;
+const CURRENT_VERSION = 5;
 
 function saveWindowLayoutImmediate(store: WindowStoreImpl): void {
   const existingLayout = loadWindowLayout();

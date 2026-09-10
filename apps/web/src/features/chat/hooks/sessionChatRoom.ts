@@ -308,6 +308,12 @@ class SessionChatRoom {
     return this.agentByConversation.get(conversationId) ?? conversationId;
   }
 
+  private invalidateWorkflow(): void {
+    void queryClient.invalidateQueries({
+      queryKey: SessionQueryKeys.Workflow(this.sessionId),
+    });
+  }
+
   private trackRunActivity(
     conversationId: string,
     activity: AgentActivity | null,
@@ -394,6 +400,7 @@ class SessionChatRoom {
           queryKey: SessionQueryKeys.Resources(sessionId),
         });
       }
+      this.invalidateWorkflow();
     });
 
     socket.on(
@@ -419,6 +426,7 @@ class SessionChatRoom {
         const agentId = this.agentIdOf(message.conversationId);
         this.streaming.add(agentId);
         this.publish(agentId);
+        this.invalidateWorkflow();
       },
     );
 
@@ -479,6 +487,7 @@ class SessionChatRoom {
       const agentId = this.agentIdOf(message.conversationId);
       this.streaming.delete(agentId);
       this.publish(agentId);
+      this.invalidateWorkflow();
     });
 
     socket.on(
@@ -623,6 +632,7 @@ class SessionChatRoom {
       void queryClient.invalidateQueries({
         queryKey: SessionQueryKeys.Resources(sessionId),
       });
+      this.invalidateWorkflow();
     });
 
     socket.on(

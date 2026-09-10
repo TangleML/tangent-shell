@@ -115,6 +115,19 @@ export class RunRegistry {
     return this.byId.get(runId);
   }
 
+  /**
+   * Every Run a session currently has open, for the workflow view (unified-model
+   * §9.8, "open Runs"). In-memory is authoritative for what is running now; a
+   * settled Run lives only in the store, so this lists the live ones.
+   */
+  listForSession(sessionId: string): Run[] {
+    const open: Run[] = [];
+    for (const run of this.byParticipant.values()) {
+      if (run.sessionId === sessionId) open.push(run);
+    }
+    return open;
+  }
+
   /** Settles a Run, recording which terminal state it reached. */
   settle(runId: RunId, status: SettledStatus): void {
     const run = this.byId.get(runId);
