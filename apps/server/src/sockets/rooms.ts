@@ -1,5 +1,3 @@
-import { ROOM_PER_CONVERSATION } from "../config.ts";
-
 /** The Socket.IO room every client viewing one session joins. */
 export function roomFor(sessionId: string): string {
   return `session:${sessionId}`;
@@ -20,17 +18,14 @@ export function roomForConversation(
 
 /**
  * Where a Message (or an agent's streaming event) for one Conversation is
- * broadcast: the per-Conversation room when {@link ROOM_PER_CONVERSATION} is on,
- * or the session-wide room when it has been rolled back. Every session-level
- * event (roster, presence, triggers, artifacts) always uses {@link roomFor}.
+ * broadcast: the per-Conversation room. Every session-level event (roster,
+ * presence, triggers, artifacts) uses {@link roomFor} instead.
  */
 export function messageRoomFor(
   sessionId: string,
   conversationId: string,
 ): string {
-  return ROOM_PER_CONVERSATION
-    ? roomForConversation(sessionId, conversationId)
-    : roomFor(sessionId);
+  return roomForConversation(sessionId, conversationId);
 }
 
 /**
