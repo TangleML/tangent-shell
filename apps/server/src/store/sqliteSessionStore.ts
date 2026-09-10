@@ -13,7 +13,6 @@ import {
   type PinnedArtifact,
   type Session,
   type SessionConfigMeta,
-  type SubagentHost,
   type UpdateSessionRequest,
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
@@ -42,7 +41,6 @@ import {
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
-  connectorFromHost,
   type CreateSessionParams,
   type RecordAgentInput,
   type SessionAgent,
@@ -73,13 +71,12 @@ function toSession(row: SessionRow): Session {
 }
 
 /**
- * Reads a row's connector facets, falling back to the legacy `host` label for
- * rows written before the connector columns existed.
+ * Reads a row's connector facets, defaulting to `pi-stdio` for a row that never
+ * had its connector columns set.
  */
 function toConnector(row: SessionAgentRow): ConnectorDescriptor {
-  if (!row.connectorKind) return connectorFromHost(row.host as SubagentHost);
   return {
-    ...connectorFor(row.connectorKind as ConnectorKind),
+    ...connectorFor((row.connectorKind as ConnectorKind) ?? "pi-stdio"),
     ...(row.connectorLifecycle
       ? { lifecycle: row.connectorLifecycle as ConnectorLifecycle }
       : {}),
@@ -126,7 +123,6 @@ function toAgent(
     tools: parseTools(row.tools),
     systemPrompt: row.systemPrompt ?? undefined,
     autoRelayToPrime: row.autoRelayToPrime,
-    host: row.host as SubagentHost,
     connector: toConnector(row),
     homeConversationId,
     createdAt: row.createdAt,
@@ -467,7 +463,6 @@ export class SqliteSessionStore implements SessionStore {
         tools,
         systemPrompt: agent.systemPrompt,
         autoRelayToPrime: agent.autoRelayToPrime,
-        host: agent.host,
         ...connectorColumns(agent.connector),
         createdAt: new Date().toISOString(),
       })
@@ -484,7 +479,6 @@ export class SqliteSessionStore implements SessionStore {
           tools,
           systemPrompt: agent.systemPrompt,
           autoRelayToPrime: agent.autoRelayToPrime,
-          host: agent.host,
           ...connectorColumns(agent.connector),
         },
       })

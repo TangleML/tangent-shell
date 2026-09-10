@@ -1,8 +1,4 @@
-import {
-  connectorFields,
-  type ConnectorKind,
-  PI_AGENT,
-} from "@tangent/shared/contracts.ts";
+import { type ConnectorKind, PI_AGENT } from "@tangent/shared/contracts.ts";
 import { type Response, Router } from "express";
 import { z } from "zod";
 
@@ -124,7 +120,6 @@ async function handleSpawn(
   }
 
   try {
-    const { host } = connectorFields(kind);
     const { info, tools, systemPrompt, autoRelayToPrime } = connector.spawn(
       body.sessionId,
       {
@@ -134,7 +129,7 @@ async function handleSpawn(
         tools: body.tools,
         model: body.model,
         thinkingDepth: parseThinkingLevel(body.thinkingDepth),
-        environment: host,
+        environment: body.environment,
       },
     );
     await store.recordAgent(body.sessionId, {
@@ -149,7 +144,6 @@ async function handleSpawn(
       tools,
       systemPrompt,
       autoRelayToPrime,
-      host,
       connector: info.connector,
       homeConversationId: info.conversationId,
     });
