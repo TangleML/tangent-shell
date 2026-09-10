@@ -394,7 +394,8 @@ app.use(
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
-// Public MCP relay dialed by an external client; per-channel bearer in the URL.
+// Public MCP relay dialed by an external client; per-channel bearer presented
+// on Authorization (or Mcp-Authorization behind a Basic-auth gateway).
 app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());

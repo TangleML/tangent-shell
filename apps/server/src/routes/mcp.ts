@@ -1,6 +1,7 @@
 import { type Request, type Response, Router } from "express";
 
 import type { CorrelationEngine } from "../conversation/correlation.ts";
+import { mcpAuthorization } from "../mcp/mcpAuthorization.ts";
 import { dispatchMcp } from "../mcp/mcpRelayServer.ts";
 import type { RelayChannel, RelayRegistry } from "../mcp/relayRegistry.ts";
 import type { RelayReport } from "../mcp/relayReport.ts";
@@ -8,8 +9,9 @@ import type { RelayReport } from "../mcp/relayReport.ts";
 /**
  * Public MCP endpoint an external client (dialed by the gateway) uses to relay
  * tool calls back into a channel's session. There is no global auth on `/api/*`;
- * each channel is gated by the per-channel bearer secret embedded in the URL it
- * was handed, mirroring the trigger-callback-secret pattern. Generic and
+ * each channel is gated by a per-channel bearer secret the caller presents on
+ * `Authorization` (or `Mcp-Authorization` when a gateway spends `Authorization`
+ * on its own `Basic` auth). Generic and
  * domain-agnostic — the bundle that opened the channel owns everything specific
  * to the remote runtime.
  */
@@ -87,7 +89,7 @@ async function handlePost(
 
 function authorized(req: Request, channel: RelayChannel): boolean {
   return channel.credential.verify({
-    authorization: req.get("authorization"),
+    authorization: mcpAuthorization((name) => req.get(name)),
   });
 }
 
