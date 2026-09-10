@@ -49,6 +49,7 @@ function membership(
     conversationId,
     reaction,
     ingress: "reaction",
+    admission: "queue",
     transcriptVisibility,
   };
 }
@@ -183,14 +184,20 @@ export class MembershipRegistry {
     }
 
     const relays = owner?.autoRelayToPrime ?? true;
+    // The orchestrator watches a worker's thread, which can stream many run-end
+    // relays; coalescing collapses a burst into one follow-up rather than
+    // queueing one wake per Message. Its own home stays `queue` (the default).
     return [
       this.subject(sessionId, conversationId, owner),
-      membership(
-        sessionId,
-        orchestratorId,
-        conversationId,
-        relays ? ORCHESTRATOR : ON_REQUEST,
-      ),
+      {
+        ...membership(
+          sessionId,
+          orchestratorId,
+          conversationId,
+          relays ? ORCHESTRATOR : ON_REQUEST,
+        ),
+        admission: "coalesce",
+      },
     ];
   }
 

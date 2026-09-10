@@ -59,6 +59,7 @@ function membership(participantId: string, conversationId: string): Membership {
     conversationId,
     reaction: "never",
     ingress: "reaction",
+    admission: "queue",
     transcriptVisibility: "shared",
   };
 }

@@ -43,7 +43,7 @@ test("derives a participant per roster row, persisting the derived rows", async 
   const sub = participants.find((p) => p.id === "sub-1");
 
   assert.equal(prime?.kind, "agent");
-  assert.deepEqual(prime?.capabilities, ["orchestrator"]);
+  assert.deepEqual(prime?.capabilities, ["orchestrator", "supervisor"]);
   assert.deepEqual(sub?.capabilities, []);
   // The derivation was persisted, so a later read has a stored row to find.
   assert.equal((await store.get("s1", "prime"))?.displayName, "Prime");
@@ -162,5 +162,5 @@ test("recording an agent dual-writes the participant projection", async () => {
 
   const mirrored = await store.get("s1", "prime");
   assert.equal(mirrored?.displayName, "Prime");
-  assert.deepEqual(mirrored?.capabilities, ["orchestrator"]);
+  assert.deepEqual(mirrored?.capabilities, ["orchestrator", "supervisor"]);
 });

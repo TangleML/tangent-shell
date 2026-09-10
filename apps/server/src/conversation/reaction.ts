@@ -4,6 +4,7 @@ import type {
   ReactionName,
   ReactionSpec,
   RunId,
+  TerminationCause,
 } from "@tangent/shared/contracts.ts";
 
 /**
@@ -22,6 +23,10 @@ export interface MessageFacts {
   mentions: string[];
   endsRun: boolean;
   runId?: RunId;
+  /** The structured termination cause this Message carries, when it is a system
+   * notice of one — how a `supervise` Reactor sees a failure without reading the
+   * body. */
+  cause?: TerminationCause;
 }
 
 /** Whether `self` should act on a Message posted to a Conversation it is in. */
@@ -70,5 +75,6 @@ export function messageFacts(message: ChatMessage): MessageFacts {
     mentions: message.mentions,
     endsRun: message.endsRun ?? false,
     runId: message.runId,
+    cause: message.cause,
   };
 }
