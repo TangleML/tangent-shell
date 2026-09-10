@@ -7,6 +7,7 @@ import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import { useEffect } from "react";
 
 import { AgentModelPicker } from "@/features/chat/components/composer/AgentModelPicker";
+import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
 import { ChatInput } from "@/features/chat/components/composer/ChatInput";
 import { ChatMessageList } from "@/features/chat/components/message/ChatMessageList";
 import { SubagentTabView } from "@/features/chat/components/tabs/SubagentTabView";
@@ -134,6 +135,14 @@ export function EmbeddedChat({
           />
         </InlineStack>
       </Box>
+      {bundleId ? (
+        <BundlePanelLauncher
+          bundleId={bundleId}
+          onSendPrompt={(text) =>
+            chat.send(text, { conversationId: primaryConversationId })
+          }
+        />
+      ) : null}
       <ChatInput
         key={`${sessionId}:${PI_AGENT.id}`}
         sessionId={sessionId}
