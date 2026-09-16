@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { TangentContext, type TangentContextValue } from "./context";
 import { defaultChannelUrl, loadEmbedRuntime } from "./loader";
@@ -9,6 +9,18 @@ import type {
   HostUIComponentMap,
   TangentProviderElementLike,
 } from "./types";
+
+function applyRuntimeConfig(
+  element: TangentProviderElementLike | null,
+  config: TangentProviderElementLike["config"],
+  theme: TangentProviderElementLike["theme"],
+  hostExtensions: TangentProviderElementLike["hostExtensions"],
+): void {
+  if (!element) return;
+  element.config = config;
+  element.theme = theme;
+  element.hostExtensions = hostExtensions;
+}
 
 export interface TangentProviderProps {
   /** Tangent origin (optionally with a mount prefix), e.g. `https://tangent.example`. */
@@ -76,26 +88,46 @@ export function TangentProvider({
     };
   }, [readyPromise]);
 
-  useEffect(() => {
-    const element = ref.current as TangentProviderElementLike | null;
-    if (!element || !ready) return;
-    element.config = { apiBase: baseUrl, socketUrl, socketPath, getToken };
-  }, [ready, baseUrl, socketUrl, socketPath, getToken]);
+  const config = { apiBase: baseUrl, socketUrl, socketPath, getToken };
+  const theme = { colorScheme, tokens };
+  const hostExtensions = {
+    uiNames: Object.keys(uiComponents ?? {}),
+    anchorProtocols: Object.keys(anchorProtocols ?? {}),
+  };
 
-  useEffect(() => {
-    const element = ref.current as TangentProviderElementLike | null;
-    if (!element || !ready) return;
-    element.theme = { colorScheme, tokens };
-  }, [ready, colorScheme, tokens]);
+  // Descendant `<tangent-chat>` elements read `config` from `<tangent-provider>`
+  // in their mount effect to open the socket. Effects run child-first, so
+  // applying config in an effect here lands after the chat already subscribed
+  // to the wrong (host) origin. Writing during render sets it before children
+  // mount; the layout effect covers later prop changes.
+  if (ready) {
+    applyRuntimeConfig(
+      ref.current as TangentProviderElementLike | null,
+      config,
+      theme,
+      hostExtensions,
+    );
+  }
 
-  useEffect(() => {
-    const element = ref.current as TangentProviderElementLike | null;
-    if (!element || !ready) return;
-    element.hostExtensions = {
-      uiNames: Object.keys(uiComponents ?? {}),
-      anchorProtocols: Object.keys(anchorProtocols ?? {}),
-    };
-  }, [ready, uiComponents, anchorProtocols]);
+  useLayoutEffect(() => {
+    if (!ready) return;
+    applyRuntimeConfig(
+      ref.current as TangentProviderElementLike | null,
+      config,
+      theme,
+      hostExtensions,
+    );
+  }, [
+    ready,
+    baseUrl,
+    socketUrl,
+    socketPath,
+    getToken,
+    colorScheme,
+    tokens,
+    uiComponents,
+    anchorProtocols,
+  ]);
 
   const context: TangentContextValue = {
     getProvider: () => ref.current as TangentProviderElementLike | null,
