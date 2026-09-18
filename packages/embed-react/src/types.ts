@@ -1,4 +1,4 @@
-import type { DetailedHTMLProps, HTMLAttributes } from "react";
+import type { ComponentType, DetailedHTMLProps, HTMLAttributes } from "react";
 
 type TangentElementProps = DetailedHTMLProps<
   HTMLAttributes<HTMLElement> & { instance?: string },
@@ -23,6 +23,77 @@ declare module "react" {
 }
 
 export type ColorScheme = "light" | "dark" | "system";
+
+/**
+ * Props a host-owned UI component receives when it replaces a bundle's
+ * sandboxed component. Registered by `name` in {@link TangentProviderProps.uiComponents};
+ * a matching `tangent-ui:<name>` message block, composer panel, or {@link
+ * BundledUISlot} renders it directly in the host's React tree — no Web Worker.
+ */
+export interface HostUIComponentProps {
+  /** The component name it was registered under. */
+  name: string;
+  /** Which surface it renders on. */
+  kind: "message" | "panel";
+  /** JSON props (a `message` token's body, or `{}` for a `panel`). */
+  props: Record<string, unknown>;
+  /** Sends a composed prompt to the chat, as if the user had typed it. */
+  onSendPrompt?: (text: string) => void;
+  /** Collapses the host message this component renders in (message surface). */
+  onCollapse?: () => void;
+}
+
+/**
+ * Props a host-owned anchor component receives when it renders a custom
+ * markdown link protocol. Registered by protocol in {@link
+ * TangentProviderProps.anchorProtocols}; a link like `entity://123` renders the
+ * mapped component instead of a plain link.
+ */
+export interface AnchorProtocolProps {
+  /** The full href, e.g. `entity://123`. */
+  href: string;
+  /** The protocol scheme, e.g. `entity` (the map key). */
+  protocol: string;
+  /** The href remainder after `<protocol>://`, e.g. `123`. */
+  path: string;
+  /** The link's plain-text label. */
+  label: string;
+}
+
+/** Host UI components keyed by extension name. */
+export type HostUIComponentMap = Record<
+  string,
+  ComponentType<HostUIComponentProps>
+>;
+
+/** Host anchor components keyed by protocol scheme (no `://`). */
+export type AnchorProtocolMap = Record<
+  string,
+  ComponentType<AnchorProtocolProps>
+>;
+
+/** The extension keys forwarded to the runtime so it knows which names to slot. */
+export interface HostExtensionKeys {
+  uiNames: string[];
+  anchorProtocols: string[];
+}
+
+/** A host-slot record the runtime exposes for the wrapper to fill (see `Chat`). */
+export type HostSlotRecordLike =
+  | {
+      id: string;
+      surface: "ui";
+      /** Component name to look up in {@link HostUIComponentMap}. */
+      key: string;
+      props: HostUIComponentProps;
+    }
+  | {
+      id: string;
+      surface: "anchor";
+      /** Protocol scheme to look up in {@link AnchorProtocolMap}. */
+      key: string;
+      props: AnchorProtocolProps;
+    };
 
 /** Delivery routing for a prompt, mirroring the server's `MessageDelivery`. */
 export type MessageDelivery = "auto" | "steer" | "followUp";
@@ -124,6 +195,7 @@ export interface TangentProviderElementLike extends HTMLElement {
     getToken?: () => string | undefined | Promise<string | undefined>;
   };
   theme: TangentThemeInputs;
+  hostExtensions: HostExtensionKeys;
   runtime?: EmbedRuntimeHandle | null;
 }
 
@@ -131,6 +203,10 @@ export interface TangentChatElementLike extends HTMLElement {
   sessionId: string;
   agentId?: string;
   initialPrompt?: string;
+  /** Current host-slot records to project as light-DOM children. */
+  getHostSlots?: () => HostSlotRecordLike[];
+  /** Subscribes to host-slot changes; returns an unsubscribe. */
+  subscribeHostSlots?: (listener: () => void) => () => void;
 }
 
 export interface TangentSessionListElementLike extends HTMLElement {

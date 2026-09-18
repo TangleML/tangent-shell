@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { TangentChatElementLike } from "./types";
+import { useTangentContext } from "./context";
+import type { HostSlotRecordLike, TangentChatElementLike } from "./types";
 
 export interface ChatProps {
   /** The session to render. Obtain a new one from `useTangent().newSession`. */
@@ -39,11 +40,25 @@ export function Chat({
   style,
 }: ChatProps) {
   const ref = useRef<HTMLElement | null>(null);
+  const { uiComponents, anchorProtocols } = useTangentContext();
+  const [slots, setSlots] = useState<HostSlotRecordLike[]>([]);
 
   useEffect(() => {
     const element = ref.current as TangentChatElementLike | null;
     if (element) element.sessionId = sessionId;
   }, [sessionId]);
+
+  useEffect(() => {
+    const element = ref.current as TangentChatElementLike | null;
+    const getHostSlots = element?.getHostSlots;
+    const subscribeHostSlots = element?.subscribeHostSlots;
+    if (!element || !getHostSlots || !subscribeHostSlots) return;
+    // Call through the element so `this` binds to the custom element instance;
+    // extracting the method to a bare variable would drop `this` and throw.
+    const sync = () => setSlots(getHostSlots.call(element));
+    sync();
+    return subscribeHostSlots.call(element, sync);
+  }, []);
 
   useEffect(() => {
     const element = ref.current as TangentChatElementLike | null;
@@ -87,6 +102,25 @@ export function Chat({
       instance={instance}
       className={className}
       style={{ height: "100%", ...style }}
-    />
+    >
+      {slots.map((slot) => {
+        if (slot.surface === "ui") {
+          const Component = uiComponents[slot.key];
+          if (!Component) return null;
+          return (
+            <span key={slot.id} slot={slot.id} style={{ display: "contents" }}>
+              <Component {...slot.props} />
+            </span>
+          );
+        }
+        const Component = anchorProtocols[slot.key];
+        if (!Component) return null;
+        return (
+          <span key={slot.id} slot={slot.id} style={{ display: "contents" }}>
+            <Component {...slot.props} />
+          </span>
+        );
+      })}
+    </tangent-chat>
   );
 }

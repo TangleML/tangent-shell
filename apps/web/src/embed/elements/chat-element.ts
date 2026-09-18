@@ -1,5 +1,11 @@
 import { createElement, type ReactNode } from "react";
 
+import {
+  createHostSlotRegistry,
+  HostExtensionsContext,
+  type HostSlotRecord,
+} from "@/shared/lib/hostSlots";
+
 import { EmbeddedChat } from "../components/EmbeddedChat";
 import type { TangentRuntime } from "../types";
 import { EmbeddedElement } from "./embeddedElement";
@@ -15,6 +21,8 @@ export class TangentChatElement extends EmbeddedElement {
   private currentSessionId = "";
   private currentAgentId = "";
   private queuedInitialPrompt: string | undefined;
+  private readonly hostSlots = createHostSlotRegistry();
+  private hostExtUnsubscribe: (() => void) | null = null;
 
   static get observedAttributes(): string[] {
     return ["session-id", "agent-id"];
@@ -22,6 +30,28 @@ export class TangentChatElement extends EmbeddedElement {
 
   protected get tag(): string {
     return TAG;
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.hostExtUnsubscribe =
+      this.runtime?.subscribeHostExtensions(() => this.rerender()) ?? null;
+  }
+
+  disconnectedCallback(): void {
+    this.hostExtUnsubscribe?.();
+    this.hostExtUnsubscribe = null;
+    super.disconnectedCallback();
+  }
+
+  /** Current host-slot records for the npm wrapper to project. */
+  getHostSlots(): HostSlotRecord[] {
+    return this.hostSlots.getSlots();
+  }
+
+  /** Subscribes to host-slot changes; returns an unsubscribe. */
+  subscribeHostSlots(listener: () => void): () => void {
+    return this.hostSlots.subscribe(listener);
   }
 
   set sessionId(value: string) {
@@ -63,14 +93,25 @@ export class TangentChatElement extends EmbeddedElement {
       this.queuedInitialPrompt = undefined;
     }
 
-    return createElement(EmbeddedChat, {
-      sessionId: this.currentSessionId,
-      agentId: this.currentAgentId || undefined,
-      runtime,
-      onOpenArtifact: (url: string, title: string) =>
-        this.emit("open-artifact", { url, title }),
-      onSendPrompt: (content: string) => this.emit("send-prompt", { content }),
-    });
+    return createElement(
+      HostExtensionsContext.Provider,
+      {
+        value: {
+          registry: this.hostSlots,
+          uiNames: runtime.hostUiNames,
+          anchorProtocols: runtime.hostAnchorProtocols,
+        },
+      },
+      createElement(EmbeddedChat, {
+        sessionId: this.currentSessionId,
+        agentId: this.currentAgentId || undefined,
+        runtime,
+        onOpenArtifact: (url: string, title: string) =>
+          this.emit("open-artifact", { url, title }),
+        onSendPrompt: (content: string) =>
+          this.emit("send-prompt", { content }),
+      }),
+    );
   }
 }
 

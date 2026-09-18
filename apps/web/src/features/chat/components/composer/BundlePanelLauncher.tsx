@@ -7,6 +7,8 @@ import { useState } from "react";
 import { useAgentBundle } from "@/features/agent-bundles/hooks/useAgentBundle";
 import { BundleUiHost } from "@/features/bundle-ui/BundleUiHost";
 import { apiUrl } from "@/shared/lib/basePath";
+import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
+import { useHostExtensions } from "@/shared/lib/hostSlots";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 interface BundlePanelLauncherProps {
@@ -26,12 +28,15 @@ export function BundlePanelLauncher({
   onSendPrompt,
 }: BundlePanelLauncherProps) {
   const { data: bundle } = useAgentBundle(bundleId);
+  const { registry, uiNames } = useHostExtensions();
   const [selected, setSelected] = useState<string | null>(null);
 
   const panels = (bundle?.components ?? []).filter((c) => c.kind === "panel");
   if (panels.length === 0) return null;
 
   const active = panels.find((p) => p.name === selected);
+  const hostOwned =
+    active != null && registry != null && uiNames.has(active.name);
 
   return (
     <Box borderBlockStart="sm" paddingInline="sm" paddingBlock="xs">
@@ -71,17 +76,35 @@ export function BundlePanelLauncher({
                   aria-label="Close panel"
                 />
               </InlineStack>
-              <BundleUiHost
-                key={active.name}
-                kind="panel"
-                moduleUrl={apiUrl(
-                  `/api/agent-bundles/${bundleId}/ui/${active.name}.js`,
-                )}
-                onSendPrompt={(text) => {
-                  onSendPrompt(text);
-                  setSelected(null);
-                }}
-              />
+              {hostOwned ? (
+                <HostOwnedSurface
+                  key={active.name}
+                  id={`panel:${bundleId}:${active.name}`}
+                  surface="ui"
+                  slotKey={active.name}
+                  props={{
+                    name: active.name,
+                    kind: "panel",
+                    props: {},
+                    onSendPrompt: (text: string) => {
+                      onSendPrompt(text);
+                      setSelected(null);
+                    },
+                  }}
+                />
+              ) : (
+                <BundleUiHost
+                  key={active.name}
+                  kind="panel"
+                  moduleUrl={apiUrl(
+                    `/api/agent-bundles/${bundleId}/ui/${active.name}.js`,
+                  )}
+                  onSendPrompt={(text) => {
+                    onSendPrompt(text);
+                    setSelected(null);
+                  }}
+                />
+              )}
             </BlockStack>
           </Box>
         ) : null}
