@@ -682,6 +682,7 @@ export class PiAgentManager {
         template: agent.template,
         model: agent.model,
         thinkingDepth,
+        autoRelayToPrime: agent.autoRelayToPrime,
       },
       {
         templates: session.config?.templates,
@@ -790,7 +791,8 @@ export class PiAgentManager {
       templates: session.config?.templates,
       defaults: session.config?.subagentDefaults,
     });
-    const autoRelayToPrime = request.autoRelayToPrime ?? true;
+    const autoRelayToPrime =
+      request.autoRelayToPrime ?? config.autoRelayToPrime ?? true;
 
     const agent = this.spawnAgent(
       sessionId,

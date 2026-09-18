@@ -38,6 +38,11 @@ export const spawnSchema = z.object({
   task: z.string().optional(),
   /** Where to host the sub-agent. Defaults to `local`. */
   environment: z.enum(["local", "remote"]).optional(),
+  /**
+   * Whether Prime reacts to the sub-agent's finalized turns (`true`) or only to
+   * `message_prime` (`false`). Omitted falls back to the template/bundle default.
+   */
+  autoRelayToPrime: z.boolean().optional(),
 });
 export type SpawnInput = z.infer<typeof spawnSchema>;
 
@@ -164,6 +169,7 @@ async function handleSpawn(
         model: body.model,
         thinkingDepth: parseThinkingLevel(body.thinkingDepth),
         environment: body.environment,
+        autoRelayToPrime: body.autoRelayToPrime,
         audienceParticipantId,
       },
     );

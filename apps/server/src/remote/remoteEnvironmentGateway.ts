@@ -268,7 +268,8 @@ export class RemoteEnvironmentGateway {
       templates: sessionConfig?.templates,
       defaults: sessionConfig?.subagentDefaults,
     });
-    const autoRelayToPrime = request.autoRelayToPrime ?? true;
+    const autoRelayToPrime =
+      request.autoRelayToPrime ?? config.autoRelayToPrime ?? true;
     const tools = [...config.tools];
 
     const subagent: RemoteSubagent = {
