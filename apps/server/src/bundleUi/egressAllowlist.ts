@@ -64,8 +64,9 @@ const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
 
 /**
  * Allowlisted Tangle API endpoints (tags `artifacts` / `executions` /
- * `pipelineRuns` from the OpenAPI doc). Reads are GET; run submit/cancel and
- * annotation mutations carry their own methods. Everything else is denied.
+ * `pipelineRuns` / `projects` / `workspaces` from the OpenAPI doc). Reads are
+ * GET; run submit/cancel and annotation mutations carry their own methods.
+ * `projects` / `workspaces` are read-only prefixes. Everything else is denied.
  */
 const TANGLE_PATH_RULES: ReadonlyArray<{
   method: NonNullable<EgressRequestInit["method"]>;
@@ -90,6 +91,11 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   // artifacts
   { method: "GET", test: /^\/api\/artifacts\/[^/]+$/ },
   { method: "GET", test: /^\/api\/artifacts\/[^/]+\/signed_artifact_url$/ },
+  // projects / workspaces (read-only)
+  { method: "GET", test: /^\/api\/projects(?:\/.*)?$/ },
+  { method: "GET", test: /^\/api\/workspaces(?:\/.*)?$/ },
+  { method: "POST", test: /^\/api\/projects(?:\/.*)?$/ },
+  { method: "PATCH", test: /^\/api\/projects(?:\/.*)?$/ },
 ];
 
 /** Expands the Tangle path rules into full {@link EgressRule}s. */

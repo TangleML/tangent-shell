@@ -50,6 +50,125 @@ test("resolves a logical Tangle target and injects server-side credentials", asy
   assert.deepEqual(result.json, { ok: true });
 });
 
+test("resolves a projects resources path", async () => {
+  const expectedBase = new URL(TANGLE_API_URL);
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, expectedBase.origin);
+      assert.equal(url.pathname, "/api/projects/project-1/resources/");
+      return new Response(JSON.stringify({ resources: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+
+  const result = await resolveEgress({
+    target: "tangle",
+    path: "/api/projects/project-1/resources/",
+  });
+
+  assert.equal(fetchMock.mock.calls.length, 1);
+  assert.equal(result.ok, true);
+});
+
+test("resolves a POST to the projects prefix", async () => {
+  const expectedBase = new URL(TANGLE_API_URL);
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, expectedBase.origin);
+      assert.equal(url.pathname, "/api/projects/");
+      assert.equal(init?.method, "POST");
+      return new Response(JSON.stringify({ id: "project-1" }), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+
+  const result = await resolveEgress(
+    { target: "tangle", path: "/api/projects/" },
+    { method: "POST", body: { name: "new-project" } },
+  );
+
+  assert.equal(fetchMock.mock.calls.length, 1);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.json, { id: "project-1" });
+});
+
+test("resolves a PATCH to a project path", async () => {
+  const expectedBase = new URL(TANGLE_API_URL);
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, expectedBase.origin);
+      assert.equal(url.pathname, "/api/projects/project-1");
+      assert.equal(init?.method, "PATCH");
+      return new Response(JSON.stringify({ id: "project-1" }), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+
+  const result = await resolveEgress(
+    { target: "tangle", path: "/api/projects/project-1" },
+    { method: "PATCH", body: { name: "renamed" } },
+  );
+
+  assert.equal(fetchMock.mock.calls.length, 1);
+  assert.equal(result.ok, true);
+});
+
+test("resolves a read-only workspaces list path", async () => {
+  const expectedBase = new URL(TANGLE_API_URL);
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, expectedBase.origin);
+      assert.equal(url.pathname, "/api/workspaces/");
+      return new Response(JSON.stringify({ workspaces: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+
+  const result = await resolveEgress({
+    target: "tangle",
+    path: "/api/workspaces/",
+  });
+
+  assert.equal(fetchMock.mock.calls.length, 1);
+  assert.equal(result.ok, true);
+});
+
+test("rejects a write to the read-only workspaces prefix", async () => {
+  await assert.rejects(
+    resolveEgress(
+      { target: "tangle", path: "/api/workspaces/" },
+      { method: "POST" },
+    ),
+    EgressDeniedError,
+  );
+});
+
+test("rejects a DELETE to the projects prefix", async () => {
+  await assert.rejects(
+    resolveEgress(
+      { target: "tangle", path: "/api/projects/" },
+      { method: "DELETE" },
+    ),
+    EgressDeniedError,
+  );
+});
+
 test("rejects a logical target path that is not allowlisted", async () => {
   await assert.rejects(
     resolveEgress({ target: "tangle", path: "/api/private" }),
