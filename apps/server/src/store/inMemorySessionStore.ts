@@ -6,6 +6,7 @@ import {
   capabilitiesForRole,
   type ChatMessage,
   type ConnectorDescriptor,
+  connectorFor,
   type PinnedArtifact,
   type Session,
   type SessionConfigMeta,
@@ -19,7 +20,6 @@ import {
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
-  connectorFromHost,
   type CreateSessionParams,
   type RecordAgentInput,
   type SessionAgent,
@@ -43,12 +43,12 @@ function definedAgentFields(
   return out;
 }
 
-/** The connector to store: explicit, else the prior one, else derived from `host`. */
+/** The connector to store: explicit, else the prior one, else the `pi-stdio` default. */
 function mergeConnector(
   agent: RecordAgentInput,
   prior: SessionAgent | undefined,
 ): ConnectorDescriptor {
-  return agent.connector ?? prior?.connector ?? connectorFromHost(agent.host);
+  return agent.connector ?? prior?.connector ?? connectorFor("pi-stdio");
 }
 
 /**

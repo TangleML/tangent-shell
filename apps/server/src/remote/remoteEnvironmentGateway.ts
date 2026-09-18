@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
-  connectorFields,
+  connectorFor,
   isTerminalStatus,
   type MessageDelivery,
   RESTORABLE_STATUSES,
@@ -139,7 +139,7 @@ function toInfo(subagent: RemoteSubagent): SubagentInfo {
     conversationId: subagent.homeConversationId,
     name: subagent.name,
     status: subagent.status,
-    ...connectorFields("remote-env", subagent.environmentId),
+    connector: connectorFor("remote-env", subagent.environmentId),
     template: subagent.template,
     model: subagent.model,
     thinkingDepth: subagent.thinkingDepth,

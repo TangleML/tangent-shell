@@ -495,18 +495,6 @@ export function isTerminalStatus(status: SubagentStatus): boolean {
 }
 
 /**
- * Which host runs a sub-agent: `local` (a `pi` child process managed by the
- * server), `remote` (a sub-agent hosted inside a connected remote environment
- * over the Socket.IO remote sub-agent transport), or `external` (a sub-agent
- * driven by a connected standalone bridge over the internal HTTP/SSE external
- * transport). Absent on older roster rows, which are treated as `local`.
- *
- * @deprecated Superseded by {@link ConnectorDescriptor}, which keeps the
- * decisions this label bundles apart. Retained until the `host` column is gone.
- */
-export type SubagentHost = "local" | "remote" | "external";
-
-/**
  * Which transport a connector drives its participant over: `pi-stdio` (a `pi`
  * child process the server owns), `remote-env` (a sub-agent inside a connected
  * remote environment), `external-inbound` (a runtime outside Tangent that
@@ -621,15 +609,6 @@ export const CONNECTOR_FACETS: Record<
   },
 };
 
-/** The legacy {@link SubagentHost} label each kind collapsed to. */
-const LEGACY_HOST: Record<ConnectorKind, SubagentHost | undefined> = {
-  "pi-stdio": "local",
-  "remote-env": "remote",
-  "external-inbound": "external",
-  a2a: undefined,
-  unresolved: undefined,
-};
-
 /**
  * How much of a Conversation a Membership on each connector sees by default.
  * A far end outside Tangent gets `opaque`: it is sent what addresses it, not
@@ -654,21 +633,6 @@ export function connectorFor(
   return {
     ...CONNECTOR_FACETS[kind],
     ...(environmentId ? { environmentId } : {}),
-  };
-}
-
-/**
- * Builds the connector fields of a roster entry: the descriptor plus the
- * deprecated `host` label derived from it.
- */
-export function connectorFields(
-  kind: ConnectorKind,
-  environmentId?: string,
-): Pick<SubagentInfo, "connector" | "host"> {
-  const host = LEGACY_HOST[kind];
-  return {
-    connector: connectorFor(kind, environmentId),
-    ...(host ? { host } : {}),
   };
 }
 
@@ -1109,11 +1073,6 @@ export interface SubagentInfo {
   status: SubagentStatus;
   /** The connector that runs the sub-agent. */
   connector: ConnectorDescriptor;
-  /**
-   * @deprecated Derived from {@link SubagentInfo.connector}; kept so clients
-   * still reading the coarse host label keep working.
-   */
-  host?: SubagentHost;
   /** Template the sub-agent was spawned from, if any. */
   template?: string;
   /** The `provider/model` id this sub-agent runs, when set (else server default). */

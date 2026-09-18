@@ -4,7 +4,6 @@ import type {
   ConnectorDescriptor,
   ParticipantKind,
   Presence,
-  SubagentHost,
   SubagentStatus,
 } from "@tangent/shared/contracts.ts";
 
@@ -23,7 +22,6 @@ export interface AgentPayload {
   tools?: string[];
   systemPrompt?: string;
   autoRelayToPrime?: boolean;
-  host?: SubagentHost;
   purpose?: string;
   status: SubagentStatus;
 }
@@ -61,7 +59,6 @@ function agentPayload(agent: SessionAgent): AgentPayload {
     tools: agent.tools,
     systemPrompt: agent.systemPrompt,
     autoRelayToPrime: agent.autoRelayToPrime,
-    host: agent.host,
     purpose: agent.purpose,
     status: agent.status,
   };

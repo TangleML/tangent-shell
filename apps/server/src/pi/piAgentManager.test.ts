@@ -275,7 +275,6 @@ test("the local roster describes its connector", () => {
     credentialScheme: "inherited-token",
   };
   assert.deepEqual(info.connector, expected);
-  assert.equal(info.host, "local");
   assert.deepEqual(pi.listSubagents("s1")[0].connector, expected);
 });
 
