@@ -132,9 +132,11 @@ export default function (pi: ExtensionAPI) {
       "`tools` inline. Optionally set `model` (a `provider/model` id) and " +
       "`thinking` depth (off/minimal/low/medium/high/xhigh); both default to " +
       "the session's settings when omitted. Optionally include a `task` to " +
-      "start the sub-agent working immediately. Returns the sub-agent's id for " +
-      "later messaging. Sub-agents share this session's workspace and can read " +
-      "the room.",
+      "start the sub-agent working immediately. Set `environment` to `remote` " +
+      "or `external` to host the sub-agent in a connected remote environment " +
+      "or external bridge instead of locally (defaults to `local`). Returns " +
+      "the sub-agent's id for later messaging. Sub-agents share this session's " +
+      "workspace and can read the room.",
     promptSnippet:
       "Spawn a specialized sub-agent (by template or inline config)",
     parameters: Type.Object({
@@ -169,6 +171,13 @@ export default function (pi: ExtensionAPI) {
       task: Type.Optional(
         Type.String({ description: "Initial task to send the sub-agent now." }),
       ),
+      environment: Type.Optional(
+        Type.String({
+          description:
+            "Host for the sub-agent: `local` (default) or `remote` (a " +
+            "connected remote environment).",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
       const data = (await callApi("POST", "spawn", {
@@ -180,6 +189,7 @@ export default function (pi: ExtensionAPI) {
         model: params.model,
         thinkingDepth: params.thinking,
         task: params.task,
+        environment: params.environment,
       })) as { subagent: { id: string; name: string } };
 
       return textResult(
