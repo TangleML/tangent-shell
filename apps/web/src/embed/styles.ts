@@ -8,6 +8,11 @@ import type { EmbedTheme } from "./types";
  * `:host` supplies what the standalone app's `html`/`body` normally would: the
  * base layer targets `body` (background/foreground) and preflight targets
  * `html` (font stack), and neither selector matches inside a shadow root.
+ *
+ * The theme-dependent `background-color`/`color` live on the mount point instead
+ * of `:host`: the theme class (`.dark`, `.xterm`, ...) is applied to the mount
+ * point, and a plain `.dark` rule cannot match the shadow host, so `:host` would
+ * otherwise stay on the light `:root`-derived tokens even in dark mode.
  */
 const HOST_BASE = `
 :host {
@@ -15,8 +20,6 @@ const HOST_BASE = `
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background-color: var(--background);
-  color: var(--foreground);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   line-height: 1.5;

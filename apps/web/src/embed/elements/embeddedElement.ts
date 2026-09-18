@@ -41,6 +41,8 @@ export abstract class EmbeddedElement extends HTMLElement {
       mountPoint.style.minHeight = "0";
       mountPoint.style.display = "flex";
       mountPoint.style.flexDirection = "column";
+      mountPoint.style.backgroundColor = "var(--background)";
+      mountPoint.style.color = "var(--foreground)";
       shadow.append(mountPoint);
       this.mountPoint = mountPoint;
     }
