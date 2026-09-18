@@ -3,10 +3,45 @@
 This guide shows how to write a bundle UI component. Before you start, read
 [`rules.md`](rules.md) — the constraints there are not optional.
 
-A component is a `.tsx` file under your bundle's `ui/` directory, written with
-remote-dom's React renderer. It imports the host bridge and renders **only**
-elements from the [vocabulary](element-vocabulary.md). The server transpiles it on
-upload (Phase 3); you ship plain `.tsx`.
+A component is a `.tsx` file under your bundle's `ui/` directory. It imports the
+host bridge and the typed element wrappers from the `@tangent/ui-extensions-sdk`
+package and renders **only** elements from the [vocabulary](element-vocabulary.md).
+The server transpiles it on upload; you ship plain `.tsx`.
+
+## Local development (typing + build)
+
+The `@tangent/ui-extensions-sdk` package gives you full editor typing for the
+component vocabulary and the `host` bridge, plus a CLI that builds and
+type-checks your bundle exactly the way the server does on upload.
+
+1. Add the SDK and React to your bundle's dev dependencies, then scaffold a
+   `tsconfig.json` that picks up the SDK's types:
+
+   ```bash
+   pnpm add -D @tangent/ui-extensions-sdk react @types/react
+   pnpm exec ui-extensions init        # writes tsconfig.json next to ui/
+   ```
+
+2. Type-check and build against the same esbuild config the server uses:
+
+   ```bash
+   pnpm exec ui-extensions typecheck   # tsc --noEmit over ui/**/*.tsx
+   pnpm exec ui-extensions build       # compiles each entry to ui-dist/<name>.js
+   ```
+
+`build` transpile-bundles every entry declared in `tangent.yaml` under
+`ui.components`. Relative imports are inlined, so you can split logic into
+sibling files — API helpers, shared types, pure functions — and import them with
+normal relative paths. Only the worker-provided bare imports (`react` and
+`@tangent/ui-extensions-sdk`) stay external; other npm packages are not available
+in the sandbox.
+
+```
+ui/
+  pipeline-progress.tsx   # entry (declared in tangent.yaml)
+  lib/tangle-api.ts       # helper, imported as "./lib/tangle-api"
+  lib/format.ts           # helper
+```
 
 ## The two kinds
 
@@ -53,7 +88,13 @@ placeholder rather than erroring.
 renders a progress chip:
 
 ```tsx
-import { BlockStack, Card, host, Progress, Text } from "@tangent/bundle-ui";
+import {
+  BlockStack,
+  Card,
+  host,
+  Progress,
+  Text,
+} from "@tangent/ui-extensions-sdk";
 import { useEffect, useState } from "react";
 
 export default function PipelineProgress() {
@@ -146,7 +187,7 @@ import {
   Heading,
   host,
   Textarea,
-} from "@tangent/bundle-ui";
+} from "@tangent/ui-extensions-sdk";
 import { useState } from "react";
 
 export default function LaunchExperiment() {
@@ -175,7 +216,8 @@ export default function LaunchExperiment() {
 }
 ```
 
-> Import the bridge and the typed element wrappers from `@tangent/bundle-ui`. The
+> Import the bridge and the typed element wrappers from
+> `@tangent/ui-extensions-sdk`. The
 > wrappers normalize remote events into plain serializable callbacks: `onPress`
 > (no payload) for `Button`, `onInput` (the new string) for `Textarea`. Props go
 > in, serializable events come out, and all data/prompts flow through the bridge.

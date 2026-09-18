@@ -1,0 +1,45 @@
+{
+  "name": "@tangent/ui-extensions-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ui-extensions": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./build": "./src/build.ts",
+    "./types": "./src/types.ts",
+    "./contracts/*.ts": "./src/contracts/*.ts",
+    "./contracts/*": "./src/contracts/*.ts",
+    "./tsconfig.author.json": "./tsconfig.author.json"
+  },
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "cli": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "esbuild": "0.28.0",
+    "lucide-react": "^1.17.0",
+    "tsx": "^4.22.3",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "typescript": ">=5"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "@tangent/ui-primitives": "workspace:*",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "react": "^19.2.6",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,15 +1,15 @@
 // Dev harness fixture: a compiled bundle-UI "message" component.
 //
-// This mirrors what the Phase-3 server compiler emits for an author's
+// This mirrors what the server compiler emits for an author's
 // `ui/pipeline-progress.tsx`: plain ESM with *bare* imports (`react`,
-// `@tangent/bundle-ui`) that the Phase-5 worker module loader resolves against
+// `@tangent/ui-extensions-sdk`) that the worker module loader resolves against
 // the worker's own module copies. It exercises the full loop: getProps ->
 // host.fetch polling a real allowlisted endpoint -> render via the vocabulary ->
 // host.sendPrompt on press.
 //
 // Equivalent source:
 //   import { useEffect, useState } from "react";
-//   import { host, Card, BlockStack, Heading, Text, Progress, Button } from "@tangent/bundle-ui";
+//   import { host, Card, BlockStack, Heading, Text, Progress, Button } from "@tangent/ui-extensions-sdk";
 //   export default function PipelineProgress() { ... }
 
 import { createElement as h, useEffect, useState } from "react";
@@ -21,7 +21,7 @@ import {
   host,
   Progress,
   Text,
-} from "@tangent/bundle-ui";
+} from "@tangent/ui-extensions-sdk";
 
 export default function PipelineProgress() {
   const [executionId, setExecutionId] = useState(null);

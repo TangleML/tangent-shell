@@ -1,8 +1,8 @@
 /**
  * Cross-component enum tuples shared by more than one component contract. These
- * mirror the corresponding `cva` variant keys in `src/shared/ui` and are a
- * curated subset (display + simple input) safe for third-party bundle
- * components. Component-specific enums live inline in each `*.contract.ts`.
+ * mirror the corresponding `cva` variant keys in `@tangent/ui-primitives` and are
+ * a curated subset (display + simple input) safe for third-party UI extensions.
+ * Component-specific enums live inline in each contract.
  */
 
 /** Spacing scale shared by `BlockStack` / `InlineStack` `gap`. */

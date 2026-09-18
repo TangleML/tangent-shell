@@ -1,7 +1,7 @@
+import { attributes } from "@tangent/ui-extensions-sdk/contracts/checkbox";
 import { Checkbox } from "@tangent/ui-primitives/checkbox";
 
 import { makeHostComponent } from "../_shared/make-host-component";
-import { attributes } from "./checkbox.contract";
 
 export const CheckboxHost = makeHostComponent(Checkbox, attributes, (props) => {
   const onChange = props.onChange;

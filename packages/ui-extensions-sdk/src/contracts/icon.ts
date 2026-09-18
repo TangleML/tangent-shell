@@ -2,7 +2,7 @@ import type { IconName } from "@tangent/ui-primitives/icon";
 import { icons } from "lucide-react";
 import { z } from "zod";
 
-import type { RemoteEvents } from "../_shared/events";
+import type { RemoteEvents } from "./events";
 
 export const TAG = "tangent-icon" as const;
 

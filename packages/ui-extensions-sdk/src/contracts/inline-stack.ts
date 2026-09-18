@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { GAP } from "../_shared/enums";
-import type { RemoteEvents } from "../_shared/events";
+import { GAP } from "./enums";
+import type { RemoteEvents } from "./events";
 
 export const TAG = "tangent-inline-stack" as const;
 

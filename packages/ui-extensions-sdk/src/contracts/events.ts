@@ -1,7 +1,7 @@
 /**
  * Neutral (React-free, remote-dom-free) event contract types, shared by a
- * component's `*.contract.ts` and the worker/host helpers. Keeping them here lets
- * the contract stay importable from both sides without pulling in either runtime.
+ * component's contract and the worker/host helpers. Keeping them here lets the
+ * contract stay importable from both sides without pulling in either runtime.
  */
 
 /**

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { TEXT_SIZE, TEXT_TONE, TEXT_WEIGHT } from "../_shared/enums";
-import type { RemoteEvents } from "../_shared/events";
+import { TEXT_SIZE, TEXT_TONE, TEXT_WEIGHT } from "./enums";
+import type { RemoteEvents } from "./events";
 
 export const TAG = "tangent-heading" as const;
 

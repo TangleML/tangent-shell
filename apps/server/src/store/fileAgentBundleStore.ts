@@ -15,7 +15,10 @@ import {
   MANIFEST_FILENAME,
 } from "@tangent/shared/configBundle.ts";
 import type { AgentBundleMeta } from "@tangent/shared/contracts.ts";
-import { build } from "esbuild";
+import {
+  buildUiComponent,
+  UiComponentBuildError,
+} from "@tangent/ui-extensions-sdk/build";
 import { unzipSync } from "fflate";
 
 import { AGENT_BUNDLES_ROOT } from "../config.ts";
@@ -129,21 +132,16 @@ async function compileComponent(
 ): Promise<void> {
   let output: string;
   try {
-    const result = await build({
-      entryPoints: [path.join(work, component.entry)],
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      jsx: "automatic",
-      packages: "external",
-      write: false,
-      logLevel: "silent",
-    });
-    output = result.outputFiles[0].text;
+    output = await buildUiComponent(path.join(work, component.entry));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const detail =
+      err instanceof UiComponentBuildError && err.cause instanceof Error
+        ? err.cause.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
     throw new AgentBundleValidationError(
-      `agent bundle: failed to compile ui entry "${component.entry}"\n${message}`,
+      `agent bundle: failed to compile ui entry "${component.entry}"\n${detail}`,
     );
   }
   await writeFile(path.join(outDir, `${component.name}.js`), output);
@@ -153,9 +151,10 @@ async function compileComponent(
  * Transpiles each declared UI component to ESM under `<dir>/ui/<name>.js`.
  *
  * The component sources are extracted to a temp working directory so esbuild
- * can resolve relative sibling imports, then bundled transpile-only: bare
- * (`packages: "external"`) imports such as `react`, `@tangent/bundle-ui`, and
- * `@remote-dom/*` are left untouched for the Phase-5 worker import map to
+ * can resolve relative sibling imports, then bundled transpile-only via the
+ * shared {@link buildUiComponent} helper (also used by the `ui-extensions` CLI,
+ * so local builds match): bare imports such as `react` and
+ * `@tangent/ui-extensions-sdk` are left untouched for the worker import map to
  * resolve, while relative imports within the bundle are inlined. The component
  * never executes here. Throws {@link AgentBundleValidationError} when a declared
  * entry is missing from the zip or fails to compile, so the upload route can

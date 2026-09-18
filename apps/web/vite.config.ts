@@ -52,16 +52,21 @@ export default defineConfig({
     tailwindcss(),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      // The bundle-UI bridge author components import. In-repo (harness, type
-      // checks) it resolves to the runtime module; sandboxed bundle components
-      // get it injected by the worker module loader at runtime instead.
-      "@tangent/bundle-ui": path.resolve(
-        __dirname,
-        "./src/features/bundle-ui/runtime/bridge.tsx",
-      ),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      // The SDK barrel UI extensions import. In-repo (harness, type checks) the
+      // bare specifier resolves to the runtime module; sandboxed components get
+      // it injected by the worker module loader at runtime instead. Matched
+      // exactly so subpaths (e.g. `@tangent/ui-extensions-sdk/contracts/*`)
+      // still resolve to the real package.
+      {
+        find: /^@tangent\/ui-extensions-sdk$/,
+        replacement: path.resolve(
+          __dirname,
+          "./src/features/bundle-ui/runtime/bridge.tsx",
+        ),
+      },
+    ],
   },
   server: {
     allowedHosts: [".tunnel.shopifycloud.tech"],
