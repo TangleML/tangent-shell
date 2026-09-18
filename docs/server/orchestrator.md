@@ -2,18 +2,23 @@
 
 [< Back to index](./index.md)
 
-The orchestrator is the heart of the server. It is the
-[`PiAgentManager`](../../server/src/pi/piAgentManager.ts) plus the
-[orchestrator extension](../../server/src/pi/extensions/orchestrator.ts) loaded
-into every `pi` process and the
-[internal agents API](../../server/src/routes/internalAgents.ts) the extension
-calls back into. Together they let one server own the lifecycle of, and message
-routing between, a roster of `pi --mode rpc` child processes per session.
+The [`PiAgentManager`](../../apps/server/src/pi/piAgentManager.ts) is the **local
+Pi connector**: it owns the lifecycle of a roster of `pi --mode rpc` child
+processes per session, plus the
+[orchestrator extension](../../apps/server/src/pi/extensions/orchestrator.ts)
+loaded into every `pi` process and the
+[internal agents API](../../apps/server/src/routes/internalAgents.ts) the
+extension calls back into. It is one of the connectors behind the
+[ConnectorRegistry](./connectors.md); message routing across participants is the
+[conversation layer](./conversations.md)'s job, not the manager's. The manager's
+concern is one transport: spawning Pi children and turning their stdout into
+attributed events.
 
 This document explains the manager's state and responsibilities, the spawn
 command line, the stdin RPC commands, the stdout event dispatch and streaming
-message lifecycle, and the internal callback loop. For the higher-level
-choreography between the human, Prime, and sub-agents, see
+message lifecycle, and the internal callback loop. For how those events reach the
+right participants, see [conversations.md](./conversations.md); for the
+higher-level choreography between the human, Prime, and sub-agents, see
 [human-prime-subagents.md](./human-prime-subagents.md).
 
 ---
@@ -38,14 +43,21 @@ choreography between the human, Prime, and sub-agents, see
   - `lastActivity` — the most recent run-level activity (`tool` / `thinking`)
     or `null`; retained in memory so a client joining mid-run can replay it.
 
-The manager is constructed with three handlers (the bridge to the socket layer)
-and the `MemoryManager`:
+The manager is constructed with a shared `ConversationEventSink` (the same sink
+every connector uses), the `MemoryManager`, the `RunRegistry`, and the host
+resource preamble. The sink's handlers bridge Pi's stream into the conversation
+layer rather than emitting to a room directly:
 
-- `onAgentEvent(sessionId, descriptor, event)` — relays streaming + terminal
-  events to the room.
-- `onSubagentUpdate(sessionId, subagent)` — relays roster changes.
-- `onAgentMessage(sessionId, conversationId, author, content)` — surfaces a
-  directed message into a specific transcript.
+- `onAgentEvent(sessionId, descriptor, event)` — streaming + terminal events; the
+  handler routes finalized content through the `ConversationRouter` (which
+  persists, broadcasts, and fans out) and streams deltas to the Conversation room.
+- `onSubagentUpdate(sessionId, subagent)` — roster changes.
+- `onAgentMessage(sessionId, conversationId, author, content)` — a directed
+  message surfaced into a specific Conversation via the router.
+- `onSessionStatus(...)` — a session's live run-status change for the lobby.
+
+Every stream is attributed to a **Run** (see [connectors.md](./connectors.md)), so
+`agent:*` events carry a run id and abort cancels a Run rather than an agent.
 
 ---
 

@@ -152,9 +152,11 @@ into Docker images, or expose it to bundle UI workers.
 deployments must ensure the internal routers are not exposed beyond loopback and
 that `TANGENT_INTERNAL_TOKEN`, if pinned via env, is treated as a secret.
 
-### Note 3: in-memory session store
+### Note 3: durability of session state
 
-Session records + chat history are in-memory
-([sessions-and-storage.md](./sessions-and-storage.md)); a restart drops them
-while on-disk artifacts/uploads/triggers persist. Not a vulnerability, but worth
-noting for any deployment that assumes durability.
+Session metadata, the agent roster, participants, memberships, runs, and the
+resource catalog are persisted in the SQLite `tangent.db`; chat transcripts are
+append-only JSONL under each session's `.tangent/chats/`
+([sessions-and-storage.md](./sessions-and-storage.md)). Both survive a restart —
+so a deployment must treat the database file and the session root as the durable
+state to back up and protect, not as scratch space.
