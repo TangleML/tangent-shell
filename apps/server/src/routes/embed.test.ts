@@ -39,11 +39,23 @@ function requestWithBearer(email: string): Request {
   } as Request;
 }
 
-function validatedRequest(sessionId: string, email: string): Request {
+function validatedRequest(
+  sessionId: string,
+  email: string,
+  environmentId?: string,
+): Request {
   const req = requestWithBearer(email) as Request & {
-    validated: { body: { sessionId: string }; params: unknown; query: unknown };
+    validated: {
+      body: { sessionId: string; environmentId?: string };
+      params: unknown;
+      query: unknown;
+    };
   };
-  req.validated = { body: { sessionId }, params: undefined, query: undefined };
+  req.validated = {
+    body: { sessionId, environmentId },
+    params: undefined,
+    query: undefined,
+  };
   return req;
 }
 
@@ -79,7 +91,7 @@ test("minting a remote-env token 404s for an unknown session", async () => {
   assert.deepEqual(response.body, { error: "Session not found" });
 });
 
-test("minting a remote-env token 403s when the session belongs to someone else", async () => {
+test("an invited member can mint, not just the session owner", async () => {
   const store = new InMemorySessionStore();
   const session = await store.createSession({ name: "Owned", user: USER });
   const scoped = new ScopedTokenCredential("signing-secret");
@@ -88,8 +100,32 @@ test("minting a remote-env token 403s when the session belongs to someone else",
   await handleMintRemoteEnvToken(
     store,
     scoped,
-    validatedRequest(session.id, "intruder@example.com"),
+    validatedRequest(session.id, "guest@example.com"),
     response as unknown as Response,
+    () => false,
+    () => Promise.resolve(true),
+  );
+
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { token: string };
+  const claims = scoped.parse(body.token);
+  assert.ok(claims);
+  assert.equal(claims.sub, "guest@example.com");
+});
+
+test("a non-member with only the session id cannot mint", async () => {
+  const store = new InMemorySessionStore();
+  const session = await store.createSession({ name: "Owned", user: USER });
+  const scoped = new ScopedTokenCredential("signing-secret");
+  const response = new TestResponse();
+
+  await handleMintRemoteEnvToken(
+    store,
+    scoped,
+    validatedRequest(session.id, "stranger@example.com"),
+    response as unknown as Response,
+    () => false,
+    () => Promise.resolve(false),
   );
 
   assert.equal(response.statusCode, 403);
@@ -142,4 +178,44 @@ test("minting a remote-env token succeeds for a session with no user", async () 
   assert.equal(response.statusCode, 200);
   const body = response.body as { token: string };
   assert.ok(scoped.parse(body.token));
+});
+
+test("minting honors a pinned environmentId when it is free", async () => {
+  const store = new InMemorySessionStore();
+  const session = await store.createSession({ name: "Owned", user: USER });
+  const scoped = new ScopedTokenCredential("signing-secret");
+  const response = new TestResponse();
+
+  await handleMintRemoteEnvToken(
+    store,
+    scoped,
+    validatedRequest(session.id, USER.email, "env-pinned"),
+    response as unknown as Response,
+    () => false,
+  );
+
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { environmentId: string };
+  assert.equal(body.environmentId, "env-pinned");
+});
+
+test("minting refuses to reuse an id another person's live host holds", async () => {
+  const store = new InMemorySessionStore();
+  const session = await store.createSession({ name: "Owned", user: USER });
+  const scoped = new ScopedTokenCredential("signing-secret");
+  const response = new TestResponse();
+
+  await handleMintRemoteEnvToken(
+    store,
+    scoped,
+    validatedRequest(session.id, "guest@example.com", "env-taken"),
+    response as unknown as Response,
+    (environmentId, sub) =>
+      environmentId === "env-taken" && sub === "guest@example.com",
+    () => Promise.resolve(true),
+  );
+
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { environmentId: string };
+  assert.notEqual(body.environmentId, "env-taken");
 });

@@ -49,6 +49,7 @@ function fakeSocket(auth: Record<string, unknown>) {
       ack: ack as SentEntry["ack"],
     });
   const socket = {
+    id: `socket-${String(auth.environmentId)}`,
     handshake: { auth },
     data: {} as Record<string, unknown>,
     connected: true,
@@ -167,12 +168,18 @@ function mintScoped(
   scoped: ScopedTokenCredential,
   environmentId: string,
   sessionId: string,
+  sub = "user@example.com",
 ): string {
   return scoped.mint({
     environmentId,
     sessionId,
-    sub: "user@example.com",
+    sub,
   }).token;
+}
+
+/** Counts the ToolsCall commands an environment's socket was sent. */
+function toolCalls(sent: SentEntry[]): SentEntry[] {
+  return sent.filter((entry) => entry.event === RemoteEnvEvents.ToolsCall);
 }
 
 /** Seeds a persisted remote roster row hosted by `environmentId`. */
@@ -333,7 +340,10 @@ test("a scoped connection ignores the handshake environmentId", () => {
   const token = mintScoped(scoped, "env-real", "s1");
   const env = h.connect("spoofed", { token });
 
-  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Worker",
+    audienceParticipantId: "user@example.com",
+  });
 
   assert.equal(info.connector.environmentId, "env-real");
   assert.equal(lastSpawn(env.sent).sessionId, "s1");
@@ -349,8 +359,14 @@ test("scoped environments only receive spawns for their bound session", () => {
     token: mintScoped(scoped, "env-b", "sB"),
   });
 
-  h.gateway.spawnSubagent("sA", { name: "WorkerA" });
-  h.gateway.spawnSubagent("sB", { name: "WorkerB" });
+  h.gateway.spawnSubagent("sA", {
+    name: "WorkerA",
+    audienceParticipantId: "user@example.com",
+  });
+  h.gateway.spawnSubagent("sB", {
+    name: "WorkerB",
+    audienceParticipantId: "user@example.com",
+  });
 
   assert.equal(lastSpawn(envA.sent).sessionId, "sA");
   assert.equal(lastSpawn(envB.sent).sessionId, "sB");
@@ -378,7 +394,10 @@ test("an unscoped environment still receives spawns for an unbound session", () 
   const legacy = h.connect("env-legacy");
   h.connect("ignored-a", { token: mintScoped(scoped, "env-a", "sA") });
 
-  h.gateway.spawnSubagent("sA", { name: "ScopedWorker" });
+  h.gateway.spawnSubagent("sA", {
+    name: "ScopedWorker",
+    audienceParticipantId: "user@example.com",
+  });
   h.gateway.spawnSubagent("sB", { name: "LegacyWorker" });
 
   assert.equal(lastSpawn(legacy.sent).sessionId, "sB");
@@ -437,6 +456,18 @@ test("a remote spawn resolves tools and prompt from the session's editor templat
 const ECHO_TOOL = {
   name: "echo",
   description: "Echo the input back.",
+  inputSchema: { type: "object" },
+};
+
+const FOO_TOOL = {
+  name: "foo",
+  description: "Do foo.",
+  inputSchema: { type: "object" },
+};
+
+const BAR_TOOL = {
+  name: "bar",
+  description: "Do bar.",
   inputSchema: { type: "object" },
 };
 
@@ -523,6 +554,40 @@ test("a disconnecting environment drops its tool catalog", () => {
   assert.deepEqual(h.gateway.listTools("s1"), []);
 });
 
+test("an unscoped tab host with an empty catalog does not hide the session's workarea", async () => {
+  const h = makeHarness();
+  const workarea = h.connect("s1:workarea");
+  workarea.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+  h.connect("s1:tab");
+
+  assert.deepEqual(h.gateway.listTools("s1"), [ECHO_TOOL]);
+
+  const pending = h.gateway.callTool("s1", "prime", "echo", { text: "hi" });
+  const call = toolCalls(workarea.sent).at(-1);
+  assert.ok(call, "the workarea host received the call, not the empty tab");
+  call.ack?.(null, { ok: true, result: "hi" });
+
+  assert.deepEqual(await pending, { ok: true, result: "hi" });
+});
+
+test("an unscoped host prefixed with a session never serves another session", async () => {
+  const h = makeHarness();
+  const workarea = h.connect("s1:workarea");
+  workarea.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  await assert.rejects(
+    () => h.gateway.callTool("s2", "prime", "echo", {}),
+    /No remote environment is connected/,
+  );
+  assert.equal(toolCalls(workarea.sent).length, 0, "s1's host is untouched");
+});
+
 test("a scoped environment cannot register tools for another session", () => {
   const scoped = new ScopedTokenCredential(SCOPED_SECRET);
   const h = makeHarness({ scoped });
@@ -535,5 +600,220 @@ test("a scoped environment cannot register tools for another session", () => {
     tools: [ECHO_TOOL],
   });
 
-  assert.deepEqual(h.gateway.listTools("sA"), []);
+  assert.deepEqual(h.gateway.listTools("sA", "user@example.com"), []);
+});
+
+test("two people's hosts on one session all stay connected", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice1 = h.connect("x", {
+    token: mintScoped(scoped, "env-a1", "s1", "alice@x"),
+  });
+  const alice2 = h.connect("x", {
+    token: mintScoped(scoped, "env-a2", "s1", "alice@x"),
+  });
+  const bob = h.connect("x", {
+    token: mintScoped(scoped, "env-b", "s1", "bob@x"),
+  });
+
+  alice1.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+  alice2.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [FOO_TOOL],
+  });
+  bob.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [BAR_TOOL],
+  });
+
+  // The third connect kicked no one: the union of Alice's two hosts survives.
+  assert.deepEqual(
+    h.gateway
+      .listTools("s1", "alice@x")
+      .map((t) => t.name)
+      .sort(),
+    ["echo", "foo"],
+  );
+  assert.deepEqual(
+    h.gateway.listTools("s1", "bob@x").map((t) => t.name),
+    ["bar"],
+  );
+});
+
+test("a tool call reaches the prompting person's host only", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+  const bob = h.connect("x", {
+    token: mintScoped(scoped, "env-b", "s1", "bob@x"),
+  });
+  alice.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+  bob.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  const pending = h.gateway.callTool(
+    "s1",
+    "prime",
+    "echo",
+    { text: "hi" },
+    "alice@x",
+  );
+  const call = toolCalls(alice.sent).at(-1);
+  assert.ok(call);
+  assert.equal(toolCalls(bob.sent).length, 0, "Bob's host is untouched");
+  call.ack?.(null, { ok: true, result: "hi" });
+
+  assert.deepEqual(await pending, { ok: true, result: "hi" });
+});
+
+test("a call rejects when the prompting person's host has left", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+  const bob = h.connect("x", {
+    token: mintScoped(scoped, "env-b", "s1", "bob@x"),
+  });
+  alice.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+  bob.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  alice.disconnect();
+
+  await assert.rejects(
+    () => h.gateway.callTool("s1", "prime", "echo", {}, "alice@x"),
+    /prompting user's host is not connected/,
+  );
+  assert.equal(
+    toolCalls(bob.sent).length,
+    0,
+    "Bob's catalog is not a fallback",
+  );
+});
+
+test("the most recent registration of a name wins within a person's hosts", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const first = h.connect("x", {
+    token: mintScoped(scoped, "env-a1", "s1", "alice@x"),
+  });
+  const second = h.connect("x", {
+    token: mintScoped(scoped, "env-a2", "s1", "alice@x"),
+  });
+  first.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+  second.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  const pending = h.gateway.callTool("s1", "prime", "echo", {}, "alice@x");
+  assert.equal(toolCalls(second.sent).length, 1, "the newer host is called");
+  assert.equal(toolCalls(first.sent).length, 0);
+  toolCalls(second.sent)[0].ack?.(null, { ok: true, result: "ok" });
+  await pending;
+});
+
+test("a remote spawn lands in the prompting person's environment", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+  const bob = h.connect("x", {
+    token: mintScoped(scoped, "env-b", "s1", "bob@x"),
+  });
+
+  h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "bob@x",
+  });
+
+  assert.equal(lastSpawn(bob.sent).sessionId, "s1");
+  assert.equal(
+    alice.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+    "Alice's environment gets no spawn",
+  );
+});
+
+test("a remote spawn with no known audience does not guess among hosts", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+  const bob = h.connect("x", {
+    token: mintScoped(scoped, "env-b", "s1", "bob@x"),
+  });
+
+  assert.throws(
+    () => h.gateway.spawnSubagent("s1", { name: "Editor" }),
+    /prompting user's host is not connected/,
+  );
+  assert.equal(
+    alice.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+  );
+  assert.equal(
+    bob.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+  );
+});
+
+test("a call with no known audience does not guess among connected hosts", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+  alice.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  await assert.rejects(
+    () => h.gateway.callTool("s1", "prime", "echo", {}),
+    /prompting user's host is not connected/,
+  );
+  assert.equal(toolCalls(alice.sent).length, 0);
+});
+
+test("an environmentId stays claimed by its owner after they disconnect", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+
+  alice.disconnect();
+
+  assert.equal(
+    h.gateway.environmentClaimedByOther("env-a", "bob@x"),
+    true,
+    "Bob cannot reuse Alice's id once she has left",
+  );
+  assert.equal(
+    h.gateway.environmentClaimedByOther("env-a", "alice@x"),
+    false,
+    "Alice can still reclaim her own id",
+  );
 });

@@ -24,6 +24,13 @@ export interface OpenRunInput {
   externalId?: string;
   /** Initial resume cursor, when the connector streams by cursor. */
   cursor?: string;
+  /**
+   * The human whose prompt opened this Run, when a human woke the participant.
+   * A routing hint (not attribution): remote tools called during the Run target
+   * this person's host environment. Absent for an agent/automation wake, which
+   * inherits the participant's last human audience instead.
+   */
+  audienceParticipantId?: string;
 }
 
 /** The terminal states {@link RunRegistry.settle} accepts. */
@@ -53,6 +60,9 @@ export class RunRegistry {
   private readonly byParticipant = new Map<string, Run>();
   /** The same runs by id, so a client-supplied run id resolves directly. */
   private readonly byId = new Map<RunId, Run>();
+  /** The last human audience each participant had, by `(session, participant)`, so
+   * an agent/automation wake inherits it rather than routing to nobody. */
+  private readonly lastAudience = new Map<string, string>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
   private onSettled?: (run: Run) => void;
@@ -74,6 +84,11 @@ export class RunRegistry {
    */
   open(input: OpenRunInput): Run {
     this.settleOpenFor(input.sessionId, input.participantId, "completed");
+    this.stampAudience(
+      input.sessionId,
+      input.participantId,
+      input.audienceParticipantId,
+    );
 
     const now = new Date().toISOString();
     const run: Run = {
@@ -108,6 +123,47 @@ export class RunRegistry {
   /** The Run a participant currently has open, if any. */
   current(sessionId: string, participantId: string): Run | undefined {
     return this.byParticipant.get(keyFor(sessionId, participantId));
+  }
+
+  /**
+   * Records the human whose prompt this Run serves. A human wake sets it; an
+   * agent/automation wake (no audience) keeps the participant's last human
+   * audience, so a follow-on turn still routes to the same person.
+   */
+  private stampAudience(
+    sessionId: string,
+    participantId: string,
+    audienceParticipantId: string | undefined,
+  ): void {
+    if (!audienceParticipantId) return;
+    this.lastAudience.set(
+      keyFor(sessionId, participantId),
+      audienceParticipantId,
+    );
+  }
+
+  /**
+   * Seeds a participant's audience without opening a Run — used when a sub-agent
+   * inherits the audience of whoever asked Prime to spawn it, so its first turn
+   * already routes to that person.
+   */
+  recordAudience(
+    sessionId: string,
+    participantId: string,
+    audienceParticipantId: string,
+  ): void {
+    this.lastAudience.set(
+      keyFor(sessionId, participantId),
+      audienceParticipantId,
+    );
+  }
+
+  /**
+   * The human whose prompt this participant is working for: the last human
+   * audience it had. Undefined when no human has ever woken it.
+   */
+  audienceFor(sessionId: string, participantId: string): string | undefined {
+    return this.lastAudience.get(keyFor(sessionId, participantId));
   }
 
   /** An open Run by id. Settled Runs live only in the store. */

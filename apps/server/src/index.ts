@@ -399,7 +399,16 @@ app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
-app.use("/api/embed", createEmbedRouter(store));
+app.use(
+  "/api/embed",
+  createEmbedRouter(
+    store,
+    (environmentId, sub) =>
+      remoteGateway.environmentClaimedByOther(environmentId, sub),
+    async (sessionId, email) =>
+      (await participantService.membershipsOf(sessionId, email)).length > 0,
+  ),
+);
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use(
   "/internal/agents",
@@ -409,6 +418,7 @@ app.use(
     conversations,
     a2aGateway,
     participantService,
+    runs,
     contextEngine,
     memberships,
   ),
@@ -450,7 +460,7 @@ app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
 // connected remote environment offers, without spawning a browser sub-agent.
 app.use(
   "/internal/remote-tools",
-  createInternalRemoteToolsRouter(remoteGateway),
+  createInternalRemoteToolsRouter(remoteGateway, runs),
 );
 
 // Mounted last: async failures from any handler above land here with a

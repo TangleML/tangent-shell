@@ -1,4 +1,8 @@
-import { type ConnectorKind, PI_AGENT } from "@tangent/shared/contracts.ts";
+import {
+  type ConnectorKind,
+  PI_AGENT,
+  type SubagentInfo,
+} from "@tangent/shared/contracts.ts";
 import { type Response, Router } from "express";
 import { z } from "zod";
 
@@ -19,6 +23,7 @@ import { reactionSpec } from "../conversation/reaction.ts";
 import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
+import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 /** Spawn a sub-agent; `sessionId` and `name` identify and label it. */
@@ -99,6 +104,33 @@ function spawnKind(environment: SpawnInput["environment"]): ConnectorKind {
 }
 
 /**
+ * Posts a freshly spawned sub-agent's first task into its Conversation. A
+ * failure to deliver is logged, not thrown: the sub-agent already exists, so it
+ * must not read as a failed spawn Prime might retry.
+ */
+async function postInitialTask(
+  store: SessionStore,
+  router: ConversationRouter,
+  body: SpawnInput,
+  info: SubagentInfo,
+): Promise<void> {
+  const fromConversation = await orchestratorConversationFor(
+    store,
+    body.sessionId,
+  );
+  await postDirective(
+    router,
+    body.sessionId,
+    info.id,
+    info.conversationId,
+    body.task,
+    fromConversation,
+  ).catch((err: unknown) => {
+    console.error(`[agents] initial task for ${info.id} failed:`, err);
+  });
+}
+
+/**
  * Spawns a sub-agent (resolving its model/thinking) on the connector its
  * requested environment names, persists it so the roster survives a restart, and
  * posts its initial task. The row is awaited before the task is posted, so the
@@ -109,6 +141,7 @@ async function handleSpawn(
   store: SessionStore,
   connectors: ConnectorRegistry,
   router: ConversationRouter,
+  runs: RunRegistry,
   body: SpawnInput,
   res: Response,
 ): Promise<void> {
@@ -119,6 +152,7 @@ async function handleSpawn(
     return;
   }
 
+  const audienceParticipantId = runs.audienceFor(body.sessionId, PI_AGENT.id);
   try {
     const { info, tools, systemPrompt, autoRelayToPrime } = connector.spawn(
       body.sessionId,
@@ -130,8 +164,12 @@ async function handleSpawn(
         model: body.model,
         thinkingDepth: parseThinkingLevel(body.thinkingDepth),
         environment: body.environment,
+        audienceParticipantId,
       },
     );
+    if (audienceParticipantId) {
+      runs.recordAudience(body.sessionId, info.id, audienceParticipantId);
+    }
     await store.recordAgent(body.sessionId, {
       id: info.id,
       role: "subagent",
@@ -150,20 +188,7 @@ async function handleSpawn(
     res.json({ subagent: info });
     // Answered first: the sub-agent exists either way, and a failure to post its
     // first task must not read as a failed spawn Prime might retry.
-    const fromConversation = await orchestratorConversationFor(
-      store,
-      body.sessionId,
-    );
-    await postDirective(
-      router,
-      body.sessionId,
-      info.id,
-      info.conversationId,
-      body.task,
-      fromConversation,
-    ).catch((err: unknown) => {
-      console.error(`[agents] initial task for ${info.id} failed:`, err);
-    });
+    await postInitialTask(store, router, body, info);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -359,6 +384,7 @@ export function createInternalAgentsRouter(
   conversations: ConversationRouter,
   a2a: A2aPeerGateway,
   participants: ParticipantService,
+  runs: RunRegistry,
   context?: ContextEngine,
   memberships?: MembershipRegistry,
 ): Router {
@@ -371,6 +397,7 @@ export function createInternalAgentsRouter(
       store,
       connectors,
       conversations,
+      runs,
       getValidated<SpawnInput>(req).body,
       res,
     ),

@@ -554,6 +554,29 @@ test("a post carries its ingress to the run it opens, over the membership's", as
   );
 });
 
+test("a human wake carries its author as the delivery's audience", async () => {
+  const h = makeEngine([membership("prime", "prime", "always")]);
+
+  await h.engine.fanOut({ message: message(), project });
+
+  assert.equal(h.delivered[0].audienceParticipantId, "ada@x");
+});
+
+test("an agent wake carries no audience, so routing keeps the last human's", async () => {
+  const h = makeEngine([membership("prime", "sub-1", "always")]);
+
+  await h.engine.fanOut({
+    message: message({
+      conversationId: "sub-1",
+      author: WORKER,
+      source: { kind: "agent", from: "sub-1" },
+    }),
+    project,
+  });
+
+  assert.equal(h.delivered[0].audienceParticipantId, undefined);
+});
+
 test("a fan-in wakes once, in its home, only after every worker finishes", async () => {
   // The orchestrator holds a membership in each worker thread set to mentionsMe,
   // so a completion alone wakes nobody by predicate — the join is what waits.

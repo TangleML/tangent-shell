@@ -62,6 +62,7 @@ export class RemoteEnvConnector implements Connector {
       text: request.text,
       delivery: request.delivery,
       ingress: request.ingress,
+      audienceParticipantId: request.audienceParticipantId,
     });
     if (delivered) return { delivered: true };
     // A detached participant stays in the roster, so this connector still holds

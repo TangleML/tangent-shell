@@ -191,3 +191,73 @@ test("settling an unknown run is a no-op", async () => {
 
   assert.equal(h.runs.get("no-such-run"), undefined);
 });
+
+test("a human wake stamps the run's audience", async () => {
+  const h = await newRegistry();
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
+});
+
+test("an agent wake inherits the participant's last human audience", async () => {
+  const h = await newRegistry();
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+  });
+
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
+});
+
+test("a later human wake retargets the audience", async () => {
+  const h = await newRegistry();
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "bob@x",
+  });
+
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "bob@x");
+});
+
+test("audience is unknown until a human has ever woken the participant", async () => {
+  const h = await newRegistry();
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+  });
+
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
+});
+
+test("recordAudience seeds a sub-agent's audience without opening a run", async () => {
+  const h = await newRegistry();
+
+  h.runs.recordAudience(h.sessionId, "sub-1", "alice@x");
+
+  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "alice@x");
+});

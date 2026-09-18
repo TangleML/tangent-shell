@@ -175,6 +175,9 @@ export interface SendToAgentOptions {
   delivery?: MessageDelivery;
   /** What the message counts as if it opens a Run. Defaults to `reaction`. */
   ingress?: RunIngress;
+  /** The human whose message this is, when it came from a person; stamped on the
+   * Run this opens so remote tools route to their host. */
+  audienceParticipantId?: string;
 }
 
 /** A requested model/thinking change; either field may be omitted to keep it. */
@@ -852,6 +855,7 @@ export class PiAgentManager {
         participantId: agentId,
         homeConversationId: agent.homeConversationId,
         ingress,
+        audienceParticipantId: options.audienceParticipantId,
       });
     }
 
