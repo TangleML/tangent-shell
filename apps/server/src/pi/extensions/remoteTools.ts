@@ -84,17 +84,20 @@ export default function (pi: ExtensionAPI) {
     async execute() {
       const data = (await callApi("GET", "list", undefined, {
         sessionId: SESSION_ID,
+        agentId: AGENT_ID,
       })) as {
         tools: Array<{
           name: string;
           description: string;
           inputSchema: unknown;
         }>;
+        reason?: string;
       };
 
       if (!data.tools.length) {
         return textResult(
-          "No host environment is connected, so there are no remote tools right now.",
+          data.reason ??
+            "No host environment is connected, so there are no remote tools right now.",
         );
       }
       const lines = data.tools.map(

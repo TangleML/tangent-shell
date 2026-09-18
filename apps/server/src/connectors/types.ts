@@ -33,6 +33,13 @@ export interface DeliveryRequest {
    * which is what a message from a human or another participant is.
    */
   ingress?: RunIngress;
+  /**
+   * The human whose message this delivery carries, when it came from a person.
+   * A routing hint the run registry stamps on the Run it opens, so remote tools
+   * called during that turn reach this person's host environment. Omitted for an
+   * agent/automation delivery.
+   */
+  audienceParticipantId?: string;
 }
 
 /** What became of a delivery. `reason` is set only when it was refused. */

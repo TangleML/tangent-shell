@@ -68,6 +68,9 @@ export interface RemoteSendOptions {
   delivery?: MessageDelivery;
   /** What the message counts as for the Run it opens. Defaults to `reaction`. */
   ingress?: RunIngress;
+  /** The human whose message this is, when it came from a person; stamped on the
+   * Run this opens so remote tools route to their host. */
+  audienceParticipantId?: string;
 }
 
 /** A connected remote environment and its live Socket.IO connection. */
@@ -75,9 +78,13 @@ interface RemoteEnvConnection {
   environmentId: string;
   /** Set when the environment authenticated with a scoped per-session token. */
   sessionId?: string;
+  /** The human this environment belongs to (scoped token `sub`), when scoped. */
+  sub?: string;
   socket: Socket;
   /** The RPC tools this environment currently offers, keyed by tool name. */
   tools: Map<string, RemoteToolDef>;
+  /** Monotonic connection order, so the most recent of a person's hosts wins. */
+  seq: number;
 }
 
 /** Looks up a session's installed bundle config for remote spawn resolution. */
@@ -180,10 +187,13 @@ export class RemoteEnvironmentGateway {
 
   /** Connected environments, keyed by `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
-  /** Scoped environment bound to a session, keyed by sessionId. */
-  private readonly sessionEnvironments = new Map<string, string>();
+  /** The human who first claimed each `environmentId`, kept past disconnect so a
+   * pinned id cannot be reused by anyone else once its owner has left. */
+  private readonly environmentOwners = new Map<string, string>();
   /** Per-session remote sub-agent rosters, keyed by sessionId then agentId. */
   private readonly sessions = new Map<string, Map<string, RemoteSubagent>>();
+  /** Increments per connect so `seq` orders environments by recency. */
+  private connectSeq = 0;
 
   constructor(
     io: SocketIOServer,
@@ -238,16 +248,18 @@ export class RemoteEnvironmentGateway {
    * Spawns a sub-agent on a connected remote environment. Resolves the
    * effective config from the session's installed bundle templates/defaults
    * (falling back to the global templates), records the roster entry, and emits
-   * the spawn command. Throws when no environment is connected for the session.
+   * the spawn command. Routes to the prompting person's most recent host, the
+   * same way a tool call does; throws when their host is not connected rather
+   * than landing the spawn in another viewer's environment.
    */
   spawnSubagent(
     sessionId: string,
     request: SubagentSpawnRequest,
   ): SpawnedSubagent {
-    const environment = this.pickEnvironment(sessionId);
-    if (!environment) {
-      throw new Error("No remote environment is connected.");
-    }
+    const environment = this.spawnEnvironment(
+      sessionId,
+      request.audienceParticipantId,
+    );
 
     const agentId = randomUUID();
     const homeConversationId = randomUUID();
@@ -318,6 +330,7 @@ export class RemoteEnvironmentGateway {
       participantId: agentId,
       homeConversationId: this.homeConversationOf(sessionId, agentId),
       ingress: options.ingress ?? "reaction",
+      audienceParticipantId: options.audienceParticipantId,
     });
     const command: RemoteMessageCommand = {
       sessionId,
@@ -408,30 +421,109 @@ export class RemoteEnvironmentGateway {
     this.environments.get(environmentId)?.socket.emit(event, payload);
   }
 
-  /** The environment bound to `sessionId`, or the first unscoped shared-secret env. */
-  private pickEnvironment(sessionId: string): RemoteEnvConnection | undefined {
-    const bound = this.boundEnvironment(sessionId);
-    if (bound) return bound;
-    return this.firstUnscopedEnvironment();
+  /** Every scoped environment currently connected for `sessionId`. */
+  private scopedEnvironments(sessionId: string): RemoteEnvConnection[] {
+    return [...this.environments.values()].filter(
+      (environment) => environment.sessionId === sessionId,
+    );
   }
 
-  /** The live environment recorded against `sessionId`, if still connected. */
-  private boundEnvironment(sessionId: string): RemoteEnvConnection | undefined {
-    const boundId = this.sessionEnvironments.get(sessionId);
-    if (!boundId) return undefined;
-    return this.environments.get(boundId);
+  /** The scoped environments a given human has connected for `sessionId`. */
+  private audienceEnvironments(
+    sessionId: string,
+    audienceId: string,
+  ): RemoteEnvConnection[] {
+    return this.scopedEnvironments(sessionId).filter(
+      (environment) => environment.sub === audienceId,
+    );
   }
 
-  /** First connected environment that is not bound to a session. */
-  private firstUnscopedEnvironment(): RemoteEnvConnection | undefined {
-    for (const environment of this.environments.values()) {
-      if (environment.sessionId) continue;
-      return environment;
+  /** The session id an unscoped embed host encodes in `${sessionId}:${tab}`, or undefined. */
+  private unscopedSessionOf(environmentId: string): string | undefined {
+    const idx = environmentId.indexOf(":");
+    return idx === -1 ? undefined : environmentId.slice(0, idx);
+  }
+
+  /**
+   * Unscoped dev hosts eligible for `sessionId`: those whose `environmentId` is
+   * prefixed with this session, else the hosts that encode no session at all (a
+   * generic dev host). Never another session's prefixed host, so a first-wins
+   * global list can no longer misroute across sessions.
+   */
+  private unscopedEnvironmentsFor(sessionId: string): RemoteEnvConnection[] {
+    const unscoped = [...this.environments.values()].filter(
+      (e) => !e.sessionId,
+    );
+    const mine = unscoped.filter(
+      (e) => this.unscopedSessionOf(e.environmentId) === sessionId,
+    );
+    if (mine.length > 0) return mine;
+    return unscoped.filter(
+      (e) => this.unscopedSessionOf(e.environmentId) === undefined,
+    );
+  }
+
+  /** The most recent of `envs`, optionally restricted to those offering `tool`. */
+  private mostRecent(
+    envs: RemoteEnvConnection[],
+    tool?: string,
+  ): RemoteEnvConnection | undefined {
+    const eligible = tool ? envs.filter((e) => e.tools.has(tool)) : envs;
+    if (eligible.length === 0) return undefined;
+    return eligible.reduce((best, e) => (e.seq > best.seq ? e : best));
+  }
+
+  /**
+   * The environments a remote-tool list/call may target, or a failure message.
+   * With a known audience it is that person's hosts; the unscoped dev host is a
+   * fallback only when the session has no scoped host at all — never a stand-in
+   * for the prompting person when other people are connected.
+   */
+  private toolEnvironments(
+    sessionId: string,
+    audienceId: string | undefined,
+  ): RemoteEnvConnection[] | string {
+    if (audienceId) {
+      const mine = this.audienceEnvironments(sessionId, audienceId);
+      if (mine.length > 0) return mine;
+      if (this.scopedEnvironments(sessionId).length > 0) {
+        return "The prompting user's host is not connected.";
+      }
+    } else if (this.scopedEnvironments(sessionId).length > 0) {
+      return "The prompting user's host is not connected.";
     }
-    return undefined;
+    const unscoped = this.unscopedEnvironmentsFor(sessionId);
+    if (unscoped.length > 0) return unscoped;
+    return "No remote environment is connected.";
   }
 
-  /** Returns (creating if needed) the session's remote sub-agent roster. */
+  /**
+   * The environment a remote sub-agent spawns into: the prompting person's most
+   * recent host, resolved through the same fail-closed rules a tool call uses.
+   * Throws rather than landing the spawn in another viewer's environment.
+   */
+  private spawnEnvironment(
+    sessionId: string,
+    audienceId: string | undefined,
+  ): RemoteEnvConnection {
+    const target = this.toolEnvironments(sessionId, audienceId);
+    if (typeof target === "string") throw new Error(target);
+    const environment = this.mostRecent(target);
+    if (!environment) throw new Error("No remote environment is connected.");
+    return environment;
+  }
+
+  /**
+   * Whether `environmentId` is owned by a human other than `sub`, so a mint
+   * cannot pin an id someone else claimed. Ownership outlives the connection: a
+   * departed host's id stays reserved to whoever first claimed it, so a mint
+   * cannot hijack an id merely because its owner is momentarily offline.
+   */
+  environmentClaimedByOther(environmentId: string, sub: string): boolean {
+    const owner = this.environmentOwners.get(environmentId);
+    return owner !== undefined && owner !== sub;
+  }
+
   /** A sub-agent's home Conversation, falling back to its id for a legacy row. */
   private homeConversationOf(sessionId: string, agentId: string): string {
     return (
@@ -439,6 +531,7 @@ export class RemoteEnvironmentGateway {
     );
   }
 
+  /** Returns (creating if needed) the session's remote sub-agent roster. */
   private rosterFor(sessionId: string): Map<string, RemoteSubagent> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
@@ -473,6 +566,7 @@ export class RemoteEnvironmentGateway {
     if (scoped) {
       socket.data.environmentId = scoped.environmentId;
       socket.data.sessionId = scoped.sessionId;
+      socket.data.sub = scoped.sub;
       next();
       return;
     }
@@ -493,34 +587,25 @@ export class RemoteEnvironmentGateway {
     const environmentId = socketDataString(socket, "environmentId");
     if (!environmentId) return;
     const sessionId = socketDataString(socket, "sessionId");
+    const sub = socketDataString(socket, "sub");
 
-    if (sessionId) this.bindSessionEnvironment(sessionId, environmentId);
     this.environments.set(environmentId, {
       environmentId,
       sessionId,
+      sub,
       socket,
       tools: new Map(),
+      seq: ++this.connectSeq,
     });
-    console.log(`[remote-env] connected: ${environmentId}`);
+    if (sub) this.environmentOwners.set(environmentId, sub);
+    console.log(
+      `[remote-env] connected: ${environmentId} session=${sessionId ?? "unscoped"} socket=${socket.id}`,
+    );
 
     this.wireInbound(socket, sessionId);
     socket.on("disconnect", () => this.onDisconnect(environmentId, socket));
 
     void this.replayRoster(environmentId);
-  }
-
-  /**
-   * Records `environmentId` as the host for `sessionId`, disconnecting any
-   * previous scoped environment still bound to that session.
-   */
-  private bindSessionEnvironment(
-    sessionId: string,
-    environmentId: string,
-  ): void {
-    const previousId = this.sessionEnvironments.get(sessionId);
-    this.sessionEnvironments.set(sessionId, environmentId);
-    if (!previousId || previousId === environmentId) return;
-    this.environments.get(previousId)?.socket.disconnect();
   }
 
   /** True when an unscoped env may speak for any session, or the ids match. */
@@ -593,32 +678,54 @@ export class RemoteEnvironmentGateway {
   }
 
   /**
-   * The tools available to a session: the catalog of the environment bound to it
-   * (or the shared unscoped one it would spawn on). Empty when no environment is
-   * connected, so a caller can tell "no host" from "host offers nothing".
+   * The tools available for `audienceId`'s turn: the union of that person's
+   * connected hosts (most recent wins on a name clash). When there is no catalog
+   * to offer, `reason` says why — their host is gone versus none is connected —
+   * so a caller can distinguish that from a host that offers nothing.
    */
-  listTools(sessionId: string): RemoteToolDef[] {
-    const environment = this.pickEnvironment(sessionId);
-    if (!environment) return [];
-    return [...environment.tools.values()];
+  listToolsFor(
+    sessionId: string,
+    audienceId?: string,
+  ): { tools: RemoteToolDef[]; reason?: string } {
+    const target = this.toolEnvironments(sessionId, audienceId);
+    if (typeof target === "string") return { tools: [], reason: target };
+    const catalog = new Map<string, RemoteToolDef>();
+    for (const environment of [...target].sort((a, b) => a.seq - b.seq)) {
+      for (const [name, tool] of environment.tools) catalog.set(name, tool);
+    }
+    return { tools: [...catalog.values()] };
+  }
+
+  /** The catalog for `audienceId`'s turn; see {@link listToolsFor} for the miss reason. */
+  listTools(sessionId: string, audienceId?: string): RemoteToolDef[] {
+    return this.listToolsFor(sessionId, audienceId).tools;
   }
 
   /**
-   * Invokes one registered tool on the session's environment and resolves with
-   * its result. Rejects when no environment is connected, the tool is not in the
-   * environment's catalog, or the environment does not ack before the timeout.
+   * Invokes one registered tool on the prompting person's environment and
+   * resolves with its result. Rejects when their host is not connected, the tool
+   * is not in any of their catalogs, or the environment does not ack before the
+   * timeout.
    */
   async callTool(
     sessionId: string,
     agentId: string,
     name: string,
     args: unknown,
+    audienceId?: string,
   ): Promise<RemoteToolCallResponse> {
-    const environment = this.pickEnvironment(sessionId);
-    if (!environment) {
-      throw new Error("No remote environment is connected.");
+    const target = this.toolEnvironments(sessionId, audienceId);
+    if (typeof target === "string") {
+      console.warn(
+        `[remote-env] call ${name} routing failed session=${sessionId} agent=${agentId} audience=${audienceId ?? "-"}: ${target}`,
+      );
+      throw new Error(target);
     }
-    if (!environment.tools.has(name)) {
+    const environment = this.mostRecent(target, name);
+    if (!environment) {
+      console.warn(
+        `[remote-env] call ${name} routing failed session=${sessionId} agent=${agentId} audience=${audienceId ?? "-"}: No remote tool named "${name}" is registered.`,
+      );
       throw new Error(`No remote tool named "${name}" is registered.`);
     }
     const request: RemoteToolCallRequest = {
@@ -628,6 +735,11 @@ export class RemoteEnvironmentGateway {
       name,
       arguments: args,
     };
+    const candidates = target.map((e) => e.environmentId).join(",");
+    const started = Date.now();
+    console.log(
+      `[remote-env] call ${name} callId=${request.callId} session=${sessionId} agent=${agentId} audience=${audienceId ?? "-"} env=${environment.environmentId} socket=${environment.socket.id} candidates=${candidates}`,
+    );
     return new Promise<RemoteToolCallResponse>((resolve, reject) => {
       environment.socket
         .timeout(TOOL_CALL_TIMEOUT_MS)
@@ -635,10 +747,17 @@ export class RemoteEnvironmentGateway {
           RemoteEnvEvents.ToolsCall,
           request,
           (err: Error | null, response: RemoteToolCallResponse) => {
+            const elapsed = Date.now() - started;
             if (err) {
+              console.warn(
+                `[remote-env] call ${name} callId=${request.callId} failed env=${environment.environmentId} socket=${environment.socket.id} connected=${environment.socket.connected} ${elapsed}ms: ${err.message}`,
+              );
               reject(err);
               return;
             }
+            console.log(
+              `[remote-env] call ${name} callId=${request.callId} ok env=${environment.environmentId} socket=${environment.socket.id} ${elapsed}ms`,
+            );
             resolve(response);
           },
         );
@@ -785,30 +904,19 @@ export class RemoteEnvironmentGateway {
   private onDisconnect(environmentId: string, socket: Socket): void {
     const current = this.environments.get(environmentId);
     if (current?.socket && current.socket !== socket) return;
-    this.dropEnvironment(environmentId, current?.sessionId);
-  }
-
-  /** Clears the session binding if it still names this environment. */
-  private unbindSession(
-    boundSessionId: string | undefined,
-    environmentId: string,
-  ): void {
-    if (!boundSessionId) return;
-    if (this.sessionEnvironments.get(boundSessionId) !== environmentId) return;
-    this.sessionEnvironments.delete(boundSessionId);
+    this.dropEnvironment(environmentId);
   }
 
   /** Removes a dropped environment from the maps and detaches its agents. */
-  private dropEnvironment(
-    environmentId: string,
-    boundSessionId: string | undefined,
-  ): void {
+  private dropEnvironment(environmentId: string): void {
+    const dropped = this.environments.get(environmentId);
     this.environments.delete(environmentId);
-    this.unbindSession(boundSessionId, environmentId);
     for (const [sessionId, roster] of this.sessions) {
       this.detachEnvironmentAgents(sessionId, roster, environmentId);
     }
-    console.log(`[remote-env] disconnected: ${environmentId}`);
+    console.log(
+      `[remote-env] disconnected: ${environmentId} session=${dropped?.sessionId ?? "unscoped"} socket=${dropped?.socket.id}`,
+    );
   }
 
   /**

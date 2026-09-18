@@ -67,6 +67,12 @@ function keyFor(sessionId: string, id: string): string {
   return `${sessionId}\u0000${id}`;
 }
 
+/** The human a delivery routes remote tools to: the author of a human message,
+ * else none (an agent/automation wake keeps the recipient's last audience). */
+function audienceOf(message: ChatMessage): string | undefined {
+  return message.source.kind === "human" ? message.author.id : undefined;
+}
+
 /** Marks every member a bound stopped as refused, with the reason it stopped. */
 function refusedBy(
   members: Membership[],
@@ -258,6 +264,7 @@ export class FanOutEngine {
       text: request.project(message, member),
       ingress: request.ingress ?? member.ingress,
       delivery: request.delivery,
+      audienceParticipantId: audienceOf(message),
     };
     const performNow = () =>
       this.connectors()

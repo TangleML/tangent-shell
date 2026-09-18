@@ -30,7 +30,7 @@ export interface UserIdentity {
  * else's.
  */
 export const DEFAULT_USER: UserIdentity = {
-  email: "maxim.ezhov@shopify.com",
+  email: "developer@localhost",
   first_name: "John",
   last_name: "Smith",
 };
@@ -111,6 +111,13 @@ export interface Session {
 /** Body of `POST /api/embed/remote-env-token`. */
 export interface RemoteEnvTokenRequest {
   sessionId: string;
+  /**
+   * A previously minted id to reuse across a token refresh, so the host keeps
+   * its live socket instead of connecting as a new environment. Honored when the
+   * id is free; if another person's host currently holds it, a fresh id is
+   * minted instead.
+   */
+  environmentId?: string;
 }
 
 /** Response of `POST /api/embed/remote-env-token`. */

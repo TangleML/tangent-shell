@@ -169,6 +169,12 @@ export interface SubagentSpawnRequest {
    * connected remote environment). Defaults to `local` when omitted.
    */
   environment?: "local" | "remote";
+  /**
+   * The human whose request led to this spawn. For a `remote` sub-agent it picks
+   * which connected host to spawn into (that person's environment), so a spawn
+   * does not land in another viewer's workarea. Ignored for a `local` sub-agent.
+   */
+  audienceParticipantId?: string;
 }
 
 /** Narrows an arbitrary string to a valid {@link ThinkingLevel}, else undefined. */

@@ -105,6 +105,18 @@ the result (any JSON-serializable value) back to the agent that asked. The
 runtime serializes nothing for you: if two calls can race a shared mutable state,
 serialize them in your `execute`.
 
+### Routing when several people share a session
+
+A session can have many hosts connected at once — several people, or one person
+across several tabs. The catalog is **per environment**, and the server routes by
+the **prompting human**, not by a single session-bound socket: a tool call (and a
+`remote` sub-agent spawn) goes to the host of whoever sent the prompt that woke
+the agent. A non-human wake (a sub-agent report, a trigger) reuses that agent's
+last human audience. `list_remote_tools` is the union of that person's own hosts;
+if their host is gone the call fails clearly rather than falling back to someone
+else's viewport. Pin `environmentId` across token refreshes so a host keeps its
+place instead of reconnecting as a new environment.
+
 ## Outbound helpers
 
 - `client.agentEvent(sessionId, agentId, event)` — stream a single agent event
