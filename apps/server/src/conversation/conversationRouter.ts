@@ -399,6 +399,15 @@ export class ConversationRouter {
   }
 
   /**
+   * Every live reaction chain in a session — each participant that holds one and
+   * its current depth — so the workflow view can show a wave against its budget
+   * (unified-model §9.8).
+   */
+  listWaves(sessionId: string): { participantId: string; depth: number }[] {
+    return this.engine.listForSession(sessionId);
+  }
+
+  /**
    * Posts a structured termination cause as a system Message in the Conversation
    * it names, the same shape the fan-out and correlation engines post. For a
    * cause discovered outside a fan-out — a Run settling `failed`, a connector

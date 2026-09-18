@@ -35,6 +35,7 @@ import {
   updateSessionSchema,
 } from "./schemas.ts";
 import { registerTriggerRoutes } from "./triggers.ts";
+import { registerWorkflowRoutes, type WorkflowRouteDeps } from "./workflow.ts";
 
 /** Registers the session collection routes (`GET /` list, `POST /` create). */
 function registerSessionCollectionRoutes(
@@ -140,6 +141,7 @@ export function createSessionsRouter(
   memory: MemoryManager,
   hostPreamble: HostResourcePreamble,
   emitResourcesUpdated: (sessionId: string) => void,
+  workflow: WorkflowRouteDeps,
 ): Router {
   const router = Router();
 
@@ -166,6 +168,7 @@ export function createSessionsRouter(
     hostPreamble,
     emitResourcesUpdated,
   });
+  registerWorkflowRoutes(router, workflow);
 
   // Declared after the trigger routes so the `*splat` catch-all doesn't shadow
   // the more specific `/:id/triggers/...` paths.

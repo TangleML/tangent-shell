@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   ContextDisposition,
+  ContextPolicyView,
   ContextSummarizer,
   Resource,
   TokenBudget,
@@ -78,6 +79,24 @@ const defaultSummarize: Summarize = (range, count) =>
  */
 function digestUri(conversationId: string, range: SeqRange): string {
   return `${DIGEST_URI_PREFIX}${conversationId}/${range.fromSeq}-${range.toSeq}`;
+}
+
+/**
+ * The serializable snapshot of a visibility's {@link ContextPolicy}: the preset,
+ * budget, summarizer, and pins, without the `classify` function that cannot
+ * cross the wire. What the workflow view reports for a Membership (unified-model
+ * §9.8).
+ */
+export function policyViewFor(
+  visibility: TranscriptVisibility,
+): ContextPolicyView {
+  const policy = policyFor(visibility);
+  return {
+    visibility,
+    budget: policy.budget,
+    summarizer: policy.summarizer,
+    pinned: policy.pinned,
+  };
 }
 
 /** Expands a {@link TranscriptVisibility} into its {@link ContextPolicy} preset. */

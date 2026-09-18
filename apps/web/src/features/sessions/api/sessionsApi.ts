@@ -12,6 +12,8 @@ import type {
   Session,
   UpdateSessionRequest,
   UploadFilesResponse,
+  WorkflowView,
+  WorkflowViewResponse,
 } from "@tangent/shared/contracts";
 
 import { apiFetch } from "@/shared/lib/apiFetch";
@@ -159,6 +161,29 @@ export async function removeResource(
   if (!res.ok) {
     throw new Error(`Failed to remove resource (status ${res.status})`);
   }
+}
+
+/**
+ * Reads a Conversation's (or the whole Session's) workflow state — the folded
+ * roster of reactors, open Runs, live waves, outstanding correlations, digest
+ * coverage, and structured causes the debugging surface renders. A `scope`
+ * narrows it to one Conversation; adding a `participantId` (alongside the
+ * conversation) attaches that Participant's projected room read.
+ */
+export async function getWorkflow(
+  sessionId: string,
+  scope?: ResourceScope,
+): Promise<WorkflowView> {
+  const params = new URLSearchParams();
+  if (scope?.conversationId) {
+    params.set("conversationId", scope.conversationId);
+    if (scope.participantId) params.set("participantId", scope.participantId);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const data = await parseJson<WorkflowViewResponse>(
+    await apiFetch(`/api/sessions/${sessionId}/workflow${suffix}`),
+  );
+  return data.workflow;
 }
 
 /**
