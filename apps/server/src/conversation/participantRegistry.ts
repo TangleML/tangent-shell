@@ -1,8 +1,7 @@
 import { PRIME_AGENT_ID } from "../pi/types.ts";
-import {
-  type Participant,
-  participantFromAgent,
-  type ParticipantStore,
+import type {
+  Participant,
+  ParticipantStore,
 } from "../store/participantStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
@@ -73,14 +72,13 @@ export async function orchestratorConversationFor(
 }
 
 /**
- * The session's Participants. Reads through to a {@link ParticipantStore}, but
- * the roster (`session_agents`) stays the write authority for this PR: for every
- * agent the current roster row wins, so an agent's participant view is never
- * stale, and a row the migration backfill never materialized is persisted on
- * first read — the same derive-and-persist shape
- * {@link import("./membershipRegistry.ts").MembershipRegistry} uses. Stored
- * participants with no roster row (future humans/automations) are returned as
- * they stand.
+ * The session's Participants, read from the {@link ParticipantStore}. Since C.2
+ * dropped `session_agents`, `participants` is the roster's only store: an agent
+ * is written there by {@link
+ * import("../store/sessionStore.ts").SessionStore.recordAgent} and read back
+ * here alongside the humans and automations {@link
+ * import("./participantService.ts").ParticipantService} invites, with no roster
+ * overlay to reconcile.
  */
 export class ParticipantRegistry {
   private readonly sessions: SessionStore;
@@ -137,7 +135,7 @@ export class ParticipantRegistry {
     return participantForConversation(this.sessions, sessionId, conversationId);
   }
 
-  /** Loads a session's participants once, reconciling them against the roster. */
+  /** Loads a session's participants once from the store. */
   private async load(sessionId: string): Promise<Map<string, Participant>> {
     const cached = this.cache.get(sessionId);
     if (cached) return cached;
@@ -145,15 +143,6 @@ export class ParticipantRegistry {
     const byId = new Map<string, Participant>();
     for (const stored of await this.store.listForSession(sessionId)) {
       byId.set(stored.id, stored);
-    }
-
-    for (const agent of await this.sessions.listAgents(sessionId)) {
-      const derived = participantFromAgent(agent);
-      const known = byId.get(agent.id);
-      byId.set(agent.id, derived);
-      // Persist a row the backfill never wrote; existing rows already hold the
-      // stable facts (id, kind, capabilities) this PR reads.
-      if (!known) await this.store.put(derived);
     }
 
     this.cache.set(sessionId, byId);

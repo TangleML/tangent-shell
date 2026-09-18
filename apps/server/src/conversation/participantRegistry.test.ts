@@ -14,10 +14,14 @@ import {
   ParticipantRegistry,
 } from "./participantRegistry.ts";
 
-/** A registry over in-memory stores, roster empty until agents are recorded. */
+/**
+ * A registry over in-memory stores. Since C.2 dropped `session_agents`, the
+ * session store writes each agent into the participant store the registry reads,
+ * so both share one {@link InMemoryParticipantStore}.
+ */
 function makeRegistry() {
-  const sessions = new InMemorySessionStore();
   const store = new InMemoryParticipantStore();
+  const sessions = new InMemorySessionStore(store);
   return {
     sessions,
     store,
@@ -25,7 +29,7 @@ function makeRegistry() {
   };
 }
 
-test("derives a participant per roster row, persisting the derived rows", async () => {
+test("recordAgent is what the registry reads for each roster agent", async () => {
   const { sessions, store, registry } = makeRegistry();
   await sessions.recordAgent("s1", {
     id: "prime",
@@ -45,7 +49,7 @@ test("derives a participant per roster row, persisting the derived rows", async 
   assert.equal(prime?.kind, "agent");
   assert.deepEqual(prime?.capabilities, ["orchestrator", "supervisor"]);
   assert.deepEqual(sub?.capabilities, []);
-  // The derivation was persisted, so a later read has a stored row to find.
+  // recordAgent wrote the row, so the store the registry reads has it.
   assert.equal((await store.get("s1", "prime"))?.displayName, "Prime");
 });
 
@@ -65,7 +69,7 @@ test("orchestrator resolution falls back to the well-known id", async () => {
   assert.equal(await orchestratorIdFor(sessions, "empty"), "prime");
 });
 
-test("a stored non-agent participant is returned alongside derived agents", async () => {
+test("a stored non-agent participant is returned alongside agents", async () => {
   const { sessions, store, registry } = makeRegistry();
   await sessions.recordAgent("s1", {
     id: "prime",
@@ -88,25 +92,25 @@ test("a stored non-agent participant is returned alongside derived agents", asyn
   assert.deepEqual(ids, ["ada@example.com", "prime"]);
 });
 
-test("the current roster row wins over a stale stored participant", async () => {
-  const { sessions, store, registry } = makeRegistry();
-  await store.put({
-    id: "prime",
-    sessionId: "s1",
-    kind: "agent",
-    displayName: "Stale Name",
-    capabilities: ["orchestrator"],
-    presence: "connected",
-    connector: connectorFor("pi-stdio"),
-    createdAt: "2026-01-01T00:00:00.000Z",
-  });
+test("re-recording an agent refreshes its stored participant row", async () => {
+  const { sessions, registry } = makeRegistry();
   await sessions.recordAgent("s1", {
     id: "prime",
     role: "prime",
     name: "Prime",
   });
+  // A later record (a revive, a rename) is written straight through, so the
+  // registry reads the current row rather than a stale one.
+  await sessions.recordAgent("s1", {
+    id: "prime",
+    role: "prime",
+    name: "Prime Renamed",
+  });
 
-  assert.equal((await registry.get("s1", "prime"))?.displayName, "Prime");
+  assert.equal(
+    (await registry.get("s1", "prime"))?.displayName,
+    "Prime Renamed",
+  );
 });
 
 test("home conversation resolves and reverses through the mapping", async () => {

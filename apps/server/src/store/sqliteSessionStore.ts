@@ -3,20 +3,17 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  type AgentRole,
   capabilitiesForRole,
   type ChatMessage,
   type ConnectorDescriptor,
   connectorFor,
-  type ConnectorKind,
-  type ConnectorLifecycle,
   type PinnedArtifact,
   type Session,
   type SessionConfigMeta,
   type UpdateSessionRequest,
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
 import {
@@ -28,16 +25,16 @@ import {
 import type { Db } from "./db/client.ts";
 import {
   conversations,
-  type SessionAgentRow,
-  sessionAgents,
+  participants,
   sessionAssets,
   type SessionRow,
   sessions,
   sessionViews,
 } from "./db/schema.ts";
 import {
+  type Participant,
   participantFromAgent,
-  type ParticipantStore,
+  sessionAgentFromParticipant,
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
@@ -47,6 +44,7 @@ import {
   type SessionAgentStatus,
   type SessionStore,
 } from "./sessionStore.ts";
+import { toParticipant } from "./sqliteParticipantStore.ts";
 
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
 const PRIME_AGENT_ID = "prime";
@@ -70,74 +68,60 @@ function toSession(row: SessionRow): Session {
   };
 }
 
-/**
- * Reads a row's connector facets, defaulting to `pi-stdio` for a row that never
- * had its connector columns set.
- */
-function toConnector(row: SessionAgentRow): ConnectorDescriptor {
+/** The connector columns a participant write persists. */
+function connectorColumns(connector: ConnectorDescriptor) {
   return {
-    ...connectorFor((row.connectorKind as ConnectorKind) ?? "pi-stdio"),
-    ...(row.connectorLifecycle
-      ? { lifecycle: row.connectorLifecycle as ConnectorLifecycle }
-      : {}),
-    ...(row.connectorEnvironmentId
-      ? { environmentId: row.connectorEnvironmentId }
-      : {}),
-    ...(row.connectorEndpointUrl
-      ? { endpointUrl: row.connectorEndpointUrl }
-      : {}),
+    connectorKind: connector.kind,
+    connectorLifecycle: connector.lifecycle,
+    connectorEnvironmentId: connector.environmentId,
+    connectorEndpointUrl: connector.endpointUrl,
   };
 }
 
-/** The connector columns a record-agent input writes; omitted leaves them as is. */
-function connectorColumns(connector: ConnectorDescriptor | undefined) {
-  return {
-    connectorKind: connector?.kind,
-    connectorLifecycle: connector?.lifecycle,
-    connectorEnvironmentId: connector?.environmentId,
-    connectorEndpointUrl: connector?.endpointUrl,
-  };
+/** The subset of an object whose values are set, dropping `undefined` keys. */
+function definedFields<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
 }
 
 /**
- * Maps a session_agents row onto the {@link SessionAgent} domain type. The home
- * Conversation is resolved from the `conversations` table by the caller and
- * passed in (falling back to the agent's own id for a legacy row the mapping
- * never covered).
+ * Folds a {@link RecordAgentInput} over the prior stored agent, mirroring the
+ * upsert semantics `session_agents` had before C.2: an omitted field leaves the
+ * prior value untouched, so a partial re-record (e.g. a model-only change) never
+ * wipes the persisted spawn config. Capabilities are always role-derived, and a
+ * brand-new agent picks up the old column defaults (`active`, auto-relay on,
+ * `pi-stdio`).
  */
-function toAgent(
-  row: SessionAgentRow,
+function mergeSessionAgent(
+  sessionId: string,
+  agent: RecordAgentInput,
+  prior: SessionAgent | undefined,
   homeConversationId: string,
 ): SessionAgent {
-  return {
-    id: row.id,
-    sessionId: row.sessionId,
-    role: row.role as AgentRole,
-    name: row.name,
-    capabilities: capabilitiesForRole(row.role as AgentRole),
-    purpose: row.purpose ?? undefined,
-    status: row.status as SessionAgentStatus,
-    model: row.model ?? undefined,
-    thinkingDepth: row.thinkingDepth ?? undefined,
-    template: row.template ?? undefined,
-    tools: parseTools(row.tools),
-    systemPrompt: row.systemPrompt ?? undefined,
-    autoRelayToPrime: row.autoRelayToPrime,
-    connector: toConnector(row),
+  const base: SessionAgent = prior ?? {
+    id: agent.id,
+    sessionId,
+    role: agent.role,
+    name: agent.name,
+    capabilities: capabilitiesForRole(agent.role),
+    status: "active",
+    autoRelayToPrime: true,
+    connector: connectorFor("pi-stdio"),
     homeConversationId,
-    createdAt: row.createdAt,
+    createdAt: new Date().toISOString(),
   };
-}
-
-/** Parses the JSON-encoded `tools` column into a string array, else undefined. */
-function parseTools(raw: string | null): string[] | undefined {
-  if (!raw) return undefined;
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as string[]) : undefined;
-  } catch {
-    return undefined;
-  }
+  return {
+    ...base,
+    ...definedFields(agent),
+    id: agent.id,
+    sessionId,
+    role: agent.role,
+    name: agent.name,
+    capabilities: capabilitiesForRole(agent.role),
+    homeConversationId,
+    createdAt: base.createdAt,
+  };
 }
 
 /**
@@ -151,12 +135,6 @@ export class SqliteSessionStore implements SessionStore {
   private readonly rootPaths = new Map<string, string>();
   private readonly db: Db;
   /**
-   * The participant projection this store dual-writes on every `recordAgent`, so
-   * a `participants` row tracks each roster row while `session_agents` stays the
-   * write authority. Optional so a bare store (e.g. a test) skips the mirror.
-   */
-  private readonly participants?: ParticipantStore;
-  /**
    * The resource catalog a pinned artifact mirrors into, so an artifact is a
    * catalogued, citable resource on the same path a peer's output takes. The
    * `session_assets` table stays the write authority for the pin itself;
@@ -164,13 +142,8 @@ export class SqliteSessionStore implements SessionStore {
    */
   private readonly resources?: ResourceStore;
 
-  constructor(
-    db: Db,
-    participants?: ParticipantStore,
-    resources?: ResourceStore,
-  ) {
+  constructor(db: Db, resources?: ResourceStore) {
     this.db = db;
-    this.participants = participants;
     this.resources = resources;
   }
 
@@ -291,7 +264,7 @@ export class SqliteSessionStore implements SessionStore {
   }
 
   async deleteSession(id: string): Promise<boolean> {
-    // Cascades delete session_assets + session_agents rows (FK ON DELETE
+    // Cascades delete session_assets + participants rows (FK ON DELETE
     // CASCADE). The on-disk folder (incl. chat JSONL) is left in place, matching
     // the prior in-memory behavior.
     const result = this.db.delete(sessions).where(eq(sessions.id, id)).run();
@@ -444,66 +417,83 @@ export class SqliteSessionStore implements SessionStore {
     sessionId: string,
     agent: RecordAgentInput,
   ): Promise<SessionAgent> {
-    // Drizzle omits `undefined` fields, so re-recording without a field leaves
-    // the stored value untouched (and `status` falls back to the column default
-    // / existing value).
-    const tools = agent.tools ? JSON.stringify(agent.tools) : undefined;
-    this.db
-      .insert(sessionAgents)
-      .values({
-        id: agent.id,
-        sessionId,
-        role: agent.role,
-        name: agent.name,
-        purpose: agent.purpose,
-        status: agent.status,
-        model: agent.model,
-        thinkingDepth: agent.thinkingDepth,
-        template: agent.template,
-        tools,
-        systemPrompt: agent.systemPrompt,
-        autoRelayToPrime: agent.autoRelayToPrime,
-        ...connectorColumns(agent.connector),
-        createdAt: new Date().toISOString(),
-      })
-      .onConflictDoUpdate({
-        target: [sessionAgents.sessionId, sessionAgents.id],
-        set: {
-          role: agent.role,
-          name: agent.name,
-          purpose: agent.purpose,
-          status: agent.status,
-          model: agent.model,
-          thinkingDepth: agent.thinkingDepth,
-          template: agent.template,
-          tools,
-          systemPrompt: agent.systemPrompt,
-          autoRelayToPrime: agent.autoRelayToPrime,
-          ...connectorColumns(agent.connector),
-        },
-      })
-      .run();
-
-    const row = this.db
-      .select()
-      .from(sessionAgents)
-      .where(
-        and(
-          eq(sessionAgents.sessionId, sessionId),
-          eq(sessionAgents.id, agent.id),
-        ),
-      )
-      .get();
-    // The row was just upserted, so it always exists here.
+    const prior = this.readAgentParticipant(sessionId, agent.id);
     const homeConversationId = await this.ensureHomeConversation(
       sessionId,
       agent.id,
       agent.homeConversationId,
     );
-    const recorded = toAgent(row as SessionAgentRow, homeConversationId);
-    // Mirror it into the participant projection; the roster stays authoritative.
-    await this.participants?.put(participantFromAgent(recorded));
+    const recorded = mergeSessionAgent(
+      sessionId,
+      agent,
+      prior && sessionAgentFromParticipant(prior, homeConversationId),
+      homeConversationId,
+    );
+    // The roster is a `kind: "agent"` participant row now that `session_agents`
+    // is gone; a revoked agent keeps its `revoked_at` across a re-record.
+    this.writeAgentParticipant(
+      participantFromAgent(recorded),
+      prior?.revokedAt,
+    );
     return recorded;
+  }
+
+  /** Reads the agent participant a roster id stands for, or nothing. */
+  private readAgentParticipant(
+    sessionId: string,
+    id: string,
+  ): Participant | undefined {
+    const row = this.db
+      .select()
+      .from(participants)
+      .where(
+        and(
+          eq(participants.sessionId, sessionId),
+          eq(participants.id, id),
+          eq(participants.kind, "agent"),
+        ),
+      )
+      .get();
+    return row ? toParticipant(row) : undefined;
+  }
+
+  /** Upserts an agent's participant row (its roster home since C.2). */
+  private writeAgentParticipant(
+    participant: Participant,
+    revokedAt: string | undefined,
+  ): void {
+    const capabilities = JSON.stringify(participant.capabilities);
+    const agentPayload = participant.agent
+      ? JSON.stringify(participant.agent)
+      : null;
+    const columns = connectorColumns(participant.connector);
+    this.db
+      .insert(participants)
+      .values({
+        id: participant.id,
+        sessionId: participant.sessionId,
+        kind: "agent",
+        displayName: participant.displayName,
+        capabilities,
+        presence: participant.presence,
+        ...columns,
+        agentPayload,
+        revokedAt: revokedAt ?? null,
+        createdAt: participant.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: [participants.sessionId, participants.id],
+        set: {
+          kind: "agent",
+          displayName: participant.displayName,
+          capabilities,
+          presence: participant.presence,
+          ...columns,
+          agentPayload,
+          revokedAt: revokedAt ?? null,
+        },
+      })
+      .run();
   }
 
   /**
@@ -612,13 +602,19 @@ export class SqliteSessionStore implements SessionStore {
     agentId: string,
     status: SessionAgentStatus,
   ): Promise<void> {
+    // Presence tracks the roster's lifecycle exactly as the read-time mapping
+    // did before C.2: a detached far end is detached, everything else reachable.
     this.db
-      .update(sessionAgents)
-      .set({ status })
+      .update(participants)
+      .set({
+        agentPayload: sql`json_set(${participants.agentPayload}, '$.status', ${status})`,
+        presence: status === "detached" ? "detached" : "connected",
+      })
       .where(
         and(
-          eq(sessionAgents.sessionId, sessionId),
-          eq(sessionAgents.id, agentId),
+          eq(participants.sessionId, sessionId),
+          eq(participants.id, agentId),
+          eq(participants.kind, "agent"),
         ),
       )
       .run();
@@ -627,25 +623,39 @@ export class SqliteSessionStore implements SessionStore {
   async listAgents(sessionId: string): Promise<SessionAgent[]> {
     const rows = this.db
       .select()
-      .from(sessionAgents)
-      .where(eq(sessionAgents.sessionId, sessionId))
-      .orderBy(asc(sessionAgents.createdAt))
+      .from(participants)
+      .where(
+        and(
+          eq(participants.sessionId, sessionId),
+          eq(participants.kind, "agent"),
+        ),
+      )
+      .orderBy(asc(participants.createdAt))
       .all();
     const homes = this.homeConversationMap(sessionId);
-    return rows.map((row) => toAgent(row, homes.get(row.id) ?? row.id));
+    return rows.map((row) =>
+      sessionAgentFromParticipant(
+        toParticipant(row),
+        homes.get(row.id) ?? row.id,
+      ),
+    );
   }
 
   async detachActiveSubagents(): Promise<number> {
     const rows = this.db
-      .update(sessionAgents)
-      .set({ status: "detached" })
+      .update(participants)
+      .set({
+        agentPayload: sql`json_set(${participants.agentPayload}, '$.status', 'detached')`,
+        presence: "detached",
+      })
       .where(
         and(
-          eq(sessionAgents.role, "subagent"),
-          eq(sessionAgents.status, "active"),
+          eq(participants.kind, "agent"),
+          sql`json_extract(${participants.agentPayload}, '$.role') = 'subagent'`,
+          sql`json_extract(${participants.agentPayload}, '$.status') = 'active'`,
         ),
       )
-      .returning({ id: sessionAgents.id })
+      .returning({ id: participants.id })
       .all();
     return rows.length;
   }
@@ -655,14 +665,15 @@ export class SqliteSessionStore implements SessionStore {
   ): Promise<SessionAgent[]> {
     const rows = this.db
       .select()
-      .from(sessionAgents)
+      .from(participants)
       .where(
         and(
-          eq(sessionAgents.role, "subagent"),
-          eq(sessionAgents.connectorEnvironmentId, environmentId),
+          eq(participants.kind, "agent"),
+          eq(participants.connectorEnvironmentId, environmentId),
+          sql`json_extract(${participants.agentPayload}, '$.role') = 'subagent'`,
         ),
       )
-      .orderBy(asc(sessionAgents.createdAt))
+      .orderBy(asc(participants.createdAt))
       .all();
     const homesBySession = new Map<string, Map<string, string>>();
     return rows.map((row) => {
@@ -671,7 +682,10 @@ export class SqliteSessionStore implements SessionStore {
         homes = this.homeConversationMap(row.sessionId);
         homesBySession.set(row.sessionId, homes);
       }
-      return toAgent(row, homes.get(row.id) ?? row.id);
+      return sessionAgentFromParticipant(
+        toParticipant(row),
+        homes.get(row.id) ?? row.id,
+      );
     });
   }
 

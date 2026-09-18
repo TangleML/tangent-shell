@@ -77,10 +77,10 @@ export interface JoinOptions {
  * right now, and when they leave. This is the first runtime consumer of
  * {@link ParticipantRegistry} — 2.1 left it unit-tested only.
  *
- * `session_agents` stays the write authority for agents; this service owns the
- * rows agents never produce — humans and automations — and the Membership edits
- * (join, leave, mute, close) that are nobody's to make until a Conversation can
- * hold more than one actor.
+ * The session store writes the agent rows; this service owns the rows agents
+ * never produce — humans and automations — and the Membership edits (join,
+ * leave, mute, close) that are nobody's to make until a Conversation can hold
+ * more than one actor.
  */
 export class ParticipantService {
   private readonly participants: ParticipantStore;
