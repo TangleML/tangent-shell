@@ -110,8 +110,9 @@ Allowlist properties:
   `{ target: "tangle", path: "/api/executions/<id>/state" }`; trusted internal
   tools may still pass absolute `http(s)` URLs for compatibility.
 - Rules cover the configured Tangle API origin (`TANGLE_API_URL`) for specific
-  `pipeline_runs` / `executions` / `artifacts` paths. Credentials are injected
-  by the rule's `headers()` so the caller never sees them.
+  `pipeline_runs` / `executions` / `artifacts` paths plus read-only `projects` /
+  `workspaces` prefixes. Credentials are injected by the rule's `headers()` so
+  the caller never sees them.
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
   upstream calls; transport failures map to a 502.
 
