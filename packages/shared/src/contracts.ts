@@ -108,6 +108,18 @@ export interface Session {
   updatedAt: string;
 }
 
+/** Body of `POST /api/embed/remote-env-token`. */
+export interface RemoteEnvTokenRequest {
+  sessionId: string;
+}
+
+/** Response of `POST /api/embed/remote-env-token`. */
+export interface RemoteEnvTokenResponse {
+  token: string;
+  environmentId: string;
+  expiresAt: string;
+}
+
 /**
  * Distinguishes the session's orchestrating Prime agent from the sub-agents it
  * spawns. Only present on agent authors. Drives client rendering (e.g. sub-agent
@@ -370,7 +382,12 @@ export interface PinnedArtifact {
 }
 
 /** What a catalogued resource is: content the session holds, by origin. */
-export type ResourceKind = "file" | "memory" | "attachment" | "artifact";
+export type ResourceKind =
+  | "file"
+  | "memory"
+  | "attachment"
+  | "artifact"
+  | "host";
 
 /**
  * A catalogued piece of content in a session — a pinned `artifact`, a human
@@ -400,6 +417,26 @@ export interface Resource {
 /** Response from `GET /api/sessions/:id/resources`. */
 export interface ListResourcesResponse {
   resources: Resource[];
+}
+
+/**
+ * A resource the embed host may seed at session create or add afterwards. A
+ * `memory` entry writes the session (or global) memory store the agent reads; a
+ * `host` entry is host-owned content (e.g. a known pipeline) whose `meta` is
+ * free-form JSON the shell does not interpret.
+ */
+export type HostResourceInput =
+  | { kind: "memory"; scope?: MemoryScope; content: string }
+  | {
+      kind: "host";
+      name: string;
+      uri: string;
+      meta?: Record<string, unknown>;
+    };
+
+/** Response from `POST /api/sessions/:id/resources`: the stored resource. */
+export interface AddResourceResponse {
+  resource: Resource;
 }
 
 /** Response from `GET /api/sessions/:id/triggers`. */
@@ -507,15 +544,18 @@ export type SpawnAuthority = "server" | "remote-env" | "bundle-tool" | "none";
  * in issuance — one is handed to a process the server spawns, the other is
  * presented back by a caller that already holds it.
  *
- * `peer-bearer` runs the other way: the far end sits outside the trust domain
- * and Tangent is the caller, so the secret is presented outbound and no inbound
- * caller ever authenticates under this scheme.
+ * `scoped-token` is a short-lived HMAC token minted per session for an embed
+ * host connecting as a remote environment. `peer-bearer` runs the other way:
+ * the far end sits outside the trust domain and Tangent is the caller, so the
+ * secret is presented outbound and no inbound caller ever authenticates under
+ * this scheme.
  */
 export type CredentialScheme =
   | "inherited-token"
   | "shared-token"
   | "internal-bearer"
   | "minted-secret"
+  | "scoped-token"
   | "peer-bearer"
   | "none";
 
@@ -959,6 +999,11 @@ export interface CreateSessionRequest {
   name?: string;
   /** Marketplace agent bundle id to create the session from. */
   bundleId: string;
+  /**
+   * Resources to seed the session with, applied before the agent spawns so
+   * memory seeds and host entries are standing context from the first turn.
+   */
+  resources?: HostResourceInput[];
 }
 
 export interface UpdateSessionRequest {
@@ -1343,6 +1388,7 @@ export const SocketEvents = {
   TriggerRemoved: "trigger:removed",
   ArtifactPin: "artifact:pin",
   ArtifactUnpin: "artifact:unpin",
+  ResourcesUpdated: "resources:updated",
   UiCommand: "ui:command",
   SessionStatusSubscribe: "session:status:subscribe",
   SessionStatusSnapshot: "session:status:snapshot",

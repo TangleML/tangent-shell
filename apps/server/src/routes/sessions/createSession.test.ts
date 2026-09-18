@@ -3,11 +3,14 @@ import { test } from "node:test";
 
 import type { Request, Response } from "express";
 
+import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
+import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
+import type { MemoryManager } from "../../pi/memory.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
-import { handleCreateSession } from "./handlers.ts";
+import { handleCreateSession, type SessionCreateDeps } from "./handlers.ts";
 import { createSessionSchema } from "./schemas.ts";
 
 class TestResponse {
@@ -51,11 +54,19 @@ test("handleCreateSession returns 404 for unknown bundle ids", async () => {
   } as AgentBundleStore;
   const response = new TestResponse();
 
-  await handleCreateSession(
+  const deps: SessionCreateDeps = {
     store,
-    {} as PiAgentManager,
-    {} as TriggerEngine,
+    pi: {} as PiAgentManager,
+    triggerEngine: {} as TriggerEngine,
     agentBundleStore,
+    memory: {} as MemoryManager,
+    resources: {} as ResourceCatalog,
+    hostPreamble: {} as HostResourcePreamble,
+    emitResourcesUpdated: () => {},
+  };
+
+  await handleCreateSession(
+    deps,
     { headers: {} } as Request,
     { bundleId: "missing-bundle" },
     response as unknown as Response,

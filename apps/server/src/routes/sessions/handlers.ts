@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type {
   Attachment,
+  HostResourceInput,
   Session,
   SessionActivity,
   SessionConfigMeta,
@@ -20,8 +21,12 @@ import {
   SESSIONS_ROOT,
   UPLOADS_DIRNAME,
 } from "../../config.ts";
+import { applyResourceInput } from "../../conversation/hostResources.ts";
 import { orchestratorConversationFor } from "../../conversation/participantRegistry.ts";
+import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
 import { installBundle } from "../../pi/config/bundleLoader.ts";
+import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
+import type { MemoryManager } from "../../pi/memory.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
@@ -131,22 +136,62 @@ function serveArtifact(
   });
 }
 
+/** Dependencies for provisioning and spawning a new session. */
+export interface SessionCreateDeps {
+  store: SessionStore;
+  pi: PiAgentManager;
+  triggerEngine: TriggerEngine;
+  agentBundleStore: AgentBundleStore;
+  memory: MemoryManager;
+  resources: ResourceCatalog;
+  hostPreamble: HostResourcePreamble;
+  /** Notifies a session's room that its resource catalog changed. */
+  emitResourcesUpdated: (sessionId: string) => void;
+}
+
+/**
+ * Applies the host-provided seed resources before Prime spawns, so memory seeds
+ * write the store the agent reads and host entries are in the spawn preamble
+ * from the first turn. Refreshes that preamble and signals the room once.
+ */
+async function seedResources(
+  deps: SessionCreateDeps,
+  sessionId: string,
+  rootPath: string,
+  resources: HostResourceInput[],
+  user: UserIdentity | undefined,
+): Promise<void> {
+  if (resources.length === 0) return;
+  for (const input of resources) {
+    await applyResourceInput(
+      { store: deps.store, memory: deps.memory, catalog: deps.resources },
+      sessionId,
+      rootPath,
+      input,
+      input.kind === "host" ? user?.email : undefined,
+    );
+  }
+  await deps.hostPreamble.refresh(sessionId);
+  deps.emitResourcesUpdated(sessionId);
+}
+
 /**
  * Provisions a new session from an uploaded Configuration Bundle: installs it
- * into the session root, records its metadata, and spawns Prime with the
- * resolved per-session config. On an invalid bundle the just-created session is
- * removed so a failed upload leaves nothing half-provisioned.
+ * into the session root, records its metadata, applies host seed resources, and
+ * spawns Prime with the resolved per-session config. On an invalid bundle the
+ * just-created session is removed so a failed upload leaves nothing
+ * half-provisioned.
  */
 async function createSessionFromBundle(
-  store: SessionStore,
-  pi: PiAgentManager,
-  triggerEngine: TriggerEngine,
+  deps: SessionCreateDeps,
   sessionId: string,
   rootPath: string,
   zipBuffer: Buffer,
   user: UserIdentity | undefined,
+  resources: HostResourceInput[],
   res: Response,
 ): Promise<void> {
+  const { store, pi, triggerEngine } = deps;
   try {
     const { manifest, config } = await installBundle(zipBuffer, rootPath);
     const meta: SessionConfigMeta = {
@@ -181,6 +226,8 @@ async function createSessionFromBundle(
       });
     }
 
+    await seedResources(deps, sessionId, rootPath, resources, user);
+
     pi.ensure(
       sessionId,
       rootPath,
@@ -205,38 +252,37 @@ async function resolveCreateBundle(
 
 /**
  * Handles `POST /api/sessions`. Sessions are created from a saved marketplace
- * agent bundle so every session carries bundle config metadata.
+ * agent bundle so every session carries bundle config metadata. Any host seed
+ * resources ride along and are applied before Prime spawns.
  */
 export async function handleCreateSession(
-  store: SessionStore,
-  pi: PiAgentManager,
-  triggerEngine: TriggerEngine,
-  agentBundleStore: AgentBundleStore,
+  deps: SessionCreateDeps,
   req: Request,
   body: CreateSessionInput,
   res: Response,
 ): Promise<void> {
   // Resolve any bundle before creating the session so a bad id fails without
   // leaving an empty session behind.
-  const zipBuffer = await resolveCreateBundle(body, agentBundleStore);
+  const zipBuffer = await resolveCreateBundle(body, deps.agentBundleStore);
   if (zipBuffer === "not-found") {
     res.status(404).json({ error: "Agent bundle not found" });
     return;
   }
 
-  // Resolve the creator's identity from their Oktasso JWT cookie so every agent
-  // spawned for the session knows who it's helping.
-  const user = resolveUserIdentity(req.headers.cookie) ?? undefined;
-  const session = await store.createSession({ name: body.name, user });
+  // Resolve the creator's identity from their bearer token or Oktasso JWT
+  // cookie so every agent spawned for the session knows who it's helping.
+  const user =
+    resolveUserIdentity(req.headers.cookie, req.headers.authorization) ??
+    undefined;
+  const session = await deps.store.createSession({ name: body.name, user });
 
   await createSessionFromBundle(
-    store,
-    pi,
-    triggerEngine,
+    deps,
     session.id,
     session.rootPath,
     zipBuffer,
     user,
+    body.resources ?? [],
     res,
   );
 }
@@ -271,7 +317,10 @@ export async function handleUploadFiles(
 
 /** Read-state key: the viewer's email, or `"local"` when no identity resolves. */
 function resolveUserKey(req: Request): string {
-  return resolveUserIdentity(req.headers.cookie)?.email ?? "local";
+  return (
+    resolveUserIdentity(req.headers.cookie, req.headers.authorization)?.email ??
+    "local"
+  );
 }
 
 /** Computes the requesting user's {@link SessionActivity} for one session. */

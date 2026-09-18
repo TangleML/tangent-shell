@@ -43,6 +43,14 @@ export class NullConnector implements Connector {
   }
 
   deliver(request: DeliveryRequest): DeliveryResult {
+    console.warn(
+      "[nullConnector] refusing delivery: no connector holds participant",
+      {
+        sessionId: request.sessionId,
+        participantId: request.participantId,
+        conversationId: request.conversationId,
+      },
+    );
     return refuseDelivery(this.handlers, request, NOT_AVAILABLE);
   }
 

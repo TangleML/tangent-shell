@@ -58,9 +58,12 @@ COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 COPY packages/build/package.json packages/build/
 COPY packages/ui-primitives/package.json packages/ui-primitives/
+COPY packages/ui-extensions-sdk/package.json packages/ui-extensions-sdk/
 COPY packages/windows/package.json packages/windows/
 COPY packages/analytics/package.json packages/analytics/
 COPY packages/utils/package.json packages/utils/
+COPY packages/embed-react/package.json packages/embed-react/
+COPY packages/remote-subagent/package.json packages/remote-subagent/
 RUN pnpm install --frozen-lockfile --config.strictDepBuilds=false
 
 # Server + UI source plus the shared workspace packages they build against
@@ -81,6 +84,15 @@ RUN node apps/server/build.mjs
 # different bundle defaults.
 RUN VITE_DEFAULT_SESSION_BUNDLE_ID=__TANGENT_RUNTIME_DEFAULT_SESSION_BUNDLE_ID__ \
   pnpm --filter @tangent/web exec vite build
+
+# Build the embedded UI runtime -> apps/web/dist/embed/v1 (served by nginx at
+# /embed/). Runs after the main build because its outDir lives under dist/; the
+# main build's emptyOutDir would otherwise wipe it.
+RUN pnpm --filter @tangent/web exec vite build --config vite.embed.config.ts
+
+# Fail early if the embed bundle is missing.
+RUN test -f apps/web/dist/embed/v1/tangent-elements.js \
+  || { echo "missing apps/web/dist/embed/v1/tangent-elements.js" >&2; exit 1; }
 
 # Defense in depth: fail the image build if any extension the server loads at
 # runtime is missing from the bundle (the build script also asserts this).

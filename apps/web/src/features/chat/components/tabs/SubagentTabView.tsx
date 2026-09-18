@@ -57,7 +57,7 @@ interface SubagentTabViewProps {
   /** Changes this sub-agent's model and/or thinking depth. */
   onSetModel: (selection: AgentModelPickerValue) => void;
   /** Opens a browser-viewable artifact referenced in a message. */
-  onOpenArtifact: (url: string, title: string) => void;
+  onOpenArtifact?: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
   onTogglePinArtifact: (path: string, title: string) => void;
   /** People/agents the `@mention` picker can address in this sub-agent's composer. */

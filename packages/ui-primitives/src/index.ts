@@ -9,6 +9,7 @@ export * from "./icon";
 export * from "./layout";
 export * from "./link";
 export * from "./popover";
+export * from "./portal-container";
 export * from "./progress";
 export * from "./resize-handle";
 export * from "./score-ring";

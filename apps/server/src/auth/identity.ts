@@ -52,22 +52,8 @@ function pickString(
   return "";
 }
 
-/**
- * Resolves the current {@link UserIdentity} from a raw `Cookie` header. Reads
- * the Oktasso JWT from {@link AUTH_JWT_TOKEN_COOKIE_NAME}, decodes its payload
- * (no signature check), and maps the email + name claims onto the identity.
- *
- * Returns `null` when the cookie name is unconfigured, the cookie is missing,
- * the token is malformed, or it carries no email. Name claims fall back across
- * the OIDC standard (`given_name` / `family_name`) and snake-case
- * (`first_name` / `last_name`) variants, defaulting to `""` when absent.
- */
-export function resolveUserIdentity(
-  cookieHeader: string | undefined,
-): UserIdentity | null {
-  if (!AUTH_JWT_TOKEN_COOKIE_NAME) return null;
-
-  const token = parseCookies(cookieHeader)[AUTH_JWT_TOKEN_COOKIE_NAME];
+/** Maps a decoded JWT (no signature check) onto a {@link UserIdentity}. */
+function identityFromToken(token: string | undefined): UserIdentity | null {
   if (!token) return null;
 
   const payload = decodeJwtPayload(token);
@@ -80,4 +66,36 @@ export function resolveUserIdentity(
     first_name: pickString(payload, ["first_name", "given_name"]),
     last_name: pickString(payload, ["last_name", "family_name"]),
   };
+}
+
+/** Extracts the token from an `Authorization: Bearer <jwt>` header. */
+function bearerToken(header: string | undefined): string | undefined {
+  const match = /^Bearer\s+(.+)$/i.exec((header ?? "").trim());
+  return match?.[1];
+}
+
+/**
+ * Resolves the current {@link UserIdentity} from an incoming request's
+ * credentials. Prefers an `Authorization: Bearer` JWT (the embed passes one
+ * cross-origin, where cookies are unavailable) and falls back to the Oktasso
+ * JWT in {@link AUTH_JWT_TOKEN_COOKIE_NAME}. The payload is decoded without a
+ * signature check and mapped from the email + name claims.
+ *
+ * Returns `null` when no token resolves, the token is malformed, or it carries
+ * no email. The cookie path additionally requires the cookie name to be
+ * configured; the bearer path does not. Name claims fall back across the OIDC
+ * standard (`given_name` / `family_name`) and snake-case (`first_name` /
+ * `last_name`) variants, defaulting to `""` when absent.
+ */
+export function resolveUserIdentity(
+  cookieHeader: string | undefined,
+  authorizationHeader?: string | undefined,
+): UserIdentity | null {
+  const bearer = bearerToken(authorizationHeader);
+  if (bearer) return identityFromToken(bearer);
+
+  if (!AUTH_JWT_TOKEN_COOKIE_NAME) return null;
+  return identityFromToken(
+    parseCookies(cookieHeader)[AUTH_JWT_TOKEN_COOKIE_NAME],
+  );
 }

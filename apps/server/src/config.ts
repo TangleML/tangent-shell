@@ -171,6 +171,15 @@ export const PUBLIC_URL = (process.env.TANGENT_PUBLIC_URL ?? "").replace(
 export const REMOTE_ENV_TOKEN = process.env.REMOTE_ENV_TOKEN ?? "";
 
 /**
+ * HMAC key used to mint and verify scoped `/remote-env` tokens for embed hosts.
+ * Generated per server start unless pinned via env. Independent of
+ * {@link REMOTE_ENV_TOKEN} (the optional server-to-server shared secret) and of
+ * {@link INTERNAL_TOKEN} (which Pi children inherit).
+ */
+export const REMOTE_ENV_SIGNING_SECRET =
+  process.env.REMOTE_ENV_SIGNING_SECRET ?? randomUUID();
+
+/**
  * Secret Tangent presents (as a bearer token) to an attached A2A agent. Unlike
  * the other connector secrets this one travels outbound, so an empty value is
  * not a lockout: a peer that asks for no credential is still reachable.
@@ -184,6 +193,17 @@ export const A2A_TOKEN = process.env.A2A_TOKEN ?? "";
  */
 export const AUTH_JWT_TOKEN_COOKIE_NAME =
   process.env.AUTH_JWT_TOKEN_COOKIE_NAME ?? "";
+
+/**
+ * Origins allowed to embed the UI cross-origin (the host pages running
+ * `@tangent/embed-react`). Comma-separated; drives both the `/api` CORS headers
+ * and the Socket.IO handshake allowlist. Empty by default so a same-origin
+ * deployment grants no cross-origin trust.
+ */
+export const EMBED_ALLOWED_ORIGINS = (process.env.EMBED_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 /**
  * Base URL of the Tangle API reached by the bundle-UI/agent egress allowlist.

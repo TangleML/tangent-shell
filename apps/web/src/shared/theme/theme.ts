@@ -29,13 +29,19 @@ function isTheme(value: unknown): value is Theme {
 }
 
 /**
- * Apply a theme by toggling classes on the document root. Light uses no class,
- * dark adds `dark`, and the dark-derived themes (xterm, piforge) add
- * `dark <theme>` so `dark:` utilities keep working while the theme's token
- * overrides win (they are defined after `.dark`).
+ * Apply a theme by toggling classes on `target` (the document root by default).
+ * Light uses no class, dark adds `dark`, and the dark-derived themes (xterm,
+ * piforge) add `dark <theme>` so `dark:` utilities keep working while the
+ * theme's token overrides win (they are defined after `.dark`).
+ *
+ * Embedded mode passes its shadow-root wrapper as `target` so themes scope to
+ * the embed rather than the host document.
  */
-export function applyTheme(theme: Theme): void {
-  const root = document.documentElement;
+export function applyTheme(
+  theme: Theme,
+  target: HTMLElement = document.documentElement,
+): void {
+  const root = target;
   root.classList.remove("dark", "xterm", "piforge");
   if (theme === "dark" || theme === "xterm" || theme === "piforge") {
     root.classList.add("dark");

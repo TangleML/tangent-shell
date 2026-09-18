@@ -3,15 +3,21 @@ import { test } from "node:test";
 
 import {
   type ChatAuthor,
+  type ChatMessagePayload,
   connectorFor,
   humanAuthor,
   type Session,
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
+import type { Socket } from "socket.io";
 
 import type { Membership } from "../store/membershipStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
-import { authorizedConversations } from "./chat.ts";
+import {
+  authorizedConversations,
+  type ChatHandlerDeps,
+  handleChatMessage,
+} from "./chat.ts";
 
 const OWNER: UserIdentity = {
   email: "owner@example.com",
@@ -107,4 +113,57 @@ test("a Membership in an unknown Conversation is ignored", () => {
     membership("guest@example.com", "gone"),
   ]);
   assert.equal(authorized.size, 0);
+});
+
+function primeAgent(homeConversationId: string): SessionAgent {
+  return {
+    id: "prime",
+    sessionId: "s1",
+    role: "prime",
+    name: "Prime",
+    capabilities: ["orchestrator"],
+    status: "active",
+    connector: connectorFor("pi-stdio"),
+    homeConversationId,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+test("a human message always ensures Prime, even when it targets a sub-agent thread", async () => {
+  const primeHome = "conv-prime-home";
+  const ensureCalls: unknown[][] = [];
+  const postCalls: { conversationId?: string }[] = [];
+
+  const deps = {
+    store: {
+      getSession: async () => session(OWNER),
+      listAgents: async () => [primeAgent(primeHome)],
+    },
+    pi: {
+      ensure: (...args: unknown[]) => {
+        ensureCalls.push(args);
+      },
+    },
+    connectors: { list: () => [] },
+    participantService: { list: async () => [] },
+    conversations: {
+      post: async (input: { conversationId?: string }) => {
+        postCalls.push(input);
+        return { message: {}, woke: [], refused: [] };
+      },
+    },
+  } as unknown as ChatHandlerDeps;
+
+  const socket = { emit: () => {} } as unknown as Socket;
+  const payload: ChatMessagePayload = {
+    sessionId: "s1",
+    content: "hello",
+    conversationId: "sub-1",
+  };
+
+  await handleChatMessage(socket, deps, humanAuthor(OWNER), payload);
+
+  assert.equal(ensureCalls.length, 1);
+  assert.equal(ensureCalls[0]?.[5], primeHome);
+  assert.equal(postCalls[0]?.conversationId, "sub-1");
 });
