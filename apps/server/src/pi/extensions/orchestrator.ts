@@ -184,6 +184,16 @@ export default function (pi: ExtensionAPI) {
             "connected remote environment).",
         }),
       ),
+      auto_relay: Type.Optional(
+        Type.Boolean({
+          description:
+            "How the sub-agent wakes you. `true` (default): you react to " +
+            "every finalized turn. `false`: you stay idle until the sub-agent " +
+            "addresses you via message_prime — use this for long autonomous " +
+            "work so intermediate turns don't interrupt you. Defaults to the " +
+            "template's setting when omitted.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
       const data = (await callApi("POST", "spawn", {
@@ -196,11 +206,14 @@ export default function (pi: ExtensionAPI) {
         thinkingDepth: params.thinking,
         task: params.task,
         environment: params.environment,
+        autoRelayToPrime: params.auto_relay,
       })) as { subagent: { id: string; name: string } };
 
       return textResult(
         `Spawned sub-agent "${data.subagent.name}" (id: ${data.subagent.id}). ` +
-          `Its replies will appear in the room; use message_subagent to direct it.`,
+          `It works asynchronously and will reach you when it reports, finishes, ` +
+          `or needs input. If you have no other work in hand, end your turn now — ` +
+          `do not poll or nudge it. Use message_subagent to direct it.`,
       );
     },
   });
@@ -274,7 +287,11 @@ export default function (pi: ExtensionAPI) {
         agentId: params.id,
         text: params.message,
       });
-      return textResult(`Delivered message to sub-agent ${params.id}.`);
+      return textResult(
+        `Delivered to sub-agent ${params.id}. It works asynchronously and will ` +
+          `reach you when it reports back. If you have no other work in hand, end ` +
+          `your turn now — do not poll or nudge it.`,
+      );
     },
   });
 

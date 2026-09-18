@@ -94,6 +94,12 @@ export interface AgentConfig {
   model?: string;
   /** Thinking depth for Pi's `--thinking`; falls back to the server default. */
   thinkingDepth?: ThinkingLevel;
+  /**
+   * Whether Prime reacts to the sub-agent's finalized replies (`onRunEnd`) or
+   * only when the sub-agent addresses it via `message_prime` (`onReport`).
+   * Undefined leaves the spawn-time default (`true`) in place.
+   */
+  autoRelayToPrime?: boolean;
 }
 
 /** A reusable sub-agent definition loaded from `agents/<name>.md`. */
@@ -106,6 +112,12 @@ export interface AgentTemplate {
   model?: string;
   /** Default thinking depth for sub-agents spawned from this template. */
   thinkingDepth?: ThinkingLevel;
+  /**
+   * How this template's sub-agents wake Prime, from the `reaction` frontmatter
+   * key: `onRunEnd` (Prime reacts to every finalized turn) or `onReport` (Prime
+   * reacts only to `message_prime`). Undefined keeps the spawn-time default.
+   */
+  autoRelayToPrime?: boolean;
 }
 
 /** Sub-agent defaults sourced from a bundle's `subagents` manifest block. */
@@ -118,6 +130,8 @@ export interface SubagentDefaults {
   model?: string;
   /** Default thinking depth for sub-agents lacking an explicit one. */
   thinkingDepth?: ThinkingLevel;
+  /** Default reaction mode for sub-agents lacking an explicit one. */
+  autoRelayToPrime?: boolean;
 }
 
 /**
@@ -188,6 +202,19 @@ export function parseThinkingLevel(
     : undefined;
 }
 
+/**
+ * Maps the `reaction` frontmatter key to `autoRelayToPrime`: `onRunEnd` -> true
+ * (Prime wakes on every finalized turn), `onReport` -> false (Prime wakes only
+ * on `message_prime`). Any other value (including absent) is undefined, leaving
+ * the spawn-time default in place.
+ */
+export function parseReaction(raw: string | undefined): boolean | undefined {
+  const value = raw?.trim();
+  if (value === "onRunEnd") return true;
+  if (value === "onReport") return false;
+  return undefined;
+}
+
 function readPrompt(file: string): string {
   return readFileSync(path.join(import.meta.dirname, file), "utf8");
 }
@@ -224,6 +251,34 @@ export function composePrimePrompt(specific?: string): string {
  */
 export function composeSubagentPrompt(specific?: string): string {
   return layerPrompt(loadSubagentSystemPrompt(), specific);
+}
+
+/**
+ * The reaction mode is invisible to the sub-agent otherwise, yet it changes how
+ * it must report: an `onReport` sub-agent that never calls `message_prime` is
+ * never heard from, and an `onRunEnd` one that also reports duplicates itself.
+ * So the effective mode is spelled out as a final prompt section.
+ */
+const ON_REPORT_CONTRACT = `## Reporting to Prime
+
+Prime does not see your intermediate turns — it stays idle until you address it. Reach it with \`message_prime\`:
+
+- When you finish, \`message_prime\` a concise final result. This is the only way Prime and the human learn you are done.
+- If you need input only the human can give, \`message_prime\` a clear, specific question, then stop and wait.
+
+Otherwise work silently; do not narrate progress you don't need Prime to act on.`;
+
+const ON_RUN_END_CONTRACT = `## Reporting to Prime
+
+Your finalized reply is delivered to Prime automatically, so end each turn with the result. Use \`message_prime\` only for a mid-run milestone Prime must act on immediately (e.g. a submitted run id) or a question only the human can answer. Do not \`message_prime\` a copy of your final reply — that would duplicate it.`;
+
+/** Appends the reaction-mode reporting contract to a composed sub-agent prompt. */
+function appendReportingContract(
+  prompt: string,
+  autoRelayToPrime: boolean,
+): string {
+  const contract = autoRelayToPrime ? ON_RUN_END_CONTRACT : ON_REPORT_CONTRACT;
+  return `${prompt}\n\n${contract}`;
 }
 
 /**
@@ -289,6 +344,7 @@ function parseTemplateFile(dir: string, entry: string): AgentTemplate | null {
     systemPrompt: body,
     model: optionalTrimmed(frontmatter.model),
     thinkingDepth: parseThinkingLevel(frontmatter.thinking),
+    autoRelayToPrime: parseReaction(frontmatter.reaction),
   };
 }
 
@@ -420,6 +476,23 @@ function pickThinking(
 }
 
 /**
+ * Resolves the reaction mode with the same precedence as {@link pickModel}:
+ * inline request wins, then the template's, then the session/bundle default.
+ * `undefined` when none is set, so the caller applies the spawn-time default.
+ */
+function pickAutoRelay(
+  request: SubagentSpawnRequest,
+  template: AgentTemplate | undefined,
+  defaults: SubagentDefaults | undefined,
+): boolean | undefined {
+  return (
+    request.autoRelayToPrime ??
+    template?.autoRelayToPrime ??
+    defaults?.autoRelayToPrime
+  );
+}
+
+/**
  * Resolves a sub-agent's effective config from a spawn request: a template
  * supplies defaults for tools and system prompt, and inline fields override
  * them. When `options` carries a session's bundle templates/defaults those are
@@ -434,10 +507,15 @@ export function resolveSubagentConfig(
     ? templates.get(request.template)
     : undefined;
 
+  const autoRelayToPrime = pickAutoRelay(request, template, options.defaults);
   return {
     tools: pickTools(request, template, options.defaults),
-    appendSystemPrompt: pickPrompt(request, template, options.defaults),
+    appendSystemPrompt: appendReportingContract(
+      pickPrompt(request, template, options.defaults),
+      autoRelayToPrime ?? true,
+    ),
     model: pickModel(request, template, options.defaults),
     thinkingDepth: pickThinking(request, template, options.defaults),
+    autoRelayToPrime,
   };
 }

@@ -2,6 +2,7 @@
 name: worker
 description: General-purpose implementer with full default tools
 tools: read, write, edit, bash, grep, find, ls
+reaction: onReport
 ---
 
 You are a worker sub-agent: a general-purpose implementer operating in the
