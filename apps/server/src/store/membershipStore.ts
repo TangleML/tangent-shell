@@ -1,4 +1,5 @@
 import type {
+  AdmissionPolicy,
   ReactionSpec,
   RunIngress,
   TranscriptVisibility,
@@ -7,8 +8,9 @@ import type {
 /**
  * A participant's standing in one Conversation. `reaction` decides whether it is
  * woken by what lands there, `ingress` classifies the work that arrives through
- * this membership when nothing more specific created it, and
- * `transcriptVisibility` says how much of the Conversation it may see.
+ * this membership when nothing more specific created it, `admission` decides
+ * what a wake does when a Run is already open, and `transcriptVisibility` says
+ * how much of the Conversation it may see.
  */
 export interface Membership {
   sessionId: string;
@@ -16,6 +18,7 @@ export interface Membership {
   conversationId: string;
   reaction: ReactionSpec;
   ingress: RunIngress;
+  admission: AdmissionPolicy;
   transcriptVisibility: TranscriptVisibility;
 }
 

@@ -2,16 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type {
+  AdmissionPolicy,
   ChatAuthor,
   ChatMessage,
   MessageSourceKind,
+  TerminationCause,
 } from "@tangent/shared/contracts.ts";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { DeliveryRequest, DeliveryResult } from "../connectors/types.ts";
+import { InMemoryReactorStore } from "../store/inMemoryReactorStore.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import { FanOutEngine } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
+import { ReactorRegistry } from "./reactorRegistry.ts";
 
 const HUMAN: ChatAuthor = { id: "ada@x", kind: "human", name: "Ada" };
 const PRIME: ChatAuthor = {
@@ -53,6 +57,7 @@ function membership(
   participantId: string,
   conversationId: string,
   reaction: string,
+  admission: AdmissionPolicy = "queue",
 ): Membership {
   return {
     sessionId: "s1",
@@ -60,6 +65,7 @@ function membership(
     conversationId,
     reaction,
     ingress: "reaction",
+    admission,
     transcriptVisibility: "shared",
   };
 }
@@ -80,7 +86,11 @@ function makeEngine(
   refuse: (participantId: string) => boolean = () => false,
 ) {
   const delivered: DeliveryRequest[] = [];
-  const notices: { conversationId: string; text: string }[] = [];
+  const notices: {
+    conversationId: string;
+    text: string;
+    cause: TerminationCause;
+  }[] = [];
 
   const memberships = {
     membersOf: async (_sessionId: string, conversationId: string) =>
@@ -100,15 +110,79 @@ function makeEngine(
   const engine = new FanOutEngine(
     memberships,
     () => connectors,
-    (_sessionId, conversationId, text) =>
-      notices.push({ conversationId, text }),
+    (_sessionId, conversationId, text, cause) =>
+      notices.push({ conversationId, text, cause }),
   );
 
   return { engine, delivered, notices };
 }
 
+/** The same engine, but with a live reactor registry wired to its wake delivery,
+ * so a fan-in is exercised end to end: install, observe, then wake in home. */
+function makeEngineWithReactors(rows: Membership[]) {
+  const delivered: DeliveryRequest[] = [];
+  const notices: {
+    conversationId: string;
+    text: string;
+    cause: TerminationCause;
+  }[] = [];
+
+  const memberships = {
+    membersOf: async (_sessionId: string, conversationId: string) =>
+      rows.filter((row) => row.conversationId === conversationId),
+  } as unknown as MembershipRegistry;
+
+  const connectors = {
+    resolve: () => ({
+      deliver: (request: DeliveryRequest): DeliveryResult => {
+        delivered.push(request);
+        return { delivered: true };
+      },
+    }),
+  } as unknown as ConnectorRegistry;
+
+  const reactors = new ReactorRegistry(new InMemoryReactorStore());
+  const engine = new FanOutEngine(
+    memberships,
+    () => connectors,
+    (_sessionId, conversationId, text, cause) =>
+      notices.push({ conversationId, text, cause }),
+    reactors,
+  );
+  reactors.useDelivery((wake) => engine.wakeReactor(wake));
+  return { engine, reactors, delivered, notices };
+}
+
 /** The plain projection: what a recipient reads is not what this test is about. */
 const project = (msg: ChatMessage) => msg.content;
+
+/** A worker finishing its turn in its own thread — a completion the join folds. */
+function finished(who: string, conversationId: string): ChatMessage {
+  return message({
+    conversationId,
+    author: { id: who, kind: "agent", name: who, agentRole: "subagent" },
+    source: { kind: "agent", from: who },
+    endsRun: true,
+    content: "done",
+  });
+}
+
+/** The system notice the roster handler posts when a worker's connection drops:
+ * a connector-detached cause in the worker's own home conversation. */
+function detached(who: string, conversationId: string): ChatMessage {
+  return message({
+    conversationId,
+    author: { id: "system", kind: "agent", name: "System" },
+    source: { kind: "system" },
+    content: "This agent's connection dropped.",
+    cause: {
+      kind: "connector-detached",
+      participantId: who,
+      conversationId,
+      waveDepth: 0,
+    },
+  });
+}
 
 test("a human message wakes the participant whose conversation it is", async () => {
   const h = makeEngine([membership("prime", "prime", "fromHumans+mentionsMe")]);
@@ -300,6 +374,14 @@ test("a cycle of reactions stops at the depth limit, and says why once", async (
   assert.equal(h.delivered.length, 24, "the chain runs to the hop limit");
   assert.equal(h.notices.length, 1, "and announces the stop exactly once");
   assert.match(h.notices[0].text, /reached its limit of 24 hops/);
+  // The notice carries the structured cause, attributed, so a supervisor can act
+  // on it rather than parse the sentence.
+  const cause = h.notices[0].cause;
+  assert.equal(cause.kind, "budget-exhausted");
+  assert.equal(cause.kind === "budget-exhausted" && cause.budget, "wave-depth");
+  assert.equal(cause.kind === "budget-exhausted" && cause.limit, 24);
+  assert.equal(cause.conversationId, h.notices[0].conversationId);
+  assert.equal(typeof cause.waveDepth, "number");
 });
 
 test("a cycle that changes rooms on every hop is bounded just the same", async () => {
@@ -392,4 +474,131 @@ test("a post carries its ingress to the run it opens, over the membership's", as
     h.delivered.map((d) => d.ingress),
     ["reaction", "schedule"],
   );
+});
+
+test("a fan-in wakes once, in its home, only after every worker finishes", async () => {
+  // The orchestrator holds a membership in each worker thread set to mentionsMe,
+  // so a completion alone wakes nobody by predicate — the join is what waits.
+  const h = makeEngineWithReactors([
+    membership("prime", "B1", "mentionsMe"),
+    membership("prime", "B2", "mentionsMe"),
+    membership("prime", "B3", "mentionsMe"),
+  ]);
+  await h.reactors.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "awaitAll", participants: ["w1", "w2", "w3"] },
+    scope: {
+      memberships: [
+        { conversationId: "B1", participantId: "prime" },
+        { conversationId: "B2", participantId: "prime" },
+        { conversationId: "B3", participantId: "prime" },
+      ],
+      homeConversationId: "A",
+    },
+  });
+
+  await h.engine.fanOut({ message: finished("w1", "B1"), project });
+  await h.engine.fanOut({ message: finished("w2", "B2"), project });
+  assert.equal(h.delivered.length, 0, "two of three is still pending");
+
+  await h.engine.fanOut({ message: finished("w3", "B3"), project });
+  assert.equal(h.delivered.length, 1, "the completed set wakes exactly once");
+  assert.equal(h.delivered[0].participantId, "prime");
+  assert.equal(
+    h.delivered[0].conversationId,
+    "A",
+    "in the declared home, not whichever worker thread finished last",
+  );
+});
+
+test("a detached worker mid-join wakes a supervisor while the join stays pending", async () => {
+  // The working-at-end claim: awaitAll and supervise share the three worker
+  // threads. Two workers finish; the third's connection drops. The supervisor
+  // must get something to act on, and the join must stay unfinished.
+  const h = makeEngineWithReactors([
+    membership("prime", "B1", "mentionsMe"),
+    membership("prime", "B2", "mentionsMe"),
+    membership("prime", "B3", "mentionsMe"),
+  ]);
+  const scope = {
+    memberships: [
+      { conversationId: "B1", participantId: "prime" },
+      { conversationId: "B2", participantId: "prime" },
+      { conversationId: "B3", participantId: "prime" },
+    ],
+    homeConversationId: "A",
+  };
+  const join = await h.reactors.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "awaitAll", participants: ["w1", "w2", "w3"] },
+    scope,
+  });
+  await h.reactors.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "supervise" },
+    scope,
+  });
+
+  await h.engine.fanOut({ message: finished("w1", "B1"), project });
+  await h.engine.fanOut({ message: finished("w2", "B2"), project });
+  assert.equal(h.delivered.length, 0, "two completions wake no one yet");
+
+  await h.engine.fanOut({ message: detached("w3", "B3"), project });
+
+  assert.equal(h.delivered.length, 1, "the supervisor wakes on the failure");
+  assert.equal(h.delivered[0].participantId, "prime");
+  assert.equal(h.delivered[0].conversationId, "A", "in its home, not B3");
+  assert.match(h.delivered[0].text, /connector-detached/);
+  assert.match(h.delivered[0].text, /B3/);
+  assert.equal(
+    (await h.reactors.inspect(join.id))?.ready,
+    false,
+    "the join still waits on the third worker",
+  );
+});
+
+test("an addressing message wakes a member while its join stays pending", async () => {
+  const h = makeEngineWithReactors([
+    membership("prime", "B1", "mentionsMe"),
+    membership("prime", "B2", "mentionsMe"),
+    membership("prime", "B3", "mentionsMe"),
+  ]);
+  const installed = await h.reactors.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "awaitAll", participants: ["w1", "w2", "w3"] },
+    scope: {
+      memberships: [
+        { conversationId: "B1", participantId: "prime" },
+        { conversationId: "B2", participantId: "prime" },
+        { conversationId: "B3", participantId: "prime" },
+      ],
+      homeConversationId: "A",
+    },
+  });
+
+  await h.engine.fanOut({ message: finished("w1", "B1"), project });
+
+  // W3 asks a clarifying question — not a completion — that names the orchestrator.
+  await h.engine.fanOut({
+    message: message({
+      conversationId: "B3",
+      author: { id: "w3", kind: "agent", name: "w3", agentRole: "subagent" },
+      source: { kind: "agent", from: "w3" },
+      mentions: ["prime"],
+      content: "which region?",
+    }),
+    project,
+  });
+
+  assert.deepEqual(
+    h.delivered.map((d) => d.conversationId),
+    ["B3"],
+    "the clarifying wake lands in the worker thread, independent of the join",
+  );
+  const view = await h.reactors.inspect(installed.id);
+  assert.equal(view?.ready, false, "and the join is still waiting on 2 of 3");
 });

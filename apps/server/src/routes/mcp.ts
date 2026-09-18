@@ -1,5 +1,6 @@
 import { type Request, type Response, Router } from "express";
 
+import type { CorrelationEngine } from "../conversation/correlation.ts";
 import { dispatchMcp } from "../mcp/mcpRelayServer.ts";
 import type { RelayChannel, RelayRegistry } from "../mcp/relayRegistry.ts";
 import type { RelayReport } from "../mcp/relayReport.ts";
@@ -15,13 +16,14 @@ import type { RelayReport } from "../mcp/relayReport.ts";
 export function createMcpRelayRouter(
   registry: RelayRegistry,
   report: RelayReport,
+  correlations: CorrelationEngine,
 ): Router {
   const router = Router();
   // Some MCP clients probe with GET for a server-sent-events channel. This PoC
   // answers request/response over POST only, so GET is just a liveness probe.
   router.get("/:channelId", (req, res) => handleGet(registry, req, res));
   router.post("/:channelId", (req, res) =>
-    handlePost(registry, report, req, res),
+    handlePost(registry, report, correlations, req, res),
   );
   return router;
 }
@@ -43,6 +45,7 @@ function handleGet(registry: RelayRegistry, req: Request, res: Response): void {
 async function handlePost(
   registry: RelayRegistry,
   report: RelayReport,
+  correlations: CorrelationEngine,
   req: Request,
   res: Response,
 ): Promise<void> {
@@ -67,7 +70,13 @@ async function handlePost(
     return;
   }
 
-  const response = await dispatchMcp(registry, channel, req.body ?? {}, report);
+  const response = await dispatchMcp(
+    registry,
+    channel,
+    req.body ?? {},
+    report,
+    correlations,
+  );
   if (response === null) {
     console.error(`[mcp-relay] ${channelId} -> 202 (notification)`);
     res.status(202).end();

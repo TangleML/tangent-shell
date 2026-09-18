@@ -1,4 +1,5 @@
 import {
+  type AdmissionPolicy,
   connectorFor,
   DEFAULT_TRANSCRIPT_VISIBILITY,
   type ParticipantKind,
@@ -326,6 +327,7 @@ export class ParticipantService {
     reaction: string,
     ingress: RunIngress = "reaction",
     transcriptVisibility: TranscriptVisibility = "shared",
+    admission: AdmissionPolicy = "queue",
   ): Promise<void> {
     await this.membershipRegistry.membersOf(sessionId, conversationId);
     await this.memberships.put({
@@ -334,6 +336,7 @@ export class ParticipantService {
       conversationId,
       reaction,
       ingress,
+      admission,
       transcriptVisibility,
     });
   }

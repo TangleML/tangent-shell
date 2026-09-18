@@ -37,6 +37,8 @@ import {
   scopedRemoteEnvCredential,
   type ScopedTokenCredential,
 } from "../connectors/credentials.ts";
+import { ContextEngine, projectRoom } from "../conversation/context.ts";
+import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import { orchestratorIdFor } from "../conversation/participantRegistry.ts";
 import {
   parseThinkingLevel,
@@ -171,6 +173,10 @@ export class RemoteEnvironmentGateway {
   private readonly credential: ConnectorCredential;
   private readonly scoped: ScopedTokenCredential;
   private readonly sessionConfig: SessionConfigLookup;
+  /** Wired after construction (the engine and registry are built later): a room
+   * read naming a Conversation + Participant is projected through its policy. */
+  private context?: ContextEngine;
+  private memberships?: MembershipRegistry;
 
   /** Connected environments, keyed by `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
@@ -196,6 +202,19 @@ export class RemoteEnvironmentGateway {
     this.scoped = scoped;
     this.sessionConfig = sessionConfig;
     this.setupNamespace();
+  }
+
+  /**
+   * Wires the context projection a room read uses when it names a Conversation
+   * and Participant. Separate from the constructor because the engine and the
+   * membership registry are built after the gateway.
+   */
+  useContextProjection(
+    context: ContextEngine,
+    memberships: MembershipRegistry,
+  ): void {
+    this.context = context;
+    this.memberships = memberships;
   }
 
   /** True when at least one remote environment is connected. */
@@ -726,11 +745,35 @@ export class RemoteEnvironmentGateway {
     });
   }
 
-  /** Answers a remote room-read with the tail of the shared transcript. */
+  /**
+   * Answers a remote room-read. With a Conversation + Participant and a wired
+   * context engine, it is that Conversation projected through the reader's
+   * `transcriptVisibility`; otherwise the session-wide tail, unchanged.
+   */
   private async handleRoomRead(
     request: RemoteRoomReadRequest,
     callback: (response: RemoteRoomReadResponse) => void,
   ): Promise<void> {
+    if (
+      this.context &&
+      this.memberships &&
+      request.conversationId &&
+      request.participantId
+    ) {
+      const projected = await projectRoom(
+        this.context,
+        this.store,
+        this.memberships,
+        {
+          sessionId: request.sessionId,
+          conversationId: request.conversationId,
+          participantId: request.participantId,
+          limit: clampLimit(request.limit),
+        },
+      );
+      callback({ messages: projected.messages, digests: projected.digests });
+      return;
+    }
     const all = await this.store.getMessages(request.sessionId);
     callback({ messages: all.slice(-clampLimit(request.limit)) });
   }

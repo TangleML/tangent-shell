@@ -694,6 +694,17 @@ export type RunStatus = "running" | "completed" | "cancelled" | "failed";
 export type RunIngress = "reaction" | "schedule" | "webhook" | "tool";
 
 /**
+ * What a Membership does with a wake that arrives while its participant already
+ * has an open {@link Run}. `queue` (the default) lets the wake reach the
+ * connector as it does today — a mid-run delivery joins the Run in flight;
+ * `coalesce` holds a single latest wake and releases it when the Run settles;
+ * `preempt` cancels the Run and delivers; `reject` refuses and emits a cause.
+ * Per Membership, so the same agent can queue in one Conversation and preempt
+ * in another.
+ */
+export type AdmissionPolicy = "queue" | "coalesce" | "preempt" | "reject";
+
+/**
  * One unit of work by one participant: what a stream of agent events is
  * attributable to, and what cancellation acts on. Runs are serial per
  * participant — opening one settles whichever Run that participant still had
@@ -728,6 +739,32 @@ export interface Run {
 }
 
 /**
+ * A request awaiting its answer (unified-model §9.4). A Message carrying a
+ * `correlationId` opens one; a later Message whose `inReplyTo` names it resolves
+ * it. The engine holds the outstanding set — keyed by the asking participant's
+ * open {@link Run} when it has one — so "who is blocked on whom" is a listable
+ * fact rather than a table inside one connector. It promises an answer will be
+ * *identifiable* when it arrives, not that one will arrive: an unanswered
+ * correlation expires into a structured cause.
+ */
+export interface OutstandingCorrelation {
+  /** The correlation id, carried by the asking Message and every reply to it. */
+  id: string;
+  /** The Run the asking participant had open, when one was open. */
+  runId?: RunId;
+  /** The participant that asked. */
+  askedBy: string;
+  /** The participant it was addressed to, when the ask named one. */
+  askedOf?: string;
+  /** The asking Message, when it was opened from a persisted one. */
+  messageId?: string;
+  /** The Conversation the ask was posted in. */
+  conversationId: string;
+  /** ISO-8601 timestamp the correlation expires if still unanswered. */
+  expiresAt: string;
+}
+
+/**
  * A named reaction predicate a Membership can declare:
  * - `always` — act on every Message in the Conversation (self excluded).
  * - `fromHumans` — act only on what a person typed.
@@ -751,10 +788,120 @@ export type ReactionName =
 export type ReactionSpec = string;
 
 /**
- * How much of a Conversation a Membership may see. `summarized` is a declared
- * label until the context-budget work makes it a mechanism.
+ * A named stateful reaction — a {@link Reactor} with memory across Messages, and
+ * across Conversations when its scope spans several. Where a {@link ReactionName}
+ * decides from the Message in hand, a Reactor folds a running state and tests it:
+ * - `awaitAll` — ready once every named participant (or run) has completed.
+ * - `awaitQuorum` — ready once `n` of a named set have completed.
+ * - `firstOf` — ready on the first completion from a named set.
+ * - `awaitDeadline` — ready when a wall-clock instant passes (single scope only).
+ * - `debounce` — ready once a quiet window elapses after the last Message
+ *   (single scope only).
+ * - `supervise` — ready on the next Message in scope carrying a structured
+ *   {@link TerminationCause}, so a supervisor wakes on a failure (§9.7).
+ */
+export type ReactorName =
+  | "awaitAll"
+  | "awaitQuorum"
+  | "firstOf"
+  | "awaitDeadline"
+  | "debounce"
+  | "supervise";
+
+/**
+ * The stored configuration of a {@link ReactorName}. A completion is a Message
+ * carrying `endsRun`; `participants` matches it by author id and `runs` by run
+ * id, so a caller waits on whichever identity it holds. Serialized as JSON in
+ * `reactor_state.spec`.
+ */
+export type ReactorSpec =
+  | { name: "awaitAll"; participants?: string[]; runs?: string[] }
+  | { name: "awaitQuorum"; n: number; of: string[] }
+  | { name: "firstOf"; participants?: string[]; runs?: string[] }
+  | { name: "awaitDeadline"; at: string }
+  | { name: "debounce"; windowMs: number }
+  | { name: "supervise" };
+
+/**
+ * Where a Reactor watches and where its wake lands. `memberships` are the
+ * `(conversation, participant)` attachments it folds, all held by the same
+ * Participant (the installer). `homeConversationId` is the Conversation the Run
+ * it opens belongs to — required, and never inferred from whichever Message
+ * completed a set, because that would hand the output thread to whichever worker
+ * finished last.
+ */
+export interface ReactorScope {
+  memberships: { conversationId: string; participantId: string }[];
+  homeConversationId: string;
+}
+
+/**
+ * The running state a Reactor folds. Serialized as JSON in `reactor_state.state`,
+ * so it is inspectable ("2 of 3") without executing anything — which is what the
+ * workflow view later reads. Each shape is discriminated by `kind`:
+ * - `await` — the completion ids seen so far (dedup, order-insensitive).
+ * - `first` — whether a first completion has fired.
+ * - `deadline` — whether the instant has passed.
+ * - `debounce` — the last Message's `seq` and whether the quiet window elapsed.
+ * - `cause` — whether a Message carrying a structured cause has been observed.
+ */
+export type ReactorState =
+  | { kind: "await"; seen: string[] }
+  | { kind: "first"; fired: boolean }
+  | { kind: "deadline"; due: boolean }
+  | { kind: "debounce"; lastSeq: number; due: boolean }
+  | { kind: "cause"; fired: boolean };
+
+/**
+ * An installed Reactor as persisted and inspected: its configuration, scope, and
+ * current folded state. The row the workflow-view API will later wrap over HTTP.
+ */
+export interface ReactorRecord {
+  id: string;
+  sessionId: string;
+  /** The Participant this wakes — the installer, holder of every scope membership. */
+  participantId: string;
+  /** The Conversation the Run it opens belongs to. */
+  homeConversationId: string;
+  spec: ReactorSpec;
+  scope: ReactorScope;
+  state: ReactorState;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * How much of a Conversation a Membership may see. Each label is a preset of the
+ * {@link ContextPolicy} the projection engine applies (unified-model §9.6):
+ * `shared` is everything verbatim, `opaque` keeps only what addresses the
+ * Participant, and `summarized` spends a budget newest-first and digests the
+ * rest.
  */
 export type TranscriptVisibility = "shared" | "summarized" | "opaque";
+
+/**
+ * What the projection does with one Message: keep it as written, fold it into a
+ * digest, or drop it entirely. Applied newest-first until the budget is spent
+ * (unified-model §9.6).
+ */
+export type ContextDisposition = "verbatim" | "summarize" | "omit";
+
+/**
+ * Who produces the digests the `summarize` band reads from: a Participant id
+ * (that Participant authors the digest), `"connector"` for a far end that
+ * compacts its own context so Tangent produces none, or `"none"` to omit the
+ * band rather than summarize it.
+ */
+export type ContextSummarizer = string | "connector" | "none";
+
+/**
+ * What a Participant's context may cost for one Run. Bounded in characters, not
+ * tokens: this layer bounds context, not spend (unified-model §9.9 — "no cost
+ * model"), and characters are honest and deterministic to test against.
+ */
+export interface TokenBudget {
+  maxChars: number;
+}
 
 /**
  * The kind of a {@link Participant}: a person (`human`), a coding agent
@@ -766,12 +913,14 @@ export type TranscriptVisibility = "shared" | "summarized" | "opaque";
 export type ParticipantKind = "human" | "agent" | "automation";
 
 /**
- * An ability a Participant holds independently of its kind. `orchestrator` is
- * the one Prime carries today: it grants the spawn/message/list tools and marks
- * the at-most-one Participant a Session directs its sub-agents through.
- * Designation is by capability, not by a reserved id.
+ * An ability a Participant holds independently of its kind. `orchestrator`
+ * grants the spawn/message/list tools and marks the at-most-one Participant a
+ * Session directs its sub-agents through. `supervisor` marks a Participant whose
+ * Reactor observes structured termination causes and retries, compensates, or
+ * escalates (unified-model §9.7) — a capability like `orchestrator`, never a
+ * kind. Designation is by capability, not by a reserved id.
  */
-export type Capability = "orchestrator";
+export type Capability = "orchestrator" | "supervisor";
 
 /**
  * Whether a Participant is reachable right now: `connected`, `away`, or
@@ -783,11 +932,13 @@ export type Presence = "connected" | "away" | "detached";
 /**
  * The capabilities an agent's `role` carries. Prime holds `orchestrator` — the
  * successor to `PRIME_AGENT_ID` being a reserved id, so authority reads a
- * capability rather than comparing an id to a constant — and a sub-agent holds
- * none. A Session designates at most one orchestrator by convention.
+ * capability rather than comparing an id to a constant — and `supervisor`, since
+ * today's orchestrator is also the implicit watcher of its workers' failures. A
+ * sub-agent holds none. A Session designates at most one orchestrator by
+ * convention.
  */
 export function capabilitiesForRole(role: AgentRole): Capability[] {
-  return role === "prime" ? ["orchestrator"] : [];
+  return role === "prime" ? ["orchestrator", "supervisor"] : [];
 }
 
 /**
@@ -817,6 +968,7 @@ export interface MembershipView {
   conversationId: string;
   reaction: ReactionSpec;
   ingress: RunIngress;
+  admission: AdmissionPolicy;
   muted: boolean;
 }
 
@@ -910,6 +1062,61 @@ export function sourceFromAuthor(author: ChatAuthor): MessageSource {
   return { kind: author.kind };
 }
 
+/**
+ * Which bound the fan-out engine hit when a cascade stopped: the per-chain hop
+ * limit (`wave-depth`) or one Conversation's per-wave reaction budget
+ * (`conversation-reactions`).
+ */
+export type BudgetKind = "wave-depth" | "conversation-reactions";
+
+/**
+ * Attribution every {@link TerminationCause} carries so a supervisor can act on
+ * it rather than read it: the Membership it happened to (`participantId` in
+ * `conversationId`), the {@link Run} involved when one is attributable, and the
+ * fan-out wave depth at the point it stopped. A cause a supervisor cannot locate
+ * is just a log line (unified-model §9.7).
+ */
+export interface CauseAttribution {
+  /** The Membership's participant. */
+  participantId: string;
+  /** The Membership's Conversation. */
+  conversationId: string;
+  /** The Run involved, when one is attributable. */
+  runId?: RunId;
+  /** The fan-out wave depth where it stopped; `0` when no wave was in flight. */
+  waveDepth: number;
+}
+
+/**
+ * Why an abnormal termination happened, surfaced as a system Message in the
+ * Conversation it happened in, at a `seq`, so nothing terminates silently
+ * (unified-model §4.4, §9.7). Each variant carries {@link CauseAttribution} so a
+ * `supervisor` Participant's Reactor can retry, compensate, or escalate:
+ *
+ * - `budget-exhausted` — a chain hit its hop limit or a Conversation its per-wave
+ *   reaction budget.
+ * - `run-error` — a Run settled `failed`.
+ * - `connector-detached` — a Participant's connection dropped mid-work.
+ * - `admission-rejected` — a wake was refused against an open Run by policy.
+ * - `correlation-timeout` — a request expired with no answer.
+ * - `wake-refused` — an addressed Participant declined to act.
+ */
+export type TerminationCause =
+  | ({
+      kind: "budget-exhausted";
+      budget: BudgetKind;
+      limit: number;
+    } & CauseAttribution)
+  | ({ kind: "run-error" } & CauseAttribution)
+  | ({ kind: "connector-detached" } & CauseAttribution)
+  | ({ kind: "admission-rejected"; policy: AdmissionPolicy } & CauseAttribution)
+  | ({
+      kind: "correlation-timeout";
+      askedBy: string;
+      askedOf?: string;
+    } & CauseAttribution)
+  | ({ kind: "wake-refused" } & CauseAttribution);
+
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
@@ -954,10 +1161,20 @@ export interface ChatMessage {
   runId?: RunId;
   /** Whether this Message is the last of its Run. */
   endsRun?: boolean;
-  /** Groups a request with its answers. Semantics arrive with the Reactor. */
+  /**
+   * Marks this Message as a request awaiting an answer. The engine holds an
+   * {@link OutstandingCorrelation} for it until a Message with a matching
+   * `inReplyTo` arrives or it times out (unified-model §9.4).
+   */
   correlationId?: string;
-  /** The Message this one answers, when it answers one. */
+  /** The `correlationId` this Message answers, when it answers a request. */
   inReplyTo?: string;
+  /**
+   * The structured reason an abnormal termination happened, when this Message is
+   * the system notice of one. Present only on `source.kind: "system"` cause
+   * notices; a Reactor observes it to react to a failure (unified-model §9.7).
+   */
+  cause?: TerminationCause;
   /** ISO-8601 timestamp. */
   createdAt: string;
 }

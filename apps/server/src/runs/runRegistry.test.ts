@@ -108,6 +108,40 @@ test("settling records which terminal state a run reached", async () => {
   assert.ok(stored?.endedAt);
 });
 
+test("settle stamps the terminal status on the run handed to the listener", async () => {
+  // The run-error cause is composed on this listener, so a `failed` Run must be
+  // distinguishable there — the in-memory object read `running` before 3.4.
+  const h = await newRegistry();
+  const seen: string[] = [];
+  h.runs.useOnSettled((run) => seen.push(run.status));
+
+  const run = h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+  });
+  h.runs.settle(run.id, "failed");
+
+  assert.deepEqual(seen, ["failed"]);
+});
+
+test("failStaleRuns does not fire the settle listener, so boot rows never spam", async () => {
+  const h = await newRegistry();
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+  });
+  await flush();
+
+  const next = new RunRegistry(h.store);
+  const seen: string[] = [];
+  next.useOnSettled((run) => seen.push(run.status));
+
+  assert.equal(await next.failStaleRuns(), 1);
+  assert.deepEqual(seen, [], "a store-only settle bypasses the listener");
+});
+
 test("a connector's cursor and external id round-trip through the store", async () => {
   const h = await newRegistry();
 

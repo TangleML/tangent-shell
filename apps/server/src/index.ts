@@ -9,10 +9,14 @@ import { Server as SocketIOServer } from "socket.io";
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
 import { EMBED_ALLOWED_ORIGINS, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
+import { AdmissionEngine } from "./conversation/admission.ts";
+import { ContextEngine, projectRoom } from "./conversation/context.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
+import { CorrelationEngine } from "./conversation/correlation.ts";
 import { MembershipRegistry } from "./conversation/membershipRegistry.ts";
 import { ParticipantRegistry } from "./conversation/participantRegistry.ts";
 import { ParticipantService } from "./conversation/participantService.ts";
+import { ReactorRegistry } from "./conversation/reactorRegistry.ts";
 import { ResourceCatalog } from "./conversation/resourceCatalog.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
@@ -65,6 +69,7 @@ import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
 import { SqliteMembershipStore } from "./store/sqliteMembershipStore.ts";
 import { SqliteParticipantStore } from "./store/sqliteParticipantStore.ts";
+import { SqliteReactorStore } from "./store/sqliteReactorStore.ts";
 import { SqliteResourceStore } from "./store/sqliteResourceStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
@@ -137,33 +142,87 @@ const participantRegistry = new ParticipantRegistry(store, participants);
 // call, a finalized agent turn — goes through it. It also mirrors the content a
 // Message carries (attachments, memory writes) into the resource catalog.
 const resourceCatalog = new ResourceCatalog(resourceStore);
+// Turns a Membership's `transcriptVisibility` into what its Participant reads:
+// `shared` the log, `opaque` only what addresses it, `summarized` a budgeted
+// tail plus cacheable digests catalogued as `Resource(kind: "memory")`.
+const contextEngine = new ContextEngine(resourceCatalog);
 // Spawn-time projection of each session's host resources, appended to every
 // agent's preamble and refreshed on every resource mutation.
 const hostResourcePreamble = new HostResourcePreamble(resourceCatalog);
+// Stateful reactions (fan-in, quorum, deadline, ...) with engine-owned state.
+// Constructed here so the table is live; installs are an in-process API this PR
+// adds and a later PR exposes over HTTP. Empty for every existing session.
+const reactors = new ReactorRegistry(new SqliteReactorStore(db));
+// A `supervise` wake cites the failed thread projected through the supervisor's
+// visibility, so the provenance line points at a digest it can read rather than
+// only naming the cause kind.
+reactors.useSuperviseCitation(async (sessionId, cause, supervisorId) => {
+  const { digests } = await projectRoom(contextEngine, store, memberships, {
+    sessionId,
+    conversationId: cause.conversationId,
+    participantId: supervisorId,
+  });
+  const digest = digests[0];
+  return digest
+    ? `Context digest of the failed thread: ${digest.uri}`
+    : undefined;
+});
+// Tracks which participant is working under which run id, so every stream is
+// attributable and cancellation has a run to act on. Rows left `running` by a
+// previous process are settled once here: nothing can run before we start.
+// Constructed before the router so a correlation can be keyed by its asker's
+// open run.
+const runs = new RunRegistry(new SqliteRunStore(db));
+void runs.failStaleRuns().then((failed) => {
+  if (failed > 0) console.log(`[runs] settled ${failed} stale run(s)`);
+});
+// Holds the outstanding request/reply correlations posted Messages open and
+// resolve, so "who is blocked on whom" is a listable fact and a timeout is
+// engine policy rather than a connector's private table. Empty until a Message
+// carries a `correlationId`.
+const correlations = new CorrelationEngine(runs);
+// Decides what a wake does when its participant already has an open Run
+// (queue/coalesce/preempt/reject). Preempt cancels through the connector
+// registry, wired below; the closure defers reading it until a wake actually
+// preempts, long after startup. Releasing a held wake when a Run settles is the
+// registry's one settle listener.
+const admission = new AdmissionEngine(runs, (request) =>
+  connectors.cancelRun(request),
+);
 const conversations = new ConversationRouter(
   io,
   store,
   memberships,
   resourceCatalog,
+  reactors,
+  correlations,
+  admission,
 );
+// The one settle listener: release a wake held behind the Run, and — when it
+// settled `failed` — surface a `run-error` cause in its home Conversation so a
+// supervisor can react. A boot-stale row is settled by `failStaleRuns` writing
+// the store directly, not through `settle`, so it never reaches here.
+runs.useOnSettled((run) => {
+  admission.release(run);
+  if (run.status !== "failed") return;
+  conversations.announceCause(run.sessionId, {
+    kind: "run-error",
+    participantId: run.participantId,
+    conversationId: run.homeConversationId,
+    runId: run.id,
+    waveDepth: conversations.waveDepth(run.sessionId, run.participantId),
+  });
+});
 
 // Shared event sink: a participant's streaming events, roster changes and posted
 // messages land the same way whether it runs locally (PiAgentManager), in a
 // remote environment, or entirely outside Tangent.
 const agentHandlers: ConversationEventSink = {
   onAgentEvent: createAgentEventHandler(io, store, conversations),
-  onSubagentUpdate: createSubagentUpdateHandler(io, store),
+  onSubagentUpdate: createSubagentUpdateHandler(io, store, conversations),
   onAgentMessage: createAgentMessageHandler(conversations),
   onSessionStatus: createSessionStatusHandler(io),
 };
-
-// Tracks which participant is working under which run id, so every stream is
-// attributable and cancellation has a run to act on. Rows left `running` by a
-// previous process are settled once here: nothing can run before we start.
-const runs = new RunRegistry(new SqliteRunStore(db));
-void runs.failStaleRuns().then((failed) => {
-  if (failed > 0) console.log(`[runs] settled ${failed} stale run(s)`);
-});
 
 // No participant outlives the server, so every sub-agent row still claiming to
 // be live is stale. Marking them `detached` here is what keeps the sessions list
@@ -191,6 +250,9 @@ const remoteGateway = new RemoteEnvironmentGateway(
   store,
   runs,
 );
+// A remote room read naming a Conversation + Participant is projected through
+// its Membership's visibility, the same as the internal `read_room` path.
+remoteGateway.useContextProjection(contextEngine, memberships);
 
 // Generic MCP relay: bridges an external MCP client (dialed by a gateway) back
 // into a session. A connector opens a channel for the participant it registers;
@@ -311,7 +373,7 @@ app.use(
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Public MCP relay dialed by an external client; per-channel bearer in the URL.
-app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport));
+app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
 app.use("/api/embed", createEmbedRouter(store));
@@ -324,6 +386,8 @@ app.use(
     conversations,
     a2aGateway,
     participantService,
+    contextEngine,
+    memberships,
   ),
 );
 // Internal API a bundle tool uses to drive external sub-agent tabs: register a
@@ -356,8 +420,8 @@ app.use(
 );
 // Internal API for the session extension running inside each Pi process.
 app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
-// Internal API for bundle extensions to open/answer/close generic MCP relay
-// channels bound to their session (remote-runtime specifics stay in the bundle).
+// Internal API for bundle extensions to open/close generic MCP relay channels
+// bound to their session (remote-runtime specifics stay in the bundle).
 app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
 // Internal API for the remote-tools extension: list and invoke the RPC tools a
 // connected remote environment offers, without spawning a browser sub-agent.

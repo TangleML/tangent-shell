@@ -1,0 +1,1 @@
+ALTER TABLE `memberships` ADD `admission` text DEFAULT 'queue' NOT NULL;
