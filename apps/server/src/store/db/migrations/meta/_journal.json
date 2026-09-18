@@ -43,6 +43,76 @@
       "when": 1782973126871,
       "tag": "0005_quick_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786467242333,
+      "tag": "0006_fresh_nico_minoru",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786472001817,
+      "tag": "0007_complex_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786481948836,
+      "tag": "0008_special_quasimodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786488898589,
+      "tag": "0009_exotic_micromax",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1786568496433,
+      "tag": "0010_thick_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786577218176,
+      "tag": "0011_small_magneto",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786644715013,
+      "tag": "0012_previous_blizzard",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1786650882282,
+      "tag": "0013_chief_veda",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1786661064702,
+      "tag": "0014_powerful_hannibal_king",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1786724979840,
+      "tag": "0015_lonely_annihilus",
+      "breakpoints": true
     }
   ]
 }

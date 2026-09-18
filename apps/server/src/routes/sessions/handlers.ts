@@ -10,7 +10,7 @@ import type {
   UploadFilesResponse,
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
-import { PI_AGENT } from "@tangent/shared/contracts.ts";
+import { PI_AGENT, sourceFromAuthor } from "@tangent/shared/contracts.ts";
 import type { Request, Response } from "express";
 import multer from "multer";
 
@@ -20,10 +20,10 @@ import {
   SESSIONS_ROOT,
   UPLOADS_DIRNAME,
 } from "../../config.ts";
+import { orchestratorConversationFor } from "../../conversation/participantRegistry.ts";
 import { installBundle } from "../../pi/config/bundleLoader.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
-import { PRIME_AGENT_ID } from "../../pi/types.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import { readActivity } from "../../store/chatLog.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
@@ -163,18 +163,32 @@ async function createSessionFromBundle(
     // Pre-seed Prime's first message so the bundle's agent "speaks first"
     // (e.g. renders a welcome card). It replays via `chat:history` on join and
     // renders any `tangent-ui:*` card because the bundle id is already attached.
+    const primaryConversationId = await orchestratorConversationFor(
+      store,
+      sessionId,
+    );
     if (config.welcomeMessage) {
       await store.appendMessage({
         id: randomUUID(),
         sessionId,
-        conversationId: PRIME_AGENT_ID,
+        conversationId: primaryConversationId,
+        seq: await store.nextSeq(sessionId, primaryConversationId),
         author: PI_AGENT,
+        mentions: [],
+        source: sourceFromAuthor(PI_AGENT),
         content: config.welcomeMessage,
         createdAt: new Date().toISOString(),
       });
     }
 
-    pi.ensure(sessionId, rootPath, config, undefined, user);
+    pi.ensure(
+      sessionId,
+      rootPath,
+      config,
+      undefined,
+      user,
+      primaryConversationId,
+    );
     res.status(201).json({ session: withConfig });
   } catch (err) {
     await store.deleteSession(sessionId);
@@ -266,16 +280,23 @@ async function activityFor(
   session: Session,
   lastViewedAt: string | undefined,
 ): Promise<SessionActivity> {
-  const [{ unreadCount, lastActivityAt }, agents] = await Promise.all([
-    readActivity(session.rootPath, lastViewedAt),
-    store.listAgents(session.id),
-  ]);
+  const agents = await store.listAgents(session.id);
+  const primaryConversationId = agents.find((agent) =>
+    agent.capabilities.includes("orchestrator"),
+  )?.homeConversationId;
+  const { unreadCount, lastActivityAt } = await readActivity(
+    session.rootPath,
+    lastViewedAt,
+    primaryConversationId,
+  );
   return {
     unreadCount,
     lastActivityAt,
     hasError: agents.some((agent) => agent.status === "error"),
     activeAgentCount: agents.filter(
-      (agent) => agent.role !== "prime" && agent.status === "active",
+      (agent) =>
+        !agent.capabilities.includes("orchestrator") &&
+        agent.status === "active",
     ).length,
   };
 }

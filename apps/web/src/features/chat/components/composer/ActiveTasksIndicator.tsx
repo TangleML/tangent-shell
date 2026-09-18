@@ -21,6 +21,8 @@ import { AgentStatusLabel } from "../sidebar/agents/AgentStatusIndicator";
 interface BusySubagent {
   id: string;
   name: string;
+  /** The sub-agent's Conversation, which `onAbort` cancels the run in. */
+  conversationId: string;
 }
 
 interface ActiveTasksIndicatorProps {
@@ -115,7 +117,7 @@ export function ActiveTasksIndicator({
                         aria-label={`Stop ${agent.name}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          onAbort(agent.id);
+                          onAbort(agent.conversationId);
                         }}
                       />
                     </InlineStack>

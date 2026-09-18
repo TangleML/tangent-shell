@@ -154,11 +154,11 @@ export interface SubagentSpawnRequest {
   model?: string;
   /** Inline thinking depth; overrides the template/default thinking depth. */
   thinkingDepth?: ThinkingLevel;
-  /** Optional initial task to deliver to the sub-agent right after spawn. */
-  task?: string;
   /**
-   * Whether the sub-agent's finalized replies are auto-relayed back to Prime.
-   * Defaults to true; trigger-owned sub-agents pass false to react in isolation.
+   * Whether Prime reacts to the sub-agent's finalized replies. Defaults to true;
+   * trigger-owned sub-agents pass false to work in isolation, reaching Prime only
+   * by addressing it. Persisted, and the value the sub-agent's Memberships are
+   * derived from.
    */
   autoRelayToPrime?: boolean;
   /**

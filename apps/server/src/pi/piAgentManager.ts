@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 
 import {
   type AgentActivity,
-  type ChatAuthor,
+  capabilitiesForRole,
   type MessageDelivery,
-  PI_AGENT,
+  RESTORABLE_STATUSES,
+  type RunIngress,
   type SessionRunStatus,
   type SessionStatusPayload,
   type SubagentInfo,
@@ -15,7 +16,6 @@ import {
 } from "@tangent/shared/contracts.ts";
 
 import {
-  INTERNAL_TOKEN,
   INTERNAL_URL,
   PI_BIN,
   PI_DEBUG,
@@ -24,6 +24,8 @@ import {
   PI_PROXY_URL,
   PI_THINKING,
 } from "../config.ts";
+import { piCredential } from "../connectors/credentials.ts";
+import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
   type AgentConfig,
@@ -37,9 +39,10 @@ import { loadInstalledConfig } from "./config/bundleLoader.ts";
 import type { MemoryManager } from "./memory.ts";
 import {
   type AgentDescriptor,
+  type AgentEvent,
   type AgentProcess,
   type AssistantDelta,
-  type PiAgentHandlers,
+  type ConversationEventSink,
   type PiStdoutEvent,
   PRIME_AGENT_ID,
   type SessionAgents,
@@ -68,7 +71,7 @@ export type {
   AgentEvent,
   AgentEventHandler,
   AgentMessageHandler,
-  PiAgentHandlers,
+  ConversationEventSink,
   SubagentUpdateHandler,
 } from "./types.ts";
 
@@ -106,6 +109,11 @@ interface SpawnExtras {
  * (e.g. the current user and the per-session memory), so every agent starts each
  * session aware of that standing context. Empty preambles are dropped.
  */
+/** The spawn env's capability list: the role's capabilities, comma-separated. */
+function capabilities(role: AgentDescriptor["role"]): string {
+  return capabilitiesForRole(role).join(",");
+}
+
 function appendPreambles(config: AgentConfig, preambles: string[]): string {
   const extras = preambles.map((preamble) => preamble.trim()).filter(Boolean);
   if (extras.length === 0) return config.appendSystemPrompt;
@@ -153,6 +161,17 @@ export interface SpawnedSubagent {
   systemPrompt: string;
   /** Whether the sub-agent's finalized replies auto-relay back to Prime. */
   autoRelayToPrime: boolean;
+}
+
+/** One message to deliver to one agent's stdin. */
+export interface SendToAgentOptions {
+  sessionId: string;
+  agentId: string;
+  text: string;
+  /** Whether a mid-run message steers or queues. Defaults to `auto`. */
+  delivery?: MessageDelivery;
+  /** What the message counts as if it opens a Run. Defaults to `reaction`. */
+  ingress?: RunIngress;
 }
 
 /** A requested model/thinking change; either field may be omitted to keep it. */
@@ -312,19 +331,22 @@ function resolveEffectiveConfig(
 }
 
 /**
- * A persisted roster row is eligible for revive when it is an `active`,
- * locally-hosted sub-agent (Prime is handled by {@link PiAgentManager.ensure})
- * that isn't already live in the in-memory roster (so a reconnect won't
- * double-spawn it). Remote- and external-hosted sub-agents are never revived
- * here — they re-establish when their environment/bridge reconnects.
+ * A persisted roster row is eligible for revive when it is a sub-agent (Prime is
+ * handled by {@link PiAgentManager.ensure}) that is not terminal and isn't
+ * already live in the in-memory roster, so a reconnect won't double-spawn it.
+ * `detached` is the ordinary pre-revive state — the boot reconciliation puts
+ * every stale row there — so excluding it would stop revive working at all.
+ *
+ * Which transport a row belongs to is not asked here: {@link
+ * import("../connectors/connectorRegistry.ts").ConnectorRegistry.revive} routes
+ * each row to its own connector, so only rows this manager owns arrive.
  */
 function canReviveSubagent(
   session: SessionAgents,
   agent: SessionAgent,
 ): boolean {
   if (agent.role !== "subagent") return false;
-  if (agent.status !== "active") return false;
-  if (agent.host === "remote" || agent.host === "external") return false;
+  if (!RESTORABLE_STATUSES.includes(agent.status)) return false;
   return !session.agents.has(agent.id);
 }
 
@@ -399,6 +421,14 @@ function toStringArray(value: unknown): string[] {
 }
 
 /**
+ * How a Run settles when its participant is killed: a graceful, Prime-initiated
+ * finish completed the work; anything else stopped it short.
+ */
+function settledForKill(completed: boolean): SettledStatus {
+  return completed ? "completed" : "cancelled";
+}
+
+/**
  * Maps a delivery mode to Pi's `streamingBehavior` for a mid-run message: only
  * an explicit steer nudges before the next LLM call; everything else (including
  * `"auto"`) queues as a follow-up so nothing is dropped.
@@ -422,8 +452,14 @@ function busyStreamingBehavior(
  */
 export class PiAgentManager {
   private readonly sessions = new Map<string, SessionAgents>();
-  private readonly handlers: PiAgentHandlers;
+  private readonly handlers: ConversationEventSink;
   private readonly memory: MemoryManager;
+  /**
+   * The Runs this manager's agents work under. Pi is the authority on its own
+   * run boundaries (`agent_start` opens, `agent_end` settles), so it opens and
+   * settles them rather than having them inferred from the event stream.
+   */
+  private readonly runs: RunRegistry;
   /**
    * Process launcher, injectable so tests can supply a fake child without
    * spawning a real `pi` binary. Defaults to Node's {@link spawn}.
@@ -436,13 +472,28 @@ export class PiAgentManager {
   private readonly lastStatus = new Map<string, SessionRunStatus>();
 
   constructor(
-    handlers: PiAgentHandlers,
+    handlers: ConversationEventSink,
     memory: MemoryManager,
+    runs: RunRegistry,
     spawnProcess: typeof spawn = spawn,
   ) {
     this.spawnProcess = spawnProcess;
     this.handlers = handlers;
     this.memory = memory;
+    this.runs = runs;
+  }
+
+  /**
+   * Relays an agent event, attributed to the Run its participant is working
+   * under. The single stamping point, so no emit site can forget attribution.
+   */
+  private emit(
+    sessionId: string,
+    descriptor: AgentDescriptor,
+    event: AgentEvent,
+  ): void {
+    const runId = this.runs.current(sessionId, descriptor.agentId)?.id;
+    this.handlers.onAgentEvent(sessionId, descriptor, { ...event, runId });
   }
 
   /**
@@ -505,6 +556,7 @@ export class PiAgentManager {
     config?: ResolvedSessionConfig,
     primeOverride?: AgentModelSelection,
     user?: UserIdentity,
+    homeConversationId: string = PRIME_AGENT_ID,
   ): void {
     const existing = this.sessions.get(sessionId);
     if (existing?.agents.has(PRIME_AGENT_ID)) return;
@@ -526,43 +578,46 @@ export class PiAgentManager {
     this.spawnAgent(
       sessionId,
       session,
-      { agentId: PRIME_AGENT_ID, role: "prime", name: "Prime" },
+      {
+        agentId: PRIME_AGENT_ID,
+        role: "prime",
+        name: "Prime",
+        homeConversationId,
+      },
       withModelSelection(primeConfig, primeOverride),
     );
   }
 
   /**
-   * Re-spawns the session's previously-active sub-agents from their persisted
-   * roster after a full restart (when the in-memory roster holds only Prime).
-   * Each process comes back with the exact config it was spawned with (tools,
-   * appended system prompt, model/thinking, template, auto-relay), but its
-   * original task is deliberately NOT re-delivered: Pi is ephemeral
-   * (`--no-session`), so the revived process starts idle and Prime decides — from
-   * the transcript and session memory — whether to re-task it.
+   * Re-spawns one persisted sub-agent after a restart (when the in-memory roster
+   * holds only Prime). The process comes back with the exact config it was
+   * spawned with (tools, appended system prompt, model/thinking, template,
+   * auto-relay), but its original task is deliberately NOT re-delivered: Pi is
+   * ephemeral (`--no-session`), so the revived process starts idle and Prime
+   * decides — from the transcript and session memory — whether to re-task it.
    *
-   * No-op for a session whose Prime isn't ensured yet, and skips any agent that
-   * is already live (so a reconnect doesn't double-spawn) or not `active`.
+   * No-op for a session whose Prime isn't ensured yet, for an agent that is
+   * already live (so a reconnect doesn't double-spawn), and for a terminal row.
    */
-  reviveSubagents(sessionId: string, persisted: SessionAgent[]): void {
+  reviveSubagent(sessionId: string, agent: SessionAgent): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    if (!canReviveSubagent(session, agent)) return;
 
-    for (const agent of persisted) {
-      if (!canReviveSubagent(session, agent)) continue;
-      const revived = this.spawnAgent(
-        sessionId,
-        session,
-        {
-          agentId: agent.id,
-          role: "subagent",
-          name: agent.name,
-          template: agent.template,
-          autoRelayToPrime: agent.autoRelayToPrime ?? true,
-        },
-        this.reconstructSubagentConfig(session, agent),
-      );
-      this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(revived));
-    }
+    const revived = this.spawnAgent(
+      sessionId,
+      session,
+      {
+        agentId: agent.id,
+        role: "subagent",
+        name: agent.name,
+        template: agent.template,
+        homeConversationId: agent.homeConversationId,
+        autoRelayToPrime: agent.autoRelayToPrime ?? true,
+      },
+      this.reconstructSubagentConfig(session, agent),
+    );
+    this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(revived));
   }
 
   /**
@@ -650,6 +705,7 @@ export class PiAgentManager {
       role: existing.role,
       name: existing.name,
       template: existing.template,
+      homeConversationId: existing.homeConversationId,
     };
     const nextConfig = withModelSelection(existing.config, selection);
 
@@ -662,6 +718,9 @@ export class PiAgentManager {
     existing.aborted = true;
     existing.intentionalKill = true;
     existing.child.kill();
+    // The killed process will never emit `agent_end`, so settle here: the turn
+    // we cut was stopped, not finished.
+    this.runs.settleOpenFor(sessionId, agentId, "cancelled");
 
     const agent = this.spawnAgent(sessionId, session, descriptor, nextConfig);
     const info = toSubagentInfo(agent);
@@ -672,23 +731,10 @@ export class PiAgentManager {
   }
 
   /**
-   * Relays a human message to the session's Prime process, spawning it first if
-   * needed. Only Prime receives human input; sub-agents are directed by Prime.
-   * `delivery` controls how the message is queued when Prime is mid-run.
-   */
-  prompt(
-    sessionId: string,
-    rootPath: string,
-    text: string,
-    delivery: MessageDelivery = "auto",
-  ): void {
-    this.ensure(sessionId, rootPath);
-    this.sendToAgent(sessionId, PRIME_AGENT_ID, text, undefined, delivery);
-  }
-
-  /**
-   * Spawns a sub-agent for the session and returns its roster entry. Optionally
-   * delivers an initial task. The session's Prime must already exist.
+   * Spawns a sub-agent for the session and returns its roster entry. The
+   * session's Prime must already exist. An initial task is not delivered here:
+   * it is a Message posted into the new sub-agent's Conversation, which is what
+   * both surfaces it and wakes the sub-agent.
    */
   spawnSubagent(
     sessionId: string,
@@ -700,6 +746,10 @@ export class PiAgentManager {
     }
 
     const agentId = randomUUID();
+    // Mint the sub-agent's Conversation up front so its roster update — and the
+    // subscribe the client makes off it — already carry a Conversation id that
+    // is not the agent's id. The store persists this mapping on `recordAgent`.
+    const homeConversationId = randomUUID();
     const config = resolveSubagentConfig(request, {
       templates: session.config?.templates,
       defaults: session.config?.subagentDefaults,
@@ -714,6 +764,7 @@ export class PiAgentManager {
         role: "subagent",
         name: request.name,
         template: request.template,
+        homeConversationId,
         autoRelayToPrime,
       },
       config,
@@ -721,8 +772,6 @@ export class PiAgentManager {
 
     const info = toSubagentInfo(agent);
     this.handlers.onSubagentUpdate(sessionId, info);
-
-    this.deliverInitialTask(sessionId, agentId, request.task);
 
     return {
       info,
@@ -733,66 +782,76 @@ export class PiAgentManager {
   }
 
   /**
-   * Delivers an optional initial task to a freshly spawned sub-agent, skipping
-   * empty or whitespace-only tasks.
-   */
-  private deliverInitialTask(
-    sessionId: string,
-    agentId: string,
-    task: string | undefined,
-  ): void {
-    if (task && task.trim()) {
-      this.sendToAgent(sessionId, agentId, task, PI_AGENT);
-    }
-  }
-
-  /**
    * Delivers a message to a specific agent's stdin. If that agent is already
    * streaming, the message is queued: `delivery: "steer"` applies it after the
    * current tool call (before the next LLM call), while `"followUp"` (and the
    * `"auto"` default) waits until the run fully stops. The default preserves
-   * the original behavior so internal relays never drop a message.
+   * the original behavior so nothing is dropped.
    *
-   * When `surfaceAuthor` is provided and the target is a sub-agent, the message
-   * is also surfaced into that sub-agent's transcript (attributed to
-   * `surfaceAuthor`), so directed tasks read as a real conversation. Internal
-   * relays (e.g. feeding a sub-agent's reply back to Prime) omit it.
+   * A message that finds the agent idle opens a Run with `ingress`; one that
+   * finds it mid-run joins the Run in flight, because Pi folds a steer or
+   * follow-up into the turn it is already taking.
    */
-  sendToAgent(
-    sessionId: string,
-    agentId: string,
-    text: string,
-    surfaceAuthor?: ChatAuthor,
-    delivery: MessageDelivery = "auto",
-  ): void {
+  sendToAgent(options: SendToAgentOptions): void {
+    const { sessionId, agentId, text } = options;
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
     if (!agent) {
+      // No participant, so no Run: this error belongs to no unit of work. With
+      // no roster row there is no home Conversation to resolve, so the error is
+      // tagged with the agent's id (its legacy home) as a best effort.
       this.handlers.onAgentEvent(
         sessionId,
-        { agentId, role: "prime", name: "Prime" },
+        {
+          agentId,
+          role: "prime",
+          name: "Prime",
+          homeConversationId: agentId,
+        },
         { type: "error", message: `Agent ${agentId} is not available.` },
       );
       return;
     }
 
-    this.surfaceDirectedMessage(sessionId, agent, text, surfaceAuthor);
+    if (!agent.busy) {
+      const ingress = options.ingress ?? "reaction";
+      this.runs.open({
+        sessionId,
+        participantId: agentId,
+        homeConversationId: agent.homeConversationId,
+        ingress,
+      });
+    }
 
+    this.writePrompt(sessionId, agent, text, options.delivery ?? "auto");
+    this.notifyStatus(sessionId);
+  }
+
+  /**
+   * Writes a prompt to an agent's stdin, marking it busy. A prompt that arrives
+   * mid-stream carries a `streamingBehavior` (steer / follow-up); that field is
+   * only valid while streaming, so an idle agent gets a plain prompt.
+   */
+  private writePrompt(
+    sessionId: string,
+    agent: AgentProcess,
+    text: string,
+    delivery: MessageDelivery,
+  ): void {
+    const wasBusy = agent.busy;
     const command: Record<string, unknown> = {
       id: randomUUID(),
       type: "prompt",
       message: text,
+      ...(wasBusy
+        ? { streamingBehavior: busyStreamingBehavior(delivery) }
+        : {}),
     };
-    // `streamingBehavior` is only valid while the agent is streaming; when idle,
-    // send a plain prompt.
-    if (agent.busy) {
-      command.streamingBehavior = busyStreamingBehavior(delivery);
-    }
 
     console.log(
-      `[pi:${sessionId}:${agentId}] prompt`,
+      `[pi:${sessionId}:${agent.agentId}] prompt`,
       JSON.stringify({
         role: agent.role,
-        wasBusy: agent.busy,
+        wasBusy,
         delivery,
         textLength: text.length,
       }),
@@ -800,59 +859,19 @@ export class PiAgentManager {
 
     agent.busy = true;
     agent.child.stdin.write(`${JSON.stringify(command)}\n`);
-    this.notifyStatus(sessionId);
   }
 
   /**
-   * Surfaces a directed message into a sub-agent's transcript (attributed to
-   * `surfaceAuthor`) so directed tasks and human nudges read as a real
-   * conversation. No-op for Prime or when no author is given (internal relays).
+   * Cancels a participant's in-progress Run by sending Pi's `abort` RPC command
+   * on stdin. The process stays alive and emits `agent_end`, which settles the
+   * Run as `cancelled` and resets state through the normal event flow. Returns
+   * false when there is nothing to cancel (unknown or idle agent), so the caller
+   * can tell a refusal from a cancellation. `aborted` is flagged so a
+   * half-finished sub-agent reply is not relayed back to Prime.
    */
-  private surfaceDirectedMessage(
-    sessionId: string,
-    agent: AgentProcess,
-    text: string,
-    surfaceAuthor?: ChatAuthor,
-  ): void {
-    if (!surfaceAuthor || agent.role !== "subagent") return;
-    this.handlers.onAgentMessage(sessionId, agent.agentId, surfaceAuthor, text);
-  }
-
-  /**
-   * Delivers a sub-agent's directed update to Prime (the `message_prime` tool).
-   * The report is surfaced in the sub-agent's own transcript (attributed to the
-   * sub-agent) so the user sees it in that thread, and delivered to Prime's
-   * stdin so it can react immediately — Prime is event-driven and otherwise
-   * only wakes on the end-of-run relay. Ignored for unknown or non-sub-agents.
-   */
-  reportToPrime(sessionId: string, fromAgentId: string, text: string): void {
-    const agent = this.sessions.get(sessionId)?.agents.get(fromAgentId);
-    if (!agent || agent.role !== "subagent") return;
-
-    const author: ChatAuthor = {
-      id: agent.agentId,
-      kind: "agent",
-      name: agent.name,
-      agentRole: "subagent",
-    };
-    this.handlers.onAgentMessage(sessionId, fromAgentId, author, text);
-    this.sendToAgent(
-      sessionId,
-      PRIME_AGENT_ID,
-      `Sub-agent "${agent.name}" reported:\n\n${text}`,
-    );
-  }
-
-  /**
-   * Aborts an agent's in-progress run (Prime or a sub-agent) by sending Pi's
-   * `abort` RPC command on stdin. The process stays alive and emits `agent_end`,
-   * which resets its state through the normal event flow. No-op when the agent
-   * is unknown or idle. `aborted` is flagged so a half-finished sub-agent reply
-   * is not relayed back to Prime.
-   */
-  abort(sessionId: string, agentId: string): void {
+  abort(sessionId: string, agentId: string): boolean {
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
-    if (!agent || !agent.busy) return;
+    if (!agent || !agent.busy) return false;
 
     agent.aborted = true;
     console.log(
@@ -862,6 +881,7 @@ export class PiAgentManager {
     agent.child.stdin.write(
       `${JSON.stringify({ id: randomUUID(), type: "abort" })}\n`,
     );
+    return true;
   }
 
   /**
@@ -879,6 +899,7 @@ export class PiAgentManager {
     agent.intentionalKill = true;
     session.agents.delete(agentId);
     agent.child.kill();
+    this.runs.settleOpenFor(sessionId, agentId, settledForKill(completed));
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     this.notifyStatus(sessionId);
   }
@@ -958,8 +979,10 @@ export class PiAgentManager {
           TANGENT_SESSION_ID: sessionId,
           TANGENT_AGENT_ID: descriptor.agentId,
           TANGENT_AGENT_ROLE: descriptor.role,
+          // Gates the extension's orchestration-tool grant on capability, not role.
+          TANGENT_AGENT_CAPABILITIES: capabilities(descriptor.role),
           TANGENT_INTERNAL_URL: INTERNAL_URL,
-          TANGENT_INTERNAL_TOKEN: INTERNAL_TOKEN,
+          ...piCredential.spawnEnv(),
         },
         stdio: ["pipe", "pipe", "pipe"],
       },
@@ -970,6 +993,7 @@ export class PiAgentManager {
       role: descriptor.role,
       name: descriptor.name,
       template: descriptor.template,
+      homeConversationId: descriptor.homeConversationId,
       status: "active",
       createdAt: new Date().toISOString(),
       config,
@@ -1096,6 +1120,7 @@ export class PiAgentManager {
       role: agent.role,
       name: agent.name,
       template: agent.template,
+      homeConversationId: agent.homeConversationId,
       autoRelayToPrime: agent.autoRelayToPrime,
     };
     const { config } = agent;
@@ -1161,6 +1186,16 @@ export class PiAgentManager {
 
   /** Begins a run: marks the agent busy and shows the "thinking" indicator. */
   private onAgentStart(sessionId: string, agent: AgentProcess): void {
+    // A turn we did not initiate (Pi starting work off its own queue) still gets
+    // a Run, so no stream is unattributable.
+    if (!this.runs.current(sessionId, agent.agentId)) {
+      this.runs.open({
+        sessionId,
+        participantId: agent.agentId,
+        homeConversationId: agent.homeConversationId,
+        ingress: "reaction",
+      });
+    }
     agent.busy = true;
     agent.aborted = false;
     agent.currentMessageId = null;
@@ -1204,7 +1239,7 @@ export class PiAgentManager {
 
     if (!agent.startEmitted) {
       agent.startEmitted = true;
-      this.handlers.onAgentEvent(sessionId, descriptor, {
+      this.emit(sessionId, descriptor, {
         type: "start",
         messageId: agent.currentMessageId,
       });
@@ -1217,7 +1252,7 @@ export class PiAgentManager {
       agent.thinkingAccum += delta.text;
     }
 
-    this.handlers.onAgentEvent(sessionId, descriptor, {
+    this.emit(sessionId, descriptor, {
       type: delta.kind,
       messageId: agent.currentMessageId,
       delta: delta.text,
@@ -1256,7 +1291,12 @@ export class PiAgentManager {
     });
   }
 
-  /** Emits the `end` event for the in-flight message and records its text. */
+  /**
+   * Emits the `end` event for the in-flight message and records its text. The
+   * event is what gets persisted as a Message and fanned out, so who wakes on it
+   * is decided there — this only reports that the turn produced something, and
+   * whether it was cut short.
+   */
   private finalizeMessage(
     sessionId: string,
     agent: AgentProcess,
@@ -1267,20 +1307,13 @@ export class PiAgentManager {
       assistantTextFromMessage(event.message) || agent.accum || "";
     if (content.trim()) agent.lastFinalContent = content;
 
-    this.handlers.onAgentEvent(sessionId, descriptor, {
+    this.emit(sessionId, descriptor, {
       type: "end",
       messageId: agent.currentMessageId as string,
       content,
       thinking: agent.thinkingAccum,
+      ...(agent.aborted ? { aborted: true } : {}),
     });
-
-    // Safety net: relay every finalized sub-agent message to Prime as it lands,
-    // not just the last one at run end, so intermediate reports (e.g. submitted
-    // run ids) reach Prime even when the sub-agent doesn't call message_prime.
-    // A user-aborted run is intentionally cut short, so its partial output is
-    // not relayed back to Prime as if the sub-agent finished its task.
-    if (agent.aborted) return;
-    this.relaySubagentReply(sessionId, agent, content);
   }
 
   /**
@@ -1312,18 +1345,14 @@ export class PiAgentManager {
     descriptor: AgentDescriptor,
     event: PiStdoutEvent,
   ): void {
-    this.handlers.onAgentEvent(sessionId, descriptor, {
+    this.emit(sessionId, descriptor, {
       type: "queue",
       steering: toStringArray(event.steering),
       followUp: toStringArray(event.followUp),
     });
   }
 
-  /**
-   * Ends a run: clears busy + the activity indicator. Sub-agent replies are no
-   * longer relayed here — each finalized message is relayed to Prime as it
-   * lands in {@link finalizeMessage}, so intermediate reports aren't dropped.
-   */
+  /** Ends a run: clears busy + the activity indicator. */
   private onAgentEnd(sessionId: string, agent: AgentProcess): void {
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
@@ -1334,6 +1363,7 @@ export class PiAgentManager {
       }),
     );
 
+    const cancelled = agent.aborted;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -1343,7 +1373,14 @@ export class PiAgentManager {
     agent.aborted = false;
 
     this.notifyStatus(sessionId);
+    // Emitted before the Run settles, so the run's last event still carries its
+    // id. An aborted run was cut short: that is a cancellation, not a finish.
     this.emitActivity(sessionId, agent, null);
+    this.runs.settleOpenFor(
+      sessionId,
+      agent.agentId,
+      cancelled ? "cancelled" : "completed",
+    );
   }
 
   /**
@@ -1357,10 +1394,7 @@ export class PiAgentManager {
     activity: AgentActivity | null,
   ): void {
     agent.lastActivity = activity;
-    this.handlers.onAgentEvent(sessionId, toDescriptor(agent), {
-      type: "activity",
-      activity,
-    });
+    this.emit(sessionId, toDescriptor(agent), { type: "activity", activity });
   }
 
   /**
@@ -1377,34 +1411,12 @@ export class PiAgentManager {
     for (const agent of session.agents.values()) {
       if (agent.lastActivity) {
         entries.push({
-          conversationId: agent.agentId,
+          conversationId: agent.homeConversationId,
           activity: agent.lastActivity,
         });
       }
     }
     return entries;
-  }
-
-  /**
-   * Keeps Prime in the loop: each finalized sub-agent message is fed back so
-   * Prime can react as it lands (sub-agents are directed only by Prime; this
-   * closes the loop). Called per message rather than once at run end so
-   * intermediate updates aren't dropped. No-op for Prime or empty content.
-   */
-  private relaySubagentReply(
-    sessionId: string,
-    agent: AgentProcess,
-    content: string,
-  ): void {
-    if (agent.role !== "subagent" || !content.trim()) return;
-    // Trigger-owned sub-agents react in isolation; they reach Prime only when
-    // they explicitly call `message_prime`, never via this automatic relay.
-    if (!agent.autoRelayToPrime) return;
-    this.sendToAgent(
-      sessionId,
-      PRIME_AGENT_ID,
-      `Sub-agent "${agent.name}" replied:\n\n${content}`,
-    );
   }
 
   /** Emits an error (and resets state) for an in-flight assistant message. */
@@ -1426,14 +1438,12 @@ export class PiAgentManager {
       agentId: agent.agentId,
       role: agent.role,
       name: agent.name,
+      homeConversationId: agent.homeConversationId,
     };
-    this.handlers.onAgentEvent(sessionId, descriptor, {
-      type: "error",
-      messageId,
-      message,
-    });
+    this.emit(sessionId, descriptor, { type: "error", messageId, message });
     this.notifyStatus(sessionId);
     this.emitActivity(sessionId, agent, null);
+    this.runs.settleOpenFor(sessionId, agent.agentId, "failed");
   }
 
   /**

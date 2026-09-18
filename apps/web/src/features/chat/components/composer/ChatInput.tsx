@@ -10,6 +10,7 @@ import {
   readDraft,
   writeDraft,
 } from "@/features/chat/model/chatDraft";
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
 
 import { ComposerShell } from "./ComposerShell";
@@ -52,6 +53,8 @@ interface ChatInputProps {
   onRemove?: () => void;
   /** Aborts the agent's in-progress run. Required for the Stop control. */
   onAbort?: () => void;
+  /** People/agents the `@mention` picker can address in this composer. */
+  mentionCandidates?: MentionCandidate[];
   onSubmit: (
     content: string,
     options: { delivery: MessageDelivery; attachments?: Attachment[] },
@@ -66,6 +69,7 @@ export function ChatInput({
   agentStatus,
   onRemove,
   onAbort,
+  mentionCandidates,
   onSubmit,
 }: ChatInputProps) {
   // Drafts persist per session+agent so the unsent text survives navigation and
@@ -208,6 +212,7 @@ export function ChatInput({
       busy={busy}
       placeholder={agentBusy ? "Nudge the agent..." : "Message the session..."}
       hideSend={agentBusy}
+      mentionCandidates={mentionCandidates}
     >
       <StagedFiles files={files} uploading={uploading} onRemove={removeFile} />
       <QueuedFollowUps

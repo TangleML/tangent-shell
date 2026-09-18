@@ -8,10 +8,12 @@
  * and is never imported by the server itself — only passed as a path to the Pi
  * subprocess, which loads it with jiti.
  *
- * Role is taken from `TANGENT_AGENT_ROLE`:
- * - `prime`: gets tools to spawn / message / kill / list sub-agents, plus
- *   `read_room`. Prime is the only agent allowed to direct sub-agents.
- * - `subagent`: gets only `read_room` so it can read the shared transcript.
+ * The tool grant is gated on the `orchestrator` capability, carried in
+ * `TANGENT_AGENT_CAPABILITIES` (comma-separated):
+ * - holds `orchestrator`: gets tools to spawn / message / kill / list
+ *   sub-agents, plus `read_room`. The orchestrator directs sub-agents.
+ * - otherwise: gets only `read_room` plus `message_prime`, so it can read the
+ *   shared transcript and report to the orchestrator.
  *
  * All tools are thin clients over this server's internal agent API; the server
  * owns process lifecycle and message routing.
@@ -22,7 +24,11 @@ import { Type } from "typebox";
 
 const SESSION_ID = process.env.TANGENT_SESSION_ID ?? "";
 const AGENT_ID = process.env.TANGENT_AGENT_ID ?? "";
-const ROLE = process.env.TANGENT_AGENT_ROLE ?? "subagent";
+const CAPABILITIES = (process.env.TANGENT_AGENT_CAPABILITIES ?? "")
+  .split(",")
+  .map((capability) => capability.trim())
+  .filter(Boolean);
+const IS_ORCHESTRATOR = CAPABILITIES.includes("orchestrator");
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
 
@@ -93,7 +99,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  if (ROLE !== "prime") {
+  if (!IS_ORCHESTRATOR) {
     // Sub-agent-only: push a directed update to Prime mid-run. Prime is
     // event-driven and only acts when prompted, so a sub-agent must report
     // each milestone directly rather than relying on Prime to poll the room.
@@ -133,10 +139,10 @@ export default function (pi: ExtensionAPI) {
       "`thinking` depth (off/minimal/low/medium/high/xhigh); both default to " +
       "the session's settings when omitted. Optionally include a `task` to " +
       "start the sub-agent working immediately. Set `environment` to `remote` " +
-      "or `external` to host the sub-agent in a connected remote environment " +
-      "or external bridge instead of locally (defaults to `local`). Returns " +
-      "the sub-agent's id for later messaging. Sub-agents share this session's " +
-      "workspace and can read the room.",
+      "to host the sub-agent in a connected remote environment instead of " +
+      "locally (defaults to `local`). Returns the sub-agent's id for later " +
+      "messaging. Sub-agents share this session's workspace and can read the " +
+      "room.",
     promptSnippet:
       "Spawn a specialized sub-agent (by template or inline config)",
     parameters: Type.Object({
@@ -195,6 +201,55 @@ export default function (pi: ExtensionAPI) {
       return textResult(
         `Spawned sub-agent "${data.subagent.name}" (id: ${data.subagent.id}). ` +
           `Its replies will appear in the room; use message_subagent to direct it.`,
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "attach_a2a_agent",
+    label: "Attach A2A Agent",
+    description:
+      "Attach an agent that already runs elsewhere and speaks the A2A " +
+      "protocol, by the base URL its Agent Card is served from. Nothing is " +
+      "created: the agent exists independently of this session, so attaching " +
+      "only gives it a tab you can direct with message_subagent. Its name " +
+      "comes from its card unless you override it. Set share_in_room to make " +
+      "it a member of this room instead, woken when anyone addresses it by " +
+      "name and sent only that message. Returns the id to message it by.",
+    promptSnippet: "Attach an external A2A agent by its endpoint URL",
+    parameters: Type.Object({
+      endpoint_url: Type.String({
+        description:
+          "Base URL the agent's card is served from (e.g. " +
+          "https://agent.example.com).",
+      }),
+      name: Type.Optional(
+        Type.String({
+          description: "Display name; defaults to the name on the card.",
+        }),
+      ),
+      share_in_room: Type.Optional(
+        Type.Boolean({
+          description:
+            "Add it to this shared room as an opaque member woken when " +
+            "addressed by name, rather than only a private thread.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const data = (await callApi("POST", "attach", {
+        sessionId: SESSION_ID,
+        endpointUrl: params.endpoint_url,
+        name: params.name,
+        sharedRoom: params.share_in_room,
+      })) as { subagent: { id: string; name: string } };
+
+      const placement = params.share_in_room
+        ? "It is a member of this room; address it by name to reach it, and its replies appear here."
+        : "Use message_subagent to direct it; its replies appear in its own thread.";
+      return textResult(
+        `Attached A2A agent "${data.subagent.name}" (id: ${data.subagent.id}). ` +
+          placement,
       );
     },
   });

@@ -8,6 +8,7 @@ import type {
 
 import type { AssetTab } from "@/features/chat/hooks/useAssetTabs";
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
+import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { ArtifactTabView } from "./ArtifactTabView";
@@ -18,8 +19,10 @@ interface AssetTabContentProps {
   tab: AssetTab;
   sessionId: string;
   subagents: SubagentInfo[];
+  conversationForAgent: (agentId: string) => string;
+  primaryConversationId: string;
   triggers: Trigger[];
-  messages: ChatMessage[];
+  messagesFor: (conversationId: string) => ChatMessage[];
   currentAuthorId: string;
   bundleId?: string;
   connected: boolean;
@@ -43,6 +46,7 @@ interface AssetTabContentProps {
   ) => void;
   openArtifactTab: (url: string, title: string) => void;
   togglePinArtifact: (path: string, title: string) => void;
+  mentionCandidates: MentionCandidate[];
 }
 
 /**
@@ -54,8 +58,10 @@ export function AssetTabContent({
   tab,
   sessionId,
   subagents,
+  conversationForAgent,
+  primaryConversationId,
   triggers,
-  messages,
+  messagesFor,
   currentAuthorId,
   bundleId,
   connected,
@@ -72,36 +78,40 @@ export function AssetTabContent({
   send,
   openArtifactTab,
   togglePinArtifact,
+  mentionCandidates,
 }: AssetTabContentProps) {
   switch (tab.kind) {
     case "agent": {
       const info = subagents.find((s) => s.id === tab.agentId);
       const model = getAgentModel(tab.agentId);
+      const conversationId =
+        info?.conversationId ?? conversationForAgent(tab.agentId);
       return (
         <SubagentTabView
           sessionId={sessionId}
           agentId={tab.agentId}
+          primaryConversationId={primaryConversationId}
           name={info?.name ?? tab.title}
-          messages={messages}
+          messages={messagesFor(conversationId)}
           currentAuthorId={currentAuthorId}
           bundleId={bundleId}
           historyLoaded={historyLoaded}
-          activity={getActivity(tab.agentId)}
+          activity={getActivity(conversationId)}
           status={info?.status ?? "completed"}
-          busy={isConversationBusy(tab.agentId)}
+          busy={isConversationBusy(conversationId)}
           disabled={!connected}
           isMessageStreaming={isMessageStreaming}
           model={model?.model}
           thinkingDepth={model?.thinkingDepth}
           onSetModel={(selection) => setAgentModel(tab.agentId, selection)}
-          onAbort={() => abort(tab.agentId)}
+          onAbort={() => abort(conversationId)}
           onRemove={() => {
             dismissSubagent(tab.agentId);
             closeAsset(tab.id);
           }}
           onSubmit={(content, { delivery, attachments }) =>
             send(content, {
-              conversationId: tab.agentId,
+              conversationId,
               delivery,
               attachments,
             })
@@ -109,6 +119,7 @@ export function AssetTabContent({
           onOpenArtifact={openArtifactTab}
           pinnedPaths={pinnedPaths}
           onTogglePinArtifact={togglePinArtifact}
+          mentionCandidates={mentionCandidates}
         />
       );
     }

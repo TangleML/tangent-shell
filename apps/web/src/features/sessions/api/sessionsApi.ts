@@ -1,6 +1,12 @@
 import type {
   Attachment,
   CreateSessionRequest,
+  ListParticipantsResponse,
+  ListResourcesResponse,
+  MembershipView,
+  ParticipantView,
+  ParticipantWithMemberships,
+  Resource,
   Session,
   UpdateSessionRequest,
   UploadFilesResponse,
@@ -91,6 +97,146 @@ export async function getArtifactText(url: string): Promise<string> {
     throw new Error(message || `Request failed with status ${res.status}`);
   }
   return res.text();
+}
+
+/**
+ * Lists a session's catalogued resources — pinned artifacts, human attachments,
+ * memory documents, and workspace files — regardless of which mechanism
+ * produced them. The server scans the workspace before returning, so the list
+ * reflects what is on disk at request time.
+ */
+/** Optional scope narrowing the catalog to one Conversation + Participant. */
+export interface ResourceScope {
+  conversationId?: string;
+  participantId?: string;
+}
+
+export async function listResources(
+  sessionId: string,
+  scope?: ResourceScope,
+): Promise<Resource[]> {
+  const params = new URLSearchParams();
+  if (scope?.conversationId && scope.participantId) {
+    params.set("conversationId", scope.conversationId);
+    params.set("participantId", scope.participantId);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const data = await parseJson<ListResourcesResponse>(
+    await fetch(apiUrl(`/api/sessions/${sessionId}/resources${suffix}`)),
+  );
+  return data.resources;
+}
+
+/**
+ * Lists the session's Participants (humans, agents, automations) each with their
+ * Memberships. The roster reads this to show who is present and where.
+ */
+export async function listParticipants(
+  sessionId: string,
+): Promise<ParticipantWithMemberships[]> {
+  const data = await parseJson<ListParticipantsResponse>(
+    await fetch(apiUrl(`/api/sessions/${sessionId}/participants`)),
+  );
+  return data.participants;
+}
+
+export interface InviteParticipantInput {
+  email: string;
+  displayName?: string;
+  conversationIds?: string[];
+}
+
+/** Invites a person into the session by email (idempotent per email). */
+export async function inviteParticipant(
+  sessionId: string,
+  input: InviteParticipantInput,
+): Promise<ParticipantView> {
+  const data = await parseJson<{ participant: ParticipantView }>(
+    await fetch(apiUrl(`/api/sessions/${sessionId}/participants`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+  return data.participant;
+}
+
+/** Revokes a Participant, removing their Memberships and marking them detached. */
+export async function revokeParticipant(
+  sessionId: string,
+  participantId: string,
+): Promise<void> {
+  const res = await fetch(
+    apiUrl(`/api/sessions/${sessionId}/participants/${participantId}`),
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to revoke participant (status ${res.status})`);
+  }
+}
+
+/** Adds a Membership so the Participant belongs to one more Conversation. */
+export async function joinMembership(
+  sessionId: string,
+  participantId: string,
+  conversationId: string,
+): Promise<MembershipView | null> {
+  const data = await parseJson<{ membership: MembershipView | null }>(
+    await fetch(
+      apiUrl(
+        `/api/sessions/${sessionId}/participants/${participantId}/memberships`,
+      ),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId }),
+      },
+    ),
+  );
+  return data.membership;
+}
+
+/** Removes one of a Participant's Memberships, leaving the others intact. */
+export async function leaveMembership(
+  sessionId: string,
+  participantId: string,
+  conversationId: string,
+): Promise<void> {
+  const res = await fetch(
+    apiUrl(
+      `/api/sessions/${sessionId}/participants/${participantId}/memberships/${conversationId}`,
+    ),
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to leave membership (status ${res.status})`);
+  }
+}
+
+/**
+ * Mutes or unmutes an agent's Membership. Muting sets its reaction to `never`
+ * so the agent no longer wakes in that Conversation; only agent Memberships are
+ * mutable server-side.
+ */
+export async function muteMembership(
+  sessionId: string,
+  participantId: string,
+  conversationId: string,
+  muted: boolean,
+): Promise<MembershipView> {
+  const data = await parseJson<{ membership: MembershipView }>(
+    await fetch(
+      apiUrl(
+        `/api/sessions/${sessionId}/participants/${participantId}/memberships/${conversationId}`,
+      ),
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ muted }),
+      },
+    ),
+  );
+  return data.membership;
 }
 
 export async function markSessionViewed(id: string): Promise<void> {

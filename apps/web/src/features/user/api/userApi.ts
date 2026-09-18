@@ -1,8 +1,6 @@
-import type { UserIdentity } from "@tangent/shared/contracts";
+import { DEFAULT_USER, type UserIdentity } from "@tangent/shared/contracts";
 
 import { apiUrl } from "@/shared/lib/basePath";
-
-import { DEFAULT_USER } from "../model/userDisplay";
 
 /**
  * Fetches the current user from `GET /api/me`. The endpoint returns `401`/`501`

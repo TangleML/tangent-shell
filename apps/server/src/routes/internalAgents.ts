@@ -1,16 +1,26 @@
-import { PI_AGENT, type SubagentHost } from "@tangent/shared/contracts.ts";
+import {
+  connectorFields,
+  type ConnectorKind,
+  PI_AGENT,
+} from "@tangent/shared/contracts.ts";
 import { type Response, Router } from "express";
 import { z } from "zod";
 
-import type { ExternalSubagentGateway } from "../external/externalSubagentGateway.ts";
-import { requireInternalToken } from "../middleware/requireInternalToken.ts";
-import { getValidated, validate } from "../middleware/validate.ts";
+import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
+import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
+import { piCredential } from "../connectors/credentials.ts";
+import { subagentAuthor } from "../connectors/participantAuthor.ts";
+import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import {
-  parseThinkingLevel,
-  type SubagentSpawnRequest,
-} from "../pi/agentConfig.ts";
-import type { PiAgentManager, SpawnedSubagent } from "../pi/piAgentManager.ts";
-import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
+  homeConversationFor,
+  orchestratorConversationFor,
+  orchestratorIdFor,
+} from "../conversation/participantRegistry.ts";
+import type { ParticipantService } from "../conversation/participantService.ts";
+import { reactionSpec } from "../conversation/reaction.ts";
+import { requireCredential } from "../middleware/requireCredential.ts";
+import { getValidated, validate } from "../middleware/validate.ts";
+import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 /** Spawn a sub-agent; `sessionId` and `name` identify and label it. */
@@ -27,6 +37,20 @@ export const spawnSchema = z.object({
   environment: z.enum(["local", "remote"]).optional(),
 });
 export type SpawnInput = z.infer<typeof spawnSchema>;
+
+/** Attach an A2A agent that already runs as a service, by its card's base URL. */
+export const attachSchema = z.object({
+  sessionId: z.string(),
+  endpointUrl: z.url(),
+  name: z.string().optional(),
+  /**
+   * Join the peer into the shared room — the orchestrator's Conversation, where
+   * the humans are — as an opaque member woken when addressed, rather than
+   * giving it only a private point-to-point thread.
+   */
+  sharedRoom: z.boolean().optional(),
+});
+export type AttachInput = z.infer<typeof attachSchema>;
 
 /** Deliver a Prime-issued directive to a sub-agent. */
 export const messageSchema = z.object({
@@ -65,49 +89,35 @@ export type RoomQuery = z.infer<typeof roomQuerySchema>;
 const DEFAULT_ROOM_LIMIT = 30;
 const MAX_ROOM_LIMIT = 200;
 
-/**
- * The hosts a sub-agent can be routed to. `pi` (local) and `remote` are
- * spawnable via `spawn_subagent`; `external` sub-agent tabs are created and
- * driven by a bundle tool over `/internal/external-agents`, so the external
- * gateway is present here only to merge its roster into `list`.
- */
-interface AgentHosts {
-  pi: PiAgentManager;
-  remote: RemoteEnvironmentGateway;
-  external: ExternalSubagentGateway;
-}
-
-/** Narrows a spawn request's `environment` to a concrete {@link SubagentHost}. */
-function resolveHost(environment: SpawnInput["environment"]): SubagentHost {
-  return environment === "remote" ? "remote" : "local";
-}
-
-/** Spawns a sub-agent on its requested host (local Pi or remote env). */
-function spawnOnHost(
-  hosts: AgentHosts,
-  sessionId: string,
-  request: SubagentSpawnRequest,
-  host: SubagentHost,
-): SpawnedSubagent {
-  if (host === "remote") return hosts.remote.spawnSubagent(sessionId, request);
-  return hosts.pi.spawnSubagent(sessionId, request);
+/** The connector a spawn request's `environment` names. */
+function spawnKind(environment: SpawnInput["environment"]): ConnectorKind {
+  return environment === "remote" ? "remote-env" : "pi-stdio";
 }
 
 /**
- * Spawns a sub-agent (resolving its model/thinking) on the requested host and
- * persists it so the roster survives a restart. Extracted from the router so
- * the route function stays small.
+ * Spawns a sub-agent (resolving its model/thinking) on the connector its
+ * requested environment names, persists it so the roster survives a restart, and
+ * posts its initial task. The row is awaited before the task is posted, so the
+ * sub-agent's Memberships are derived from its persisted facts rather than from
+ * a default.
  */
-function handleSpawn(
+async function handleSpawn(
   store: SessionStore,
-  hosts: AgentHosts,
+  connectors: ConnectorRegistry,
+  router: ConversationRouter,
   body: SpawnInput,
   res: Response,
-): void {
+): Promise<void> {
+  const kind = spawnKind(body.environment);
+  const connector = connectors.spawner(kind);
+  if (!connector) {
+    res.status(400).json({ error: `Cannot spawn a ${kind} sub-agent.` });
+    return;
+  }
+
   try {
-    const host = resolveHost(body.environment);
-    const { info, tools, systemPrompt, autoRelayToPrime } = spawnOnHost(
-      hosts,
+    const { host } = connectorFields(kind);
+    const { info, tools, systemPrompt, autoRelayToPrime } = connector.spawn(
       body.sessionId,
       {
         name: body.name,
@@ -116,12 +126,10 @@ function handleSpawn(
         tools: body.tools,
         model: body.model,
         thinkingDepth: parseThinkingLevel(body.thinkingDepth),
-        task: body.task,
         environment: host,
       },
-      host,
     );
-    void store.recordAgent(body.sessionId, {
+    await store.recordAgent(body.sessionId, {
       id: info.id,
       role: "subagent",
       name: info.name,
@@ -134,62 +142,170 @@ function handleSpawn(
       systemPrompt,
       autoRelayToPrime,
       host,
+      connector: info.connector,
+      homeConversationId: info.conversationId,
     });
     res.json({ subagent: info });
+    // Answered first: the sub-agent exists either way, and a failure to post its
+    // first task must not read as a failed spawn Prime might retry.
+    const fromConversation = await orchestratorConversationFor(
+      store,
+      body.sessionId,
+    );
+    await postDirective(
+      router,
+      body.sessionId,
+      info.id,
+      info.conversationId,
+      body.task,
+      fromConversation,
+    ).catch((err: unknown) => {
+      console.error(`[agents] initial task for ${info.id} failed:`, err);
+    });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
 }
 
-/** Surfaces a Prime-issued directive in the sub-agent's transcript. */
-function handleMessage(
-  hosts: AgentHosts,
-  body: MessageInput,
+/**
+ * Attaches an A2A agent to the session. Nothing is created: the agent already
+ * runs somewhere, so this reads its Agent Card and records the tab. A card that
+ * cannot be read is the request failing, not a tab that never works — which is
+ * why, unlike a spawn, there is nothing to undo on the way out.
+ */
+async function handleAttach(
+  a2a: A2aPeerGateway,
+  store: SessionStore,
+  participants: ParticipantService,
+  body: AttachInput,
   res: Response,
-): void {
-  // Attributed to Prime (message_subagent is always a Prime-issued directive).
-  // Remote-hosted sub-agents route through their gateway; else local.
-  const { sessionId, agentId, text } = body;
-  if (hosts.remote.hasAgent(sessionId, agentId)) {
-    hosts.remote.sendToAgent(sessionId, agentId, text, PI_AGENT);
-  } else {
-    hosts.pi.sendToAgent(sessionId, agentId, text, PI_AGENT);
+): Promise<void> {
+  try {
+    const subagent = await a2a.attach(body.sessionId, {
+      endpointUrl: body.endpointUrl,
+      name: body.name,
+    });
+    if (body.sharedRoom) {
+      const room = await orchestratorConversationFor(store, body.sessionId);
+      await participants.join(body.sessionId, subagent.id, room, {
+        reaction: reactionSpec("mentionsMe"),
+        transcriptVisibility: "opaque",
+      });
+    }
+    res.json({ subagent });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res
+      .status(400)
+      .json({ error: `Couldn't attach ${body.endpointUrl}: ${message}` });
   }
-  res.json({ ok: true });
 }
 
-/** Surfaces a sub-agent's report in its own thread and delivers it to Prime. */
-function handleReport(
-  hosts: AgentHosts,
+/**
+ * Posts a Prime-issued directive into a sub-agent's Conversation, addressed to
+ * it. Surfacing and delivery are the same act: the sub-agent reacts because it
+ * was addressed, and the bubble the user reads is the Message that woke it.
+ * Skips an empty or whitespace-only task.
+ *
+ * Prime writes this from its own Conversation, so it is a cross-Conversation
+ * post: authorized by Prime's Membership in the sub-agent's thread, recorded as
+ * having arrived from elsewhere, and kept inside the wave Prime is already in.
+ */
+async function postDirective(
+  router: ConversationRouter,
+  sessionId: string,
+  agentId: string,
+  conversationId: string,
+  text: string | undefined,
+  fromConversation: string,
+): Promise<string | undefined> {
+  if (!text?.trim()) return undefined;
+  const { message, refused } = await router.postToConversation({
+    sessionId,
+    conversationId,
+    fromConversation,
+    author: PI_AGENT,
+    content: text,
+    mentions: [agentId],
+    ingress: "tool",
+  });
+  // Nothing was posted at all: the refusal is about Prime, not the recipient.
+  if (!message) return refused[0]?.reason;
+  return refused.find((entry) => entry.participantId === agentId)?.reason;
+}
+
+/**
+ * Posts a Prime-issued directive into the sub-agent's Conversation. Prime hears
+ * about a sub-agent that did not wake, because a directive that reaches nobody
+ * looks exactly like one that worked.
+ */
+async function handleMessage(
+  store: SessionStore,
+  router: ConversationRouter,
+  body: MessageInput,
+  res: Response,
+): Promise<void> {
+  const refused = await postDirective(
+    router,
+    body.sessionId,
+    body.agentId,
+    await homeConversationFor(store, body.sessionId, body.agentId),
+    body.text,
+    await orchestratorConversationFor(store, body.sessionId),
+  );
+  res.json({ ok: !refused, ...(refused ? { error: refused } : {}) });
+}
+
+/**
+ * Posts a sub-agent's report into its own thread, addressed to Prime. A thin
+ * alias over the same post `/message` makes: `message_prime` reaches Prime by
+ * addressing it, not by a dedicated relay.
+ */
+async function handleReport(
+  store: SessionStore,
+  connectors: ConnectorRegistry,
+  router: ConversationRouter,
   body: ReportInput,
   res: Response,
-): void {
-  // message_prime is a sub-agent-issued update; Prime reacts immediately.
-  hosts.pi.reportToPrime(body.sessionId, body.agentId, body.text);
+): Promise<void> {
+  const { sessionId, agentId, text } = body;
+  const author = subagentAuthor(connectors, sessionId, agentId);
+  if (!author) {
+    res.status(404).json({ error: "That sub-agent is no longer available." });
+    return;
+  }
+
+  await router.post({
+    sessionId,
+    conversationId: await homeConversationFor(store, sessionId, agentId),
+    author,
+    content: text,
+    mentions: [await orchestratorIdFor(store, sessionId)],
+    ingress: "tool",
+  });
   res.json({ ok: true });
 }
 
 /** Terminates a sub-agent, optionally marking its work completed. */
-function handleKill(hosts: AgentHosts, body: KillInput, res: Response): void {
+function handleKill(
+  connectors: ConnectorRegistry,
+  body: KillInput,
+  res: Response,
+): void {
   const { sessionId, agentId } = body;
-  const completed = body.completed ?? false;
-  if (hosts.remote.hasAgent(sessionId, agentId)) {
-    hosts.remote.killAgent(sessionId, agentId, completed);
-  } else {
-    hosts.pi.killAgent(sessionId, agentId, completed);
-  }
+  connectors
+    .resolve(sessionId, agentId)
+    .kill(sessionId, agentId, body.completed ?? false);
   res.json({ ok: true });
 }
 
-/** Lists the sub-agents registered for a session across all hosts. */
-function handleList(hosts: AgentHosts, query: ListQuery, res: Response): void {
-  res.json({
-    subagents: [
-      ...hosts.pi.listSubagents(query.sessionId),
-      ...hosts.remote.listSubagents(query.sessionId),
-      ...hosts.external.listSubagents(query.sessionId),
-    ],
-  });
+/** Lists the sub-agents registered for a session across every connector. */
+function handleList(
+  connectors: ConnectorRegistry,
+  query: ListQuery,
+  res: Response,
+): void {
+  res.json({ subagents: connectors.list(query.sessionId) });
 }
 
 /** Returns the tail of the shared transcript, clamped to the room limit. */
@@ -211,43 +327,67 @@ async function handleRoom(
 /**
  * Internal API used only by the orchestrator extension running inside each Pi
  * process. It lets Prime spawn/message/kill/list sub-agents and lets any agent
- * read the shared transcript. Guarded by a bearer token shared with the
- * spawned processes via env, so arbitrary local callers can't drive agents.
+ * read the shared transcript. Guarded by the Pi connector's credential — the
+ * token those processes inherited at spawn — so arbitrary local callers can't
+ * drive agents.
  */
 export function createInternalAgentsRouter(
   store: SessionStore,
-  pi: PiAgentManager,
-  remoteGateway: RemoteEnvironmentGateway,
-  externalGateway: ExternalSubagentGateway,
+  connectors: ConnectorRegistry,
+  conversations: ConversationRouter,
+  a2a: A2aPeerGateway,
+  participants: ParticipantService,
 ): Router {
   const router = Router();
-  const hosts: AgentHosts = {
-    pi,
-    remote: remoteGateway,
-    external: externalGateway,
-  };
 
-  router.use(requireInternalToken);
+  router.use(requireCredential(piCredential));
 
   router.post("/spawn", validate({ body: spawnSchema }), (req, res) =>
-    handleSpawn(store, hosts, getValidated<SpawnInput>(req).body, res),
+    handleSpawn(
+      store,
+      connectors,
+      conversations,
+      getValidated<SpawnInput>(req).body,
+      res,
+    ),
+  );
+
+  router.post("/attach", validate({ body: attachSchema }), (req, res) =>
+    handleAttach(
+      a2a,
+      store,
+      participants,
+      getValidated<AttachInput>(req).body,
+      res,
+    ),
   );
 
   router.post("/message", validate({ body: messageSchema }), (req, res) =>
-    handleMessage(hosts, getValidated<MessageInput>(req).body, res),
+    handleMessage(
+      store,
+      conversations,
+      getValidated<MessageInput>(req).body,
+      res,
+    ),
   );
 
   router.post("/report", validate({ body: reportSchema }), (req, res) =>
-    handleReport(hosts, getValidated<ReportInput>(req).body, res),
+    handleReport(
+      store,
+      connectors,
+      conversations,
+      getValidated<ReportInput>(req).body,
+      res,
+    ),
   );
 
   router.post("/kill", validate({ body: killSchema }), (req, res) =>
-    handleKill(hosts, getValidated<KillInput>(req).body, res),
+    handleKill(connectors, getValidated<KillInput>(req).body, res),
   );
 
   router.get("/list", validate({ query: listQuerySchema }), (req, res) =>
     handleList(
-      hosts,
+      connectors,
       getValidated<unknown, unknown, ListQuery>(req).query,
       res,
     ),

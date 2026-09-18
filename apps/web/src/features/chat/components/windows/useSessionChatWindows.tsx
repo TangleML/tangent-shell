@@ -5,6 +5,10 @@ import { AgentsWindow } from "./AgentsWindow";
 import { AgentsWindowHeader } from "./AgentsWindowHeader";
 import { AssetsWindow } from "./AssetsWindow";
 import { AssetsWindowHeader } from "./AssetsWindowHeader";
+import { ParticipantsWindow } from "./ParticipantsWindow";
+import { ParticipantsWindowHeader } from "./ParticipantsWindowHeader";
+import { ResourcesWindow } from "./ResourcesWindow";
+import { ResourcesWindowHeader } from "./ResourcesWindowHeader";
 import { SessionSwitcherWindow } from "./SessionSwitcherWindow";
 import { WindowHeaderContent } from "./WindowHeaderContent";
 
@@ -16,7 +20,7 @@ const SHARED_OPTIONS = {
 } satisfies Partial<WindowOptions>;
 
 /**
- * Opens the three SessionChat panels (Session, Agents, Assets) as docked
+ * Opens the SessionChat panels (Agents, Assets, Resources, Sessions) as docked
  * windows exactly once. Content reads live state from {@link
  * useSessionChatWindowsContext}, so opening once is enough — re-opening with the
  * same id would re-run `bringToFront` and churn the z-order every render.
@@ -30,11 +34,23 @@ export function useSessionChatWindows() {
       title: "Agents",
       header: <AgentsWindowHeader />,
     });
+    store.openWindow(<ParticipantsWindow />, {
+      ...SHARED_OPTIONS,
+      id: "participants",
+      title: "Participants",
+      header: <ParticipantsWindowHeader />,
+    });
     store.openWindow(<AssetsWindow />, {
       ...SHARED_OPTIONS,
       id: "assets",
       title: "Assets",
       header: <AssetsWindowHeader />,
+    });
+    store.openWindow(<ResourcesWindow />, {
+      ...SHARED_OPTIONS,
+      id: "resources",
+      title: "Resources",
+      header: <ResourcesWindowHeader />,
     });
     store.openWindow(<SessionSwitcherWindow />, {
       ...SHARED_OPTIONS,
