@@ -22,7 +22,6 @@ import {
 import type { Server, Socket } from "socket.io";
 
 import { resolveUserIdentity } from "../auth/identity.ts";
-import { ROOM_PER_CONVERSATION } from "../config.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import {
@@ -126,14 +125,11 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
     void markPresent(deps, author, payload?.sessionId, tracked);
   });
 
-  // Only meaningful under per-Conversation rooms; the session-scoped rollback
-  // already delivers every Conversation over the one room the socket joined.
-  if (ROOM_PER_CONVERSATION)
-    socket.on(
-      SocketEvents.ConversationSubscribe,
-      (payload: ConversationSubscribePayload) =>
-        void handleConversationSubscribe(socket, deps, author, payload),
-    );
+  socket.on(
+    SocketEvents.ConversationSubscribe,
+    (payload: ConversationSubscribePayload) =>
+      void handleConversationSubscribe(socket, deps, author, payload),
+  );
 
   socket.on("disconnect", () => markAbsent(deps, tracked));
 
@@ -255,8 +251,7 @@ async function handleChatJoin(
  * Adds a socket to a Conversation that appeared after it joined — a newly
  * spawned sub-agent the client only learns about from a `subagent:update` — and
  * replies with that Conversation's history. Authorization is the same gate the
- * join uses. A no-op under the session-scoped rollback, where the one room
- * already covers every Conversation.
+ * join uses.
  */
 async function handleConversationSubscribe(
   socket: Socket,
@@ -290,9 +285,7 @@ const EMPTY_SUBSCRIBE: ConversationSubscribePayload = {
 
 /**
  * Joins the socket to each Conversation room it is authorized for and returns
- * that set, so history can be scoped to the same Conversations. No rooms are
- * joined under the session-scoped rollback; the returned set still scopes
- * history should it be consulted.
+ * that set, so history can be scoped to the same Conversations.
  */
 async function joinAuthorized(
   socket: Socket,
@@ -311,16 +304,14 @@ async function joinAuthorized(
     agents,
     memberships,
   );
-  if (ROOM_PER_CONVERSATION)
-    for (const conversationId of authorized)
-      await socket.join(roomForConversation(session.id, conversationId));
+  for (const conversationId of authorized)
+    await socket.join(roomForConversation(session.id, conversationId));
   return authorized;
 }
 
 /**
  * The join-time history seed, scoped to the Conversations this socket is
- * authorized for. Unfiltered under the rollback, so the session-scoped
- * transport still receives the whole transcript.
+ * authorized for.
  */
 async function authorizedHistory(
   store: SessionStore,
@@ -328,7 +319,6 @@ async function authorizedHistory(
   authorized: Set<string>,
 ): Promise<ChatMessage[]> {
   const history = await store.getMessages(sessionId);
-  if (!ROOM_PER_CONVERSATION) return history;
   return history.filter((message) => authorized.has(message.conversationId));
 }
 
