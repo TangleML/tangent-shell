@@ -16,6 +16,7 @@ function toMembership(row: MembershipRow): Membership {
     participantId: row.participantId,
     conversationId: row.conversationId,
     reaction: row.reaction,
+    muted: row.muted,
     ingress: row.ingress as RunIngress,
     admission: row.admission as AdmissionPolicy,
     transcriptVisibility: row.transcriptVisibility as TranscriptVisibility,
@@ -79,6 +80,7 @@ export class SqliteMembershipStore implements MembershipStore {
 
   async put(membership: Membership): Promise<void> {
     const { reaction, ingress, admission, transcriptVisibility } = membership;
+    const muted = membership.muted ?? false;
     this.db
       .insert(memberships)
       .values({
@@ -86,6 +88,7 @@ export class SqliteMembershipStore implements MembershipStore {
         conversationId: membership.conversationId,
         sessionId: membership.sessionId,
         reaction,
+        muted,
         ingress,
         admission,
         transcriptVisibility,
@@ -97,7 +100,7 @@ export class SqliteMembershipStore implements MembershipStore {
           memberships.conversationId,
           memberships.participantId,
         ],
-        set: { reaction, ingress, admission, transcriptVisibility },
+        set: { reaction, muted, ingress, admission, transcriptVisibility },
       })
       .run();
   }

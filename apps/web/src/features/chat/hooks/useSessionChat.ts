@@ -10,14 +10,16 @@ import { useSyncExternalStore } from "react";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 
 import {
-  type AgentModelSelection,
-  EMPTY_SESSION_CHAT,
   NO_MESSAGES,
   peekSessionChat,
   peekSessionChatRoom,
-  type SessionChatSnapshot,
   subscribeToSessionChat,
 } from "./sessionChatRoom";
+import {
+  type AgentModelSelection,
+  EMPTY_SESSION_CHAT,
+  type SessionChatSnapshot,
+} from "./sessionChatSnapshot";
 
 export type { AgentModelSelection };
 

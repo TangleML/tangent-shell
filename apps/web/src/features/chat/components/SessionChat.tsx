@@ -1,5 +1,3 @@
-import type { Resource } from "@tangent/shared/contracts";
-import { PI_AGENT } from "@tangent/shared/contracts";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import {
@@ -15,22 +13,8 @@ import {
   WindowStoreProvider,
 } from "@tangent/windows";
 
-import {
-  CHAT_TAB_VALUE,
-  useAssetTabs,
-} from "@/features/chat/hooks/useAssetTabs";
-import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
-import {
-  useMuteMembership,
-  useSessionParticipants,
-} from "@/features/chat/hooks/useSessionParticipants";
-import { useSessionResources } from "@/features/chat/hooks/useSessionResources";
-import { type Agent, buildAgents } from "@/features/chat/model/agents";
-import { buildAssets } from "@/features/chat/model/assets";
-import { buildMentionCandidates } from "@/features/chat/model/mentions";
-import { useSession } from "@/features/sessions/hooks/useSession";
-import { apiUrl } from "@/shared/lib/basePath";
-import { isViewableArtifact, resolveUrl } from "@/shared/lib/markdown/artifact";
+import { CHAT_TAB_VALUE } from "@/features/chat/hooks/useAssetTabs";
+import { useSessionChatModel } from "@/features/chat/hooks/useSessionChatModel";
 
 import { PrimeChatPanel } from "./PrimeChatPanel";
 import { SessionCard } from "./sidebar/sessions/SessionCard";
@@ -45,199 +29,21 @@ interface SessionChatProps {
 
 export function SessionChat({ sessionId }: SessionChatProps) {
   const {
-    messagesFor,
-    subagents,
-    primaryConversationId,
-    conversationForAgent,
-    triggers,
-    artifacts,
-    pinnedPaths,
-    pinArtifact,
-    unpinArtifact,
+    session,
     connected,
-    memorySuggestions,
-    confirmMemory,
-    dismissMemory,
-    historyLoaded,
-    agentBusy,
-    isConversationBusy,
-    getActivity,
-    isMessageStreaming,
-    currentAuthorId,
-    send,
-    abort,
-    getAgentModel,
-    setAgentModel,
-    dismissSubagent,
-  } = useSessionChat(sessionId);
-
-  // Prime's current model/thinking selection (null = server default).
-  const primeModel = getAgentModel(PI_AGENT.id);
-
-  // The bundle this session was created from (if any) drives both the
-  // `tangent-ui:` message tokens and the composer's panel launcher.
-  const { data: session } = useSession(sessionId);
-  const bundleId = session?.config?.id;
-
-  // Opened tabs (assets and sub-agent threads), each shown beside the chat in
-  // its own closeable tab.
-  const { tabs, activeTab, setActiveTab, openAsset, openAgent, closeAsset } =
-    useAssetTabs(sessionId);
-
-  // The session's pages, files, and triggers as one uniform list of cards.
-  const assets = buildAssets({ sessionId, artifacts, triggers });
-
-  // The Chat tab stands in for Prime's card, so map it back to Prime's id when
-  // deciding which agent card reads as selected.
-  const selectedAgentId =
-    activeTab === CHAT_TAB_VALUE ? PI_AGENT.id : activeTab;
-
-  // The Conversation currently in view — the roster's mute toggle acts on a
-  // participant's Membership there, and the Resources panel surfaces for it.
-  // The Chat tab resolves to Prime's thread.
-  const activeConversationId = conversationForAgent(selectedAgentId);
-
-  // The session's roster (people, agents, automations) with live presence,
-  // fetched over REST and refreshed on each `participant:presence` signal.
-  const { data: participants = [] } = useSessionParticipants(sessionId);
-  const muteMembership = useMuteMembership(sessionId);
-
-  // Scope the catalog to the current human when they are an invited Participant,
-  // so surfacing consults their per-Conversation grants (default-permissive with
-  // none). The session owner isn't a Participant and keeps the whole catalog.
-  const currentParticipant = participants.find(
-    (p) => p.id === currentAuthorId && !p.revokedAt,
-  );
-  const resourceScope = currentParticipant
-    ? {
-        conversationId: activeConversationId,
-        participantId: currentParticipant.id,
-      }
-    : undefined;
-
-  // The catalogued content (artifacts, attachments, memory, workspace files)
-  // surfaced read-only in the Resources panel, fetched over REST and refreshed
-  // by useSessionChat when a socket signal implies the catalog changed.
-  const { data: resources = [] } = useSessionResources(
-    sessionId,
-    resourceScope,
-  );
-
-  // Prime first, then the live sub-agent roster, surfaced as sidebar cards.
-  const agents = buildAgents(subagents);
-
-  // Who a composer can @mention: Prime, the sub-agent roster, and invited
-  // humans. The server re-resolves names to ids at write time.
-  const mentionCandidates = buildMentionCandidates(subagents, participants);
-
-  // The Chat tab is Prime's main thread; each sub-agent opens its own thread
-  // tab on demand. Prime's card selects the fixed Chat tab; sub-agent cards
-  // open (or focus) a closeable tab.
-  const openAgentTab = (agent: Agent) => {
-    if (agent.kind === "prime") {
-      setActiveTab(CHAT_TAB_VALUE);
-      return;
-    }
-    openAgent({ id: agent.id, name: agent.name });
-  };
-
-  // The Chat tab is Prime's main thread; each sub-agent has its own thread tab.
-  const primeMessages = messagesFor(primaryConversationId);
-
-  const busySubagents = subagents
-    .filter((s) => isConversationBusy(s.conversationId))
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      conversationId: s.conversationId,
-    }));
-  const armedTriggers = triggers.filter((t) => t.enabled);
-
-  // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
-  // viewable "page" asset keyed by its resolved URL, so both dedupe to one tab.
-  const openArtifactTab = (url: string, title: string) => {
-    openAsset({
-      kind: isViewableArtifact(url) ? "page" : "file",
-      id: url,
-      title,
-      url,
-      path: url,
-    });
-  };
-
-  // Opening a viewable resource resolves its workspace-relative uri to the file
-  // API url and reuses the artifact tab, so a catalogued file opens the same way
-  // a pinned artifact does.
-  const openResourceTab = (resource: Resource) => {
-    const base = apiUrl(`/api/sessions/${sessionId}/files`);
-    const url = resolveUrl(resource.uri, base) ?? resource.uri;
-    openArtifactTab(url, resource.name);
-  };
-
-  // Pin an artifact if it isn't already pinned, else unpin it. The chip's
-  // pinned state and the sidebar list both update via the `artifacts.update`
-  // directive once the server confirms.
-  const togglePinArtifact = (path: string, title: string) => {
-    if (pinnedPaths.has(path)) {
-      unpinArtifact(path);
-    } else {
-      pinArtifact(path, title);
-    }
-  };
-
-  // The chat state every opened asset tab's body shares; forwarded as-is so
-  // AssetTabContent can resolve and render the right per-kind view.
-  const sharedTabProps = {
-    sessionId,
-    subagents,
-    conversationForAgent,
-    primaryConversationId,
-    triggers,
-    messagesFor,
-    currentAuthorId,
-    bundleId,
-    connected,
-    historyLoaded,
-    pinnedPaths,
-    getActivity,
-    isConversationBusy,
-    isMessageStreaming,
-    getAgentModel,
-    setAgentModel,
-    abort,
-    dismissSubagent,
+    tabs,
+    activeTab,
+    setActiveTab,
     closeAsset,
-    send,
-    openArtifactTab,
-    togglePinArtifact,
-    mentionCandidates,
-  };
+    subagents,
+    windowsValue,
+    primeChatPanelProps,
+    sharedTabProps,
+  } = useSessionChatModel(sessionId);
 
   return (
     <WindowStoreProvider>
-      <SessionChatWindowsContext
-        value={{
-          sessionId,
-          agents,
-          selectedAgentId,
-          activeTab,
-          assets,
-          resources,
-          participants,
-          activeConversationId,
-          currentUserId: currentAuthorId,
-          onToggleMuteParticipant: (participantId, conversationId, muted) =>
-            muteMembership.mutate({ participantId, conversationId, muted }),
-          onOpenAgent: openAgentTab,
-          onRemoveAgent: (agent) => {
-            dismissSubagent(agent.id);
-            closeAsset(agent.id);
-          },
-          onOpenAsset: openAsset,
-          onUnpinArtifact: unpinArtifact,
-          onOpenResource: openResourceTab,
-        }}
-      >
+      <SessionChatWindowsContext value={windowsValue}>
         <SessionChatWindowsMount />
         <BlockStack grow align="stretch">
           <InlineStack grow wrap="nowrap" blockAlign="stretch">
@@ -270,35 +76,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               </TabsList>
 
               <TabsContent value={CHAT_TAB_VALUE} forceMount>
-                <PrimeChatPanel
-                  sessionId={sessionId}
-                  primaryConversationId={primaryConversationId}
-                  messages={primeMessages}
-                  currentAuthorId={currentAuthorId}
-                  bundleId={bundleId}
-                  connected={connected}
-                  historyLoaded={historyLoaded}
-                  agentBusy={agentBusy}
-                  activity={getActivity(primaryConversationId)}
-                  isMessageStreaming={isMessageStreaming}
-                  memorySuggestions={memorySuggestions}
-                  confirmMemory={confirmMemory}
-                  dismissMemory={dismissMemory}
-                  busySubagents={busySubagents}
-                  armedTriggers={armedTriggers}
-                  subagents={subagents}
-                  assets={assets}
-                  primeModel={primeModel}
-                  send={send}
-                  abort={abort}
-                  openAgent={openAgent}
-                  openAsset={openAsset}
-                  setAgentModel={setAgentModel}
-                  openArtifactTab={openArtifactTab}
-                  pinnedPaths={pinnedPaths}
-                  togglePinArtifact={togglePinArtifact}
-                  mentionCandidates={mentionCandidates}
-                />
+                <PrimeChatPanel {...primeChatPanelProps} />
               </TabsContent>
 
               {tabs.map((tab) => (

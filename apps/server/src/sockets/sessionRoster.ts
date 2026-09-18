@@ -14,7 +14,7 @@ import type { Server, Socket } from "socket.io";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import {
   orchestratorConversationFor,
-  orchestratorIdFor,
+  orchestratorIdentity,
 } from "../conversation/participantRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
@@ -161,7 +161,8 @@ export async function emitPrimeSelection(
   store: SessionStore,
   sessionId: string,
 ): Promise<void> {
-  const orchestratorId = await orchestratorIdFor(store, sessionId);
+  const orchestratorId = (await orchestratorIdentity(store, sessionId))
+    .orchestratorId;
   const selection = pi.getAgentSelection(sessionId, orchestratorId);
   const payload: AgentModelPayload = {
     sessionId,

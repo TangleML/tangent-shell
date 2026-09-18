@@ -152,4 +152,11 @@ export interface ParticipantStore {
    * must still resolve. A no-op if the row is gone.
    */
   revoke(sessionId: string, id: string): Promise<void>;
+  /**
+   * Removes every participant row of a session — the roster included, since C.2
+   * made this the roster's store. The SQLite store leaves this to the session
+   * row's cascade; a store with no cascade (the in-memory one) deletes here so
+   * `deleteSession` drops the roster the same way.
+   */
+  deleteForSession(sessionId: string): Promise<void>;
 }

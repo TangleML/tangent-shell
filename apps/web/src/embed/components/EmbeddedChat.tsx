@@ -100,6 +100,12 @@ export function EmbeddedChat({
 
   const primeModel = chat.getAgentModel(PI_AGENT.id);
 
+  // Who Prime's composer can @mention: the sub-agent roster and invited humans.
+  const mentionCandidates = buildMentionCandidates(
+    chat.subagents,
+    participants,
+  );
+
   return (
     <BlockStack fill grow align="stretch" inlineAlign="start">
       <ChatMessageList
@@ -134,6 +140,7 @@ export function EmbeddedChat({
         agentId={PI_AGENT.id}
         disabled={!chat.connected || !rosterReady}
         agentBusy={chat.agentBusy}
+        mentionCandidates={mentionCandidates}
         onAbort={() => chat.abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) => {
           chat.send(content, {
@@ -181,7 +188,7 @@ function SubagentChat({
       <Box padding="base">
         <EmptyState
           size="sm"
-          title=""
+          title="Agent unavailable"
           description="This agent is no longer in the session."
         />
       </Box>

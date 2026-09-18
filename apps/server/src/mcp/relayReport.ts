@@ -3,7 +3,7 @@ import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import {
   homeConversationFor,
-  orchestratorIdFor,
+  orchestratorIdentity,
 } from "../conversation/participantRegistry.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import type { RelayChannel } from "./relayRegistry.ts";
@@ -41,7 +41,9 @@ export function createRelayReport(
   store: SessionStore,
 ): RelayReport {
   return async (channel, text, envelope) => {
-    const orchestratorId = await orchestratorIdFor(store, channel.sessionId);
+    const orchestratorId = (
+      await orchestratorIdentity(store, channel.sessionId)
+    ).orchestratorId;
     const author = channel.participantId
       ? subagentAuthor(connectors, channel.sessionId, channel.participantId)
       : undefined;

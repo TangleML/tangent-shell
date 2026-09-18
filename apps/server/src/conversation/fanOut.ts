@@ -131,18 +131,19 @@ export class FanOutEngine {
   fanOut(request: FanOutRequest): Promise<FanOutResult> {
     const { sessionId, conversationId } = request.message;
     const key = keyFor(sessionId, conversationId);
-    const next = (this.queues.get(key) ?? Promise.resolve())
-      .then(() => this.dispatch(request))
-      .catch((err) => {
-        console.error(
-          `[conversation] fan-out failed in ${conversationId}:`,
-          err,
-        );
-        return { woke: [], refused: [] };
-      });
+    const next = (this.queues.get(key) ?? Promise.resolve()).then(() =>
+      this.dispatch(request),
+    );
+    // The Conversation's queue must outlive a failed fan-out, so it chains on a
+    // settled promise: one crash cannot poison the ordering of every later post.
+    // The caller still sees the rejection through `next`, rather than a crash
+    // masquerading as "nobody woke, nobody refused".
     this.queues.set(
       key,
-      next.then(() => undefined),
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
     );
     return next;
   }
@@ -180,7 +181,8 @@ export class FanOutEngine {
       return result;
     }
 
-    for (const member of reacting) {
+    for (let i = 0; i < reacting.length; i += 1) {
+      const member = reacting[i];
       if (!this.spend(wave.id, message.conversationId)) {
         const cause: TerminationCause = {
           kind: "budget-exhausted",
@@ -191,7 +193,11 @@ export class FanOutEngine {
           waveDepth: wave.depth,
         };
         this.announce(message, cause);
-        result.refused.push(...refusedBy(reacting, describeCause(cause)));
+        // Only the members that did not get a slot are refused; the earlier ones
+        // are already in `result.woke` and must not read as both woke and refused.
+        result.refused.push(
+          ...refusedBy(reacting.slice(i), describeCause(cause)),
+        );
         return result;
       }
       this.deliver(request, member, wave, result);
@@ -220,6 +226,7 @@ export class FanOutEngine {
    * of §4.1 — so membership reaction and reactor memory are one mechanism.
    */
   private reacts(member: Membership, facts: MessageFacts): boolean {
+    if (member.muted) return false;
     if (member.participantId === facts.authorId) return false;
     if (member.participantId === facts.sourceFrom) return false;
     const reactor = fromReaction(member.reaction, member.participantId);
@@ -436,6 +443,27 @@ export class FanOutEngine {
    * emit one outside a fan-out (admission on release, a settled Run, a detach). */
   waveDepth(sessionId: string, participantId: string): number {
     return this.waves.get(keyFor(sessionId, participantId))?.depth ?? 0;
+  }
+
+  /**
+   * Ends a participant's chain once its Run has settled and nothing is held for
+   * it. Without this the last depth lingers forever, so `GET /workflow` reports a
+   * finished cascade sitting at depth 24. The caller owns the "settled and idle"
+   * decision; this only drops the state. A wave's per-Conversation budget is
+   * shared across its riders, so it is reclaimed only when the last one leaves.
+   */
+  evictWave(sessionId: string, participantId: string): void {
+    const key = keyFor(sessionId, participantId);
+    const wave = this.waves.get(key);
+    if (!wave) return;
+    this.waves.delete(key);
+    for (const other of this.waves.values()) {
+      if (other.id === wave.id) return;
+    }
+    const prefix = `${wave.id}\u0000`;
+    for (const spentKey of this.spent.keys()) {
+      if (spentKey.startsWith(prefix)) this.spent.delete(spentKey);
+    }
   }
 
   /** Every live wave in a session — each participant that holds a chain and the

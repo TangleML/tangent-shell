@@ -158,10 +158,10 @@ export class ExternalSubagentGateway {
    * to. Best-effort: `sessionId` comes from an external caller, and a bogus one
    * must fail the row rather than the process.
    */
-  register(
+  async register(
     sessionId: string,
     spec: RegisterExternalSubagent,
-  ): RegisteredExternalSubagent {
+  ): Promise<RegisteredExternalSubagent> {
     const agentId = randomUUID();
     const homeConversationId = randomUUID();
     const channel = this.relay.open({
@@ -181,7 +181,11 @@ export class ExternalSubagentGateway {
       createdAt: new Date().toISOString(),
     };
     this.rosterFor(sessionId).set(agentId, subagent);
-    void this.store
+    // Await the roster write before handing back the tab, the way A2A attach
+    // does: a returned id must have a row behind it, so a restart has something
+    // to reattach to. Best-effort on a bogus sessionId — fail the row, not the
+    // process — but no longer a fire-and-forget that a crash could lose.
+    await this.store
       .recordAgent(sessionId, {
         id: agentId,
         role: "subagent",

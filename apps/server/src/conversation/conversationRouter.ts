@@ -264,15 +264,8 @@ export class ConversationRouter {
     this.engine = new FanOutEngine(
       memberships,
       () => this.requireConnectors(),
-      (sessionId, conversationId, text, cause) => {
-        void this.post({
-          sessionId,
-          conversationId,
-          author: SYSTEM_AUTHOR,
-          content: text,
-          cause,
-        });
-      },
+      (sessionId, conversationId, text, cause) =>
+        this.postNotice(sessionId, conversationId, text, cause),
       reactors,
       admission,
     );
@@ -281,14 +274,34 @@ export class ConversationRouter {
     reactors?.useDelivery((wake) => this.engine.wakeReactor(wake));
     // A timed-out correlation surfaces as a system notice in the Conversation it
     // was asked in, posted back through this router.
-    correlations?.useNotify((sessionId, conversationId, text, cause) => {
-      void this.post({
-        sessionId,
-        conversationId,
-        author: SYSTEM_AUTHOR,
-        content: text,
-        cause,
-      });
+    correlations?.useNotify((sessionId, conversationId, text, cause) =>
+      this.postNotice(sessionId, conversationId, text, cause),
+    );
+  }
+
+  /**
+   * Posts a system notice carrying its structured cause, best-effort: a failure
+   * to record why something stopped must not itself throw into the fan-out (or
+   * the settle/timeout callback) that announced it, so it is logged, not left as
+   * an unhandled rejection.
+   */
+  private postNotice(
+    sessionId: string,
+    conversationId: string,
+    text: string,
+    cause: TerminationCause,
+  ): void {
+    this.post({
+      sessionId,
+      conversationId,
+      author: SYSTEM_AUTHOR,
+      content: text,
+      cause,
+    }).catch((err) => {
+      console.error(
+        `[conversation] failed to post a system notice in ${conversationId}:`,
+        err,
+      );
     });
   }
 
@@ -408,19 +421,27 @@ export class ConversationRouter {
   }
 
   /**
+   * Drops a participant's reaction chain once its Run has settled and nothing is
+   * held behind it, so the workflow view stops reporting a finished cascade's
+   * last depth. The caller owns the "settled and idle" decision.
+   */
+  evictWave(sessionId: string, participantId: string): void {
+    this.engine.evictWave(sessionId, participantId);
+  }
+
+  /**
    * Posts a structured termination cause as a system Message in the Conversation
    * it names, the same shape the fan-out and correlation engines post. For a
    * cause discovered outside a fan-out — a Run settling `failed`, a connector
    * dropping — so a supervisor can react to it.
    */
   announceCause(sessionId: string, cause: TerminationCause): void {
-    void this.post({
+    this.postNotice(
       sessionId,
-      conversationId: cause.conversationId,
-      author: SYSTEM_AUTHOR,
-      content: describeCause(cause),
+      cause.conversationId,
+      describeCause(cause),
       cause,
-    });
+    );
   }
 
   private broadcast(

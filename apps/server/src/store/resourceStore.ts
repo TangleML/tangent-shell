@@ -44,7 +44,7 @@ export interface ResourceGrant {
  * {@link import("./membershipStore.ts").MembershipStore} is: it is written
  * through by a small catalog on the content paths, not read by the REST routes.
  * The existing mechanisms (`session_assets`, message attachments, memory files)
- * stay the write authority for this PR and mirror into it.
+ * stay the write authority and mirror into it.
  */
 export interface ResourceStore {
   /**
