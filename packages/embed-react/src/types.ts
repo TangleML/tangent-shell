@@ -203,6 +203,8 @@ export interface TangentChatElementLike extends HTMLElement {
   sessionId: string;
   agentId?: string;
   initialPrompt?: string;
+  /** Focuses the composer once it accepts input (`auto-focus` as an attribute). */
+  autoFocus: boolean;
   /** Current host-slot records to project as light-DOM children. */
   getHostSlots?: () => HostSlotRecordLike[];
   /** Subscribes to host-slot changes; returns an unsubscribe. */

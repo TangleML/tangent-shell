@@ -173,10 +173,41 @@ await addResource(sessionId, {
 | `sessionId`          | `string`               | The session to render.                                    |
 | `agentId`            | `string`               | Render this agent's thread instead of Prime.              |
 | `initialPrompt`      | `string`               | Sent once the session joins (for a host-created session). |
+| `autoFocus`          | `boolean`              | Focuses the composer once it accepts input. See below.    |
 | `onOpenArtifact`     | `(url, title) => void` | The host decides how to open the resource.                |
 | `onSendPrompt`       | `(content) => void`    | Fired when the user submits a prompt.                     |
 | `onError`            | `(message) => void`    | Fired on a surfaced runtime error.                        |
 | `className`, `style` | —                      | Forwarded to the element; size it with `height`.          |
+
+#### Autofocusing the composer
+
+The composer is disabled until the socket joins and the agent roster arrives, so
+DOM `autofocus` would land on a disabled field and do nothing. `autoFocus` waits
+for the composer to accept input and then focuses it once per mounted session —
+it never takes focus back afterwards, and it focuses with `preventScroll` so the
+host page never jumps.
+
+Use it for a landing surface the user arrives on ready to type — a brand-new
+project, say, where the host creates the session up front and wants the cursor
+already in the box:
+
+```tsx
+const { newSession } = useTangent();
+const [sessionId, setSessionId] = useState<string | null>(null);
+
+useEffect(() => {
+  // No opening prompt: the session starts idle and waits for the user.
+  newSession("", "tangle-oss", { name: "New project" }).then((s) =>
+    setSessionId(s.sessionId),
+  );
+}, []);
+
+return sessionId ? <Chat sessionId={sessionId} autoFocus /> : <Spinner />;
+```
+
+Don't set it on a chat the user has to scroll to, or on several mounted chats at
+once — the last one to become ready wins. Raw-element hosts use the `auto-focus`
+attribute (`<tangent-chat auto-focus>`).
 
 ### `<SessionList>`
 

@@ -13,19 +13,20 @@ import { EmbeddedElement } from "./embeddedElement";
 const TAG = "tangent-chat";
 
 /**
- * Mounts the embedded chat surface. `sessionId`, `agentId`, and `initialPrompt`
- * are properties; `open-artifact` and `send-prompt` are emitted as composed
- * `CustomEvent`s for the npm wrapper to surface as `on*` props.
+ * Mounts the embedded chat surface. `sessionId`, `agentId`, `initialPrompt`,
+ * and `autoFocus` are properties; `open-artifact` and `send-prompt` are emitted
+ * as composed `CustomEvent`s for the npm wrapper to surface as `on*` props.
  */
 export class TangentChatElement extends EmbeddedElement {
   private currentSessionId = "";
   private currentAgentId = "";
   private queuedInitialPrompt: string | undefined;
+  private shouldAutoFocus = false;
   private readonly hostSlots = createHostSlotRegistry();
   private hostExtUnsubscribe: (() => void) | null = null;
 
   static get observedAttributes(): string[] {
-    return ["session-id", "agent-id"];
+    return ["session-id", "agent-id", "auto-focus"];
   }
 
   protected get tag(): string {
@@ -78,9 +79,19 @@ export class TangentChatElement extends EmbeddedElement {
     return this.queuedInitialPrompt;
   }
 
+  set autoFocus(value: boolean) {
+    this.shouldAutoFocus = Boolean(value);
+    this.rerender();
+  }
+  get autoFocus(): boolean {
+    return this.shouldAutoFocus;
+  }
+
   attributeChangedCallback(name: string, _prev: string, next: string): void {
     if (name === "session-id") this.sessionId = next ?? "";
     if (name === "agent-id") this.agentId = next ?? "";
+    if (name === "auto-focus")
+      this.autoFocus = next != null && next !== "false";
   }
 
   protected renderContent(runtime: TangentRuntime): ReactNode {
@@ -105,6 +116,7 @@ export class TangentChatElement extends EmbeddedElement {
       createElement(EmbeddedChat, {
         sessionId: this.currentSessionId,
         agentId: this.currentAgentId || undefined,
+        autoFocus: this.shouldAutoFocus,
         runtime,
         onOpenArtifact: (url: string, title: string) =>
           this.emit("open-artifact", { url, title }),
