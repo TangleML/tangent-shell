@@ -11,6 +11,12 @@ export interface ChatProps {
   agentId?: string;
   /** A prompt to send once the session has joined (e.g. for a fresh session). */
   initialPrompt?: string;
+  /**
+   * Focuses the composer as soon as it accepts input, so the user can type
+   * straight away. Fires once per mounted session — it never steals focus back
+   * afterwards.
+   */
+  autoFocus?: boolean;
   /** The host opens the resource however it wants (tab, drawer, ...). */
   onOpenArtifact?: (url: string, title: string) => void;
   /** Fired when the user submits a prompt, so the host can react. */
@@ -32,6 +38,7 @@ export function Chat({
   sessionId,
   agentId,
   initialPrompt,
+  autoFocus,
   onOpenArtifact,
   onSendPrompt,
   onError,
@@ -42,6 +49,13 @@ export function Chat({
   const ref = useRef<HTMLElement | null>(null);
   const { uiComponents, anchorProtocols } = useTangentContext();
   const [slots, setSlots] = useState<HostSlotRecordLike[]>([]);
+
+  // Assigned before `sessionId` so the composer already knows to take focus by
+  // the time the session renders.
+  useEffect(() => {
+    const element = ref.current as TangentChatElementLike | null;
+    if (element) element.autoFocus = autoFocus ?? false;
+  }, [autoFocus]);
 
   useEffect(() => {
     const element = ref.current as TangentChatElementLike | null;

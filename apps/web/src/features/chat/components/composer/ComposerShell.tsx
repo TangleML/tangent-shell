@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
   type SyntheticEvent,
+  useEffect,
   useRef,
 } from "react";
 
@@ -42,6 +43,12 @@ interface ComposerShellProps {
   busy?: boolean;
   placeholder?: string;
   hideSend?: boolean;
+  /**
+   * Focuses the input as soon as the composer is usable, once per mount. The
+   * textarea starts disabled (socket/roster not ready) and cannot take focus
+   * then, so this waits for `busy` to clear instead of using DOM autofocus.
+   */
+  autoFocus?: boolean;
   /** People/agents the `@mention` picker can address; omitted disables it. */
   mentionCandidates?: MentionCandidate[];
   children?: ReactNode;
@@ -56,17 +63,28 @@ export function ComposerShell({
   busy,
   placeholder = "Message the session...",
   hideSend,
+  autoFocus,
   mentionCandidates = [],
   children,
 }: ComposerShellProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoFocusedRef = useRef(false);
   const mention = useMentionAutocomplete({
     candidates: mentionCandidates,
     value,
     onValueChange,
     textareaRef,
   });
+
+  useEffect(() => {
+    if (!autoFocus || busy || autoFocusedRef.current) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    autoFocusedRef.current = true;
+    // Embedded in a host page — don't scroll the host to reach the composer.
+    textarea.focus({ preventScroll: true });
+  }, [autoFocus, busy]);
 
   function handleFilesPicked(e: ChangeEvent<HTMLInputElement>) {
     onAttach(e.target.files ? Array.from(e.target.files) : []);

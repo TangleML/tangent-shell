@@ -62,6 +62,8 @@ interface SubagentTabViewProps {
   onTogglePinArtifact: (path: string, title: string) => void;
   /** People/agents the `@mention` picker can address in this sub-agent's composer. */
   mentionCandidates: MentionCandidate[];
+  /** Focuses this tab's composer once it becomes usable. */
+  autoFocus?: boolean;
 }
 
 /**
@@ -93,6 +95,7 @@ export function SubagentTabView({
   pinnedPaths,
   onTogglePinArtifact,
   mentionCandidates,
+  autoFocus,
 }: SubagentTabViewProps) {
   return (
     <BlockStack grow>
@@ -128,6 +131,7 @@ export function SubagentTabView({
         disabled={disabled}
         agentBusy={busy}
         agentStatus={status}
+        autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
         onRemove={onRemove}
         onAbort={onAbort}

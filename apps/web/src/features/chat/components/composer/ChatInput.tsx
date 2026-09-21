@@ -53,6 +53,11 @@ interface ChatInputProps {
   onRemove?: () => void;
   /** Aborts the agent's in-progress run. Required for the Stop control. */
   onAbort?: () => void;
+  /**
+   * Focuses the input once the composer becomes usable, so a freshly opened
+   * session can be typed into without a click.
+   */
+  autoFocus?: boolean;
   /** People/agents the `@mention` picker can address in this composer. */
   mentionCandidates?: MentionCandidate[];
   onSubmit: (
@@ -69,6 +74,7 @@ export function ChatInput({
   agentStatus,
   onRemove,
   onAbort,
+  autoFocus,
   mentionCandidates,
   onSubmit,
 }: ChatInputProps) {
@@ -212,6 +218,7 @@ export function ChatInput({
       busy={busy}
       placeholder={agentBusy ? "Nudge the agent..." : "Message the session..."}
       hideSend={agentBusy}
+      autoFocus={autoFocus}
       mentionCandidates={mentionCandidates}
     >
       <StagedFiles files={files} uploading={uploading} onRemove={removeFile} />

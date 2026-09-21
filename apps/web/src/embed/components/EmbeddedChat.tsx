@@ -24,6 +24,8 @@ interface EmbeddedChatProps {
   runtime: TangentRuntime;
   /** When set, render that agent's thread instead of Prime. */
   agentId?: string;
+  /** Focuses the composer as soon as it is usable, so the user can just type. */
+  autoFocus?: boolean;
   /** The host opens the resource however it wants (a tab, a drawer, ...). */
   onOpenArtifact?: (url: string, title: string) => void;
   /** Fired when the user submits a prompt, so the host can react. */
@@ -43,6 +45,7 @@ export function EmbeddedChat({
   sessionId,
   runtime,
   agentId,
+  autoFocus,
   onOpenArtifact,
   onSendPrompt,
 }: EmbeddedChatProps) {
@@ -92,6 +95,7 @@ export function EmbeddedChat({
         chat={chat}
         rosterReady={rosterReady}
         participants={participants}
+        autoFocus={autoFocus}
         onOpenArtifact={onOpenArtifact}
         onSendPrompt={onSendPrompt}
         onTogglePinArtifact={togglePinArtifact}
@@ -149,6 +153,7 @@ export function EmbeddedChat({
         agentId={PI_AGENT.id}
         disabled={!chat.connected || !rosterReady}
         agentBusy={chat.agentBusy}
+        autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
         onAbort={() => chat.abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) => {
@@ -171,6 +176,7 @@ interface SubagentChatProps {
   chat: ReturnType<typeof useSessionChat>;
   rosterReady: boolean;
   participants: ParticipantWithMemberships[];
+  autoFocus?: boolean;
   onOpenArtifact?: (url: string, title: string) => void;
   onSendPrompt?: (content: string) => void;
   onTogglePinArtifact: (path: string, title: string) => void;
@@ -183,6 +189,7 @@ function SubagentChat({
   chat,
   rosterReady,
   participants,
+  autoFocus,
   onOpenArtifact,
   onSendPrompt,
   onTogglePinArtifact,
@@ -239,6 +246,7 @@ function SubagentChat({
       pinnedPaths={chat.pinnedPaths}
       onTogglePinArtifact={onTogglePinArtifact}
       mentionCandidates={mentionCandidates}
+      autoFocus={autoFocus}
     />
   );
 }
