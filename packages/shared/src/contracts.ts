@@ -169,6 +169,7 @@ export interface ModelOption {
  */
 export const AVAILABLE_MODELS: ModelOption[] = [
   { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai" },
+  { id: "openai/gpt-6-astra", label: "GPT-6 Astra", provider: "openai" },
   {
     id: "anthropic/claude-opus-5",
     label: "Claude Opus 5",
