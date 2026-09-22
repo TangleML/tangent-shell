@@ -102,7 +102,7 @@ export const PI_PROXY_URL = readAbsoluteUrl(
 /**
  * Provider/model Pi is pinned to when spawned. In the container there is no
  * `~/.pi/agent/settings.json`, so these are passed explicitly to match the
- * local defaults (`openai` / `gpt-5.5`).
+ * local defaults (`openai` / `gpt-5.6-sol`).
  */
 const [DEFAULT_PROVIDER, DEFAULT_MODEL] = DEFAULT_MODEL_ID.split("/");
 
