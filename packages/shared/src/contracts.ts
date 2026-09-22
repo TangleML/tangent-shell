@@ -168,21 +168,25 @@ export interface ModelOption {
  * Pi can resolve through the proxy-provider extension.
  */
 export const AVAILABLE_MODELS: ModelOption[] = [
-  { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai" },
-  { id: "openai/gpt-5-mini", label: "GPT-5 Mini", provider: "openai" },
+  { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai" },
   {
-    id: "anthropic/claude-sonnet-4-6",
-    label: "Claude Sonnet 4.6",
+    id: "anthropic/claude-opus-5",
+    label: "Claude Opus 5",
     provider: "anthropic",
   },
   {
-    id: "anthropic/claude-opus-4-8",
-    label: "Claude Opus 4.8",
+    id: "anthropic/claude-fable-5",
+    label: "Claude Fable 5",
     provider: "anthropic",
   },
   {
-    id: "google/gemini-2.5-pro",
-    label: "Gemini 2.5 Pro",
+    id: "anthropic/claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    provider: "anthropic",
+  },
+  {
+    id: "google/gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
     provider: "google",
   },
 ];
@@ -194,8 +198,8 @@ export const AVAILABLE_MODELS: ModelOption[] = [
  * default value rather than a generic "Default" label. `DEFAULT_MODEL_ID` is a
  * `provider/model` string matching an {@link AVAILABLE_MODELS} entry.
  */
-export const DEFAULT_MODEL_ID = "openai/gpt-5.5";
-export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
+export const DEFAULT_MODEL_ID = "openai/gpt-5.6-sol";
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
 /** Author of a chat message. Chats assume multiple humans and agents. */
 export interface ChatAuthor {
