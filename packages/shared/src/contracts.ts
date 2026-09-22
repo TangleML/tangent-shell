@@ -175,8 +175,8 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     provider: "anthropic",
   },
   {
-    id: "anthropic/claude-fable-5",
-    label: "Claude Fable 5",
+    id: "anthropic/claude-fable-5-1",
+    label: "Claude Fable 5.1",
     provider: "anthropic",
   },
   {
