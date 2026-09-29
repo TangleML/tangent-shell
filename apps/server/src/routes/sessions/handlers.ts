@@ -403,6 +403,7 @@ export async function handleUpdateSession(
   const session = await store.updateSession(id, {
     name: body.name,
     archived: body.archived,
+    accessPolicy: body.accessPolicy,
   });
   if (!session) {
     res.status(404).json({ error: "Session not found" });

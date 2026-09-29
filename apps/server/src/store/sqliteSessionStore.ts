@@ -6,8 +6,10 @@ import {
   capabilitiesForRole,
   type ChatMessage,
   connectorFor,
+  DEFAULT_SESSION_ACCESS_POLICY,
   type PinnedArtifact,
   type Session,
+  type SessionAccessPolicy,
   type SessionConfigMeta,
   type UpdateSessionRequest,
   type UserIdentity,
@@ -65,6 +67,7 @@ function toSession(row: SessionRow): Session {
       ? (JSON.parse(row.userIdentity) as UserIdentity)
       : undefined,
     archived: row.archived,
+    accessPolicy: row.accessPolicy as SessionAccessPolicy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -187,6 +190,7 @@ export class SqliteSessionStore implements SessionStore {
       status: "created",
       user: input.user,
       archived: false,
+      accessPolicy: DEFAULT_SESSION_ACCESS_POLICY,
       createdAt: now,
       updatedAt: now,
     };
@@ -200,6 +204,7 @@ export class SqliteSessionStore implements SessionStore {
         status: session.status,
         userIdentity: session.user ? JSON.stringify(session.user) : null,
         archived: session.archived,
+        accessPolicy: session.accessPolicy,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       })
@@ -226,6 +231,7 @@ export class SqliteSessionStore implements SessionStore {
       ...existing,
       name: input.name?.trim() || existing.name,
       archived: input.archived ?? existing.archived,
+      accessPolicy: input.accessPolicy ?? existing.accessPolicy,
       updatedAt: new Date().toISOString(),
     };
     this.db
@@ -233,6 +239,7 @@ export class SqliteSessionStore implements SessionStore {
       .set({
         name: updated.name,
         archived: updated.archived,
+        accessPolicy: updated.accessPolicy,
         updatedAt: updated.updatedAt,
       })
       .where(eq(sessions.id, id))

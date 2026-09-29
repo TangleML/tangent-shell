@@ -25,7 +25,10 @@ const OWNER: UserIdentity = {
   last_name: "Owner",
 };
 
-function session(user?: UserIdentity): Session {
+function session(
+  user?: UserIdentity,
+  accessPolicy: Session["accessPolicy"] = "restricted",
+): Session {
   return {
     id: "s1",
     name: "Session",
@@ -33,6 +36,7 @@ function session(user?: UserIdentity): Session {
     status: "created",
     user,
     archived: false,
+    accessPolicy,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
@@ -114,6 +118,21 @@ test("a Membership in an unknown Conversation is ignored", () => {
     membership("guest@example.com", "gone"),
   ]);
   assert.equal(authorized.size, 0);
+});
+
+test("an open session authorizes any human for every Conversation", () => {
+  const stranger = humanAuthor({
+    email: "stranger@example.com",
+    first_name: "Stan",
+    last_name: "Stranger",
+  });
+  const authorized = authorizedConversations(
+    stranger,
+    session(OWNER, "open"),
+    AGENTS,
+    [],
+  );
+  assert.deepEqual([...authorized].sort(), ["prime", "sub-1", "sub-2"]);
 });
 
 function primeAgent(homeConversationId: string): SessionAgent {

@@ -45,12 +45,16 @@ function isSessionOwner(session: Session, email: string): boolean {
   return owner === email;
 }
 
-/** Whether `email` may mint for `session`: its owner, or a Membership holder. */
+/**
+ * Whether `email` may mint for `session`: anyone on an `open` session, else its
+ * owner or a Membership holder.
+ */
 async function canMintForSession(
   session: Session,
   email: string,
   isSessionMember: SessionMemberCheck,
 ): Promise<boolean> {
+  if (session.accessPolicy === "open") return true;
   if (isSessionOwner(session, email)) return true;
   return isSessionMember(session.id, email);
 }

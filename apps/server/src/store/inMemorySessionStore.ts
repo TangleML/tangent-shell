@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type ConnectorDescriptor,
   connectorFor,
+  DEFAULT_SESSION_ACCESS_POLICY,
   type PinnedArtifact,
   type Session,
   type SessionConfigMeta,
@@ -134,6 +135,7 @@ export class InMemorySessionStore implements SessionStore {
       status: "created",
       user: input.user,
       archived: false,
+      accessPolicy: DEFAULT_SESSION_ACCESS_POLICY,
       createdAt: now,
       updatedAt: now,
     };
@@ -159,6 +161,7 @@ export class InMemorySessionStore implements SessionStore {
       ...existing,
       name: input.name?.trim() || existing.name,
       archived: input.archived ?? existing.archived,
+      accessPolicy: input.accessPolicy ?? existing.accessPolicy,
       updatedAt: new Date().toISOString(),
     };
     this.sessions.set(id, updated);

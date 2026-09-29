@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `access_policy` text DEFAULT 'open' NOT NULL;

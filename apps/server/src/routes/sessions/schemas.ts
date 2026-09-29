@@ -38,6 +38,7 @@ export type DeleteResourceQuery = z.infer<typeof deleteResourceQuerySchema>;
 export const updateSessionSchema = z.object({
   name: z.string().optional(),
   archived: z.boolean().optional(),
+  accessPolicy: z.enum(["open", "restricted"]).optional(),
 });
 export type UpdateSessionInput = z.infer<typeof updateSessionSchema>;
 

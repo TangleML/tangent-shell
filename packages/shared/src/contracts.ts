@@ -85,6 +85,16 @@ export interface SessionActivity {
 }
 
 /**
+ * Who may access a session. `open` grants any authenticated user full
+ * participant access (every Conversation, posting, remote-env mint); `restricted`
+ * limits access to the owner and invited members.
+ */
+export type SessionAccessPolicy = "open" | "restricted";
+
+/** Access policy new sessions get, and the fallback when none is resolved. */
+export const DEFAULT_SESSION_ACCESS_POLICY: SessionAccessPolicy = "open";
+
+/**
  * A Pi coding agent session. Each session owns a scoped "root" folder on disk
  * that a Pi worker will eventually run inside (Pi spawn is Phase 2).
  */
@@ -100,6 +110,8 @@ export interface Session {
   user?: UserIdentity;
   /** Whether the session is archived (hidden from the default list). */
   archived: boolean;
+  /** Who may access this session. Defaults to `open` for easy collaboration. */
+  accessPolicy: SessionAccessPolicy;
   /** Attached by the list endpoint; absent when no viewer is resolved. */
   activity?: SessionActivity;
   /** ISO-8601 timestamp. */
@@ -1305,6 +1317,7 @@ export interface CreateSessionRequest {
 export interface UpdateSessionRequest {
   name?: string;
   archived?: boolean;
+  accessPolicy?: SessionAccessPolicy;
 }
 
 /** Response from `POST /api/sessions/:id/files`: the stored attachments. */
