@@ -29,9 +29,9 @@ interface ActiveTasksIndicatorProps {
   sessionId: string;
   busySubagents: BusySubagent[];
   armedTriggers: Trigger[];
-  onOpenAgent: (id: string) => void;
   onAbort: (id: string) => void;
-  onOpenTrigger: (id: string) => void;
+  onOpenAgent?: (id: string) => void;
+  onOpenTrigger?: (id: string) => void;
 }
 
 const SPINNER_SIZE = 12;
@@ -49,8 +49,8 @@ export function ActiveTasksIndicator({
   sessionId,
   busySubagents,
   armedTriggers,
-  onOpenAgent,
   onAbort,
+  onOpenAgent,
   onOpenTrigger,
 }: ActiveTasksIndicatorProps) {
   if (busySubagents.length === 0) return null;
@@ -78,8 +78,9 @@ export function ActiveTasksIndicator({
                   as="li"
                   density="cozy"
                   gap="2"
-                  hoverable
-                  onClick={() => onOpenAgent(agent.id)}
+                  onClick={
+                    onOpenAgent ? () => onOpenAgent(agent.id) : undefined
+                  }
                   prefix={
                     <Box
                       background="success-subtle"
@@ -145,8 +146,11 @@ export function ActiveTasksIndicator({
                     as="li"
                     density="cozy"
                     gap="2"
-                    hoverable
-                    onClick={() => onOpenTrigger(trigger.id)}
+                    onClick={
+                      onOpenTrigger
+                        ? () => onOpenTrigger(trigger.id)
+                        : undefined
+                    }
                     prefix={
                       <Box blockSize="full" paddingInline="sm">
                         <InlineStack fill blockAlign="center" align="center">

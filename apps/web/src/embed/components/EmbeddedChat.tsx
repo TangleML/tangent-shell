@@ -6,6 +6,7 @@ import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import { useEffect } from "react";
 
+import { ActiveTasksIndicator } from "@/features/chat/components/composer/ActiveTasksIndicator";
 import { AgentModelPicker } from "@/features/chat/components/composer/AgentModelPicker";
 import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
 import { ChatInput } from "@/features/chat/components/composer/ChatInput";
@@ -111,6 +112,11 @@ export function EmbeddedChat({
     participants,
   );
 
+  const busySubagents = chat.subagents
+    .filter((s) => chat.isConversationBusy(s.conversationId))
+    .map((s) => ({ id: s.id, name: s.name, conversationId: s.conversationId }));
+  const armedTriggers = chat.triggers.filter((t) => t.enabled);
+
   return (
     <BlockStack fill grow align="stretch" inlineAlign="start">
       <ChatMessageList
@@ -130,7 +136,15 @@ export function EmbeddedChat({
         isMessageStreaming={chat.isMessageStreaming}
       />
       <Box paddingInline="base" paddingBlock="sm">
-        <InlineStack align="end">
+        <InlineStack align="space-between" gap="2">
+          <InlineStack>
+            <ActiveTasksIndicator
+              sessionId={sessionId}
+              busySubagents={busySubagents}
+              armedTriggers={armedTriggers}
+              onAbort={chat.abort}
+            />
+          </InlineStack>
           <AgentModelPicker
             model={primeModel?.model}
             thinkingDepth={primeModel?.thinkingDepth}
