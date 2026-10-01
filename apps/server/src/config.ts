@@ -61,6 +61,18 @@ export const ARTIFACTS_DIRNAME = "artifacts";
  */
 export const UPLOADS_DIRNAME = "uploads";
 
+/** Upper bound on a `file` host-resource's decoded content, enforced at the boundary. */
+export const MAX_FILE_RESOURCE_BYTES = 1024 * 1024; // 1 MiB
+
+/**
+ * Max size of a JSON request body on `/api`. Sized to admit a `file`
+ * host-resource at its {@link MAX_FILE_RESOURCE_BYTES} cap even after JSON
+ * string-escaping inflates it (a byte needing `\uXXXX` costs six), plus slack
+ * for the surrounding envelope. Raises the ceiling for every `/api` route, not
+ * just the resource routes — the accepted tradeoff for a single body parser.
+ */
+export const MAX_JSON_BODY_BYTES = 8 * 1024 * 1024; // 8 MiB
+
 /**
  * Root directory holding the agents' global memory: long-lived facts that apply
  * across every session. It is injected (read-only context) into each session at
