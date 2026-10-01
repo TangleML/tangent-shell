@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,6 +30,9 @@ const { InMemorySessionStore } =
   await import("../../store/inMemorySessionStore.ts");
 const { InMemoryParticipantStore } =
   await import("../../store/inMemoryParticipantStore.ts");
+const { errorHandler } = await import("../../middleware/errorHandler.ts");
+const { MAX_FILE_RESOURCE_BYTES, MAX_JSON_BODY_BYTES, UPLOADS_DIRNAME } =
+  await import("../../config.ts");
 
 const cleanups: (() => void)[] = [];
 after(() => {
@@ -52,7 +61,7 @@ async function serve() {
   });
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: MAX_JSON_BODY_BYTES }));
   const router = Router();
   registerResourceRoutes(router, {
     store: sessions,
@@ -62,6 +71,7 @@ async function serve() {
     emitResourcesUpdated: () => {},
   });
   app.use("/api/sessions", router);
+  app.use(errorHandler);
 
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
@@ -219,4 +229,175 @@ test("DELETE a memory resource clears the store", async () => {
 
   const file = readFileSync(path.join(session.rootPath, "MEMORY.md"), "utf8");
   assert.doesNotMatch(file, /remember-me-secret/);
+});
+
+test("POST a file writes it under uploads/, catalogs it, and lists it", async () => {
+  const { get, post, session, sessionId } = await serve();
+
+  const created = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "config.yaml",
+    content: "annotations: {}\n",
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.resource?.kind, "file");
+  assert.equal(created.json.resource?.uri, "uploads/config.yaml");
+
+  const onDisk = readFileSync(
+    path.join(session.rootPath, UPLOADS_DIRNAME, "config.yaml"),
+    "utf8",
+  );
+  assert.equal(onDisk, "annotations: {}\n");
+
+  const listed = await get(`/${sessionId}/resources`);
+  assert.equal(
+    listed.json.resources.some((r) => r.uri === "uploads/config.yaml"),
+    true,
+  );
+});
+
+test("POST a file with a traversal path is rejected and writes nothing", async () => {
+  const { post, session, sessionId } = await serve();
+
+  const rejected = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "../../MEMORY.md",
+    content: "pwned",
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(existsSync(path.join(session.rootPath, "MEMORY.md")), false);
+});
+
+test("POST a file at path '.' is rejected and leaves uploads/ a directory", async () => {
+  const { post, session, sessionId } = await serve();
+  const uploads = path.join(session.rootPath, UPLOADS_DIRNAME);
+
+  // Seed a real file first so uploads/ exists as a directory.
+  await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "seed.txt",
+    content: "x",
+  });
+
+  const rejected = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: ".",
+    content: "would clobber uploads/",
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(statSync(uploads).isDirectory(), true);
+});
+
+test("POST a file at the byte cap is accepted (the cap is now reachable)", async () => {
+  const { post, sessionId } = await serve();
+
+  const atLimit = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "big.bin",
+    content: "a".repeat(MAX_FILE_RESOURCE_BYTES),
+  });
+  assert.equal(atLimit.status, 201);
+});
+
+test("POST a file over the byte cap is rejected by the schema", async () => {
+  const { post, sessionId } = await serve();
+
+  const overLimit = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "big.bin",
+    content: "a".repeat(MAX_FILE_RESOURCE_BYTES + 1),
+  });
+  assert.equal(overLimit.status, 400);
+});
+
+test("POST a base64 file at the decoded byte cap is accepted", async () => {
+  const { post, sessionId } = await serve();
+
+  const atLimit = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "big.bin",
+    encoding: "base64",
+    content: Buffer.alloc(MAX_FILE_RESOURCE_BYTES).toString("base64"),
+  });
+  assert.equal(atLimit.status, 201);
+});
+
+test("POST a base64 file over the decoded byte cap is rejected", async () => {
+  const { post, sessionId } = await serve();
+
+  const overLimit = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "big.bin",
+    encoding: "base64",
+    content: Buffer.alloc(MAX_FILE_RESOURCE_BYTES + 1).toString("base64"),
+  });
+  assert.equal(overLimit.status, 400);
+});
+
+test("POST a file claiming base64 with a non-base64 string is rejected", async () => {
+  const { post, session, sessionId } = await serve();
+
+  const rejected = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "bad.bin",
+    encoding: "base64",
+    content: "not valid base64!!!",
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(
+    existsSync(path.join(session.rootPath, UPLOADS_DIRNAME, "bad.bin")),
+    false,
+  );
+});
+
+test("POST a base64 file writes the decoded bytes verbatim to disk", async () => {
+  const { post, session, sessionId } = await serve();
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+
+  const created = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "logo.png",
+    encoding: "base64",
+    content: bytes.toString("base64"),
+  });
+  assert.equal(created.status, 201);
+
+  const written = readFileSync(
+    path.join(session.rootPath, UPLOADS_DIRNAME, "logo.png"),
+  );
+  assert.deepEqual(written, bytes);
+});
+
+test("a request body over the JSON limit returns 413, not 500", async () => {
+  const { post, sessionId } = await serve();
+
+  const tooLarge = await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "big.bin",
+    content: "a".repeat(MAX_JSON_BODY_BYTES + 1024),
+  });
+  assert.equal(tooLarge.status, 413);
+});
+
+test("DELETE a file removes its bytes and the rescan does not resurrect it", async () => {
+  const { get, post, del, session, sessionId } = await serve();
+  await post(`/${sessionId}/resources`, {
+    kind: "file",
+    path: "gone.txt",
+    content: "bye",
+  });
+  const onDisk = path.join(session.rootPath, UPLOADS_DIRNAME, "gone.txt");
+  assert.equal(existsSync(onDisk), true);
+
+  const removed = await del(
+    `/${sessionId}/resources?uri=${encodeURIComponent("uploads/gone.txt")}`,
+  );
+  assert.equal(removed.status, 204);
+  assert.equal(existsSync(onDisk), false);
+
+  const listed = await get(`/${sessionId}/resources`);
+  assert.equal(
+    listed.json.resources.some((r) => r.uri === "uploads/gone.txt"),
+    false,
+  );
 });

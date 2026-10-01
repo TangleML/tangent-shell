@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import {
   type AgentActivity,
@@ -23,6 +24,7 @@ import {
   PI_PROVIDER,
   PI_PROXY_URL,
   PI_THINKING,
+  UPLOADS_DIRNAME,
 } from "../config.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
@@ -427,6 +429,7 @@ interface PlaceholderContext {
  */
 const ENV_PLACEHOLDERS: Record<string, (ctx: PlaceholderContext) => string> = {
   workspacePath: (ctx) => ctx.rootPath,
+  uploadsPath: (ctx) => path.join(ctx.rootPath, UPLOADS_DIRNAME),
 };
 
 /**
