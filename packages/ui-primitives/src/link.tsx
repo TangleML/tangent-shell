@@ -5,26 +5,30 @@ import { Icon } from "./icon";
 import { InlineStack } from "./layout";
 import { cn } from "./utils";
 
-const linkVariants = cva("items-center inline-flex cursor-pointer", {
-  variants: {
-    variant: {
-      primary: "text-primary hover:underline",
-      disabled: "text-muted-foreground cursor-not-allowed pointer-events-none",
-      classic: "text-sky-500 hover:text-sky-600 hover:underline",
-      block: "text-inherit",
+const linkVariants = cva(
+  "items-center inline-flex min-w-0 cursor-pointer wrap-anywhere",
+  {
+    variants: {
+      variant: {
+        primary: "text-primary hover:underline",
+        disabled:
+          "text-muted-foreground cursor-not-allowed pointer-events-none",
+        classic: "text-sky-500 hover:text-sky-600 hover:underline",
+        block: "text-inherit",
+      },
+      size: {
+        xs: "text-xs",
+        sm: "text-sm",
+        md: "text-md",
+        lg: "text-lg",
+      },
     },
-    size: {
-      xs: "text-xs",
-      sm: "text-sm",
-      md: "text-md",
-      lg: "text-lg",
+    defaultVariants: {
+      variant: "classic",
+      size: "md",
     },
   },
-  defaultVariants: {
-    variant: "classic",
-    size: "md",
-  },
-});
+);
 
 interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   external?: boolean;

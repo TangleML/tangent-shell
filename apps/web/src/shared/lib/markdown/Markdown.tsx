@@ -168,7 +168,7 @@ function headingToneFor(tone: MarkdownTone): "subdued" | "heading" {
 }
 
 const INLINE_CODE_CLASS =
-  "rounded bg-message-code text-message-code-foreground px-1 py-0.5 text-xs font-mono break-words";
+  "rounded bg-message-code text-message-code-foreground px-1 py-0.5 text-xs font-mono wrap-anywhere";
 
 /**
  * Special link scheme that turns a markdown link into a chat action: clicking it
@@ -680,8 +680,12 @@ function MdCode({ className, children, node }: CodeProps) {
       <CodeBlock
         code={code}
         language={match[1]}
-        showLineNumbers={false}
-        className="my-1 h-auto max-h-64 rounded-md text-xs"
+        className="my-1 rounded-md text-xs"
+        expandKey={
+          messageId
+            ? `code:${messageId}:${node?.position?.start.offset ?? 0}`
+            : undefined
+        }
       />
     );
   }
@@ -712,8 +716,8 @@ const MARKDOWN_COMPONENTS: Components = {
     </blockquote>
   ),
   table: ({ children }) => (
-    <div className="my-2 overflow-x-auto rounded-md border border-message-table-border">
-      <table className="w-full text-xs">{children}</table>
+    <div className="subtle-scrollbar my-2 overflow-x-auto rounded-md border border-message-table-border">
+      <table className="w-full text-xs wrap-normal">{children}</table>
     </div>
   ),
   thead: ({ children }) => (
@@ -768,7 +772,7 @@ export function Markdown({
   };
 
   return (
-    <div className={cn("w-full min-w-0 space-y-2", className)}>
+    <div className={cn("w-full min-w-0 wrap-anywhere space-y-2", className)}>
       <MarkdownOptionsContext.Provider value={options}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
