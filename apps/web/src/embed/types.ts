@@ -34,6 +34,8 @@ export interface NewSessionOptions {
   attachments?: Attachment[];
   /** Resources to seed the session with, applied before the agent spawns. */
   resources?: HostResourceInput[];
+  /** Session-scoped env vars injected into the bundle's agent processes. */
+  env?: Record<string, string>;
 }
 
 export interface NewSessionResult {

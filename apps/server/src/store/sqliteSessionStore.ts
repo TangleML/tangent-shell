@@ -167,6 +167,16 @@ export class SqliteSessionStore implements SessionStore {
     return toSession(row);
   }
 
+  async getSessionEnv(id: string): Promise<Record<string, string> | undefined> {
+    const row = this.db
+      .select({ env: sessions.env })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    if (!row?.env) return undefined;
+    return JSON.parse(row.env) as Record<string, string>;
+  }
+
   async createSession(input: CreateSessionParams): Promise<Session> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -203,6 +213,7 @@ export class SqliteSessionStore implements SessionStore {
         rootPath: session.rootPath,
         status: session.status,
         userIdentity: session.user ? JSON.stringify(session.user) : null,
+        env: input.env ? JSON.stringify(input.env) : null,
         archived: session.archived,
         accessPolicy: session.accessPolicy,
         createdAt: session.createdAt,

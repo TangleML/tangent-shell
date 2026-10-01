@@ -25,6 +25,7 @@ export const createSessionSchema = z.object({
   name: z.string().optional(),
   bundleId: z.string().min(1),
   resources: z.array(hostResourceInputSchema).optional(),
+  env: z.record(z.string(), z.string()).optional(),
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 

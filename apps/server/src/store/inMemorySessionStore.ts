@@ -81,6 +81,8 @@ function mergeAgent(
 
 export class InMemorySessionStore implements SessionStore {
   private readonly sessions = new Map<string, Session>();
+  /** Server-only session env vars, never surfaced on the wire {@link Session}. */
+  private readonly envs = new Map<string, Record<string, string>>();
   private readonly messages = new Map<string, ChatMessage[]>();
   private readonly artifacts = new Map<string, PinnedArtifact[]>();
   private readonly views = new Map<string, Map<string, string>>();
@@ -117,6 +119,10 @@ export class InMemorySessionStore implements SessionStore {
     return this.sessions.get(id);
   }
 
+  async getSessionEnv(id: string): Promise<Record<string, string> | undefined> {
+    return this.envs.get(id);
+  }
+
   async createSession(input: CreateSessionParams): Promise<Session> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -141,6 +147,7 @@ export class InMemorySessionStore implements SessionStore {
     };
 
     this.sessions.set(id, session);
+    if (input.env) this.envs.set(id, input.env);
     this.messages.set(id, []);
     await this.recordAgent(id, {
       id: PRIME_AGENT_ID,
@@ -186,6 +193,7 @@ export class InMemorySessionStore implements SessionStore {
 
   async deleteSession(id: string): Promise<boolean> {
     this.messages.delete(id);
+    this.envs.delete(id);
     for (const key of this.seqs.keys()) {
       if (key.startsWith(`${id}/`)) this.seqs.delete(key);
     }
