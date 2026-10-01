@@ -166,6 +166,12 @@ export interface NewSessionOptions {
    * first turn.
    */
   resources?: HostResourceInput[];
+  /**
+   * Session-scoped environment variables injected into every agent process the
+   * bundle spawns, so its tools and shell commands (e.g. `tangle-deploy`
+   * reading `TANGLE_ROOT_CONFIG`) can read them. Stored server-side only.
+   */
+  env?: Record<string, string>;
 }
 
 export interface NewSessionResult {

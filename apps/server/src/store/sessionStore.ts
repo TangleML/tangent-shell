@@ -28,6 +28,12 @@ export type SessionAgentStatus = SubagentStatus;
 export interface CreateSessionParams {
   name?: string;
   user?: UserIdentity;
+  /**
+   * Session-scoped environment variables injected into every locally-spawned
+   * agent process. Persisted server-side only, never exposed on the wire
+   * {@link Session}.
+   */
+  env?: Record<string, string>;
 }
 
 /**
@@ -122,6 +128,12 @@ export interface SessionStore {
     id: string,
     config: SessionConfigMeta,
   ): Promise<Session | undefined>;
+  /**
+   * The session's server-only environment variables, injected into agent
+   * spawns. Separate from {@link getSession} because they are never part of the
+   * wire {@link Session}.
+   */
+  getSessionEnv(id: string): Promise<Record<string, string> | undefined>;
   deleteSession(id: string): Promise<boolean>;
 
   getMessages(sessionId: string): Promise<ChatMessage[]>;
