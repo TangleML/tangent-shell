@@ -155,6 +155,13 @@
       "when": 1790716697227,
       "tag": "0021_woozy_manta",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790816439897,
+      "tag": "0022_workable_vampiro",
+      "breakpoints": true
     }
   ]
 }

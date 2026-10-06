@@ -37,6 +37,21 @@ test("createSessionSchema rejects blank create requests", () => {
   );
 });
 
+test("createSessionSchema accepts a string env map and rejects non-strings", () => {
+  assert.equal(
+    createSessionSchema.safeParse({
+      bundleId: "tangle",
+      env: { TANGLE_ROOT_CONFIG: "annotations.project=p1" },
+    }).success,
+    true,
+  );
+  assert.equal(
+    createSessionSchema.safeParse({ bundleId: "tangle", env: { COUNT: 1 } })
+      .success,
+    false,
+  );
+});
+
 test("handleCreateSession returns 404 for unknown bundle ids", async () => {
   let createSessionCalled = false;
   let requestedBundleId: string | undefined;

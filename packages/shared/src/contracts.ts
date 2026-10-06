@@ -1312,6 +1312,12 @@ export interface CreateSessionRequest {
    * memory seeds and host entries are standing context from the first turn.
    */
   resources?: HostResourceInput[];
+  /**
+   * Session-scoped environment variables injected into every locally-spawned
+   * agent process (Prime and sub-agents), so a bundle's tools and shell
+   * commands can read them. Stored server-side only.
+   */
+  env?: Record<string, string>;
 }
 
 export interface UpdateSessionRequest {

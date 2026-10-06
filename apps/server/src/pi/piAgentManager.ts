@@ -343,6 +343,24 @@ function resolveEffectiveConfig(
 }
 
 /**
+ * Backfills a session record's standing fields on a later (re)spawn: the
+ * persisted user, bundle config, or env captured once and never overwritten, so
+ * a revive that recovers them fills a record that predates them.
+ */
+function backfillSessionRecord(
+  record: SessionAgents,
+  values: {
+    config: ResolvedSessionConfig | undefined;
+    user: UserIdentity | undefined;
+    env: Record<string, string> | undefined;
+  },
+): void {
+  record.user ??= values.user;
+  record.config ??= values.config;
+  record.env ??= values.env;
+}
+
+/**
  * A persisted roster row is eligible for revive when it is a sub-agent (Prime is
  * handled by {@link PiAgentManager.ensure}) that is not terminal and isn't
  * already live in the in-memory roster, so a reconnect won't double-spawn it.
@@ -362,13 +380,94 @@ function canReviveSubagent(
   return !session.agents.has(agent.id);
 }
 
-/** The environment a spawned Pi process inherits, tagging it with its session. */
+/**
+ * Process-sensitive env keys a session may never set: these alter how the
+ * spawned binary (or its interpreters) load code or resolve paths, so letting a
+ * caller inject them is effectively remote code execution on the host.
+ */
+const UNSAFE_ENV_KEYS = new Set([
+  "PATH",
+  "NODE_OPTIONS",
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  "BASH_ENV",
+  "ENV",
+  "IFS",
+  "PYTHONPATH",
+  "PYTHONSTARTUP",
+]);
+
+/**
+ * Drops keys a session must not control before its env is merged into a spawn:
+ * the process-sensitive {@link UNSAFE_ENV_KEYS} and anything in the reserved
+ * `TANGENT_*` identity namespace. Safe, host-supplied vars pass through.
+ */
+function sanitizeSessionEnv(
+  env: Record<string, string> | undefined,
+): Record<string, string> {
+  if (!env) return {};
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      ([key]) => !UNSAFE_ENV_KEYS.has(key) && !key.startsWith("TANGENT_"),
+    ),
+  );
+}
+
+/** Per-spawn values a session env placeholder may expand to. */
+interface PlaceholderContext {
+  rootPath: string;
+}
+
+/**
+ * Session env placeholders. Each entry maps a `{{name}}` token to a resolver
+ * over the per-spawn {@link PlaceholderContext}. Add a new placeholder by adding
+ * one entry; the expansion logic and call sites need no change.
+ */
+const ENV_PLACEHOLDERS: Record<string, (ctx: PlaceholderContext) => string> = {
+  workspacePath: (ctx) => ctx.rootPath,
+};
+
+/**
+ * Expands `{{name}}` placeholders in sanitized env values against the spawn
+ * context. Each registered token is globally replaced (repeated tokens in one
+ * value all expand); unknown `{{...}}` tokens and keys are left untouched.
+ */
+function expandEnvPlaceholders(
+  env: Record<string, string>,
+  ctx: PlaceholderContext,
+): Record<string, string> {
+  const entries = Object.entries(ENV_PLACEHOLDERS);
+  return Object.fromEntries(
+    Object.entries(env).map(([key, value]) => {
+      const expanded = entries.reduce(
+        (acc, [name, resolve]) => acc.split(`{{${name}}}`).join(resolve(ctx)),
+        value,
+      );
+      return [key, expanded];
+    }),
+  );
+}
+
+/**
+ * The environment a spawned Pi process inherits, tagging it with its session.
+ * The session-scoped `env` is sanitized ({@link sanitizeSessionEnv} strips
+ * process-sensitive keys like `PATH`/`NODE_OPTIONS` and the reserved `TANGENT_*`
+ * namespace), has its `{{...}}` placeholders expanded ({@link
+ * expandEnvPlaceholders}), and is spread first, so the reserved identity and
+ * credential keys that follow always win. A host can add safe vars but never
+ * clobber the internal ones or hijack process loading.
+ */
 function spawnEnv(
   sessionId: string,
   descriptor: AgentDescriptor,
+  ctx: PlaceholderContext,
+  sessionEnv?: Record<string, string>,
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    ...expandEnvPlaceholders(sanitizeSessionEnv(sessionEnv), ctx),
     TANGENT_SESSION_ID: sessionId,
     TANGENT_AGENT_ID: descriptor.agentId,
     TANGENT_AGENT_ROLE: descriptor.role,
@@ -593,6 +692,7 @@ export class PiAgentManager {
     primeOverride?: AgentModelSelection,
     user?: UserIdentity,
     homeConversationId: string = PRIME_AGENT_ID,
+    env?: Record<string, string>,
   ): void {
     const existing = this.sessions.get(sessionId);
     if (existing?.agents.has(PRIME_AGENT_ID)) return;
@@ -609,6 +709,7 @@ export class PiAgentManager {
       rootPath,
       effectiveConfig,
       user,
+      env,
     );
     const primeConfig = session.config?.prime ?? getPrimeAgentConfig();
     this.spawnAgent(
@@ -703,11 +804,11 @@ export class PiAgentManager {
     rootPath: string,
     config: ResolvedSessionConfig | undefined,
     user: UserIdentity | undefined,
+    env: Record<string, string> | undefined,
   ): SessionAgents {
     const existing = this.sessions.get(sessionId);
     if (existing) {
-      if (user && !existing.user) existing.user = user;
-      if (config && !existing.config) existing.config = config;
+      backfillSessionRecord(existing, { config, user, env });
       return existing;
     }
 
@@ -716,6 +817,7 @@ export class PiAgentManager {
       agents: new Map(),
       config,
       user,
+      env,
     };
     this.sessions.set(sessionId, created);
     return created;
@@ -1024,7 +1126,12 @@ export class PiAgentManager {
       buildPiArgs(config, extras, this.spawnPreambles(sessionId, session)),
       {
         cwd: session.rootPath,
-        env: spawnEnv(sessionId, descriptor),
+        env: spawnEnv(
+          sessionId,
+          descriptor,
+          { rootPath: session.rootPath },
+          session.env,
+        ),
         stdio: ["pipe", "pipe", "pipe"],
       },
     ) as ChildProcessWithoutNullStreams;
