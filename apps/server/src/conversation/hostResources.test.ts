@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -173,4 +173,117 @@ test("removing a memory resource clears the store and drops the row", async () =
   const file = readFileSync(path.join(rootPath, "MEMORY.md"), "utf8");
   assert.doesNotMatch(file, /remember-me-secret/);
   assert.equal((await d.catalog.listForSession("sess5")).length, 0);
+});
+
+test("a file input writes under uploads/ (nested) and catalogs a file row", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+
+  const resource = await applyResourceInput(d, "sfile1", rootPath, {
+    kind: "file",
+    path: ".tangle/root-config.yaml",
+    content: "annotations: {}\n",
+  });
+
+  assert.equal(resource.kind, "file");
+  assert.equal(resource.uri, "uploads/.tangle/root-config.yaml");
+  assert.equal(resource.name, "root-config.yaml");
+
+  const written = readFileSync(
+    path.join(rootPath, "uploads", ".tangle", "root-config.yaml"),
+    "utf8",
+  );
+  assert.equal(written, "annotations: {}\n");
+
+  const listed = await d.catalog.listForSession("sfile1");
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].uri, "uploads/.tangle/root-config.yaml");
+});
+
+test("a file input with a traversal path is rejected and writes nothing", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+
+  await assert.rejects(
+    applyResourceInput(d, "sfile2", rootPath, {
+      kind: "file",
+      path: "../../MEMORY.md",
+      content: "pwned",
+    }),
+    /must resolve inside the uploads folder/,
+  );
+
+  assert.equal(existsSync(path.join(rootPath, "MEMORY.md")), false);
+  assert.equal((await d.catalog.listForSession("sfile2")).length, 0);
+});
+
+test("a file input at path '.' is rejected (cannot clobber uploads/ itself)", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+
+  await assert.rejects(
+    applyResourceInput(d, "sfiledot", rootPath, {
+      kind: "file",
+      path: ".",
+      content: "x",
+    }),
+    /must resolve inside the uploads folder/,
+  );
+
+  assert.equal(existsSync(path.join(rootPath, "uploads")), false);
+  assert.equal((await d.catalog.listForSession("sfiledot")).length, 0);
+});
+
+test("re-applying the same file path overwrites and keeps one row", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+
+  await applyResourceInput(d, "sfile3", rootPath, {
+    kind: "file",
+    path: "config.yaml",
+    content: "v1",
+  });
+  await applyResourceInput(d, "sfile3", rootPath, {
+    kind: "file",
+    path: "config.yaml",
+    content: "v2",
+  });
+
+  const written = readFileSync(
+    path.join(rootPath, "uploads", "config.yaml"),
+    "utf8",
+  );
+  assert.equal(written, "v2");
+  assert.equal((await d.catalog.listForSession("sfile3")).length, 1);
+});
+
+test("a base64 file seed round-trips non-UTF-8 bytes to disk", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+
+  await applyResourceInput(d, "sfilebin", rootPath, {
+    kind: "file",
+    path: "logo.png",
+    encoding: "base64",
+    content: bytes.toString("base64"),
+  });
+
+  const written = readFileSync(path.join(rootPath, "uploads", "logo.png"));
+  assert.deepEqual(written, bytes);
+});
+
+test("a file seed does not appear in the host-resources preamble", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+
+  await applyResourceInput(d, "sfile4", rootPath, {
+    kind: "file",
+    path: "root-config.yaml",
+    content: "annotations: {}",
+  });
+
+  const preamble = new HostResourcePreamble(d.catalog);
+  await preamble.refresh("sfile4");
+  assert.equal(preamble.get("sfile4"), "");
 });

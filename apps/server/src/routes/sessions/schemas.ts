@@ -1,10 +1,22 @@
 import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { z } from "zod";
 
+import { MAX_FILE_RESOURCE_BYTES } from "../../config.ts";
+
+/** Decoded size of `content`: `base64` measures the bytes it decodes to. */
+function decodedByteLength(
+  content: string,
+  encoding: "utf8" | "base64",
+): number {
+  return Buffer.byteLength(content, encoding);
+}
+
 /**
- * A resource the host may seed at create or add later. Only `memory` and `host`
- * are host-writable; artifacts, attachments, and files stay on their own
- * mechanisms and are rejected here.
+ * A resource the host may seed at create or add later. `memory`, `host`, and
+ * `file` are host-writable; artifacts and attachments stay on their own
+ * mechanisms and are rejected here. A `file` entry's `path` must be relative and
+ * is resolved inside the session's `uploads/` folder server-side; its `content`
+ * is UTF-8 text unless `encoding` is `base64`, which carries binary losslessly.
  */
 export const hostResourceInputSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -18,6 +30,36 @@ export const hostResourceInputSchema = z.discriminatedUnion("kind", [
     uri: z.string().trim().min(1),
     meta: z.record(z.string(), z.unknown()).optional(),
   }),
+  z
+    .object({
+      kind: z.literal("file"),
+      path: z
+        .string()
+        .trim()
+        .min(1)
+        .refine(
+          (p) =>
+            !/^(?:[/\\]|[a-zA-Z]:)/.test(p) && !p.split(/[/\\]/).includes(".."),
+          "path must be relative and stay inside the session's uploads folder",
+        ),
+      content: z.string(),
+      encoding: z.enum(["utf8", "base64"]).optional(),
+      name: z.string().trim().min(1).optional(),
+      meta: z.record(z.string(), z.unknown()).optional(),
+    })
+    .refine(
+      (v) => v.encoding !== "base64" || z.base64().safeParse(v.content).success,
+      { message: "content must be valid base64", path: ["content"] },
+    )
+    .refine(
+      (v) =>
+        decodedByteLength(v.content, v.encoding ?? "utf8") <=
+        MAX_FILE_RESOURCE_BYTES,
+      {
+        message: `file content exceeds ${MAX_FILE_RESOURCE_BYTES} bytes`,
+        path: ["content"],
+      },
+    ),
 ]);
 export type HostResourceInputBody = z.infer<typeof hostResourceInputSchema>;
 

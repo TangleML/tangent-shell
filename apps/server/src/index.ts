@@ -7,7 +7,7 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
-import { EMBED_ALLOWED_ORIGINS, PORT } from "./config.ts";
+import { EMBED_ALLOWED_ORIGINS, MAX_JSON_BODY_BYTES, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { AdmissionEngine } from "./conversation/admission.ts";
 import { ContextEngine, projectRoom } from "./conversation/context.ts";
@@ -95,7 +95,7 @@ const app = express();
 // Cross-origin embed hosts (allowlisted via EMBED_ALLOWED_ORIGINS) need CORS on
 // /api; runs before body parsing so preflight OPTIONS short-circuit cheaply.
 app.use(createEmbedCors(EMBED_ALLOWED_ORIGINS));
-app.use(express.json());
+app.use(express.json({ limit: MAX_JSON_BODY_BYTES }));
 
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
