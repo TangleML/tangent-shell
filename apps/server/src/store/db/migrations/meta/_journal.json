@@ -148,6 +148,13 @@
       "when": 1788909553747,
       "tag": "0020_stale_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790716697227,
+      "tag": "0021_woozy_manta",
+      "breakpoints": true
     }
   ]
 }

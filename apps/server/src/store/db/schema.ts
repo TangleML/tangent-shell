@@ -32,6 +32,8 @@ export const sessions = sqliteTable("sessions", {
   userIdentity: text("user_identity"),
   /** Whether the session is archived (hidden from the default list). */
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  /** Who may access this session: `open` (default) or `restricted`. */
+  accessPolicy: text("access_policy").notNull().default("open"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

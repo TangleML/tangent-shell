@@ -323,10 +323,11 @@ async function authorizedHistory(
 }
 
 /**
- * The Conversations a socket may receive Messages for. The session owner (its
- * creator, or any human when auth is disabled) sees every Conversation; an
- * invited human sees only the ones it holds a Membership in. This is the D1
- * gate: who receives a Message is derived from Membership and ownership, not
+ * The Conversations a socket may receive Messages for. On an `open` session any
+ * human sees every Conversation. On a `restricted` one, the owner (its creator,
+ * or any human when auth is disabled) sees every Conversation; an invited human
+ * sees only the ones it holds a Membership in. This is the D1 gate: who receives
+ * a Message is derived from the access policy, Membership, and ownership, not
  * from a client-side render filter over one shared room.
  */
 export function authorizedConversations(
@@ -338,7 +339,8 @@ export function authorizedConversations(
   const conversationIds = new Set(
     agents.map((agent) => agent.homeConversationId),
   );
-  if (isSessionOwner(author, session)) return conversationIds;
+  if (session.accessPolicy === "open" || isSessionOwner(author, session))
+    return conversationIds;
 
   const held = new Set<string>();
   for (const membership of memberships)

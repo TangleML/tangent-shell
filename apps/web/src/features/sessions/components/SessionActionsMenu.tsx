@@ -59,6 +59,16 @@ export function SessionActionsMenu({
     close();
   };
 
+  const toggleAccess = () => {
+    updateSession.mutate({
+      id: session.id,
+      input: {
+        accessPolicy: session.accessPolicy === "open" ? "restricted" : "open",
+      },
+    });
+    close();
+  };
+
   const submitRename = (name: string) => {
     const trimmed = name.trim();
     if (!trimmed || trimmed === session.name) {
@@ -98,8 +108,10 @@ export function SessionActionsMenu({
         {view === "menu" ? (
           <MenuView
             archived={session.archived}
+            accessPolicy={session.accessPolicy}
             onRename={() => setView("rename")}
             onToggleArchive={toggleArchive}
+            onToggleAccess={toggleAccess}
             onDelete={() => setView("delete")}
           />
         ) : null}
@@ -125,17 +137,22 @@ export function SessionActionsMenu({
 
 interface MenuViewProps {
   archived: boolean;
+  accessPolicy: Session["accessPolicy"];
   onRename: () => void;
   onToggleArchive: () => void;
+  onToggleAccess: () => void;
   onDelete: () => void;
 }
 
 function MenuView({
   archived,
+  accessPolicy,
   onRename,
   onToggleArchive,
+  onToggleAccess,
   onDelete,
 }: MenuViewProps) {
+  const open = accessPolicy === "open";
   return (
     <BlockStack gap="1">
       <Button
@@ -147,6 +164,16 @@ function MenuView({
       >
         <Icon name="Pencil" size="xs" tone="subdued" />
         Rename
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        align="start"
+        fullWidth
+        onClick={onToggleAccess}
+      >
+        <Icon name={open ? "Lock" : "Users"} size="xs" tone="subdued" />
+        {open ? "Make private" : "Make open"}
       </Button>
       <Button
         variant="ghost"

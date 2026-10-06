@@ -94,6 +94,7 @@ test("minting a remote-env token 404s for an unknown session", async () => {
 test("an invited member can mint, not just the session owner", async () => {
   const store = new InMemorySessionStore();
   const session = await store.createSession({ name: "Owned", user: USER });
+  await store.updateSession(session.id, { accessPolicy: "restricted" });
   const scoped = new ScopedTokenCredential("signing-secret");
   const response = new TestResponse();
 
@@ -113,9 +114,10 @@ test("an invited member can mint, not just the session owner", async () => {
   assert.equal(claims.sub, "guest@example.com");
 });
 
-test("a non-member with only the session id cannot mint", async () => {
+test("a non-member with only the session id cannot mint on a restricted session", async () => {
   const store = new InMemorySessionStore();
   const session = await store.createSession({ name: "Owned", user: USER });
+  await store.updateSession(session.id, { accessPolicy: "restricted" });
   const scoped = new ScopedTokenCredential("signing-secret");
   const response = new TestResponse();
 
@@ -130,6 +132,28 @@ test("a non-member with only the session id cannot mint", async () => {
 
   assert.equal(response.statusCode, 403);
   assert.deepEqual(response.body, { error: "Forbidden" });
+});
+
+test("a non-member can mint on an open session", async () => {
+  const store = new InMemorySessionStore();
+  const session = await store.createSession({ name: "Owned", user: USER });
+  const scoped = new ScopedTokenCredential("signing-secret");
+  const response = new TestResponse();
+
+  await handleMintRemoteEnvToken(
+    store,
+    scoped,
+    validatedRequest(session.id, "stranger@example.com"),
+    response as unknown as Response,
+    () => false,
+    () => Promise.resolve(false),
+  );
+
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { token: string };
+  const claims = scoped.parse(body.token);
+  assert.ok(claims);
+  assert.equal(claims.sub, "stranger@example.com");
 });
 
 test("minting a remote-env token succeeds when the caller owns the session", async () => {
