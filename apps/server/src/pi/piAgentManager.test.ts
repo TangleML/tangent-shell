@@ -48,6 +48,7 @@ class FakeChild extends EventEmitter {
 interface SpawnRecord {
   args: string[];
   agentId: string | undefined;
+  env: NodeJS.ProcessEnv | undefined;
   child: FakeChild;
 }
 
@@ -80,6 +81,7 @@ function makeManager(): {
     spawns.push({
       args,
       agentId: options?.env?.TANGENT_AGENT_ID,
+      env: options?.env,
       child,
     });
     return child as unknown as ChildProcessWithoutNullStreams;
@@ -448,4 +450,106 @@ test("an intentional kill is not auto-respawned", () => {
 
   assert.equal(spawns.length, 2, "no respawn after an intentional kill");
   assert.equal(pi.hasAgent("s1", info.id), false);
+});
+
+test("session env is injected into Prime and inherited by sub-agents", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
+    TANGLE_ROOT_CONFIG: "annotations.project=p1",
+  });
+
+  assert.equal(
+    spawns[0].env?.TANGLE_ROOT_CONFIG,
+    "annotations.project=p1",
+    "Prime's process env carries the session var",
+  );
+
+  pi.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(
+    spawns[1].env?.TANGLE_ROOT_CONFIG,
+    "annotations.project=p1",
+    "a sub-agent inherits the same session var",
+  );
+});
+
+test("{{workspacePath}} in session env expands to the session root", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
+    TANGLE_ROOT_CONFIG: "{{workspacePath}}/.tangle/root-config.yaml",
+    PLAIN_VAR: "no placeholder here",
+    UNKNOWN_TOKEN: "{{unknownToken}}/x",
+  });
+
+  assert.equal(
+    spawns[0].env?.TANGLE_ROOT_CONFIG,
+    "/tmp/s1/.tangle/root-config.yaml",
+    "Prime's env resolves {{workspacePath}} to the session root",
+  );
+  assert.equal(
+    spawns[0].env?.PLAIN_VAR,
+    "no placeholder here",
+    "a value without a placeholder is unchanged",
+  );
+  assert.equal(
+    spawns[0].env?.UNKNOWN_TOKEN,
+    "{{unknownToken}}/x",
+    "an unknown placeholder is left verbatim",
+  );
+
+  pi.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(
+    spawns[1].env?.TANGLE_ROOT_CONFIG,
+    "/tmp/s1/.tangle/root-config.yaml",
+    "a sub-agent inherits the same expanded value",
+  );
+});
+
+test("session env cannot clobber reserved TANGENT_* keys", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
+    TANGENT_SESSION_ID: "evil",
+    TANGENT_AGENT_ID: "evil",
+    SAFE_VAR: "ok",
+  });
+
+  assert.equal(
+    spawns[0].env?.TANGENT_SESSION_ID,
+    "s1",
+    "the reserved session id wins over a host-supplied one",
+  );
+  assert.equal(
+    spawns[0].env?.TANGENT_AGENT_ID,
+    PRIME_AGENT_ID,
+    "the reserved agent id wins over a host-supplied one",
+  );
+  assert.equal(spawns[0].env?.SAFE_VAR, "ok", "non-reserved vars pass through");
+});
+
+test("session env cannot inject process-sensitive keys", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
+    NODE_OPTIONS: "--require=/evil.js",
+    LD_PRELOAD: "/evil.so",
+    PATH: "/evil/bin",
+    TANGENT_AGENT_ROLE: "prime",
+    TANGLE_ROOT_CONFIG: "annotations.project=p1",
+  });
+
+  assert.notEqual(
+    spawns[0].env?.NODE_OPTIONS,
+    "--require=/evil.js",
+    "NODE_OPTIONS cannot be hijacked",
+  );
+  assert.equal(spawns[0].env?.LD_PRELOAD, undefined, "LD_PRELOAD is stripped");
+  assert.notEqual(spawns[0].env?.PATH, "/evil/bin", "PATH cannot be hijacked");
+  assert.equal(
+    spawns[0].env?.TANGENT_AGENT_ROLE,
+    "prime",
+    "the reserved role wins over a host-supplied one",
+  );
+  assert.equal(
+    spawns[0].env?.TANGLE_ROOT_CONFIG,
+    "annotations.project=p1",
+    "safe vars still pass through",
+  );
 });

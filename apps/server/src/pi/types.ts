@@ -206,6 +206,13 @@ export interface SessionAgents {
    * unauthenticated sessions.
    */
   user?: UserIdentity;
+  /**
+   * Session-scoped environment variables merged into every agent spawn's
+   * process environment (behind the reserved `TANGENT_*` keys). Supplied at
+   * create and reloaded from the store on revive. Absent for sessions created
+   * without any.
+   */
+  env?: Record<string, string>;
 }
 
 /** A single delta payload nested inside a `message_update` event. */
