@@ -3,6 +3,7 @@ import { Text } from "@tangent/ui-primitives/typography";
 import { Link } from "@tanstack/react-router";
 
 import { UserAvatar } from "@/features/user/components/UserAvatar";
+import { UserInitialsBadge } from "@/features/user/components/UserInitialsBadge";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
 
@@ -17,6 +18,7 @@ import { ThemeMenu } from "./ThemeMenu";
  */
 export function AppTopNav() {
   const user = useCurrentUser();
+  const fullName = `${user.first_name} ${user.last_name}`.trim();
   return (
     <TopNav
       brand={
@@ -39,7 +41,11 @@ export function AppTopNav() {
       actions={
         <>
           <ThemeMenu />
-          <UserAvatar user={user} />
+          <UserAvatar
+            email={user.email}
+            name={fullName}
+            fallback={<UserInitialsBadge user={user} />}
+          />
         </>
       }
     />
