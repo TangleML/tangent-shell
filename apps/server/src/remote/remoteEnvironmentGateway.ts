@@ -405,6 +405,7 @@ export class RemoteEnvironmentGateway {
       agentId,
       completed ? "completed" : "cancelled",
     );
+    this.clearActivity(sessionId, subagent);
     this.emitToEnvironment(subagent.environmentId, RemoteEnvEvents.Kill, {
       sessionId,
       agentId,
@@ -549,6 +550,20 @@ export class RemoteEnvironmentGateway {
       name: subagent.name,
       homeConversationId: subagent.homeConversationId,
     };
+  }
+
+  /**
+   * Clears the sub-agent's ephemeral activity indicator. The protocol has no
+   * run-end event, so a settled run never streams the `activity: null` that a
+   * local agent's {@link import("../pi/piAgentManager.ts").PiAgentManager}
+   * emits on `agent_end` — without it a last tool activity (e.g.
+   * "Running send_to_prime") lingers as a busy spinner after the agent stops.
+   */
+  private clearActivity(sessionId: string, subagent: RemoteSubagent): void {
+    this.handlers.onAgentEvent(sessionId, this.descriptorFor(subagent), {
+      type: "activity",
+      activity: null,
+    });
   }
 
   /** Creates the `/remote-env` namespace with auth + connection handlers. */
@@ -833,6 +848,7 @@ export class RemoteEnvironmentGateway {
         payload.agentId,
         payload.status === "completed" ? "completed" : "failed",
       );
+      this.clearActivity(payload.sessionId, subagent);
     }
     this.handlers.onSubagentUpdate(payload.sessionId, toInfo(subagent));
   }
@@ -936,6 +952,7 @@ export class RemoteEnvironmentGateway {
       subagent.status = "detached";
       // The far side is gone mid-work: the Run stopped without finishing.
       this.runs.settleOpenFor(sessionId, subagent.agentId, "failed");
+      this.clearActivity(sessionId, subagent);
       this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
     }
   }
