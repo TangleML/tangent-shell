@@ -1,7 +1,10 @@
 import type { AgentActivity, AgentRole } from "@tangent/shared/contracts";
+import { Box } from "@tangent/ui-primitives/box";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Spinner } from "@tangent/ui-primitives/spinner";
 import { Text } from "@tangent/ui-primitives/typography";
+
+import { Truncating } from "@/shared/ui/patterns/truncating";
 
 import { MessageAvatar } from "./MessageAvatar";
 import { MessageLayout } from "./MessageLayout";
@@ -34,11 +37,15 @@ export function AgentActivityBubble({
         <MessageAvatar kind="agent" name={authorName} agentRole={authorRole} />
       }
     >
-      <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-        <Spinner size={SPINNER_SIZE} />
-        <Text size="sm" tone="subdued">
-          {activity.label}
-        </Text>
+      <InlineStack gap="2" blockAlign="start" wrap="nowrap">
+        <Box paddingBlockStart="xs">
+          <Spinner size={SPINNER_SIZE} />
+        </Box>
+        <Truncating>
+          <Text size="sm" tone="subdued" wrap="break-anywhere">
+            {activity.label}
+          </Text>
+        </Truncating>
       </InlineStack>
     </MessageLayout>
   );

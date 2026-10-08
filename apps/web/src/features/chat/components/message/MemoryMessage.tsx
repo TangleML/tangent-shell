@@ -6,8 +6,8 @@ import { Text } from "@tangent/ui-primitives/typography";
 
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
+import { ExpandableBlock } from "@/shared/ui/patterns/expandable-block";
 
-import { ClampedReveal } from "./ClampedReveal";
 import { HeaderCollapseButton } from "./HeaderCollapseButton";
 import { MessageAvatar } from "./MessageAvatar";
 import { MessageLayout } from "./MessageLayout";
@@ -51,11 +51,11 @@ export function MemoryMessage({
         </InlineStack>
       }
     >
-      <ClampedReveal>
+      <ExpandableBlock noun="note" persistKey={`memory:${message.id}`}>
         <Markdown size="sm" tone="subdued" sessionId={sessionId}>
           {message.content}
         </Markdown>
-      </ClampedReveal>
+      </ExpandableBlock>
     </MessageLayout>
   );
 }

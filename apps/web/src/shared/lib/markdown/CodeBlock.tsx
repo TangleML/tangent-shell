@@ -6,12 +6,14 @@ import { Highlight, themes } from "prism-react-renderer";
 import { memo, useState } from "react";
 
 import { cn } from "@/shared/lib/utils";
+import { ExpandableBlock } from "@/shared/ui/patterns/expandable-block";
 
 interface CodeBlockProps {
   code: string;
   language: string;
   showLineNumbers?: boolean;
   className?: string;
+  expandKey?: string;
 }
 
 // Map common language aliases to Prism language identifiers.
@@ -40,6 +42,7 @@ const CodeBlock = memo(function CodeBlock({
   language,
   showLineNumbers = false,
   className,
+  expandKey,
 }: CodeBlockProps) {
   const prismLanguage = languageMap[language.toLowerCase()] ?? language;
   const [copied, setCopied] = useState(false);
@@ -65,50 +68,52 @@ const CodeBlock = memo(function CodeBlock({
       >
         <Icon name={copied ? "Check" : "Copy"} size="xs" />
       </button>
-      <Highlight
-        theme={themes.vsDark}
-        code={code.trim()}
-        language={prismLanguage}
-      >
-        {({
-          className: prismClassName,
-          style,
-          tokens,
-          getLineProps,
-          getTokenProps,
-        }) => (
-          <pre
-            className={cn(
-              prismClassName,
-              "h-full w-full overflow-auto m-0 p-3 text-sm font-mono",
-              className,
-            )}
-            style={style}
-          >
-            {tokens.map((line, i) => {
-              const lineProps = getLineProps({ line, key: i });
-              return (
-                <div
-                  key={i}
-                  {...lineProps}
-                  className={cn(lineProps.className, "table-row")}
-                >
-                  {showLineNumbers && (
-                    <span className="table-cell pr-4 text-right select-none opacity-50 text-xs">
-                      {i + 1}
+      <ExpandableBlock clamp="md" persistKey={expandKey}>
+        <Highlight
+          theme={themes.vsDark}
+          code={code.trim()}
+          language={prismLanguage}
+        >
+          {({
+            className: prismClassName,
+            style,
+            tokens,
+            getLineProps,
+            getTokenProps,
+          }) => (
+            <pre
+              className={cn(
+                prismClassName,
+                "subtle-scrollbar w-full overflow-x-auto overflow-y-hidden m-0 p-3 text-sm font-mono",
+                className,
+              )}
+              style={style}
+            >
+              {tokens.map((line, i) => {
+                const lineProps = getLineProps({ line, key: i });
+                return (
+                  <div
+                    key={i}
+                    {...lineProps}
+                    className={cn(lineProps.className, "table-row")}
+                  >
+                    {showLineNumbers && (
+                      <span className="table-cell pr-4 text-right select-none opacity-50 text-xs">
+                        {i + 1}
+                      </span>
+                    )}
+                    <span className="table-cell">
+                      {line.map((token, key) => (
+                        <span key={key} {...getTokenProps({ token, key })} />
+                      ))}
                     </span>
-                  )}
-                  <span className="table-cell">
-                    {line.map((token, key) => (
-                      <span key={key} {...getTokenProps({ token, key })} />
-                    ))}
-                  </span>
-                </div>
-              );
-            })}
-          </pre>
-        )}
-      </Highlight>
+                  </div>
+                );
+              })}
+            </pre>
+          )}
+        </Highlight>
+      </ExpandableBlock>
     </div>
   );
 });
