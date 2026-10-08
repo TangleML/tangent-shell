@@ -15,6 +15,21 @@ export function isThinkingOnly(message: ChatMessage): boolean {
 }
 
 /**
+ * An agent message with no payload at all — no answer text, no reasoning, no
+ * attachments. Prime occasionally emits these (e.g. when a workflow or bundle
+ * yields nothing), so they collapse by default in the transcript.
+ */
+export function isEmptyMessage(message: ChatMessage): boolean {
+  return (
+    message.author.kind === "agent" &&
+    !message.content.trim() &&
+    !message.thinking?.trim() &&
+    !message.attachments?.length &&
+    !message.memory
+  );
+}
+
+/**
  * Whether an agent's reasoning phase is finished: either some answer content has
  * arrived, or the message is no longer streaming.
  */
