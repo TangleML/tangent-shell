@@ -525,6 +525,10 @@ class SessionChatRoom {
         }
         this.agentByConversation.set(subagent.conversationId, subagent.id);
         this.statuses.set(subagent.id, subagent.status);
+        // An agent that is no longer active cannot be mid-activity: drop any
+        // lingering indicator so a terminated/detached agent never reads busy
+        // (the server may not stream the `activity: null` a local agent emits).
+        if (subagent.status !== "active") this.activities.delete(subagent.id);
         this.publish(subagent.id);
         this.patch((prev) => {
           const conversationByAgent = new Map(prev.conversationByAgent).set(
@@ -537,11 +541,15 @@ class SessionChatRoom {
           });
           const next = prev.subagents.filter((s) => s.id !== subagent.id);
           next.push(subagent);
+          const activityByConversation = new Map(prev.activityByConversation);
+          if (subagent.status !== "active")
+            activityByConversation.delete(subagent.conversationId);
           return {
             ...prev,
             conversationByAgent,
             modelByAgent,
             subagents: next,
+            activityByConversation,
           };
         });
       },
