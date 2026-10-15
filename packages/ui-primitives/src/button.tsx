@@ -61,7 +61,7 @@ const buttonVariants = cva(
         false: "",
       },
       truncate: {
-        true: "[&>span]:truncate min-w-0",
+        true: "[&>span]:truncate min-w-0 shrink",
         false: "",
       },
     },
