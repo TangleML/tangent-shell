@@ -296,15 +296,18 @@ export default function PipelineProgress() {
   return (
     <Card density="compact">
       <CardHeader>
-        <InlineStack gap="1" blockAlign="center" align="start">
+        <InlineStack gap="1" blockAlign="center" align="start" wrap="nowrap">
           <Icon name="GitBranch" />
           <Button
             variant="link"
             size="sm"
+            truncate
             onPress={openPipeline}
             disabled={!pipelinePath}
           >
-            {displayTitle}
+            <Text truncate title={displayTitle}>
+              {displayTitle}
+            </Text>
             <Icon name="ExternalLink" size="xs" />
           </Button>
         </InlineStack>

@@ -9,6 +9,8 @@ export const attributes = z.object({
   size: z.enum(TEXT_SIZE).optional().catch(undefined),
   tone: z.enum(TEXT_TONE).optional().catch(undefined),
   weight: z.enum(TEXT_WEIGHT).optional().catch(undefined),
+  truncate: z.boolean().optional().catch(undefined),
+  title: z.string().optional().catch(undefined),
 });
 
 export const events: RemoteEvents = {};
