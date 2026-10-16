@@ -20,6 +20,7 @@ import {
   type Participant,
   participantFromAgent,
   type ParticipantStore,
+  presenceForStatus,
   sessionAgentFromParticipant,
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
@@ -345,11 +346,12 @@ export class InMemorySessionStore implements SessionStore {
   ): Promise<void> {
     const existing = await this.participants.get(sessionId, agentId);
     if (existing?.kind !== "agent" || !existing.agent) return;
-    // Presence tracks the roster's lifecycle exactly as the SQLite store does: a
-    // detached far end is detached, everything else reachable.
+    // Presence tracks the roster's lifecycle exactly as the SQLite store does:
+    // only an active far end is reachable; a detached one and every terminal
+    // status are gone.
     await this.participants.put({
       ...existing,
-      presence: status === "detached" ? "detached" : "connected",
+      presence: presenceForStatus(status),
       agent: { ...existing.agent, status },
     });
   }
@@ -376,6 +378,20 @@ export class InMemorySessionStore implements SessionStore {
       }
     }
     return detached;
+  }
+
+  async syncAgentPresence(): Promise<number> {
+    let changed = 0;
+    for (const sessionId of this.homeConversations.keys()) {
+      for (const row of await this.agentRowsFor(sessionId)) {
+        if (!row.agent) continue;
+        const presence = presenceForStatus(row.agent.status);
+        if (row.presence === presence) continue;
+        changed += 1;
+        await this.participants.put({ ...row, presence });
+      }
+    }
+    return changed;
   }
 
   async listAgentsForEnvironment(

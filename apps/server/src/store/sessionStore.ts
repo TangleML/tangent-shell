@@ -195,6 +195,15 @@ export interface SessionStore {
    */
   detachActiveSubagents(): Promise<number>;
   /**
+   * Resyncs every agent row's presence from its status, returning how many
+   * changed. Corrects rows persisted before terminal statuses stopped reading as
+   * `connected`: a `completed` / `killed` / `error`ed agent kept for its
+   * transcript attributions must no longer show as present. Run at boot, after
+   * {@link detachActiveSubagents}, so an active-but-dead row has already been
+   * detached before its presence is reconciled.
+   */
+  syncAgentPresence(): Promise<number>;
+  /**
    * Every sub-agent row hosted by one remote environment, across sessions, so a
    * reconnecting environment can have its roster replayed. Rows written before
    * the connector columns existed carry no environment id and never match.

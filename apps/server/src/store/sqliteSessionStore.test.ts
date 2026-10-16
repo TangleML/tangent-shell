@@ -504,24 +504,36 @@ test("setAgentStatus detaches the agent participant's status and presence", asyn
   assert.equal(detached?.presence, "detached");
 });
 
-test("setAgentStatus to a non-detached status keeps the far end reachable", async () => {
+test("setAgentStatus to a terminal status detaches the gone far end", async () => {
   const db = openDb(":memory:");
   const participants = new SqliteParticipantStore(db);
   const store = new SqliteSessionStore(db);
   const session = await store.createSession({ name: "S" });
   await store.recordAgent(session.id, {
-    id: "sub-1",
+    id: "sub-done",
+    role: "subagent",
+    name: "Worker",
+  });
+  await store.recordAgent(session.id, {
+    id: "sub-killed",
     role: "subagent",
     name: "Worker",
   });
 
-  // Matches the read-time mapping the roster projection used before C.2:
-  // everything but a detached far end is `connected`.
-  await store.setAgentStatus(session.id, "sub-1", "completed");
+  // A terminal agent is gone: its row is kept for transcript attribution, but it
+  // must not read as present.
+  await store.setAgentStatus(session.id, "sub-done", "completed");
+  await store.setAgentStatus(session.id, "sub-killed", "killed");
 
-  const completed = await participants.get(session.id, "sub-1");
-  assert.equal(completed?.agent?.status, "completed");
-  assert.equal(completed?.presence, "connected");
+  const completed = await participants.get(session.id, "sub-done");
+  assert.ok(completed);
+  assert.equal(completed.agent?.status, "completed");
+  assert.equal(completed.presence, "detached");
+
+  const killed = await participants.get(session.id, "sub-killed");
+  assert.ok(killed);
+  assert.equal(killed.agent?.status, "killed");
+  assert.equal(killed.presence, "detached");
 });
 
 test("detachActiveSubagents flips live sub-agents in the participant roster", async () => {
@@ -540,6 +552,45 @@ test("detachActiveSubagents flips live sub-agents in the participant roster", as
   const sub = await participants.get(session.id, "sub-1");
   assert.equal(sub?.agent?.status, "detached");
   assert.equal(sub?.presence, "detached");
+});
+
+test("syncAgentPresence detaches terminal rows left reading as connected", async () => {
+  const db = openDb(":memory:");
+  const participants = new SqliteParticipantStore(db);
+  const store = new SqliteSessionStore(db);
+  const session = await store.createSession({ name: "S" });
+  await store.recordAgent(session.id, {
+    id: "live",
+    role: "subagent",
+    name: "Live",
+    status: "active",
+  });
+  await store.recordAgent(session.id, {
+    id: "done",
+    role: "subagent",
+    name: "Done",
+    status: "active",
+  });
+
+  // Simulate a row written before terminal statuses stopped reading as present:
+  // status is terminal but presence still says connected.
+  db.run(
+    sql`UPDATE participants SET presence = 'connected', agent_payload = json_set(agent_payload, '$.status', 'completed') WHERE id = 'done'`,
+  );
+
+  // Only the stale terminal row changes; the active one is already correct.
+  assert.equal(await store.syncAgentPresence(), 1);
+  assert.equal(
+    (await participants.get(session.id, "done"))?.presence,
+    "detached",
+  );
+  assert.equal(
+    (await participants.get(session.id, "live"))?.presence,
+    "connected",
+  );
+
+  // Idempotent: a second pass has nothing left to fix.
+  assert.equal(await store.syncAgentPresence(), 0);
 });
 
 test("listAgents returns only agent participants, not humans", async () => {

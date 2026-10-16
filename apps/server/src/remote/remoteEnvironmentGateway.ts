@@ -62,6 +62,16 @@ const MAX_ROOM_LIMIT = 200;
 /** How long a remote tool call waits for the environment's ack before failing. */
 const TOOL_CALL_TIMEOUT_MS = 30_000;
 
+/** How often the defensive sweep reaps environments whose socket is gone. */
+const ENV_SWEEP_INTERVAL_MS = 20_000;
+
+/**
+ * How long an environment may go without a received packet or heartbeat before
+ * it is treated as dead. Must exceed `pingInterval + pingTimeout` so a healthy
+ * but idle host (whose pong lands every ping cycle) is never falsely reaped.
+ */
+const ENV_IDLE_TTL_MS = 60_000;
+
 /** One message to deliver to one remote sub-agent. */
 export interface RemoteSendOptions {
   sessionId: string;
@@ -88,6 +98,12 @@ interface RemoteEnvConnection {
   tools: Map<string, RemoteToolDef>;
   /** Monotonic connection order, so the most recent of a person's hosts wins. */
   seq: number;
+  /**
+   * When the far end last proved it was alive — bumped on every received packet
+   * and heartbeat (pong). A half-open socket stops producing these while still
+   * reporting `connected`, so idle past the TTL is the only reliable "dead" tell.
+   */
+  lastSeenAt: number;
 }
 
 /** Looks up a session's installed bundle config for remote spawn resolution. */
@@ -215,6 +231,12 @@ export class RemoteEnvironmentGateway {
     this.scoped = scoped;
     this.sessionConfig = sessionConfig;
     this.setupNamespace();
+    // Defensive reaper for a socket whose `disconnect` never fired; unref'd so it
+    // never keeps the process alive.
+    setInterval(
+      () => this.evictDisconnected(),
+      ENV_SWEEP_INTERVAL_MS,
+    ).unref?.();
   }
 
   /**
@@ -641,19 +663,22 @@ export class RemoteEnvironmentGateway {
     const sessionId = socketDataString(socket, "sessionId");
     const sub = socketDataString(socket, "sub");
 
-    this.environments.set(environmentId, {
+    const connection: RemoteEnvConnection = {
       environmentId,
       sessionId,
       sub,
       socket,
       tools: new Map(),
       seq: ++this.connectSeq,
-    });
+      lastSeenAt: Date.now(),
+    };
+    this.environments.set(environmentId, connection);
     if (sub) this.environmentOwners.set(environmentId, sub);
     console.log(
       `[remote-env] connected: ${environmentId} session=${sessionId ?? "unscoped"} socket=${socket.id}`,
     );
 
+    this.trackLiveness(connection);
     this.wireInbound(socket, sessionId);
     socket.on("disconnect", () => this.onDisconnect(environmentId, socket));
 
@@ -956,10 +981,60 @@ export class RemoteEnvironmentGateway {
     callback({ messages: all.slice(-clampLimit(request.limit)) });
   }
 
-  /** Drops a disconnected environment and detaches its sub-agents. */
+  /**
+   * Bumps {@link RemoteEnvConnection.lastSeenAt} on every packet and heartbeat
+   * the far end sends, so {@link evictDisconnected} can tell a live-but-idle host
+   * (whose pong keeps landing) from a half-open one that has gone silent. Reads
+   * the low-level engine socket defensively: a test double has no `conn`.
+   */
+  private trackLiveness(connection: RemoteEnvConnection): void {
+    const engine = (
+      connection.socket as unknown as {
+        conn?: { on?: (event: string, listener: () => void) => void };
+      }
+    ).conn;
+    if (!engine?.on) return;
+    const bump = (): void => {
+      connection.lastSeenAt = Date.now();
+    };
+    engine.on("packet", bump);
+    engine.on("heartbeat", bump);
+  }
+
+  /**
+   * Reaps dead environments: a socket already reporting gone (a missed or
+   * late `disconnect`), and a half-open one that still reports `connected` but
+   * has produced no packet or heartbeat within {@link ENV_IDLE_TTL_MS}. The
+   * normal path is {@link onDisconnect}; this catches what it missed so a dead
+   * host cannot linger in the roster with a green dot. Force-closing an idle
+   * socket fires `disconnect`, which drops it through the same path; an
+   * already-closed one is dropped here directly. Safe to mutate mid-iteration: a
+   * Map's iterator tolerates removing the current entry.
+   */
+  evictDisconnected(): void {
+    const now = Date.now();
+    for (const [environmentId, environment] of this.environments) {
+      if (environment.socket.connected) {
+        if (now - environment.lastSeenAt <= ENV_IDLE_TTL_MS) continue;
+        console.log(
+          `[remote-env] force-closing idle environment: ${environmentId}`,
+        );
+        environment.socket.disconnect(true);
+        continue;
+      }
+      console.log(`[remote-env] sweeping stale environment: ${environmentId}`);
+      this.dropEnvironment(environmentId);
+    }
+  }
+
+  /**
+   * Drops a disconnected environment and detaches its sub-agents. Skips a row the
+   * sweep already removed or a newer connection replaced, so a force-close
+   * followed by its own `disconnect` cannot drop the environment twice.
+   */
   private onDisconnect(environmentId: string, socket: Socket): void {
     const current = this.environments.get(environmentId);
-    if (current?.socket && current.socket !== socket) return;
+    if (!current || current.socket !== socket) return;
     this.dropEnvironment(environmentId);
   }
 

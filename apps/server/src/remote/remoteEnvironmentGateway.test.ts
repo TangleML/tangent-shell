@@ -945,3 +945,53 @@ test("environment changes are broadcast and reflected in the list", async () => 
   assert.equal(updates(), 4, "disconnect");
   assert.deepEqual(h.gateway.listEnvironments("s1"), []);
 });
+
+test("evictDisconnected reaps an environment whose socket died without a disconnect", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+  h.gateway.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(h.gateway.listEnvironments("s1").length, 1);
+
+  // A half-open socket the ping timeout closed without firing `disconnect`: the
+  // env is still in the roster but its socket reports gone.
+  const environments = (
+    h.gateway as unknown as {
+      environments: Map<string, { socket: { connected: boolean } }>;
+    }
+  ).environments;
+  const stale = environments.get("env-1");
+  assert.ok(stale);
+  stale.socket.connected = false;
+
+  h.gateway.evictDisconnected();
+
+  assert.deepEqual(h.gateway.listEnvironments("s1"), []);
+  assert.equal(h.gateway.listSubagents("s1")[0].status, "detached");
+});
+
+test("evictDisconnected force-closes an idle environment whose socket still reports connected", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+  h.gateway.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(h.gateway.listEnvironments("s1").length, 1);
+
+  // A half-open socket: still "connected", but no packet/heartbeat for ages.
+  const environments = (
+    h.gateway as unknown as {
+      environments: Map<
+        string,
+        { socket: { connected: boolean }; lastSeenAt: number }
+      >;
+    }
+  ).environments;
+  const stale = environments.get("env-1");
+  assert.ok(stale);
+  assert.equal(stale.socket.connected, true);
+  stale.lastSeenAt = Date.now() - 10 * 60_000;
+
+  h.gateway.evictDisconnected();
+
+  // Force-close fired `disconnect`, which dropped it through the normal path.
+  assert.deepEqual(h.gateway.listEnvironments("s1"), []);
+  assert.equal(h.gateway.listSubagents("s1")[0].status, "detached");
+});
