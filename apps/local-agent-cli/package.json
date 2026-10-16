@@ -1,0 +1,26 @@
+{
+  "name": "tangent-local-agent-cli",
+  "version": "0.0.1",
+  "description": "Headless Tangent local agent: host Tangent sub-agents locally with pi.",
+  "private": true,
+  "type": "module",
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "lint": "eslint .",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@tangent/local-agent-host": "workspace:*"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "@types/node": "^25.9.1",
+    "esbuild": "0.28.0",
+    "eslint": "^10.4.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}
