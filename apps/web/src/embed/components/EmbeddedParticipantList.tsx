@@ -3,6 +3,7 @@ import { Box } from "@tangent/ui-primitives/box";
 
 import { ParticipantList } from "@/features/chat/components/sidebar/participants/ParticipantList";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
+import { useSessionEnvironments } from "@/features/chat/hooks/useSessionEnvironments";
 import {
   useMuteMembership,
   useSessionParticipants,
@@ -35,12 +36,14 @@ export function EmbeddedParticipantList({
 
   const { data: participants = [] } = useSessionParticipants(sessionId);
   const muteMembership = useMuteMembership(sessionId);
+  const { data: environments = [] } = useSessionEnvironments(sessionId);
 
   return (
     <ScrollRegion>
       <Box inlineSize="full">
         <ParticipantList
           participants={participants}
+          environments={environments}
           activeConversationId={activeConversationId}
           currentUserId={chat.currentAuthorId}
           onToggleMute={(participantId, conversationId, muted) => {

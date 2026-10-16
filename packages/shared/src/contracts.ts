@@ -1009,6 +1009,29 @@ export interface ListParticipantsResponse {
 }
 
 /**
+ * A connected remote environment (a VS Code window, an embed host) that can host
+ * this session's remote sub-agents and tools. Not a Participant: it is the place
+ * a sub-agent runs, listed only while its socket is connected.
+ */
+export interface RemoteEnvironmentInfo {
+  environmentId: string;
+  /** Set when the host authenticated with a token scoped to this session. */
+  sessionId?: string;
+  /** The human a scoped host belongs to (the scoped token's `sub`). */
+  owner?: string;
+  /** Scoped to this session, versus a generic dev host shared across sessions. */
+  scoped: boolean;
+  toolCount: number;
+  /** This session's live sub-agents hosted here. */
+  subagentCount: number;
+}
+
+/** Response of `GET /api/sessions/:id/environments`. */
+export interface ListEnvironmentsResponse {
+  environments: RemoteEnvironmentInfo[];
+}
+
+/**
  * A serializable snapshot of the {@link ContextPolicy} a Membership's
  * {@link TranscriptVisibility} expands to (unified-model §9.8, "each
  * Participant's ... context policy"). The engine's policy carries a `classify`
@@ -1567,6 +1590,14 @@ export interface ParticipantPresencePayload {
 }
 
 /**
+ * Signals (server -> client) that connected remote environments changed. Sent to
+ * every client, since a generic dev host is not bound to one session.
+ */
+export interface EnvironmentUpdatePayload {
+  sessionId?: string;
+}
+
+/**
  * Emitted (server -> client) when the agent suggests remembering something that
  * needs user confirmation before it is applied (agent-initiated global memory).
  * Rendered as a confirm/dismiss card in the chat.
@@ -1729,6 +1760,7 @@ export const SocketEvents = {
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
   ParticipantPresence: "participant:presence",
+  EnvironmentUpdate: "environment:update",
   MemorySuggestion: "memory:suggestion",
   MemoryConfirm: "memory:confirm",
   MemoryDismiss: "memory:dismiss",

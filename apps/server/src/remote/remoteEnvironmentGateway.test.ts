@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
+import {
+  connectorFor,
+  SocketEvents,
+  type SubagentInfo,
+} from "@tangent/shared/contracts.ts";
 import {
   type RemoteAgentEventPayload,
   RemoteEnvEvents,
@@ -141,8 +145,14 @@ function makeHarness(options: HarnessOptions = {}) {
   const store = new InMemorySessionStore();
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
+  const broadcasts: Array<{ event: string; payload: unknown }> = [];
+  const io = {
+    of: () => namespace,
+    emit: (event: string, payload: unknown) =>
+      broadcasts.push({ event, payload }),
+  };
   const gateway = new RemoteEnvironmentGateway(
-    { of: () => namespace } as unknown as SocketIOServer,
+    io as unknown as SocketIOServer,
     relayHandlers(rosterUpdates, agentEvents),
     store,
     runs,
@@ -158,6 +168,7 @@ function makeHarness(options: HarnessOptions = {}) {
     runStore,
     rosterUpdates,
     agentEvents,
+    broadcasts,
   };
 }
 
@@ -855,4 +866,82 @@ test("an environmentId stays claimed by its owner after they disconnect", () => 
     false,
     "Alice can still reclaim her own id",
   );
+});
+
+test("listEnvironments lists a session's scoped hosts and its dev hosts, newest first", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+  h.connect("vscode-generic");
+  h.connect("x", { token: mintScoped(scoped, "env-b", "s2", "bob@x") });
+
+  alice.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+  h.gateway.spawnSubagent("s1", {
+    name: "Worker",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.deepEqual(h.gateway.listEnvironments("s1"), [
+    {
+      environmentId: "vscode-generic",
+      sessionId: undefined,
+      owner: undefined,
+      scoped: false,
+      toolCount: 0,
+      subagentCount: 0,
+    },
+    {
+      environmentId: "env-a",
+      sessionId: "s1",
+      owner: "alice@x",
+      scoped: true,
+      toolCount: 1,
+      subagentCount: 1,
+    },
+  ]);
+  assert.deepEqual(
+    h.gateway.listEnvironments("s2").map((e) => e.environmentId),
+    ["env-b", "vscode-generic"],
+  );
+});
+
+test("a session-pinned dev host replaces the generic one for its session only", () => {
+  const h = makeHarness();
+  h.connect("s1:vscode-1");
+  h.connect("vscode-generic");
+
+  assert.deepEqual(
+    h.gateway.listEnvironments("s1").map((e) => e.environmentId),
+    ["s1:vscode-1"],
+  );
+  assert.deepEqual(
+    h.gateway.listEnvironments("s2").map((e) => e.environmentId),
+    ["vscode-generic"],
+  );
+});
+
+test("environment changes are broadcast and reflected in the list", async () => {
+  const h = makeHarness();
+  const updates = () =>
+    h.broadcasts.filter((b) => b.event === SocketEvents.EnvironmentUpdate)
+      .length;
+
+  const env = h.connect("env-1");
+  await flush();
+  assert.equal(updates(), 1, "connect");
+
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(h.gateway.listEnvironments("s1")[0].subagentCount, 1);
+  h.gateway.killAgent("s1", info.id);
+  assert.equal(h.gateway.listEnvironments("s1")[0].subagentCount, 0);
+  assert.equal(updates(), 3, "spawn and kill");
+
+  env.disconnect();
+  assert.equal(updates(), 4, "disconnect");
+  assert.deepEqual(h.gateway.listEnvironments("s1"), []);
 });

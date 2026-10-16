@@ -574,6 +574,12 @@ class SessionChatRoom {
       });
     });
 
+    socket.on(SocketEvents.EnvironmentUpdate, () => {
+      void queryClient.invalidateQueries({
+        queryKey: SessionQueryKeys.Environments(sessionId),
+      });
+    });
+
     socket.on(SocketEvents.ResourcesUpdated, () => {
       void queryClient.invalidateQueries({
         queryKey: SessionQueryKeys.Resources(sessionId),
