@@ -343,6 +343,31 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/local-agent-host:
+    dependencies:
+      '@tangent/remote-subagent':
+        specifier: workspace:*
+        version: link:../remote-subagent
+      '@tangent/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../build
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/remote-subagent:
     dependencies:
       '@tangent/shared':
