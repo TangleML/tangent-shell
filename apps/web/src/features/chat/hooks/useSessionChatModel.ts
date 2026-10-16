@@ -6,6 +6,7 @@ import {
   useAssetTabs,
 } from "@/features/chat/hooks/useAssetTabs";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
+import { useSessionEnvironments } from "@/features/chat/hooks/useSessionEnvironments";
 import {
   useMuteMembership,
   useSessionParticipants,
@@ -84,6 +85,7 @@ export function useSessionChatModel(sessionId: string) {
   } = useSessionParticipants(sessionId);
   const { mutate: muteMembership, isPending: isTogglingMute } =
     useMuteMembership(sessionId);
+  const { data: environments = [] } = useSessionEnvironments(sessionId);
 
   // Scope the catalog to the current human when they are an invited Participant,
   // so surfacing consults their per-Conversation grants (default-permissive with
@@ -195,6 +197,7 @@ export function useSessionChatModel(sessionId: string) {
     participants,
     participantsPending,
     participantsError,
+    environments,
     activeConversationId,
     currentUserId: currentAuthorId,
     onToggleMuteParticipant: (participantId, conversationId, muted) =>

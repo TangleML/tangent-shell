@@ -11,6 +11,10 @@ import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import {
+  type EnvironmentLister,
+  registerEnvironmentRoutes,
+} from "./environments.ts";
+import {
   createArtifactFileHandler,
   handleCreateSession,
   handleDeleteSession,
@@ -142,6 +146,7 @@ export function createSessionsRouter(
   hostPreamble: HostResourcePreamble,
   emitResourcesUpdated: (sessionId: string) => void,
   workflow: WorkflowRouteDeps,
+  environments: EnvironmentLister,
 ): Router {
   const router = Router();
 
@@ -161,6 +166,7 @@ export function createSessionsRouter(
   registerSessionActivityRoutes(router, store);
   registerTriggerRoutes(router, store, triggers, triggerEngine);
   registerParticipantRoutes(router, store, participants);
+  registerEnvironmentRoutes(router, store, environments);
   registerResourceRoutes(router, {
     store,
     resources,

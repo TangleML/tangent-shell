@@ -3,11 +3,14 @@ import path from "node:path";
 
 import {
   connectorFor,
+  type EnvironmentUpdatePayload,
   isTerminalStatus,
   type MessageDelivery,
+  type RemoteEnvironmentInfo,
   RESTORABLE_STATUSES,
   type RunId,
   type RunIngress,
+  SocketEvents,
   type SubagentInfo,
   type SubagentStatus,
 } from "@tangent/shared/contracts.ts";
@@ -245,6 +248,31 @@ export class RemoteEnvironmentGateway {
   }
 
   /**
+   * The connected environments `sessionId` can route to: its scoped hosts plus
+   * the unscoped dev hosts eligible for it, most recent first.
+   */
+  listEnvironments(sessionId: string): RemoteEnvironmentInfo[] {
+    const roster = [...(this.sessions.get(sessionId)?.values() ?? [])];
+    return [
+      ...this.scopedEnvironments(sessionId),
+      ...this.unscopedEnvironmentsFor(sessionId),
+    ]
+      .sort((a, b) => b.seq - a.seq)
+      .map((environment) => ({
+        environmentId: environment.environmentId,
+        sessionId: environment.sessionId,
+        owner: environment.sub,
+        scoped: Boolean(environment.sessionId),
+        toolCount: environment.tools.size,
+        subagentCount: roster.filter(
+          (subagent) =>
+            subagent.environmentId === environment.environmentId &&
+            !isTerminalStatus(subagent.status),
+        ).length,
+      }));
+  }
+
+  /**
    * Spawns a sub-agent on a connected remote environment. Resolves the
    * effective config from the session's installed bundle templates/defaults
    * (falling back to the global templates), records the roster entry, and emits
@@ -304,6 +332,7 @@ export class RemoteEnvironmentGateway {
 
     const info = toInfo(subagent);
     this.handlers.onSubagentUpdate(sessionId, info);
+    this.emitEnvironmentsChanged(sessionId);
     return {
       info,
       tools,
@@ -412,6 +441,13 @@ export class RemoteEnvironmentGateway {
       completed,
     } satisfies RemoteKillCommand);
     this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
+    this.emitEnvironmentsChanged(sessionId);
+  }
+
+  /** Tells every client that the connected environments changed. */
+  private emitEnvironmentsChanged(sessionId?: string): void {
+    const payload: EnvironmentUpdatePayload = sessionId ? { sessionId } : {};
+    this.io.emit(SocketEvents.EnvironmentUpdate, payload);
   }
 
   /** Emits an event to a specific environment's socket, if still connected. */
@@ -691,6 +727,7 @@ export class RemoteEnvironmentGateway {
     console.log(
       `[remote-env] ${environmentId} registered ${environment.tools.size} tool(s)`,
     );
+    this.emitEnvironmentsChanged();
   }
 
   /**
@@ -792,6 +829,7 @@ export class RemoteEnvironmentGateway {
       if (!RESTORABLE_STATUSES.includes(agent.status)) continue;
       this.reattach(agent.sessionId, agent);
     }
+    this.emitEnvironmentsChanged();
   }
 
   /**
@@ -849,6 +887,7 @@ export class RemoteEnvironmentGateway {
         payload.status === "completed" ? "completed" : "failed",
       );
       this.clearActivity(payload.sessionId, subagent);
+      this.emitEnvironmentsChanged(payload.sessionId);
     }
     this.handlers.onSubagentUpdate(payload.sessionId, toInfo(subagent));
   }
@@ -934,6 +973,7 @@ export class RemoteEnvironmentGateway {
     console.log(
       `[remote-env] disconnected: ${environmentId} session=${dropped?.sessionId ?? "unscoped"} socket=${dropped?.socket.id}`,
     );
+    this.emitEnvironmentsChanged();
   }
 
   /**
