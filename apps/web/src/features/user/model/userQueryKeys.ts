@@ -3,4 +3,6 @@
  */
 export const UserQueryKeys = {
   Me: () => ["me"] as const,
+  Gravatar: (email: string, size: number) =>
+    ["gravatar", email, size] as const,
 } as const;
