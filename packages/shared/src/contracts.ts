@@ -447,7 +447,12 @@ export interface ListResourcesResponse {
  * A resource the embed host may seed at session create or add afterwards. A
  * `memory` entry writes the session (or global) memory store the agent reads; a
  * `host` entry is host-owned content (e.g. a known pipeline) whose `meta` is
- * free-form JSON the shell does not interpret.
+ * free-form JSON the shell does not interpret; a `file` entry writes bytes into
+ * the session's `uploads/` folder (its `path` is resolved strictly inside
+ * `uploads/` so it can never overwrite a system file) so bundle tools can read
+ * it on disk — text passes as-is, binary rides in `content` as base64. Removing
+ * a `file` deletes those bytes; unlike the other kinds it is not announced to
+ * the agent.
  */
 export type HostResourceInput =
   | { kind: "memory"; scope?: MemoryScope; content: string }
@@ -455,6 +460,18 @@ export type HostResourceInput =
       kind: "host";
       name: string;
       uri: string;
+      meta?: Record<string, unknown>;
+    }
+  | {
+      kind: "file";
+      /** Relative path, resolved inside the session's `uploads/` folder. */
+      path: string;
+      /** File contents, decoded per `encoding` before the write. */
+      content: string;
+      /** How `content` is decoded. Defaults to `utf8`; use `base64` for binary. */
+      encoding?: "utf8" | "base64";
+      /** Catalog display name; defaults to the path basename. */
+      name?: string;
       meta?: Record<string, unknown>;
     };
 
