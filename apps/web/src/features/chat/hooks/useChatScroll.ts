@@ -68,6 +68,9 @@ export function useChatScroll({
   // Timestamp (performance.now) of the most recent user scroll input. Auto-snap
   // backs off while this is fresh so it never fights a gesture in progress.
   const lastUserScrollAtRef = useRef(0);
+  // True between pointerdown and pointerup. A scrollbar-thumb drag emits no
+  // pointermove, so the timestamp above goes stale mid-gesture.
+  const draggingRef = useRef(false);
   const prevLenRef = useRef(0);
   const didInitRef = useRef(false);
 
@@ -85,9 +88,11 @@ export function useChatScroll({
     scrollToLastRow(virtualizerRef.current, rowCountRef.current);
   };
 
-  // True once enough time has passed since the last user scroll input that an
-  // auto-snap won't fight a gesture still in progress.
-  const isScrollQuiet = () =>
+  // Whether drifting back to the bottom is allowed right now: we still want the
+  // bottom, no gesture is in flight, and the last one has settled.
+  const canAutoSnap = () =>
+    stickyRef.current &&
+    !draggingRef.current &&
     performance.now() - lastUserScrollAtRef.current > SCROLL_QUIET_MS;
 
   const onScroll = () => {
@@ -100,19 +105,18 @@ export function useChatScroll({
 
     if (atBottom) {
       stickyRef.current = true;
-      userScrolledRef.current = false;
+      // Clearing this mid-drag would make the rest of the gesture read as
+      // drift, so a drag that starts near the bottom gets snapped back.
+      if (!draggingRef.current) userScrolledRef.current = false;
       setShowJump(false);
       setUnreadCount(0);
       return;
     }
 
-    if (userScrolledRef.current) {
-      // A genuine scroll up: release the bottom and surface the jump pill.
+    if (userScrolledRef.current || draggingRef.current) {
       stickyRef.current = false;
       setShowJump(true);
-    } else if (stickyRef.current && isScrollQuiet()) {
-      // Drift from measurement/append while still pinned: snap back down, but
-      // only once the user's last gesture has settled.
+    } else if (canAutoSnap()) {
       scrollToBottom();
     }
   };
@@ -120,6 +124,7 @@ export function useChatScroll({
   const jumpToBottom = () => {
     stickyRef.current = true;
     userScrolledRef.current = false;
+    draggingRef.current = false;
     setShowJump(false);
     setUnreadCount(0);
     scrollToBottom();
@@ -174,19 +179,27 @@ export function useChatScroll({
       userScrolledRef.current = true;
       lastUserScrollAtRef.current = performance.now();
     };
-    const clearUserScroll = () => {
+    const startDrag = () => {
+      draggingRef.current = true;
+      markUserScroll();
+    };
+    const endDrag = () => {
+      draggingRef.current = false;
       userScrolledRef.current = false;
     };
     container.addEventListener("wheel", markUserScroll, { passive: true });
     container.addEventListener("touchmove", markUserScroll, { passive: true });
     container.addEventListener("keydown", markUserScroll);
-    container.addEventListener("pointerdown", markUserScroll);
-    container.addEventListener("pointerup", clearUserScroll);
-    container.addEventListener("touchend", clearUserScroll);
+    container.addEventListener("pointerdown", startDrag);
+    // On window, not the container: a drag can end with the pointer outside it,
+    // and a stuck drag flag would disable autoscroll for good.
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    window.addEventListener("touchend", endDrag);
 
     const inner = container.firstElementChild;
     const observer = new ResizeObserver(() => {
-      if (stickyRef.current && isScrollQuiet()) {
+      if (canAutoSnap()) {
         scrollToLastRow(virtualizerRef.current, rowCountRef.current);
       }
     });
@@ -196,9 +209,10 @@ export function useChatScroll({
       container.removeEventListener("wheel", markUserScroll);
       container.removeEventListener("touchmove", markUserScroll);
       container.removeEventListener("keydown", markUserScroll);
-      container.removeEventListener("pointerdown", markUserScroll);
-      container.removeEventListener("pointerup", clearUserScroll);
-      container.removeEventListener("touchend", clearUserScroll);
+      container.removeEventListener("pointerdown", startDrag);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+      window.removeEventListener("touchend", endDrag);
       observer.disconnect();
     };
   }, [hasRows]);

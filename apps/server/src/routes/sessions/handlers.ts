@@ -176,6 +176,32 @@ async function seedResources(
 }
 
 /**
+ * Pre-seeds Prime's first message so the bundle's agent "speaks first" (e.g.
+ * renders a welcome card). It replays via `chat:history` on join and renders any
+ * `tangent-ui:*` card because the bundle id is already attached. No-op when the
+ * bundle declares no welcome message.
+ */
+async function seedWelcomeMessage(
+  store: SessionStore,
+  sessionId: string,
+  primaryConversationId: string,
+  welcomeMessage: string | undefined,
+): Promise<void> {
+  if (!welcomeMessage) return;
+  await store.appendMessage({
+    id: randomUUID(),
+    sessionId,
+    conversationId: primaryConversationId,
+    seq: await store.nextSeq(sessionId, primaryConversationId),
+    author: PI_AGENT,
+    mentions: [],
+    source: sourceFromAuthor(PI_AGENT),
+    content: welcomeMessage,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/**
  * Provisions a new session from an uploaded Configuration Bundle: installs it
  * into the session root, records its metadata, applies host seed resources, and
  * spawns Prime with the resolved per-session config. On an invalid bundle the
@@ -189,6 +215,7 @@ async function createSessionFromBundle(
   zipBuffer: Buffer,
   user: UserIdentity | undefined,
   resources: HostResourceInput[],
+  env: Record<string, string> | undefined,
   res: Response,
 ): Promise<void> {
   const { store, pi, triggerEngine } = deps;
@@ -205,26 +232,16 @@ async function createSessionFromBundle(
     // Seed the bundle's declared triggers and arm any schedules.
     triggerEngine.seed(sessionId, rootPath, manifest.triggers);
 
-    // Pre-seed Prime's first message so the bundle's agent "speaks first"
-    // (e.g. renders a welcome card). It replays via `chat:history` on join and
-    // renders any `tangent-ui:*` card because the bundle id is already attached.
     const primaryConversationId = await orchestratorConversationFor(
       store,
       sessionId,
     );
-    if (config.welcomeMessage) {
-      await store.appendMessage({
-        id: randomUUID(),
-        sessionId,
-        conversationId: primaryConversationId,
-        seq: await store.nextSeq(sessionId, primaryConversationId),
-        author: PI_AGENT,
-        mentions: [],
-        source: sourceFromAuthor(PI_AGENT),
-        content: config.welcomeMessage,
-        createdAt: new Date().toISOString(),
-      });
-    }
+    await seedWelcomeMessage(
+      store,
+      sessionId,
+      primaryConversationId,
+      config.welcomeMessage,
+    );
 
     await seedResources(deps, sessionId, rootPath, resources, user);
 
@@ -235,6 +252,7 @@ async function createSessionFromBundle(
       undefined,
       user,
       primaryConversationId,
+      env,
     );
     res.status(201).json({ session: withConfig });
   } catch (err) {
@@ -274,7 +292,11 @@ export async function handleCreateSession(
   const user =
     resolveUserIdentity(req.headers.cookie, req.headers.authorization) ??
     undefined;
-  const session = await deps.store.createSession({ name: body.name, user });
+  const session = await deps.store.createSession({
+    name: body.name,
+    user,
+    env: body.env,
+  });
 
   await createSessionFromBundle(
     deps,
@@ -283,6 +305,7 @@ export async function handleCreateSession(
     zipBuffer,
     user,
     body.resources ?? [],
+    body.env,
     res,
   );
 }

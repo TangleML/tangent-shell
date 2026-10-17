@@ -21,8 +21,11 @@ export function createMcpRelayRouter(
   correlations: CorrelationEngine,
 ): Router {
   const router = Router();
-  // Some MCP clients probe with GET for a server-sent-events channel. This PoC
-  // answers request/response over POST only, so GET is just a liveness probe.
+  // Streamable-HTTP clients open a GET SSE stream for the server->client leg.
+  // This relay is pure request/response over POST and sends nothing server-
+  // initiated, so GET declines the stream with 405 rather than opening one it
+  // would immediately close (a dropped stream makes the client reconnect in a
+  // loop that races tool-call POSTs).
   router.get("/:channelId", (req, res) => handleGet(registry, req, res));
   router.post("/:channelId", (req, res) =>
     handlePost(registry, report, correlations, req, res),
@@ -39,9 +42,12 @@ function handleGet(registry: RelayRegistry, req: Request, res: Response): void {
     res.status(channel ? 401 : 404).end();
     return;
   }
-  res.writeHead(200, { "content-type": "text/event-stream" });
-  res.write(": ok\n\n");
-  res.end();
+  res.set("Allow", "POST");
+  res.status(405).json({
+    jsonrpc: "2.0",
+    id: null,
+    error: { code: -32601, message: "SSE stream not supported; use POST" },
+  });
 }
 
 async function handlePost(

@@ -33,7 +33,13 @@ export function ThinkingDisclosure({
           </Button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <Box padding="base" borderInlineStart="md" paddingInlineStart="sm">
+          <Box
+            padding="base"
+            borderInlineStart="md"
+            paddingInlineStart="sm"
+            inlineSize="full"
+            minInlineSize="0"
+          >
             <Markdown size="xs" tone="subdued">
               {thinking}
             </Markdown>

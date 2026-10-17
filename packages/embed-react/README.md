@@ -101,6 +101,7 @@ newSession(
     delivery?: "auto" | "steer" | "followUp";
     attachments?: unknown[];
     resources?: HostResourceInput[];
+    env?: Record<string, string>;
   },
 ): Promise<{ sessionId: string }>;
 ```
@@ -109,6 +110,30 @@ Creates a session from the bundle and queues `prompt`; the chat sends it once it
 joins, so it never races the agent. Render `<Chat sessionId={...} />` with the
 returned id. Pass `options.resources` to seed the session before the agent
 spawns, so the seeds are standing context from the first turn.
+
+Pass `options.env` to set session-scoped environment variables. They are stored
+server-side only (never returned on the session) and injected into every agent
+process the bundle spawns — Prime and its sub-agents — so the bundle's tools and
+shell commands can read them (for example `tangle-deploy` reading
+`TANGLE_ROOT_CONFIG`). Reserved `TANGENT_*` keys cannot be overridden.
+
+Env values may embed the `{{workspacePath}}` placeholder, which the server
+expands to the session's absolute working directory before each agent spawns.
+Use it to point a var at a file in the session workspace without knowing the
+on-disk path. Unknown `{{...}}` tokens are left untouched.
+
+```tsx
+const { newSession } = useTangent();
+
+const { sessionId } = await newSession(
+  "Submit the orders pipeline.",
+  "tangle-oss",
+  {
+    name: "Orders pipeline",
+    env: { TANGLE_ROOT_CONFIG: "{{workspacePath}}/.tangle/root-config.yaml" },
+  },
+);
+```
 
 #### Resources
 

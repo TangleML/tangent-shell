@@ -6,6 +6,7 @@ import {
   type RemoteAgentEventPayload,
   RemoteEnvEvents,
   type RemoteSpawnCommand,
+  type RemoteSubagentUpdatePayload,
   type RemoteToolCallRequest,
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Server as SocketIOServer, Socket } from "socket.io";
@@ -15,7 +16,7 @@ import {
   ScopedTokenCredential,
 } from "../connectors/credentials.ts";
 import type { ResolvedSessionConfig } from "../pi/agentConfig.ts";
-import type { ConversationEventSink } from "../pi/types.ts";
+import type { AgentEvent, ConversationEventSink } from "../pi/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
@@ -110,11 +111,11 @@ function fakeNamespace() {
 
 function relayHandlers(
   rosterUpdates: SubagentInfo[],
-  agentEvents: Array<{ sessionId: string; agentId: string }>,
+  agentEvents: Array<{ sessionId: string; agentId: string; event: AgentEvent }>,
 ): ConversationEventSink {
   return {
-    onAgentEvent: (sessionId, agent) => {
-      agentEvents.push({ sessionId, agentId: agent.agentId });
+    onAgentEvent: (sessionId, agent, event) => {
+      agentEvents.push({ sessionId, agentId: agent.agentId, event });
     },
     onSubagentUpdate: (_sessionId, info) => rosterUpdates.push(info),
     onAgentMessage: () => {},
@@ -132,7 +133,11 @@ function relayHandlers(
 function makeHarness(options: HarnessOptions = {}) {
   const { namespace, connect } = fakeNamespace();
   const rosterUpdates: SubagentInfo[] = [];
-  const agentEvents: Array<{ sessionId: string; agentId: string }> = [];
+  const agentEvents: Array<{
+    sessionId: string;
+    agentId: string;
+    event: AgentEvent;
+  }> = [];
   const store = new InMemorySessionStore();
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
@@ -248,6 +253,40 @@ test("a disconnecting environment detaches its sub-agents and keeps their tabs",
   assert.equal(h.gateway.listSubagents("s1")[0].status, "detached");
   assert.equal(h.rosterUpdates.at(-1)?.status, "detached");
   assert.equal((await h.runStore.getRun(runId))?.status, "failed");
+});
+
+test("killing a remote sub-agent clears its activity indicator", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+
+  h.gateway.killAgent("s1", info.id);
+
+  // The protocol has no run-end event, so the gateway has to clear the activity
+  // itself or a last tool indicator (e.g. "Running send_to_prime") lingers.
+  assert.deepEqual(h.agentEvents.at(-1), {
+    sessionId: "s1",
+    agentId: info.id,
+    event: { type: "activity", activity: null },
+  });
+});
+
+test("a terminal remote status clears the activity indicator", () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+
+  env.send(RemoteEnvEvents.SubagentUpdate, {
+    sessionId: "s1",
+    agentId: info.id,
+    status: "completed",
+  } satisfies RemoteSubagentUpdatePayload);
+
+  assert.deepEqual(h.agentEvents.at(-1), {
+    sessionId: "s1",
+    agentId: info.id,
+    event: { type: "activity", activity: null },
+  });
 });
 
 test("a detached participant refuses delivery instead of dropping it silently", () => {

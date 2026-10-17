@@ -157,6 +157,7 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
   const deps = {
     store: {
       getSession: async () => session(OWNER),
+      getSessionEnv: async () => undefined,
       listAgents: async () => [primeAgent(primeHome)],
     },
     pi: {

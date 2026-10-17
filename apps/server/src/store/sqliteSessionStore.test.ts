@@ -38,6 +38,37 @@ test("getLastViewedMap is empty before anything is viewed", async () => {
   assert.equal(map.get(session.id), undefined);
 });
 
+test("getSessionEnv round-trips the stored env, and is undefined without one", async () => {
+  const store = newStore();
+
+  const withEnv = await store.createSession({
+    name: "with-env",
+    env: { TANGLE_ROOT_CONFIG: "annotations.project=p1", OTHER: "x" },
+  });
+  assert.deepEqual(await store.getSessionEnv(withEnv.id), {
+    TANGLE_ROOT_CONFIG: "annotations.project=p1",
+    OTHER: "x",
+  });
+
+  const withoutEnv = await store.createSession({ name: "no-env" });
+  assert.equal(await store.getSessionEnv(withoutEnv.id), undefined);
+
+  // Env is server-only: it never leaks onto the wire Session.
+  const wire = await store.getSession(withEnv.id);
+  assert.equal((wire as unknown as { env?: unknown }).env, undefined);
+});
+
+test("the sessions table has a nullable env column", () => {
+  const db = openDb(":memory:");
+  const columns = db.$client.prepare("PRAGMA table_info(sessions)").all() as {
+    name: string;
+    notnull: number;
+  }[];
+  const env = columns.find((column) => column.name === "env");
+  assert.ok(env, "the migration added the env column");
+  assert.equal(env.notnull, 0, "and left it nullable");
+});
+
 test("markViewed upserts and isolates read state per user", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });

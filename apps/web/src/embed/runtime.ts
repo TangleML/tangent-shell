@@ -100,6 +100,7 @@ export function createRuntime(init: {
         bundleId,
         name: options?.name,
         resources: options?.resources,
+        env: options?.env,
       });
       pending.set(session.id, {
         prompt,

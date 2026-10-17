@@ -21,6 +21,7 @@ export const attributes = z.object({
   size: z.enum(SIZE).optional().catch(undefined),
   tone: z.enum(TONE).optional().catch(undefined),
   disabled: z.boolean().optional().catch(undefined),
+  truncate: z.boolean().optional().catch(undefined),
 });
 
 export const events: RemoteEvents = {

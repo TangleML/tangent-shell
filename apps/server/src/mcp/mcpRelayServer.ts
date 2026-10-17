@@ -29,6 +29,7 @@ interface JsonRpcResponse {
 }
 
 const PROTOCOL_VERSION = "2024-11-05";
+const SUPPORTED_PROTOCOL_VERSIONS = new Set([PROTOCOL_VERSION]);
 
 const TOOLS = [
   {
@@ -113,8 +114,12 @@ export async function dispatchMcp(
 function handleInitialize({ message, id }: Ctx): JsonRpcResponse {
   const requested = (message.params as { protocolVersion?: string } | undefined)
     ?.protocolVersion;
+  const protocolVersion =
+    requested && SUPPORTED_PROTOCOL_VERSIONS.has(requested)
+      ? requested
+      : PROTOCOL_VERSION;
   return ok(id, {
-    protocolVersion: requested ?? PROTOCOL_VERSION,
+    protocolVersion,
     capabilities: { tools: {} },
     serverInfo: { name: "tangent-prime-relay", version: "0.1.0" },
   });
