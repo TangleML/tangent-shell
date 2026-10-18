@@ -101,6 +101,7 @@ newSession(
     delivery?: "auto" | "steer" | "followUp";
     attachments?: unknown[];
     resources?: HostResourceInput[];
+    env?: Record<string, string>;
   },
 ): Promise<{ sessionId: string }>;
 ```
@@ -110,17 +111,50 @@ joins, so it never races the agent. Render `<Chat sessionId={...} />` with the
 returned id. Pass `options.resources` to seed the session before the agent
 spawns, so the seeds are standing context from the first turn.
 
+Pass `options.env` to set session-scoped environment variables. They are stored
+server-side only (never returned on the session) and injected into every agent
+process the bundle spawns — Prime and its sub-agents — so the bundle's tools and
+shell commands can read them (for example `tangle-deploy` reading
+`TANGLE_ROOT_CONFIG`). Reserved `TANGENT_*` keys cannot be overridden.
+
+Env values may embed placeholders the server expands before each agent spawns:
+`{{workspacePath}}` becomes the session's absolute working directory, and
+`{{uploadsPath}}` becomes its `uploads/` subdirectory — where seeded `file`
+resources (below) are written. Use them to point a var at a file in the session
+without knowing the on-disk path. Unknown `{{...}}` tokens are left untouched.
+
+```tsx
+const { newSession } = useTangent();
+
+const { sessionId } = await newSession(
+  "Submit the orders pipeline.",
+  "tangle-oss",
+  {
+    name: "Orders pipeline",
+    env: { TANGLE_ROOT_CONFIG: "{{uploadsPath}}/root-config.yaml" },
+  },
+);
+```
+
 #### Resources
 
 A session holds a catalog of resources — memory documents, host-provided
 entries, attachments, and workspace files. The host can seed, add, list, and
-remove the two kinds it owns (`memory` and `host`); artifacts, attachments, and
-files stay on their own mechanisms and are read-only through this API.
+remove the three kinds it owns (`memory`, `host`, and `file`); artifacts and
+attachments stay on their own mechanisms and are read-only through this API.
 
 ```ts
 type HostResourceInput =
   | { kind: "memory"; scope?: "session" | "global"; content: string }
-  | { kind: "host"; name: string; uri: string; meta?: Record<string, unknown> };
+  | { kind: "host"; name: string; uri: string; meta?: Record<string, unknown> }
+  | {
+      kind: "file";
+      path: string;
+      content: string;
+      encoding?: "utf8" | "base64";
+      name?: string;
+      meta?: Record<string, unknown>;
+    };
 
 listResources(sessionId: string): Promise<EmbedResource[]>;
 addResource(sessionId: string, input: HostResourceInput): Promise<EmbedResource>;
@@ -130,8 +164,16 @@ removeResource(sessionId: string, uri: string): Promise<void>;
 A `memory` entry writes the session (or global) memory store the agent reads and
 consults from its first turn. A `host` entry is host-owned content the shell
 surfaces but does not interpret — `uri` is a host-stable id and `meta` is
-free-form JSON. Removing a `memory` resource clears that store; removing a
-`host` resource drops the catalog entry.
+free-form JSON. A `file` entry writes `content` to disk under the session's
+`uploads/` folder: its `path` is relative and always resolved strictly inside
+`uploads/` (so it can never overwrite a system file at the session root or
+`uploads/` itself). `content` is UTF-8 text unless `encoding` is `base64`, which
+carries binary losslessly, and is capped at 1 MiB of decoded bytes. Unlike `memory` and
+`host`, a `file` is not announced to the agent — point a bundle tool at it with
+`{{uploadsPath}}/<path>`, or mention it in a `memory` seed, if you need the
+agent to know it exists. Removing a `memory` resource clears that store; removing
+a `host` resource drops the catalog entry, and removing a `file` drops the entry
+and deletes its bytes from disk.
 
 ```tsx
 const { newSession, addResource } = useTangent();

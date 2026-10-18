@@ -30,6 +30,8 @@ export const sessions = sqliteTable("sessions", {
   config: text("config"),
   /** Serialized `UserIdentity` (the human who created the session), if resolved. */
   userIdentity: text("user_identity"),
+  /** Serialized session-scoped env vars injected into agent spawns (server-only). */
+  env: text("env"),
   /** Whether the session is archived (hidden from the default list). */
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   /** Who may access this session: `open` (default) or `restricted`. */
