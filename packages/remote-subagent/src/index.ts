@@ -83,7 +83,12 @@ export interface ConnectRemoteEnvironmentOptions {
    * (e.g. `/tangent/socket.io`); defaults to Socket.IO's `/socket.io`.
    */
   socketPath?: string;
-  /** Shared bearer token the server validates against `REMOTE_ENV_TOKEN`. */
+  /**
+   * Bearer token the server validates on connect. Normally a scoped token minted
+   * per host via `POST /api/embed/remote-env-token`, whose claims carry the
+   * host's scope (session, selector, or user). The shared `REMOTE_ENV_TOKEN`
+   * secret is an unscoped, dev-only fallback.
+   */
   token: string;
   /** Stable id identifying this environment when several are connected. */
   environmentId: string;
@@ -96,9 +101,10 @@ export interface ConnectRemoteEnvironmentOptions {
    */
   tools?: RemoteToolMap;
   /**
-   * The session this environment's {@link tools} are registered for. Required
-   * when `tools` is set: a scoped embed host knows its session, and the server
-   * only accepts a catalog matching the socket's bound session.
+   * The session this environment's {@link tools} are registered for. Set on a
+   * session-scoped embed host, whose catalog the server matches to the socket's
+   * bound session. Omitted by a user- or selector-scoped host, which is not
+   * bound to a single session.
    */
   sessionId?: string;
 }
@@ -235,7 +241,7 @@ function registerToolHost(
 
   const announce = (): void => {
     const payload: RemoteToolsRegisterPayload = {
-      sessionId: sessionId ?? "",
+      ...(sessionId ? { sessionId } : {}),
       tools: toolCatalog(tools),
     };
     socket.emit(RemoteEnvEvents.ToolsRegister, payload);

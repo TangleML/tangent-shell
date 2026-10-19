@@ -162,6 +162,13 @@
       "when": 1790816439897,
       "tag": "0022_workable_vampiro",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792366082629,
+      "tag": "0023_tan_puck",
+      "breakpoints": true
     }
   ]
 }

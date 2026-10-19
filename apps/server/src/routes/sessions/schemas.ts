@@ -68,6 +68,7 @@ export const createSessionSchema = z.object({
   bundleId: z.string().min(1),
   resources: z.array(hostResourceInputSchema).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  tags: z.array(z.string()).optional(),
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 
@@ -82,6 +83,7 @@ export const updateSessionSchema = z.object({
   name: z.string().optional(),
   archived: z.boolean().optional(),
   accessPolicy: z.enum(["open", "restricted"]).optional(),
+  tags: z.array(z.string()).optional(),
 });
 export type UpdateSessionInput = z.infer<typeof updateSessionSchema>;
 

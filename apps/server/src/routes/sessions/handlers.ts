@@ -296,6 +296,7 @@ export async function handleCreateSession(
     name: body.name,
     user,
     env: body.env,
+    tags: body.tags,
   });
 
   await createSessionFromBundle(
@@ -427,6 +428,7 @@ export async function handleUpdateSession(
     name: body.name,
     archived: body.archived,
     accessPolicy: body.accessPolicy,
+    tags: body.tags,
   });
   if (!session) {
     res.status(404).json({ error: "Session not found" });
