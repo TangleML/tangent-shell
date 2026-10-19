@@ -25,6 +25,7 @@ import {
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
+  applySessionUpdate,
   type CreateSessionParams,
   type RecordAgentInput,
   type SessionAgent,
@@ -124,6 +125,10 @@ export class InMemorySessionStore implements SessionStore {
     return this.envs.get(id);
   }
 
+  selectorsOf(id: string): string[] {
+    return this.sessions.get(id)?.tags ?? [];
+  }
+
   async createSession(input: CreateSessionParams): Promise<Session> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -143,6 +148,7 @@ export class InMemorySessionStore implements SessionStore {
       user: input.user,
       archived: false,
       accessPolicy: DEFAULT_SESSION_ACCESS_POLICY,
+      tags: input.tags ?? [],
       createdAt: now,
       updatedAt: now,
     };
@@ -165,13 +171,7 @@ export class InMemorySessionStore implements SessionStore {
     const existing = this.sessions.get(id);
     if (!existing) return undefined;
 
-    const updated: Session = {
-      ...existing,
-      name: input.name?.trim() || existing.name,
-      archived: input.archived ?? existing.archived,
-      accessPolicy: input.accessPolicy ?? existing.accessPolicy,
-      updatedAt: new Date().toISOString(),
-    };
+    const updated = applySessionUpdate(existing, input);
     this.sessions.set(id, updated);
     return updated;
   }

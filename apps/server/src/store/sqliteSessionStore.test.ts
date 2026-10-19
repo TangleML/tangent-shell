@@ -69,6 +69,42 @@ test("the sessions table has a nullable env column", () => {
   assert.equal(env.notnull, 0, "and left it nullable");
 });
 
+test("tags round-trip on the wire session and through selectorsOf", async () => {
+  const store = newStore();
+
+  const tagged = await store.createSession({
+    name: "tagged",
+    tags: ["projectId:abc", "team:core"],
+  });
+  assert.deepEqual(tagged.tags, ["projectId:abc", "team:core"]);
+  assert.deepEqual(store.selectorsOf(tagged.id), [
+    "projectId:abc",
+    "team:core",
+  ]);
+
+  const wire = await store.getSession(tagged.id);
+  assert.deepEqual(wire?.tags, ["projectId:abc", "team:core"]);
+
+  const plain = await store.createSession({ name: "plain" });
+  assert.deepEqual(plain.tags, []);
+  assert.deepEqual(store.selectorsOf(plain.id), []);
+  assert.deepEqual(store.selectorsOf("missing-session"), []);
+});
+
+test("updating tags replaces them and refreshes selectorsOf", async () => {
+  const store = newStore();
+  const session = await store.createSession({
+    name: "s",
+    tags: ["projectId:abc"],
+  });
+
+  const updated = await store.updateSession(session.id, {
+    tags: ["projectId:xyz"],
+  });
+  assert.deepEqual(updated?.tags, ["projectId:xyz"]);
+  assert.deepEqual(store.selectorsOf(session.id), ["projectId:xyz"]);
+});
+
 test("markViewed upserts and isolates read state per user", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });

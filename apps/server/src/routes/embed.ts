@@ -17,7 +17,11 @@ import { getValidated, validate } from "../middleware/validate.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 const remoteEnvTokenBodySchema = z.object({
-  sessionId: z.string().min(1),
+  /** Bind the host to one session; omit for a user- or selector-scoped host.
+   * Wins over `selector` when both are set (a session-scoped token is minted). */
+  sessionId: z.string().min(1).optional(),
+  /** A session selector (e.g. `projectId:<GUID>`) for a selector-scoped host. */
+  selector: z.string().min(1).optional(),
   /** Reuse a pinned id across refresh so a host keeps its live socket. */
   environmentId: z.string().min(1).optional(),
 });
@@ -61,7 +65,10 @@ async function canMintForSession(
 
 /** The authenticated, authorized caller a mint runs for. */
 interface MintCaller {
-  session: Session;
+  /** Present on a session-scoped mint; absent for a user- or selector-scoped one. */
+  session?: Session;
+  /** A session selector to bind the host to, when minting a selector-scoped host. */
+  selector?: string;
   email: string;
 }
 
@@ -72,9 +79,13 @@ interface MintDenied {
 }
 
 /**
- * Resolves and authorizes the caller: a valid identity, a known session, and
- * owner-or-member access. Returns the caller on success, or the response to send
- * on refusal, so the handler stays a flat sequence of guards.
+ * Resolves and authorizes the caller. A session-scoped mint needs a valid
+ * identity, a known session, and owner-or-member access. A user- or
+ * selector-scoped mint (no `sessionId`) authorizes on identity alone: routing is
+ * owner-gated, so such a host only ever runs work for prompts authored by its
+ * own `sub` — whichever sessions its selector matches, session membership adds
+ * nothing. Returns the caller on success, or the response to send on refusal, so
+ * the handler stays a flat sequence of guards.
  */
 async function authorizeMint(
   store: SessionStore,
@@ -87,7 +98,11 @@ async function authorizeMint(
   );
   if (!identity) return { status: 401, error: "Invalid or missing token" };
 
-  const { sessionId } = getValidated<RemoteEnvTokenRequest>(req).body;
+  const { sessionId, selector } = getValidated<RemoteEnvTokenRequest>(req).body;
+  if (!sessionId) {
+    return { email: identity.email, ...(selector ? { selector } : {}) };
+  }
+
   const session = await store.getSession(sessionId);
   if (!session) return { status: 404, error: "Session not found" };
 
@@ -95,6 +110,17 @@ async function authorizeMint(
     return { status: 403, error: "Forbidden" };
   }
   return { session, email: identity.email };
+}
+
+/** The scope claims to mint for a caller: a `sessionId`, a `selector`, or neither. */
+function callerScope(caller: MintCaller): {
+  sessionId?: string;
+  selector?: string;
+} {
+  return {
+    ...(caller.session ? { sessionId: caller.session.id } : {}),
+    ...(caller.selector ? { selector: caller.selector } : {}),
+  };
 }
 
 /** The id to mint: the caller's pinned id when free, else a fresh one. */
@@ -110,11 +136,13 @@ function resolveEnvironmentId(
 }
 
 /**
- * Mints a scoped `/remote-env` token for an embed host. Authed by the embed JWT
- * (bearer) or the Oktasso cookie; the token binds `sessionId` and the caller's
- * email (`sub`) to an `environmentId` — a pinned one when supplied and free,
- * else a fresh one. The caller must own the session or hold a Membership in it,
- * the same gate chat enforces, so a session id alone is not enough to host tools.
+ * Mints a scoped `/remote-env` token for a host. Authed by the embed JWT
+ * (bearer) or the Oktasso cookie; the token binds the caller's email (`sub`) to
+ * an `environmentId` — a pinned one when supplied and free, else a fresh one —
+ * and its scope: a `sessionId` for a browser embed (the caller must own the
+ * session or hold a Membership in it, the same gate chat enforces), a `selector`
+ * for a project host, or neither for a user-scoped host. The session-less paths
+ * authorize on identity alone because routing is owner-gated.
  */
 export async function handleMintRemoteEnvToken(
   store: SessionStore,
@@ -146,8 +174,8 @@ export async function handleMintRemoteEnvToken(
   );
   const minted = scoped.mint({
     environmentId,
-    sessionId: caller.session.id,
     sub: caller.email,
+    ...callerScope(caller),
   });
   const body: RemoteEnvTokenResponse = {
     token: minted.token,

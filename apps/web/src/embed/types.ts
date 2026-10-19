@@ -36,6 +36,8 @@ export interface NewSessionOptions {
   resources?: HostResourceInput[];
   /** Session-scoped env vars injected into the bundle's agent processes. */
   env?: Record<string, string>;
+  /** Selector tags (e.g. `projectId:<GUID>`) to route selector-scoped hosts. */
+  tags?: string[];
 }
 
 export interface NewSessionResult {

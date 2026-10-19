@@ -146,6 +146,36 @@ test("a scoped token round-trips through mint and verify", () => {
   assert.equal(minted.expiresAt, new Date(claims.exp * 1000).toISOString());
 });
 
+test("a selector-scoped token round-trips with a selector and no sessionId", () => {
+  const credential = new ScopedTokenCredential("signing-secret");
+  const minted = credential.mint({
+    environmentId: "env-1",
+    selector: "projectId:abc",
+    sub: "user@example.com",
+  });
+
+  const claims = credential.parse(minted.token);
+  assert.ok(claims);
+  assert.equal(claims.environmentId, "env-1");
+  assert.equal(claims.selector, "projectId:abc");
+  assert.equal(claims.sessionId, undefined);
+  assert.equal(claims.sub, "user@example.com");
+});
+
+test("a user-scoped token round-trips with neither sessionId nor selector", () => {
+  const credential = new ScopedTokenCredential("signing-secret");
+  const minted = credential.mint({
+    environmentId: "env-1",
+    sub: "user@example.com",
+  });
+
+  const claims = credential.parse(minted.token);
+  assert.ok(claims);
+  assert.equal(claims.sessionId, undefined);
+  assert.equal(claims.selector, undefined);
+  assert.equal(claims.sub, "user@example.com");
+});
+
 test("a scoped token with a tampered payload is refused", () => {
   const credential = new ScopedTokenCredential("signing-secret");
   const { token } = credential.mint(SCOPED_INPUT);

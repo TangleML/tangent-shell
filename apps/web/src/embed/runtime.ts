@@ -101,6 +101,7 @@ export function createRuntime(init: {
         name: options?.name,
         resources: options?.resources,
         env: options?.env,
+        tags: options?.tags,
       });
       pending.set(session.id, {
         prompt,

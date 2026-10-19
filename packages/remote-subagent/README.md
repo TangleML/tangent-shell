@@ -78,7 +78,7 @@ const client = connectRemoteEnvironment({
   url: "http://localhost:8787",
   token,
   environmentId,
-  sessionId, // the session these tools are registered for
+  sessionId, // session-scoped host only; omit it for a user/selector host (see Host scope)
   tools: {
     get_pipeline_state: {
       description: "Get the current pipeline spec as JSON.",
@@ -105,17 +105,39 @@ the result (any JSON-serializable value) back to the agent that asked. The
 runtime serializes nothing for you: if two calls can race a shared mutable state,
 serialize them in your `execute`.
 
+### Host scope
+
+A host's `token` decides which sessions it can serve. Scoped tokens are minted
+per host by `POST /api/embed/remote-env-token`; they carry the host owner's
+identity (`sub`) and one of three scopes (the shared `REMOTE_ENV_TOKEN` secret is
+a fourth, unscoped, dev-only kind):
+
+| Scope           | Minted with                          | Serves                                                      |
+| --------------- | ------------------------------------ | ----------------------------------------------------------- |
+| session-scoped  | `sessionId`                          | just that session (a browser embed)                         |
+| user-scoped     | neither `sessionId`/`selector`       | every session the owner prompts in                          |
+| selector-scoped | `selector` (e.g. `projectId:<GUID>`) | every session whose `tags` include that selector            |
+| unscoped (dev)  | the shared `REMOTE_ENV_TOKEN`        | any session, as a fallback when no scoped host is connected |
+
+A selector matches a session's `tags` by exact string, so tag a session
+`projectId:abc` and a host minted with `selector: "projectId:abc"` serves it. A
+session- or selector-less mint authorizes on identity alone — safe because
+routing is owner-gated (below), so a host only ever runs work for its own owner.
+Pass the host's `selector` to `connectRemoteEnvironment` for your own reference;
+the scope is read from the token's claims, not the connect options.
+
 ### Routing when several people share a session
 
 A session can have many hosts connected at once — several people, or one person
 across several tabs. The catalog is **per environment**, and the server routes by
 the **prompting human**, not by a single session-bound socket: a tool call (and a
 `remote` sub-agent spawn) goes to the host of whoever sent the prompt that woke
-the agent. A non-human wake (a sub-agent report, a trigger) reuses that agent's
-last human audience. `list_remote_tools` is the union of that person's own hosts;
-if their host is gone the call fails clearly rather than falling back to someone
-else's viewport. Pin `environmentId` across token refreshes so a host keeps its
-place instead of reconnecting as a new environment.
+the agent — only if that host's owner (`sub`) is the prompting human, whichever
+scope made it eligible. A non-human wake (a sub-agent report, a trigger) reuses
+that agent's last human audience. `list_remote_tools` is the union of that
+person's own hosts; if their host is gone the call fails clearly rather than
+falling back to someone else's viewport. Pin `environmentId` across token
+refreshes so a host keeps its place instead of reconnecting as a new environment.
 
 ## Outbound helpers
 

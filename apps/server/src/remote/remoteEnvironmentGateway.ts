@@ -10,6 +10,7 @@ import {
   RESTORABLE_STATUSES,
   type RunId,
   type RunIngress,
+  type Session,
   SocketEvents,
   type SubagentInfo,
   type SubagentStatus,
@@ -86,11 +87,21 @@ export interface RemoteSendOptions {
   audienceParticipantId?: string;
 }
 
-/** A connected remote environment and its live Socket.IO connection. */
+/**
+ * A connected remote environment and its live Socket.IO connection.
+ *
+ * Its scope is one of four kinds, classified by the scoped token's claims:
+ * unscoped (no `sub`, a shared-secret dev host), session-scoped (`sub` +
+ * `sessionId`, a browser embed), user-scoped (`sub`, no `sessionId`/`selector`,
+ * serves every session its `sub` prompts in), and selector-scoped (`sub` +
+ * `selector`, serves every session whose tags include the selector).
+ */
 interface RemoteEnvConnection {
   environmentId: string;
   /** Set when the environment authenticated with a scoped per-session token. */
   sessionId?: string;
+  /** A session selector this host serves (e.g. `projectId:<GUID>`), when set. */
+  selector?: string;
   /** The human this environment belongs to (scoped token `sub`), when scoped. */
   sub?: string;
   socket: Socket;
@@ -110,6 +121,12 @@ interface RemoteEnvConnection {
 export type SessionConfigLookup = (
   sessionId: string,
 ) => ResolvedSessionConfig | undefined;
+
+/** True when `email` holds a Membership in `sessionId` — the gate chat/mint use. */
+export type SessionMemberCheck = (
+  sessionId: string,
+  email: string,
+) => Promise<boolean>;
 
 /** Re-resolves the session's installed bundle, or `undefined` for a plain session. */
 function loadSessionBundleConfig(
@@ -148,6 +165,14 @@ interface RemoteSubagent {
   environmentId: string;
   /** Whether finalized replies auto-relay back to Prime. */
   autoRelayToPrime: boolean;
+}
+
+/** Whether `sub` owns `session` or it is open to anyone — the mint gate, minus
+ * the async membership check its one caller layers on top. */
+function ownsOrOpen(session: Session, sub: string): boolean {
+  if (session.accessPolicy === "open") return true;
+  const owner = session.user?.email;
+  return !owner || owner === sub;
 }
 
 /** Clamps a requested room-read limit to the allowed range. */
@@ -203,6 +228,9 @@ export class RemoteEnvironmentGateway {
    * read naming a Conversation + Participant is projected through its policy. */
   private context?: ContextEngine;
   private memberships?: MembershipRegistry;
+  /** Wired after construction: whether a human holds a Membership in a session,
+   * used to authorize a user-scoped host's reads of a restricted session. */
+  private isSessionMember?: SessionMemberCheck;
 
   /** Connected environments, keyed by `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
@@ -252,6 +280,15 @@ export class RemoteEnvironmentGateway {
     this.memberships = memberships;
   }
 
+  /**
+   * Wires the session-membership check a user-scoped host's room read is
+   * authorized against. Separate from the constructor because the participant
+   * service that answers it is built after the gateway.
+   */
+  useSessionAuthorization(isSessionMember: SessionMemberCheck): void {
+    this.isSessionMember = isSessionMember;
+  }
+
   /** True when at least one remote environment is connected. */
   hasConnectedEnvironment(): boolean {
     return this.environments.size > 0;
@@ -283,8 +320,9 @@ export class RemoteEnvironmentGateway {
       .map((environment) => ({
         environmentId: environment.environmentId,
         sessionId: environment.sessionId,
+        selector: environment.selector,
         owner: environment.sub,
-        scoped: Boolean(environment.sessionId),
+        scoped: Boolean(environment.sub),
         toolCount: environment.tools.size,
         subagentCount: roster.filter(
           (subagent) =>
@@ -481,10 +519,20 @@ export class RemoteEnvironmentGateway {
     this.environments.get(environmentId)?.socket.emit(event, payload);
   }
 
-  /** Every scoped environment currently connected for `sessionId`. */
+  /**
+   * Every scoped environment eligible for `sessionId`: a browser embed bound to
+   * it, a user-scoped host (serves every session its `sub` prompts in), or a
+   * selector-scoped host whose selector is one of the session's tags. All carry
+   * a `sub`, so the audience owner-gate still decides whose prompts reach them.
+   */
   private scopedEnvironments(sessionId: string): RemoteEnvConnection[] {
+    const selectors = this.store.selectorsOf(sessionId);
     return [...this.environments.values()].filter(
-      (environment) => environment.sessionId === sessionId,
+      (e) =>
+        Boolean(e.sub) &&
+        (e.sessionId === sessionId ||
+          (!e.sessionId && !e.selector) ||
+          (e.selector !== undefined && selectors.includes(e.selector))),
     );
   }
 
@@ -511,9 +559,7 @@ export class RemoteEnvironmentGateway {
    * global list can no longer misroute across sessions.
    */
   private unscopedEnvironmentsFor(sessionId: string): RemoteEnvConnection[] {
-    const unscoped = [...this.environments.values()].filter(
-      (e) => !e.sessionId,
-    );
+    const unscoped = [...this.environments.values()].filter((e) => !e.sub);
     const mine = unscoped.filter(
       (e) => this.unscopedSessionOf(e.environmentId) === sessionId,
     );
@@ -640,6 +686,7 @@ export class RemoteEnvironmentGateway {
     if (scoped) {
       socket.data.environmentId = scoped.environmentId;
       socket.data.sessionId = scoped.sessionId;
+      socket.data.selector = scoped.selector;
       socket.data.sub = scoped.sub;
       next();
       return;
@@ -661,11 +708,13 @@ export class RemoteEnvironmentGateway {
     const environmentId = socketDataString(socket, "environmentId");
     if (!environmentId) return;
     const sessionId = socketDataString(socket, "sessionId");
+    const selector = socketDataString(socket, "selector");
     const sub = socketDataString(socket, "sub");
 
     const connection: RemoteEnvConnection = {
       environmentId,
       sessionId,
+      selector,
       sub,
       socket,
       tools: new Map(),
@@ -675,46 +724,83 @@ export class RemoteEnvironmentGateway {
     this.environments.set(environmentId, connection);
     if (sub) this.environmentOwners.set(environmentId, sub);
     console.log(
-      `[remote-env] connected: ${environmentId} session=${sessionId ?? "unscoped"} socket=${socket.id}`,
+      `[remote-env] connected: ${environmentId} scope=${sessionId ?? selector ?? (sub ? "user" : "unscoped")} socket=${socket.id}`,
     );
 
     this.trackLiveness(connection);
-    this.wireInbound(socket, sessionId);
+    this.wireInbound(socket, connection);
     socket.on("disconnect", () => this.onDisconnect(environmentId, socket));
 
     void this.replayRoster(environmentId);
   }
 
-  /** True when an unscoped env may speak for any session, or the ids match. */
+  /** True when a host may send a session-bound packet: a session-scoped host
+   * only for its own session, any other kind (unscoped, user-, selector-scoped)
+   * for any — those rely on the roster/ownership gate the handlers apply. */
   private acceptsSession(
     boundSessionId: string | undefined,
-    sessionId: string,
+    sessionId: string | undefined,
   ): boolean {
     if (!boundSessionId) return true;
     return boundSessionId === sessionId;
   }
 
+  /**
+   * Whether `connection` may read `sessionId`'s transcript. A session-scoped
+   * host only its own session; a selector-scoped host a session its selector
+   * tags; a user-scoped host a session its owner could mint for (open, owned, or
+   * joined) — the same gate the token mint enforces. An unscoped dev host (no
+   * `sub`, shared secret) may read any session. Unlike the report events, a room
+   * read has no roster entry to gate it, so this is the only check standing
+   * between a scoped host and another session's messages.
+   */
+  private async mayReadSession(
+    connection: RemoteEnvConnection,
+    sessionId: string,
+  ): Promise<boolean> {
+    if (!connection.sub) return true;
+    if (connection.sessionId) return connection.sessionId === sessionId;
+    if (connection.selector) {
+      return this.store.selectorsOf(sessionId).includes(connection.selector);
+    }
+    return this.userScopeMayAccess(connection.sub, sessionId);
+  }
+
+  /** Whether a user-scoped host's owner may reach `sessionId`: an open session,
+   * one they own, or one they hold a Membership in — mirroring the mint gate. */
+  private async userScopeMayAccess(
+    sub: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    const session = await this.store.getSession(sessionId);
+    if (!session) return false;
+    if (ownsOrOpen(session, sub)) return true;
+    if (!this.isSessionMember) return false;
+    return this.isSessionMember(sessionId, sub);
+  }
+
   /** Wires protocol listeners, dropping cross-session traffic on scoped envs. */
-  private wireInbound(socket: Socket, sessionId: string | undefined): void {
+  private wireInbound(socket: Socket, connection: RemoteEnvConnection): void {
+    const { environmentId, sessionId } = connection;
     socket.on(
       RemoteEnvEvents.AgentEvent,
       (payload: RemoteAgentEventPayload) => {
         if (!this.acceptsSession(sessionId, payload.sessionId)) return;
-        this.handleAgentEvent(payload);
+        this.handleAgentEvent(payload, environmentId);
       },
     );
     socket.on(
       RemoteEnvEvents.SubagentUpdate,
       (payload: RemoteSubagentUpdatePayload) => {
         if (!this.acceptsSession(sessionId, payload.sessionId)) return;
-        this.handleSubagentUpdate(payload);
+        this.handleSubagentUpdate(payload, environmentId);
       },
     );
     socket.on(
       RemoteEnvEvents.AgentMessage,
       (payload: RemoteAgentMessagePayload) => {
         if (!this.acceptsSession(sessionId, payload.sessionId)) return;
-        void this.handleAgentMessage(payload);
+        void this.handleAgentMessage(payload, environmentId);
       },
     );
     socket.on(
@@ -723,11 +809,7 @@ export class RemoteEnvironmentGateway {
         request: RemoteRoomReadRequest,
         callback: (response: RemoteRoomReadResponse) => void,
       ) => {
-        if (!this.acceptsSession(sessionId, request.sessionId)) {
-          callback({ messages: [] });
-          return;
-        }
-        void this.handleRoomRead(request, callback);
+        void this.authorizeRoomRead(connection, request, callback);
       },
     );
     socket.on(
@@ -737,6 +819,19 @@ export class RemoteEnvironmentGateway {
         this.handleToolsRegister(socket, payload);
       },
     );
+  }
+
+  /** Answers a room read only when the host is authorized for the session. */
+  private async authorizeRoomRead(
+    connection: RemoteEnvConnection,
+    request: RemoteRoomReadRequest,
+    callback: (response: RemoteRoomReadResponse) => void,
+  ): Promise<void> {
+    if (!(await this.mayReadSession(connection, request.sessionId))) {
+      callback({ messages: [] });
+      return;
+    }
+    await this.handleRoomRead(request, callback);
   }
 
   /** Records the catalog an environment declares, replacing any prior one. */
@@ -862,9 +957,12 @@ export class RemoteEnvironmentGateway {
    * Message there and fanned out from the sub-agent's own Conversation, so this
    * gateway no longer feeds Prime a second copy.
    */
-  private handleAgentEvent(payload: RemoteAgentEventPayload): void {
+  private handleAgentEvent(
+    payload: RemoteAgentEventPayload,
+    environmentId: string,
+  ): void {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
-    if (!subagent) return;
+    if (!subagent || subagent.environmentId !== environmentId) return;
     this.markAttached(payload.sessionId, subagent);
     this.handlers.onAgentEvent(
       payload.sessionId,
@@ -896,25 +994,37 @@ export class RemoteEnvironmentGateway {
   }
 
   /** Applies a remote sub-agent's status change to the roster + chat layer. */
-  private handleSubagentUpdate(payload: RemoteSubagentUpdatePayload): void {
+  private handleSubagentUpdate(
+    payload: RemoteSubagentUpdatePayload,
+    environmentId: string,
+  ): void {
     const roster = this.sessions.get(payload.sessionId);
     const subagent = roster?.get(payload.agentId);
-    if (!roster || !subagent) return;
+    if (!roster || !subagent || subagent.environmentId !== environmentId)
+      return;
 
     subagent.status = payload.status;
     if (isTerminalStatus(payload.status)) {
-      roster.delete(payload.agentId);
-      // The agent reaching a terminal status is the closest thing the protocol
-      // has to a run-end marker: whatever it was working on is over either way.
-      this.runs.settleOpenFor(
-        payload.sessionId,
-        payload.agentId,
-        payload.status === "completed" ? "completed" : "failed",
-      );
-      this.clearActivity(payload.sessionId, subagent);
-      this.emitEnvironmentsChanged(payload.sessionId);
+      this.settleTerminalSubagent(roster, payload, subagent);
     }
     this.handlers.onSubagentUpdate(payload.sessionId, toInfo(subagent));
+  }
+
+  /** Retires a sub-agent that reached a terminal status: the closest thing the
+   * protocol has to a run-end marker, so whatever it was doing is now over. */
+  private settleTerminalSubagent(
+    roster: Map<string, RemoteSubagent>,
+    payload: RemoteSubagentUpdatePayload,
+    subagent: RemoteSubagent,
+  ): void {
+    roster.delete(payload.agentId);
+    this.runs.settleOpenFor(
+      payload.sessionId,
+      payload.agentId,
+      payload.status === "completed" ? "completed" : "failed",
+    );
+    this.clearActivity(payload.sessionId, subagent);
+    this.emitEnvironmentsChanged(payload.sessionId);
   }
 
   /**
@@ -925,9 +1035,10 @@ export class RemoteEnvironmentGateway {
    */
   private async handleAgentMessage(
     payload: RemoteAgentMessagePayload,
+    environmentId: string,
   ): Promise<void> {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
-    if (!subagent) return;
+    if (!subagent || subagent.environmentId !== environmentId) return;
     this.markAttached(payload.sessionId, subagent);
 
     this.handlers.onAgentMessage({
