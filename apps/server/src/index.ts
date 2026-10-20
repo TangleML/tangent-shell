@@ -390,6 +390,7 @@ app.use(
       correlations,
       context: contextEngine,
     },
+    remoteGateway,
   ),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));

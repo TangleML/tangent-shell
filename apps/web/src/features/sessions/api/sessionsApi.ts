@@ -3,11 +3,13 @@ import type {
   Attachment,
   CreateSessionRequest,
   HostResourceInput,
+  ListEnvironmentsResponse,
   ListParticipantsResponse,
   ListResourcesResponse,
   MembershipView,
   ParticipantView,
   ParticipantWithMemberships,
+  RemoteEnvironmentInfo,
   Resource,
   Session,
   UpdateSessionRequest,
@@ -197,6 +199,16 @@ export async function listParticipants(
     await apiFetch(`/api/sessions/${sessionId}/participants`),
   );
   return data.participants;
+}
+
+/** Lists the connected remote environments (VS Code windows, embed hosts) this session can use. */
+export async function listEnvironments(
+  sessionId: string,
+): Promise<RemoteEnvironmentInfo[]> {
+  const data = await parseJson<ListEnvironmentsResponse>(
+    await apiFetch(`/api/sessions/${sessionId}/environments`),
+  );
+  return data.environments;
 }
 
 export interface InviteParticipantInput {

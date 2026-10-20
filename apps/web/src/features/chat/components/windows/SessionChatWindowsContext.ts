@@ -1,5 +1,6 @@
 import type {
   ParticipantWithMemberships,
+  RemoteEnvironmentInfo,
   Resource,
 } from "@tangent/shared/contracts";
 import { createContext, useContext } from "react";
@@ -31,6 +32,8 @@ export interface SessionChatWindowsValue {
   participantsPending: boolean;
   /** Whether the roster fetch failed (error, not empty). */
   participantsError: boolean;
+  /** Connected remote environments this session can route sub-agents to. */
+  environments: RemoteEnvironmentInfo[];
   /** The Conversation in view; a roster mute toggle acts on its Membership. */
   activeConversationId: string;
   /** The current human's participant id, so their own roster row reads as "you". */
