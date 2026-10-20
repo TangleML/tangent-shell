@@ -351,20 +351,47 @@ export class RemoteEnvironmentGateway {
       ...this.unscopedEnvironmentsFor(sessionId),
     ]
       .sort((a, b) => b.seq - a.seq)
-      .map((environment) => ({
-        environmentId: environment.environmentId,
-        sessionId: environment.sessionId,
-        selector: environment.selector,
-        owner: environment.sub,
-        scoped: Boolean(environment.sub),
-        toolCount: environment.tools.size,
-        subagentCount: roster.filter(
-          (subagent) =>
-            subagent.environmentId === environment.environmentId &&
-            !isTerminalStatus(subagent.status),
-        ).length,
-        ...(environment.metadata ? { metadata: environment.metadata } : {}),
-      }));
+      .map((environment) => this.toEnvironmentInfo(environment, roster));
+  }
+
+  /**
+   * The connected environments the prompting human can spawn into or inspect:
+   * that person's own hosts (the unscoped dev host only when the session has no
+   * scoped host at all), most recent first. Distinct from {@link
+   * listEnvironments}, the web UI's session-wide view — this is the Prime-facing
+   * view, scoped to whoever's turn is asking, so Prime chooses among their hosts.
+   */
+  listEnvironmentsFor(
+    sessionId: string,
+    audienceId: string | undefined,
+  ): RemoteEnvironmentInfo[] {
+    const target = this.toolEnvironments(sessionId, audienceId);
+    if (typeof target === "string") return [];
+    const roster = [...(this.sessions.get(sessionId)?.values() ?? [])];
+    return [...target]
+      .sort((a, b) => b.seq - a.seq)
+      .map((environment) => this.toEnvironmentInfo(environment, roster));
+  }
+
+  /** Projects a connected environment onto the wire {@link RemoteEnvironmentInfo}. */
+  private toEnvironmentInfo(
+    environment: RemoteEnvConnection,
+    roster: RemoteSubagent[],
+  ): RemoteEnvironmentInfo {
+    return {
+      environmentId: environment.environmentId,
+      sessionId: environment.sessionId,
+      selector: environment.selector,
+      owner: environment.sub,
+      scoped: Boolean(environment.sub),
+      toolCount: environment.tools.size,
+      subagentCount: roster.filter(
+        (subagent) =>
+          subagent.environmentId === environment.environmentId &&
+          !isTerminalStatus(subagent.status),
+      ).length,
+      ...(environment.metadata ? { metadata: environment.metadata } : {}),
+    };
   }
 
   /**
@@ -382,8 +409,8 @@ export class RemoteEnvironmentGateway {
     const environment = this.spawnEnvironment(
       sessionId,
       request.audienceParticipantId,
+      request.environmentId,
     );
-
     const agentId = randomUUID();
     const homeConversationId = randomUUID();
     const sessionConfig = this.sessionConfig(sessionId);
@@ -639,19 +666,37 @@ export class RemoteEnvironmentGateway {
   }
 
   /**
-   * The environment a remote sub-agent spawns into: the prompting person's most
-   * recent host, resolved through the same fail-closed rules a tool call uses.
-   * Throws rather than landing the spawn in another viewer's environment.
+   * The environment a remote sub-agent spawns into, resolved through the same
+   * fail-closed rules a tool call uses. With `environmentId`, it targets that
+   * specific host from the prompting person's eligible set, throwing a message
+   * that names the valid hosts when it is unknown or ineligible so Prime can
+   * self-correct. Without it, the prompting person's most recent host. Throws
+   * rather than landing the spawn in another viewer's environment.
    */
   private spawnEnvironment(
     sessionId: string,
     audienceId: string | undefined,
+    environmentId?: string,
   ): RemoteEnvConnection {
     const target = this.toolEnvironments(sessionId, audienceId);
     if (typeof target === "string") throw new Error(target);
+    if (environmentId) return this.pickEnvironment(target, environmentId);
     const environment = this.mostRecent(target);
     if (!environment) throw new Error("No remote environment is connected.");
     return environment;
+  }
+
+  /** Selects `environmentId` from the eligible set, or throws naming the valid ids. */
+  private pickEnvironment(
+    target: RemoteEnvConnection[],
+    environmentId: string,
+  ): RemoteEnvConnection {
+    const environment = target.find((e) => e.environmentId === environmentId);
+    if (environment) return environment;
+    const valid = target.map((e) => e.environmentId).join(", ");
+    throw new Error(
+      `Unknown or ineligible environmentId "${environmentId}". Valid hosts: ${valid || "none"}.`,
+    );
   }
 
   /**

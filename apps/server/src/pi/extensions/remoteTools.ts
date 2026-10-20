@@ -70,7 +70,64 @@ function renderResult(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+/** A connected remote host as the environments endpoint reports it. */
+interface EnvironmentInfo {
+  environmentId: string;
+  scoped: boolean;
+  owner?: string;
+  toolCount: number;
+  subagentCount: number;
+  metadata?: Record<string, string>;
+}
+
+/** A human-readable label for a host, preferring its advertised metadata. */
+function environmentLabel(env: EnvironmentInfo): string {
+  const meta = env.metadata ?? {};
+  return (
+    meta.windowName ?? meta.editor ?? meta.workspacePath ?? env.environmentId
+  );
+}
+
+/** Renders one host for Prime: its id, self-description, and live counts. */
+function renderEnvironment(env: EnvironmentInfo): string {
+  const meta = env.metadata ?? {};
+  const lines = [`- ${environmentLabel(env)} (id: ${env.environmentId})`];
+  if (meta.description) lines.push(`  description: ${meta.description}`);
+  if (meta.capabilities) lines.push(`  capabilities: ${meta.capabilities}`);
+  if (meta.workspacePath && meta.workspacePath !== environmentLabel(env)) {
+    lines.push(`  workspace: ${meta.workspacePath}`);
+  }
+  lines.push(`  tools: ${env.toolCount}, sub-agents: ${env.subagentCount}`);
+  return lines.join("\n");
+}
+
 export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "list_environments",
+    label: "List Environments",
+    description:
+      "List the remote host environments currently connected for the person " +
+      "whose turn this is (e.g. their VS Code 'Tangent Local Agent' and/or a " +
+      "browser workspace). Each entry gives an `environmentId`, the host's " +
+      "self-description (what it is and what agents it can build), and its live " +
+      "tool/sub-agent counts. Call this to choose where a remote sub-agent " +
+      "should run, then pass the chosen id as `environment_id` to " +
+      "spawn_subagent. The list is dynamic and empty when no host is connected.",
+    promptSnippet: "List connected remote host environments to spawn into",
+    parameters: Type.Object({}),
+    async execute() {
+      const data = (await callApi("GET", "environments", undefined, {
+        sessionId: SESSION_ID,
+        agentId: AGENT_ID,
+      })) as { environments: EnvironmentInfo[] };
+
+      if (!data.environments.length) {
+        return textResult("No remote host environment is connected right now.");
+      }
+      return textResult(data.environments.map(renderEnvironment).join("\n\n"));
+    },
+  });
+
   pi.registerTool({
     name: "list_remote_tools",
     label: "List Remote Tools",

@@ -299,6 +299,19 @@ id — a total lookup across all four connectors (`pi-stdio`, `remote-env`,
 `external-inbound`, `a2a`), with an unknown id refused in its own conversation
 rather than mis-routed. See [connectors.md](./connectors.md).
 
+**Choosing among several remote hosts.** The prompting human may have more than
+one host connected (e.g. a VS Code "Tangent Local Agent" and a browser embed). A
+`remote` spawn defaults to that person's **most recently connected** host. To
+target a specific one, Prime calls `list_environments` (the remote-tools
+extension; `GET /internal/remote-tools/environments`), which returns each
+eligible host's `environmentId`, its self-described `metadata` (`description` /
+`capabilities` / `editor` / `workspacePath`), and live tool/sub-agent counts.
+Prime then passes the chosen `environment_id` to `spawn_subagent`, threaded into
+`gateway.spawnSubagent`; an unknown or ineligible id throws an error naming the
+valid hosts rather than silently falling back. Hosts advertise their
+self-description in the connection handshake `metadata` (see
+[the remote-subagent SDK README](../../packages/remote-subagent/README.md)).
+
 - **Server side:** `RemoteEnvironmentGateway`
   (`apps/server/src/remote/remoteEnvironmentGateway.ts`) owns the `/remote-env`
   namespace (bearer-authenticated with `REMOTE_ENV_TOKEN`), tracks connected

@@ -77,7 +77,8 @@ export const SESSION_EXTENSION = path.join(
  * Absolute path to the remote-tools extension loaded into every Pi process. It
  * registers the `list_remote_tools` / `call_remote_tool` dispatcher so any agent
  * can invoke the RPC tools a connected remote environment offers, without
- * spawning a browser sub-agent.
+ * spawning a browser sub-agent, plus `list_environments` so Prime can enumerate
+ * the prompting person's connected hosts and target one for a remote spawn.
  */
 export const REMOTE_TOOLS_EXTENSION = path.join(
   import.meta.dirname,
