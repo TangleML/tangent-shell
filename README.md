@@ -21,6 +21,25 @@ workflow — research, code generation, document building, scheduled automation,
 - The **`pi`** agent binary on your `PATH` (or set `PI_BIN` to its location)
 - Access to an LLM proxy for `pi` to call (see `PI_PROXY_URL` / `PI_PROXY_API_KEY` below)
 
+### Quick start
+
+From a fresh clone to a running shell in one command:
+
+```bash
+OPENAI_API_KEY=sk-... ./start_local.sh        # or ANTHROPIC_API_KEY=sk-ant-...
+```
+
+`start_local.sh` installs dependencies, fetches the `pi` binary if it isn't already on your
+`PATH`, seeds the example agent bundles, writes a local `.env`, and starts the UI at
+**http://127.0.0.1:9010** (server on port `8787`, Tangle API assumed at
+**http://127.0.0.1:8000**).
+
+LLM access is read from well-known provider variables: set `OPENAI_API_KEY` and/or
+`ANHROPIC_API_KEY` (with optional `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`) to call a provider
+directly, or set `PI_PROXY_URL` + `PI_PROXY_API_KEY` to route through an LLM gateway.T Ports,
+model, and paths are overridable — see the top of the script. Prefer to run the steps yourself?
+Use the manual flow below.
+
 ### Install and run
 
 ```bash
