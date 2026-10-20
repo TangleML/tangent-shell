@@ -79,6 +79,13 @@ const client = connectRemoteEnvironment({
   token,
   environmentId,
   sessionId, // session-scoped host only; omit it for a user/selector host (see Host scope)
+  metadata: {
+    // Self-description Prime reads to tell hosts apart (see Host self-description)
+    description: "VS Code — Tangent Local Agent in ~/proj",
+    capabilities: "runs local pi sub-agents that edit files + run the terminal",
+    editor: "vscode",
+    workspacePath: "/Users/me/proj",
+  },
   tools: {
     get_pipeline_state: {
       description: "Get the current pipeline spec as JSON.",
@@ -126,6 +133,25 @@ routing is owner-gated (below), so a host only ever runs work for its own owner.
 Pass the host's `selector` to `connectRemoteEnvironment` for your own reference;
 the scope is read from the token's claims, not the connect options.
 
+### Host self-description
+
+A host advertises free-form `metadata` (string -> string) in the connection
+handshake. It is optional and extensible — new keys need no protocol change — and
+flows through to Prime so it can tell one connected host from another and match
+work to the right one. Recommended keys:
+
+| Key             | What it says                                           |
+| --------------- | ------------------------------------------------------ |
+| `description`   | one line: what this host is (e.g. "VS Code in ~/proj") |
+| `capabilities`  | short phrase: what agents/work it can build here       |
+| `editor`        | the editor/app embedding the host (e.g. `vscode`)      |
+| `windowName`    | a human label for the window/tab                       |
+| `workspacePath` | the folder its sub-agents work in                      |
+
+The server stores it per environment and exposes it to Prime via the
+`list_environments` tool (below). Send a useful `description` / `capabilities`
+pair so Prime can distinguish, say, a VS Code editor host from a browser embed.
+
 ### Routing when several people share a session
 
 A session can have many hosts connected at once — several people, or one person
@@ -138,6 +164,16 @@ that agent's last human audience. `list_remote_tools` is the union of that
 person's own hosts; if their host is gone the call fails clearly rather than
 falling back to someone else's viewport. Pin `environmentId` across token
 refreshes so a host keeps its place instead of reconnecting as a new environment.
+
+### Choosing a host for a remote sub-agent
+
+When several of the prompting person's hosts are connected, a `remote` spawn
+defaults to the **most recently connected** one. To target a specific host,
+Prime first calls `list_environments` — which returns each eligible host's
+`environmentId`, its self-description (`metadata`), and live tool/sub-agent
+counts — then passes the chosen `environment_id` to `spawn_subagent`. An unknown
+or ineligible id fails with an error naming the valid hosts rather than silently
+falling back, so Prime can self-correct.
 
 ## Outbound helpers
 

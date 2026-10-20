@@ -140,9 +140,10 @@ export default function (pi: ExtensionAPI) {
       "the session's settings when omitted. Optionally include a `task` to " +
       "start the sub-agent working immediately. Set `environment` to `remote` " +
       "to host the sub-agent in a connected remote environment instead of " +
-      "locally (defaults to `local`). Returns the sub-agent's id for later " +
-      "messaging. Sub-agents share this session's workspace and can read the " +
-      "room.",
+      "locally (defaults to `local`); when several hosts may be connected, call " +
+      "list_environments first and pass the chosen `environment_id` to pick one. " +
+      "Returns the sub-agent's id for later messaging. Sub-agents share this " +
+      "session's workspace and can read the room.",
     promptSnippet:
       "Spawn a specialized sub-agent (by template or inline config)",
     parameters: Type.Object({
@@ -181,7 +182,16 @@ export default function (pi: ExtensionAPI) {
         Type.String({
           description:
             "Host for the sub-agent: `local` (default) or `remote` (a " +
-            "connected remote environment).",
+            "connected remote environment). Use list_environments to choose " +
+            "among multiple connected hosts.",
+        }),
+      ),
+      environment_id: Type.Optional(
+        Type.String({
+          description:
+            "The id from list_environments naming which remote host to spawn " +
+            "into. Requires `environment: remote` (implied when set). Omit to " +
+            "use the most recently connected host.",
         }),
       ),
       auto_relay: Type.Optional(
@@ -196,6 +206,8 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params) {
+      const environment =
+        params.environment ?? (params.environment_id ? "remote" : undefined);
       const data = (await callApi("POST", "spawn", {
         sessionId: SESSION_ID,
         name: params.name,
@@ -205,7 +217,8 @@ export default function (pi: ExtensionAPI) {
         model: params.model,
         thinkingDepth: params.thinking,
         task: params.task,
-        environment: params.environment,
+        environment,
+        environmentId: params.environment_id,
         autoRelayToPrime: params.auto_relay,
       })) as { subagent: { id: string; name: string } };
 
