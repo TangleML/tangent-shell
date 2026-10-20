@@ -1031,6 +1031,11 @@ export interface RemoteEnvironmentInfo {
   toolCount: number;
   /** This session's live sub-agents hosted here. */
   subagentCount: number;
+  /**
+   * Generic, extensible metadata the host advertised on connect (e.g.
+   * `windowName`, `workspacePath`, `editor`). Omitted when the host sent none.
+   */
+  metadata?: Record<string, string>;
 }
 
 /** Response of `GET /api/sessions/:id/environments`. */

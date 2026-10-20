@@ -94,7 +94,9 @@ function fakeNamespace() {
     },
     connect(
       environmentId: string,
-      auth: { token?: string } = { token: ENV_TOKEN },
+      auth: { token?: string; metadata?: Record<string, unknown> } = {
+        token: ENV_TOKEN,
+      },
     ) {
       const { socket, listeners, sent } = fakeSocket({
         environmentId,
@@ -967,6 +969,34 @@ test("listEnvironments lists a session's scoped hosts and its dev hosts, newest 
     h.gateway.listEnvironments("s2").map((e) => e.environmentId),
     ["env-b", "vscode-generic"],
   );
+});
+
+test("listEnvironments surfaces the metadata a host advertised on connect", () => {
+  const h = makeHarness();
+  h.connect("vscode-1", {
+    token: ENV_TOKEN,
+    metadata: { windowName: "my-ws", editor: "Cursor" },
+  });
+
+  assert.deepEqual(h.gateway.listEnvironments("s1")[0].metadata, {
+    windowName: "my-ws",
+    editor: "Cursor",
+  });
+});
+
+test("listEnvironments drops malformed metadata and omits it entirely when empty", () => {
+  const h = makeHarness();
+  h.connect("vscode-1", {
+    token: ENV_TOKEN,
+    metadata: { windowName: "ok", bad: 42, nested: { x: 1 } },
+  });
+  h.connect("vscode-2", { token: ENV_TOKEN, metadata: { bad: 42 } });
+
+  const one = h.gateway.listEnvironments("s1");
+  const first = one.find((e) => e.environmentId === "vscode-1");
+  const second = one.find((e) => e.environmentId === "vscode-2");
+  assert.deepEqual(first?.metadata, { windowName: "ok" });
+  assert.equal("metadata" in (second ?? {}), false);
 });
 
 test("a session-pinned dev host replaces the generic one for its session only", () => {
