@@ -34,3 +34,23 @@ test("always requests the websocket transport and forwards auth", () => {
     environmentId: "env-1",
   });
 });
+
+test("forwards metadata in the handshake auth when set", () => {
+  const { opts } = buildRemoteEnvConnectArgs({
+    ...base,
+    url: "https://host",
+    metadata: { windowName: "my-ws" },
+  });
+
+  assert.deepEqual(opts.auth, {
+    token: "env-token",
+    environmentId: "env-1",
+    metadata: { windowName: "my-ws" },
+  });
+});
+
+test("omits metadata from auth when unset", () => {
+  const { opts } = buildRemoteEnvConnectArgs({ ...base, url: "https://host" });
+
+  assert.deepEqual(opts.auth, { token: "env-token", environmentId: "env-1" });
+});

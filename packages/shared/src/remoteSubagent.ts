@@ -36,6 +36,12 @@ export const REMOTE_ENV_NAMESPACE = "/remote-env";
 export interface RemoteEnvHandshake {
   environmentId: string;
   token: string;
+  /**
+   * Generic, extensible host metadata (e.g. `windowName`, `workspacePath`,
+   * `editor`) the environment advertises in the Socket.IO `auth` payload. Free
+   * string->string pairs so new keys need no contract change.
+   */
+  metadata?: Record<string, string>;
 }
 
 /**

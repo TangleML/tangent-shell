@@ -66,6 +66,11 @@ const TOOL_CALL_TIMEOUT_MS = 30_000;
 /** How often the defensive sweep reaps environments whose socket is gone. */
 const ENV_SWEEP_INTERVAL_MS = 20_000;
 
+/** Defensive caps on the free-form handshake metadata an environment advertises. */
+const MAX_METADATA_ENTRIES = 16;
+const MAX_METADATA_KEY_LENGTH = 64;
+const MAX_METADATA_VALUE_LENGTH = 1024;
+
 /**
  * How long an environment may go without a received packet or heartbeat before
  * it is treated as dead. Must exceed `pingInterval + pingTimeout` so a healthy
@@ -104,6 +109,8 @@ interface RemoteEnvConnection {
   selector?: string;
   /** The human this environment belongs to (scoped token `sub`), when scoped. */
   sub?: string;
+  /** Generic, extensible metadata the host advertised on connect. */
+  metadata?: Record<string, string>;
   socket: Socket;
   /** The RPC tools this environment currently offers, keyed by tool name. */
   tools: Map<string, RemoteToolDef>;
@@ -148,6 +155,33 @@ function socketDataString(socket: Socket, key: string): string | undefined {
   const value: unknown = socket.data[key];
   if (typeof value !== "string" || !value) return undefined;
   return value;
+}
+
+/** Whether a metadata entry is a non-empty-keyed string within the length caps. */
+function isMetadataPair(pair: [string, unknown]): pair is [string, string] {
+  const [key, entry] = pair;
+  if (!key || key.length > MAX_METADATA_KEY_LENGTH) return false;
+  return typeof entry === "string" && entry.length <= MAX_METADATA_VALUE_LENGTH;
+}
+
+/**
+ * Keeps only the string->string pairs of an advertised metadata bag, within
+ * defensive caps on entry count and key/value length. Returns `undefined` when
+ * nothing valid survives, so an absent or malformed bag is simply dropped.
+ */
+function readMetadata(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const pairs = Object.entries(value)
+    .filter(isMetadataPair)
+    .slice(0, MAX_METADATA_ENTRIES);
+  return pairs.length > 0 ? Object.fromEntries(pairs) : undefined;
+}
+
+/** Reads the validated metadata bag stored on `socket.data`, or `undefined`. */
+function socketDataMetadata(
+  socket: Socket,
+): Record<string, string> | undefined {
+  return readMetadata(socket.data.metadata);
 }
 
 /** A sub-agent hosted in a remote environment, tracked in the gateway roster. */
@@ -329,6 +363,7 @@ export class RemoteEnvironmentGateway {
             subagent.environmentId === environment.environmentId &&
             !isTerminalStatus(subagent.status),
         ).length,
+        ...(environment.metadata ? { metadata: environment.metadata } : {}),
       }));
   }
 
@@ -682,12 +717,14 @@ export class RemoteEnvironmentGateway {
   /** Rejects connections lacking a valid token / environment id. */
   private authenticate(socket: Socket, next: (err?: Error) => void): void {
     const auth = socket.handshake.auth as Partial<RemoteEnvHandshake>;
+    const metadata = readMetadata(auth.metadata);
     const scoped = this.scoped.parse(auth.token);
     if (scoped) {
       socket.data.environmentId = scoped.environmentId;
       socket.data.sessionId = scoped.sessionId;
       socket.data.selector = scoped.selector;
       socket.data.sub = scoped.sub;
+      socket.data.metadata = metadata;
       next();
       return;
     }
@@ -700,6 +737,7 @@ export class RemoteEnvironmentGateway {
       return;
     }
     socket.data.environmentId = auth.environmentId;
+    socket.data.metadata = metadata;
     next();
   }
 
@@ -710,12 +748,14 @@ export class RemoteEnvironmentGateway {
     const sessionId = socketDataString(socket, "sessionId");
     const selector = socketDataString(socket, "selector");
     const sub = socketDataString(socket, "sub");
+    const metadata = socketDataMetadata(socket);
 
     const connection: RemoteEnvConnection = {
       environmentId,
       sessionId,
       selector,
       sub,
+      metadata,
       socket,
       tools: new Map(),
       seq: ++this.connectSeq,
