@@ -103,6 +103,11 @@ const io = new SocketIOServer(httpServer, {
   // an empty allowlist reflects any origin to ease direct local connections;
   // set EMBED_ALLOWED_ORIGINS to pin the handshake to embed hosts.
   cors: { origin: EMBED_ALLOWED_ORIGINS.length ? EMBED_ALLOWED_ORIGINS : true },
+  // Reap a dead host (crashed VS Code window, dropped network) faster than the
+  // ~45s default so a stale remote environment leaves the roster promptly, while
+  // still tolerating a slow link.
+  pingInterval: 20_000,
+  pingTimeout: 10_000,
 });
 
 // Owns the agents' global + per-session memory stores.
@@ -238,9 +243,19 @@ const agentHandlers: ConversationEventSink = {
 // No participant outlives the server, so every sub-agent row still claiming to
 // be live is stale. Marking them `detached` here is what keeps the sessions list
 // from counting agents that no longer exist; a revive moves them back.
-void store.detachActiveSubagents().then((detached) => {
-  if (detached > 0) console.log(`[agents] detached ${detached} stale row(s)`);
-});
+void store
+  .detachActiveSubagents()
+  .then(async (detached) => {
+    if (detached > 0) console.log(`[agents] detached ${detached} stale row(s)`);
+    // Correct rows whose presence predates terminal statuses reading as gone, so
+    // a killed/completed agent kept for its transcript no longer shows present.
+    const resynced = await store.syncAgentPresence();
+    if (resynced > 0)
+      console.log(`[agents] resynced presence on ${resynced} row(s)`);
+  })
+  .catch((err: unknown) => {
+    console.error("[agents] startup roster reconciliation failed", err);
+  });
 
 // The manager runs a roster of Pi processes per session (Prime + sub-agents);
 // their streaming events and roster changes are relayed to the matching

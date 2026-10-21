@@ -35,6 +35,7 @@ import {
 import {
   type Participant,
   participantFromAgent,
+  presenceForStatus,
   sessionAgentFromParticipant,
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
@@ -578,13 +579,14 @@ export class SqliteSessionStore implements SessionStore {
     agentId: string,
     status: SessionAgentStatus,
   ): Promise<void> {
-    // Presence tracks the roster's lifecycle exactly as the read-time mapping
-    // did before C.2: a detached far end is detached, everything else reachable.
+    // Presence tracks the roster's lifecycle: only an active far end is
+    // reachable; a detached one and every terminal status (completed/killed/
+    // error) are gone, so none lingers as "connected".
     this.db
       .update(participants)
       .set({
         agentPayload: sql`json_set(${participants.agentPayload}, '$.status', ${status})`,
-        presence: status === "detached" ? "detached" : "connected",
+        presence: presenceForStatus(status),
       })
       .where(
         and(
@@ -629,6 +631,23 @@ export class SqliteSessionStore implements SessionStore {
           eq(participants.kind, "agent"),
           sql`json_extract(${participants.agentPayload}, '$.role') = 'subagent'`,
           sql`json_extract(${participants.agentPayload}, '$.status') = 'active'`,
+        ),
+      )
+      .returning({ id: participants.id })
+      .all();
+    return rows.length;
+  }
+
+  async syncAgentPresence(): Promise<number> {
+    const rows = this.db
+      .update(participants)
+      .set({
+        presence: sql`CASE WHEN json_extract(${participants.agentPayload}, '$.status') = 'active' THEN 'connected' ELSE 'detached' END`,
+      })
+      .where(
+        and(
+          eq(participants.kind, "agent"),
+          sql`${participants.presence} <> (CASE WHEN json_extract(${participants.agentPayload}, '$.status') = 'active' THEN 'connected' ELSE 'detached' END)`,
         ),
       )
       .returning({ id: participants.id })
