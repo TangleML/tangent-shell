@@ -37,6 +37,18 @@ function handleList(
   res.json({ tools, reason });
 }
 
+/** `GET /environments`: the prompting human's connected hosts, self-described. */
+function handleEnvironments(
+  gateway: RemoteEnvironmentGateway,
+  runs: RunRegistry,
+  query: ListQuery,
+  res: Response,
+): void {
+  const audienceId = runs.audienceFor(query.sessionId, query.agentId);
+  const environments = gateway.listEnvironmentsFor(query.sessionId, audienceId);
+  res.json({ environments });
+}
+
 /**
  * `POST /call`: routes one tool call to the prompting human's host and returns
  * its result. A missing host or unknown tool is a 400 the agent surfaces to
@@ -84,6 +96,18 @@ export function createInternalRemoteToolsRouter(
     validate({ query: listQuerySchema }),
     (req: Request, res: Response) =>
       handleList(
+        gateway,
+        runs,
+        getValidated<unknown, unknown, ListQuery>(req).query,
+        res,
+      ),
+  );
+
+  router.get(
+    "/environments",
+    validate({ query: listQuerySchema }),
+    (req: Request, res: Response) =>
+      handleEnvironments(
         gateway,
         runs,
         getValidated<unknown, unknown, ListQuery>(req).query,

@@ -18,9 +18,9 @@ The relevant code: [agentConfig.ts](../../server/src/pi/agentConfig.ts),
 
 ---
 
-## The five always-on extensions
+## The seven always-on extensions
 
-Regardless of how a session is created, `buildPiArgs` adds these five
+Regardless of how a session is created, `buildPiArgs` adds these seven
 `--extension` paths to every agent (Prime and sub-agents). They are authored
 against Pi's extension runtime (`@ts-nocheck`, never imported by the server) and
 are thin clients over the server's `/internal/*` API:
@@ -30,8 +30,10 @@ are thin clients over the server's `/internal/*` API:
 | Orchestrator   | [extensions/orchestrator.ts](../../server/src/pi/extensions/orchestrator.ts)   | `read_room`; `message_prime`; `spawn_subagent` / `message_subagent` / `kill_subagent` / `list_subagents` | all; sub-agent; Prime |
 | Proxy provider | [extensions/proxyProvider.ts](../../server/src/pi/extensions/proxyProvider.ts) | registers `anthropic`/`openai`/`google`/`groq`/`xai` providers against `PI_PROXY_URL`                    | n/a (no tools)        |
 | Memory         | [extensions/memory.ts](../../server/src/pi/extensions/memory.ts)               | `read_memory`; `remember` / `suggest_memory`                                                             | all; Prime            |
+| Resources      | [extensions/resources.ts](../../server/src/pi/extensions/resources.ts)         | `read_resources`                                                                                         | all                   |
 | Triggers       | [extensions/triggers.ts](../../server/src/pi/extensions/triggers.ts)           | `create_trigger` / `list_triggers` / `enable_trigger` / `disable_trigger` / `delete_trigger`             | Prime only            |
 | Session        | [extensions/session.ts](../../server/src/pi/extensions/session.ts)             | `pin_artifact`; `rename_session`                                                                         | all; Prime            |
+| Remote tools   | [extensions/remoteTools.ts](../../server/src/pi/extensions/remoteTools.ts)     | `list_remote_tools` / `call_remote_tool` / `list_environments`                                           | all                   |
 
 Each extension reads `TANGENT_AGENT_ROLE` and only registers the higher-privilege
 tools when the role is `prime`. The proxy-provider extension exists because in a
@@ -47,9 +49,11 @@ registered it. That is why `agentConfig.ts` defines tool-name groups that are
 unioned into the allowlist:
 
 - `DEFAULT_TOOLS` = `read, write, edit, bash, grep, find, ls`.
-- `SHARED_AGENT_TOOLS` = `read_room, read_memory, message_prime, pin_artifact`
-  (granted to every agent, even though `message_prime` is only _registered_ for
-  sub-agents — the allowlist must still permit it).
+- `SHARED_AGENT_TOOLS` = `read_room, read_memory, message_prime, pin_artifact,
+list_remote_tools, call_remote_tool, list_environments` (granted to every
+  agent, even though `message_prime` is only _registered_ for sub-agents and the
+  remote-tools trio only functions when a host is connected — the allowlist must
+  still permit them).
 - `PRIME_ORCHESTRATION_TOOLS`, `PRIME_MEMORY_TOOLS`, `PRIME_TRIGGER_TOOLS`,
   `PRIME_SESSION_TOOLS` — Prime-only tool names.
 

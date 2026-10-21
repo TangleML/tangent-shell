@@ -34,6 +34,16 @@ same workspace. Only you can direct them.
   successfully, else it is recorded as killed.
 - `read_room` — read the shared transcript to recover context (e.g. after a
   restart). Not a polling tool: never call it in a loop to watch a sub-agent.
+- `list_environments` — list the connected remote hosts you can spawn into,
+  each with a self-description of what it is and what it can build.
+
+By default a sub-agent runs locally. To run one in a connected remote
+environment (e.g. the human's editor / VS Code extension vs. a browser
+workspace), spawn with `environment: remote`. When the human asks to run
+somewhere specific, or more than one host may be connected, call
+`list_environments` first, read each host's description to pick the one that
+fits, and pass its `environment_id` to `spawn_subagent`. Omit `environment_id`
+to use the most recently connected host.
 
 Delegate focused, well-scoped subtasks (recon, planning, review, an isolated
 slice) so each sub-agent keeps a clean context, and run independent ones in

@@ -888,6 +888,127 @@ test("a remote spawn with no known audience does not guess among hosts", () => {
   );
 });
 
+test("a targeted spawn lands in the named host, not the most recent", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const first = h.connect("x", {
+    token: mintScoped(scoped, "env-a1", "s1", "alice@x"),
+  });
+  const second = h.connect("x", {
+    token: mintScoped(scoped, "env-a2", "s1", "alice@x"),
+  });
+
+  h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+    environmentId: "env-a1",
+  });
+
+  assert.equal(lastSpawn(first.sent).sessionId, "s1");
+  assert.equal(
+    second.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+    "the most recent host gets no spawn when another is targeted",
+  );
+});
+
+test("a spawn with no environmentId falls back to the most recent host", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const first = h.connect("x", {
+    token: mintScoped(scoped, "env-a1", "s1", "alice@x"),
+  });
+  const second = h.connect("x", {
+    token: mintScoped(scoped, "env-a2", "s1", "alice@x"),
+  });
+
+  h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(lastSpawn(second.sent).sessionId, "s1");
+  assert.equal(
+    first.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+  );
+});
+
+test("a targeted spawn with an unknown environmentId throws naming the valid hosts", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+
+  assert.throws(
+    () =>
+      h.gateway.spawnSubagent("s1", {
+        name: "Editor",
+        audienceParticipantId: "alice@x",
+        environmentId: "env-missing",
+      }),
+    /ineligible environmentId "env-missing".*env-a/s,
+  );
+  assert.equal(
+    alice.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+    "no spawn lands when the targeted host is invalid",
+  );
+});
+
+test("a targeted spawn cannot reach another person's host", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("x", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+  const bob = h.connect("x", {
+    token: mintScoped(scoped, "env-b", "s1", "bob@x"),
+  });
+
+  assert.throws(
+    () =>
+      h.gateway.spawnSubagent("s1", {
+        name: "Editor",
+        audienceParticipantId: "alice@x",
+        environmentId: "env-b",
+      }),
+    /ineligible environmentId "env-b"/,
+  );
+  assert.equal(
+    bob.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+  );
+});
+
+test("listEnvironmentsFor returns only the prompting person's hosts with their metadata", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+    metadata: { description: "Alice's editor", capabilities: "edits files" },
+  });
+  h.connect("x", { token: mintScoped(scoped, "env-b", "s1", "bob@x") });
+
+  const listed = h.gateway.listEnvironmentsFor("s1", "alice@x");
+
+  assert.deepEqual(
+    listed.map((e) => e.environmentId),
+    ["env-a"],
+  );
+  assert.deepEqual(listed[0].metadata, {
+    description: "Alice's editor",
+    capabilities: "edits files",
+  });
+});
+
+test("listEnvironmentsFor is empty when the prompting person has no host", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("x", { token: mintScoped(scoped, "env-b", "s1", "bob@x") });
+
+  assert.deepEqual(h.gateway.listEnvironmentsFor("s1", "alice@x"), []);
+});
+
 test("a call with no known audience does not guess among connected hosts", async () => {
   const scoped = new ScopedTokenCredential(SCOPED_SECRET);
   const h = makeHarness({ scoped });

@@ -247,7 +247,7 @@ function resolveModelArgs(config: AgentConfig): ModelArgs {
  * config); memory registers read/remember; resources registers read_resources;
  * triggers gives Prime its create/list/enable/disable/delete trigger tools;
  * session gives Prime rename_session; remote-tools gives every agent the
- * list_remote_tools/call_remote_tool dispatcher.
+ * list_remote_tools/call_remote_tool dispatcher plus list_environments.
  */
 const BUILTIN_EXTENSIONS = [
   ORCHESTRATOR_EXTENSION,
