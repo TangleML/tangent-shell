@@ -107,6 +107,12 @@ export interface ConnectRemoteEnvironmentOptions {
    * bound to a single session.
    */
   sessionId?: string;
+  /**
+   * Generic, extensible host metadata (e.g. `windowName`, `workspacePath`,
+   * `editor`) forwarded in the connection handshake. Free string->string pairs
+   * so new keys need no contract change. Omit to advertise none.
+   */
+  metadata?: Record<string, string>;
 }
 
 /**
@@ -191,6 +197,7 @@ export function buildRemoteEnvConnectArgs(
   const auth: RemoteEnvHandshake = {
     token: options.token,
     environmentId: options.environmentId,
+    ...(options.metadata ? { metadata: options.metadata } : {}),
   };
   return {
     uri: `${normalizeUrl(options.url)}${REMOTE_ENV_NAMESPACE}`,
