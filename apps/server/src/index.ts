@@ -103,6 +103,10 @@ const io = new SocketIOServer(httpServer, {
   // an empty allowlist reflects any origin to ease direct local connections;
   // set EMBED_ALLOWED_ORIGINS to pin the handshake to embed hosts.
   cors: { origin: EMBED_ALLOWED_ORIGINS.length ? EMBED_ALLOWED_ORIGINS : true },
+  // Admit a remote environment's resource add/read payload: a `file` blob at its
+  // 1 MiB cap plus the base64 inflation and envelope. Sized like the /api JSON
+  // body limit for the same reason.
+  maxHttpBufferSize: MAX_JSON_BODY_BYTES,
   // Reap a dead host (crashed VS Code window, dropped network) faster than the
   // ~45s default so a stale remote environment leaves the roster promptly, while
   // still tolerating a slow link.
@@ -279,6 +283,14 @@ const remoteGateway = new RemoteEnvironmentGateway(
 // A remote room read naming a Conversation + Participant is projected through
 // its Membership's visibility, the same as the internal `read_room` path.
 remoteGateway.useContextProjection(contextEngine, memberships);
+// A remote resource add/list/read uses the same catalog write path, preamble
+// refresher, and room notifier the HTTP resource routes hold.
+remoteGateway.useResources({
+  seed: { store, memory, catalog: resourceCatalog },
+  catalog: resourceCatalog,
+  hostPreamble: hostResourcePreamble,
+  emitResourcesUpdated,
+});
 
 // Generic MCP relay: bridges an external MCP client (dialed by a gateway) back
 // into a session. A connector opens a channel for the participant it registers;

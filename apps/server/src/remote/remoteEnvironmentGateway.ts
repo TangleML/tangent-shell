@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -23,6 +24,12 @@ import {
   type RemoteEnvHandshake,
   type RemoteKillCommand,
   type RemoteMessageCommand,
+  type RemoteResourceAddRequest,
+  type RemoteResourceAddResponse,
+  type RemoteResourceListRequest,
+  type RemoteResourceListResponse,
+  type RemoteResourceReadRequest,
+  type RemoteResourceReadResponse,
   type RemoteRoomReadRequest,
   type RemoteRoomReadResponse,
   type RemoteSpawnCommand,
@@ -34,7 +41,12 @@ import {
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Namespace, Server as SocketIOServer, Socket } from "socket.io";
 
-import { SESSIONS_ROOT } from "../config.ts";
+import {
+  ARTIFACTS_DIRNAME,
+  MAX_FILE_RESOURCE_BYTES,
+  SESSIONS_ROOT,
+  UPLOADS_DIRNAME,
+} from "../config.ts";
 import {
   type ConnectorCredential,
   remoteEnvCredential,
@@ -42,8 +54,14 @@ import {
   type ScopedTokenCredential,
 } from "../connectors/credentials.ts";
 import { ContextEngine, projectRoom } from "../conversation/context.ts";
+import {
+  applyResourceInput,
+  type ResourceSeedDeps,
+} from "../conversation/hostResources.ts";
 import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import { orchestratorIdentity } from "../conversation/participantRegistry.ts";
+import type { ResourceCatalog } from "../conversation/resourceCatalog.ts";
+import { catalogWorkspaceFiles } from "../conversation/workspaceFiles.ts";
 import {
   parseThinkingLevel,
   type ResolvedSessionConfig,
@@ -51,8 +69,10 @@ import {
   type SubagentSpawnRequest,
 } from "../pi/agentConfig.ts";
 import { loadInstalledConfig } from "../pi/config/bundleLoader.ts";
+import type { HostResourcePreamble } from "../pi/hostResourcePreamble.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
+import { isWithin } from "../routes/sessions/utils.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
@@ -77,6 +97,48 @@ const MAX_METADATA_VALUE_LENGTH = 1024;
  * but idle host (whose pong lands every ping cycle) is never falsely reaped.
  */
 const ENV_IDLE_TTL_MS = 60_000;
+
+/** Content types a resource read derives from a file extension, else octet-stream. */
+const CONTENT_TYPES: Record<string, string> = {
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".json": "application/json",
+  ".csv": "text/csv",
+  ".html": "text/html",
+  ".htm": "text/html",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+};
+
+/** The content type a resource uri implies, by extension; octet-stream by default. */
+function contentTypeFor(uri: string): string {
+  return (
+    CONTENT_TYPES[path.extname(uri).toLowerCase()] ?? "application/octet-stream"
+  );
+}
+
+/** A human-readable message for a thrown value. */
+function errorMessageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * What the gateway needs to serve resource add/list/read: the catalog write path
+ * (the same {@link ResourceSeedDeps} the HTTP route uses), the spawn-preamble
+ * refresher, and the room notifier. Wired after construction via {@link
+ * RemoteEnvironmentGateway.useResources}.
+ */
+export interface ResourceGatewayDeps {
+  seed: ResourceSeedDeps;
+  catalog: ResourceCatalog;
+  hostPreamble: HostResourcePreamble;
+  emitResourcesUpdated: (sessionId: string) => void;
+}
 
 /** One message to deliver to one remote sub-agent. */
 export interface RemoteSendOptions {
@@ -265,6 +327,9 @@ export class RemoteEnvironmentGateway {
   /** Wired after construction: whether a human holds a Membership in a session,
    * used to authorize a user-scoped host's reads of a restricted session. */
   private isSessionMember?: SessionMemberCheck;
+  /** Wired after construction: the resource catalog write/read/notify path a
+   * remote resource add/list/read uses. Absent until {@link useResources}. */
+  private resources?: ResourceGatewayDeps;
 
   /** Connected environments, keyed by `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
@@ -321,6 +386,16 @@ export class RemoteEnvironmentGateway {
    */
   useSessionAuthorization(isSessionMember: SessionMemberCheck): void {
     this.isSessionMember = isSessionMember;
+  }
+
+  /**
+   * Wires the resource catalog path a remote resource add/list/read uses — the
+   * same write deps, preamble refresher, and room notifier the HTTP resource
+   * routes hold. Separate from the constructor because the catalog and preamble
+   * are built after the gateway. Without it, the resource events ack an error.
+   */
+  useResources(resources: ResourceGatewayDeps): void {
+    this.resources = resources;
   }
 
   /** True when at least one remote environment is connected. */
@@ -904,6 +979,41 @@ export class RemoteEnvironmentGateway {
         this.handleToolsRegister(socket, payload);
       },
     );
+    this.wireResourceInbound(socket, connection);
+  }
+
+  /** Wires the ack-based resource add/list/read listeners onto the socket. */
+  private wireResourceInbound(
+    socket: Socket,
+    connection: RemoteEnvConnection,
+  ): void {
+    socket.on(
+      RemoteEnvEvents.ResourceAdd,
+      (
+        request: RemoteResourceAddRequest,
+        callback: (response: RemoteResourceAddResponse) => void,
+      ) => {
+        void this.handleResourceAdd(connection, request, callback);
+      },
+    );
+    socket.on(
+      RemoteEnvEvents.ResourceList,
+      (
+        request: RemoteResourceListRequest,
+        callback: (response: RemoteResourceListResponse) => void,
+      ) => {
+        void this.handleResourceList(connection, request, callback);
+      },
+    );
+    socket.on(
+      RemoteEnvEvents.ResourceRead,
+      (
+        request: RemoteResourceReadRequest,
+        callback: (response: RemoteResourceReadResponse) => void,
+      ) => {
+        void this.handleResourceRead(connection, request, callback);
+      },
+    );
   }
 
   /** Answers a room read only when the host is authorized for the session. */
@@ -1175,6 +1285,122 @@ export class RemoteEnvironmentGateway {
     }
     const all = await this.store.getMessages(request.sessionId);
     callback({ messages: all.slice(-clampLimit(request.limit)) });
+  }
+
+  /**
+   * Whether `connection` may write resources into `sessionId`. Reuses the same
+   * identity/scope gate a room read passes, so a host can only contribute content
+   * to a session it is already authorized to read.
+   */
+  private mayWriteSession(
+    connection: RemoteEnvConnection,
+    sessionId: string,
+  ): Promise<boolean> {
+    return this.mayReadSession(connection, sessionId);
+  }
+
+  /**
+   * Adds a remote environment's resource to the session catalog via the same
+   * {@link applyResourceInput} path the HTTP route uses: a `file` input writes
+   * bytes under `uploads/`, a `host`/`memory` input catalogs its entry. Refreshes
+   * the spawn preamble and signals the room, then acks the stored resource.
+   */
+  private async handleResourceAdd(
+    connection: RemoteEnvConnection,
+    request: RemoteResourceAddRequest,
+    callback: (response: RemoteResourceAddResponse) => void,
+  ): Promise<void> {
+    if (!this.resources) {
+      callback({ ok: false, error: "Resource catalog is not available." });
+      return;
+    }
+    if (!(await this.mayWriteSession(connection, request.sessionId))) {
+      callback({ ok: false, error: "Not authorized for this session." });
+      return;
+    }
+    const rootPath = path.join(SESSIONS_ROOT, request.sessionId);
+    try {
+      const resource = await applyResourceInput(
+        this.resources.seed,
+        request.sessionId,
+        rootPath,
+        request.input,
+        connection.sub,
+      );
+      await this.resources.hostPreamble.refresh(request.sessionId);
+      this.resources.emitResourcesUpdated(request.sessionId);
+      callback({ ok: true, resource });
+    } catch (err) {
+      callback({ ok: false, error: errorMessageOf(err) });
+    }
+  }
+
+  /**
+   * Lists the session's catalogued resources for a read-authorized host. Scans
+   * the workspace first (scan-then-list) so a file an agent just wrote is
+   * reflected, matching the HTTP list path.
+   */
+  private async handleResourceList(
+    connection: RemoteEnvConnection,
+    request: RemoteResourceListRequest,
+    callback: (response: RemoteResourceListResponse) => void,
+  ): Promise<void> {
+    if (!this.resources) {
+      callback({ resources: [] });
+      return;
+    }
+    if (!(await this.mayReadSession(connection, request.sessionId))) {
+      callback({ resources: [] });
+      return;
+    }
+    const rootPath = path.join(SESSIONS_ROOT, request.sessionId);
+    await catalogWorkspaceFiles(this.resources.catalog, {
+      id: request.sessionId,
+      rootPath,
+    });
+    callback({
+      resources: await this.resources.catalog.listForSession(request.sessionId),
+    });
+  }
+
+  /**
+   * Reads one session resource's bytes for a read-authorized host, so an agent on
+   * another machine can fetch what a local agent contributed. The uri is resolved
+   * strictly inside the session root's `uploads/` or `artifacts/` subtree, and
+   * the payload is capped at {@link MAX_FILE_RESOURCE_BYTES}.
+   */
+  private async handleResourceRead(
+    connection: RemoteEnvConnection,
+    request: RemoteResourceReadRequest,
+    callback: (response: RemoteResourceReadResponse) => void,
+  ): Promise<void> {
+    if (!(await this.mayReadSession(connection, request.sessionId))) {
+      callback({ ok: false, error: "Not authorized for this session." });
+      return;
+    }
+    const rootPath = path.join(SESSIONS_ROOT, request.sessionId);
+    const target = path.resolve(rootPath, request.uri);
+    const uploads = path.join(rootPath, UPLOADS_DIRNAME);
+    const artifacts = path.join(rootPath, ARTIFACTS_DIRNAME);
+    if (!isWithin(target, uploads) && !isWithin(target, artifacts)) {
+      callback({ ok: false, error: "Resource uri is outside the session." });
+      return;
+    }
+    try {
+      const stat = await fs.stat(target);
+      if (stat.size > MAX_FILE_RESOURCE_BYTES) {
+        callback({ ok: false, error: "Resource is too large to read." });
+        return;
+      }
+      const bytes = await fs.readFile(target);
+      callback({
+        ok: true,
+        content: bytes.toString("base64"),
+        contentType: contentTypeFor(request.uri),
+      });
+    } catch {
+      callback({ ok: false, error: "Resource not found." });
+    }
   }
 
   /**
