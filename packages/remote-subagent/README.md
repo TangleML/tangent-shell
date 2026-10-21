@@ -183,7 +183,43 @@ falling back, so Prime can self-correct.
   (`active` / `completed` / `killed` / `error`).
 - `client.report(sessionId, agentId, text)` — send a directed report to Prime.
 - `client.readRoom(sessionId, limit?)` — read the tail of the shared transcript.
+- `client.addResource(sessionId, agentId, input)` — contribute a resource to the
+  session (see Session resources).
+- `client.listResources(sessionId)` — list the session's catalogued resources.
+- `client.readResource(sessionId, uri)` — fetch a resource's bytes (base64).
 - `client.disconnect()` — close the connection.
+
+## Session resources
+
+An environment can put content — a file/blob, a `host` entry, or a `memory`
+write — into the session so Prime and every other agent can see and fetch it,
+including agents hosted on a different environment that does not share this
+machine's disk. `addResource` reuses the embed host's `HostResourceInput`: a
+`file` lands bytes under the session's `uploads/` folder (binary rides base64 in
+`content`), catalogued and surfaced to Prime; a `host`/`memory` entry catalogs
+its reference.
+
+```ts
+const resource = await client.addResource(sessionId, agentId, {
+  kind: "file",
+  path: "report.csv",
+  content: csvText, // or base64 with `encoding: "base64"` for binary
+  name: "Quarterly report",
+});
+
+// From another environment on another machine, fetch the bytes back:
+const { content, contentType } = await client.readResource(
+  sessionId,
+  resource.uri, // e.g. "uploads/report.csv"
+);
+const bytes = Buffer.from(content, "base64");
+```
+
+Prime and server-local agents read the bytes straight from the session root
+(they share its disk), so they need no fetch call. The server authorizes a write
+with the same scope gate that guards `readRoom`, resolves a `file` strictly
+inside `uploads/`, and caps a blob at 1 MiB. `readResource` serves any uri under
+the session's `uploads/` or `artifacts/` subtree.
 
 ## Protocol
 
