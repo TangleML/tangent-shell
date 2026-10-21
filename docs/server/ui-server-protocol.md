@@ -34,7 +34,7 @@ implemented under [server/src/routes/](../../server/src/routes).
 | `GET /api/sessions`                                                                | List sessions (sorted by `createdAt`).                                                                         |
 | `POST /api/sessions`                                                               | Create a session. Plain JSON, or a multipart `config` ZIP, or `{ bundleId }` referencing a marketplace bundle. |
 | `GET /api/sessions/:id`                                                            | Fetch one session.                                                                                             |
-| `PATCH /api/sessions/:id`                                                          | Rename a session.                                                                                              |
+| `PATCH /api/sessions/:id`                                                          | Update a session: `name`, `archived`, `accessPolicy`, or selector `tags`.                                      |
 | `DELETE /api/sessions/:id`                                                         | Delete a session; disposes its `pi` processes and triggers.                                                    |
 | `POST /api/sessions/:id/viewed`                                                    | Record that the current user opened the session.                                                               |
 | `POST /api/sessions/:id/files`                                                     | Upload chat attachments into the session's `uploads/`.                                                         |

@@ -32,6 +32,9 @@ export const sessions = sqliteTable("sessions", {
   userIdentity: text("user_identity"),
   /** Serialized session-scoped env vars injected into agent spawns (server-only). */
   env: text("env"),
+  /** Serialized `string[]` of selector tags (e.g. `projectId:<GUID>`) used to
+   * route selector-scoped remote hosts to this session. */
+  tags: text("tags"),
   /** Whether the session is archived (hidden from the default list). */
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   /** Who may access this session: `open` (default) or `restricted`. */

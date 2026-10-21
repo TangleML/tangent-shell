@@ -208,7 +208,12 @@ export interface RemoteToolDef {
  * and an empty `tools` clears it. Disconnecting drops it entirely.
  */
 export interface RemoteToolsRegisterPayload {
-  sessionId: string;
+  /**
+   * The session this catalog is for, on a session-scoped host. Omitted by a
+   * user- or selector-scoped host, which is not bound to a single session; the
+   * gateway keys the catalog by the socket's environment instead.
+   */
+  sessionId?: string;
   tools: RemoteToolDef[];
 }
 

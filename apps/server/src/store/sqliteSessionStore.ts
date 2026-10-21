@@ -40,6 +40,7 @@ import {
 } from "./participantStore.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
+  applySessionUpdate,
   type CreateSessionParams,
   type RecordAgentInput,
   type SessionAgent,
@@ -69,6 +70,7 @@ function toSession(row: SessionRow): Session {
       : undefined,
     archived: row.archived,
     accessPolicy: row.accessPolicy as SessionAccessPolicy,
+    tags: row.tags ? (JSON.parse(row.tags) as string[]) : [],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -129,6 +131,8 @@ function mergeSessionAgent(
 export class SqliteSessionStore implements SessionStore {
   /** Caches sessionId -> rootPath so `appendMessage` avoids a DB read per line. */
   private readonly rootPaths = new Map<string, string>();
+  /** Caches sessionId -> selector tags so `selectorsOf` stays a sync lookup. */
+  private readonly selectors = new Map<string, string[]>();
   private readonly db: Db;
   /**
    * The resource catalog a pinned artifact mirrors into, so an artifact is a
@@ -178,6 +182,19 @@ export class SqliteSessionStore implements SessionStore {
     return JSON.parse(row.env) as Record<string, string>;
   }
 
+  selectorsOf(id: string): string[] {
+    const cached = this.selectors.get(id);
+    if (cached) return cached;
+    const row = this.db
+      .select({ tags: sessions.tags })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    const tags = row?.tags ? (JSON.parse(row.tags) as string[]) : [];
+    this.selectors.set(id, tags);
+    return tags;
+  }
+
   async createSession(input: CreateSessionParams): Promise<Session> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -202,6 +219,7 @@ export class SqliteSessionStore implements SessionStore {
       user: input.user,
       archived: false,
       accessPolicy: DEFAULT_SESSION_ACCESS_POLICY,
+      tags: input.tags ?? [],
       createdAt: now,
       updatedAt: now,
     };
@@ -215,6 +233,7 @@ export class SqliteSessionStore implements SessionStore {
         status: session.status,
         userIdentity: session.user ? JSON.stringify(session.user) : null,
         env: input.env ? JSON.stringify(input.env) : null,
+        tags: JSON.stringify(session.tags),
         archived: session.archived,
         accessPolicy: session.accessPolicy,
         createdAt: session.createdAt,
@@ -223,6 +242,7 @@ export class SqliteSessionStore implements SessionStore {
       .run();
 
     this.rootPaths.set(id, rootPath);
+    this.selectors.set(id, session.tags);
     await this.recordAgent(id, {
       id: PRIME_AGENT_ID,
       role: "prime",
@@ -239,23 +259,19 @@ export class SqliteSessionStore implements SessionStore {
     const existing = await this.getSession(id);
     if (!existing) return undefined;
 
-    const updated: Session = {
-      ...existing,
-      name: input.name?.trim() || existing.name,
-      archived: input.archived ?? existing.archived,
-      accessPolicy: input.accessPolicy ?? existing.accessPolicy,
-      updatedAt: new Date().toISOString(),
-    };
+    const updated = applySessionUpdate(existing, input);
     this.db
       .update(sessions)
       .set({
         name: updated.name,
         archived: updated.archived,
         accessPolicy: updated.accessPolicy,
+        tags: JSON.stringify(updated.tags),
         updatedAt: updated.updatedAt,
       })
       .where(eq(sessions.id, id))
       .run();
+    this.selectors.set(id, updated.tags);
     return updated;
   }
 
@@ -285,6 +301,7 @@ export class SqliteSessionStore implements SessionStore {
     // the prior in-memory behavior.
     const result = this.db.delete(sessions).where(eq(sessions.id, id)).run();
     this.rootPaths.delete(id);
+    this.selectors.delete(id);
     return result.changes > 0;
   }
 
