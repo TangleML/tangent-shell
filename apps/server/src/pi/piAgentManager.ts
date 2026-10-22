@@ -91,6 +91,19 @@ const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
 
+/**
+ * How long a prompt written to an idle agent may go without any sign of life
+ * from Pi (an ack, `agent_start`, or `compaction_start`) before the process is
+ * treated as wedged: the run fails and the process is restarted.
+ */
+const PROMPT_ACK_TIMEOUT_MS = 60_000;
+
+/**
+ * How long after Pi accepts a prompt to wait for `agent_start` before treating
+ * it as handled without a turn (e.g. an extension command) and ending the run.
+ */
+const PROMPT_START_GRACE_MS = 5_000;
+
 /** Shared arguments passed to each per-event-type handler in the dispatch table. */
 interface EventContext {
   sessionId: string;
@@ -859,6 +872,7 @@ export class PiAgentManager {
     existing.currentMessageId = null;
     existing.aborted = true;
     existing.intentionalKill = true;
+    this.clearPendingPrompt(existing);
     existing.child.kill();
     // The killed process will never emit `agent_end`, so settle here: the turn
     // we cut was stopped, not finished.
@@ -973,7 +987,8 @@ export class PiAgentManager {
   /**
    * Writes a prompt to an agent's stdin, marking it busy. A prompt that arrives
    * mid-stream carries a `streamingBehavior` (steer / follow-up); that field is
-   * only valid while streaming, so an idle agent gets a plain prompt.
+   * only valid while streaming, so an idle agent gets a plain prompt and shows
+   * a "warming up" indicator right away rather than waiting for `agent_start`.
    */
   private writePrompt(
     sessionId: string,
@@ -1003,6 +1018,13 @@ export class PiAgentManager {
 
     agent.busy = true;
     agent.child.stdin.write(`${JSON.stringify(command)}\n`);
+    if (!wasBusy) {
+      this.armPromptWatchdog(sessionId, agent, String(command.id));
+      this.emitActivity(sessionId, agent, {
+        kind: "thinking",
+        label: "Warming up...",
+      });
+    }
   }
 
   /**
@@ -1022,10 +1044,15 @@ export class PiAgentManager {
       `[pi:${sessionId}:${agentId}] abort`,
       JSON.stringify({ role: agent.role }),
     );
+    this.writeAbort(agent);
+    return true;
+  }
+
+  /** Writes Pi's `abort` RPC command to the agent's stdin. */
+  private writeAbort(agent: AgentProcess): void {
     agent.child.stdin.write(
       `${JSON.stringify({ id: randomUUID(), type: "abort" })}\n`,
     );
-    return true;
   }
 
   /**
@@ -1158,6 +1185,8 @@ export class PiAgentManager {
       lastFinalContent: "",
       autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
       lastActivity: null,
+      pendingPromptId: null,
+      promptWatchdog: null,
       intentionalKill: false,
       restartCount: supervision?.restartCount ?? 0,
       lastRestartAt: supervision?.lastRestartAt ?? null,
@@ -1293,7 +1322,7 @@ export class PiAgentManager {
 
   /**
    * Per-event-type handlers, keyed by the Pi RPC `type`. Unmapped types
-   * (turn_* / response / extension_ui_request etc.) carry no chat-visible
+   * (turn_* / extension_ui_request etc.) carry no chat-visible
    * signal and are ignored. Defined as a field so dispatch stays a single
    * table lookup.
    */
@@ -1316,6 +1345,9 @@ export class PiAgentManager {
       queue_update: ({ sessionId, descriptor, event }) =>
         this.onQueueUpdate(sessionId, descriptor, event),
       agent_end: ({ sessionId, agent }) => this.onAgentEnd(sessionId, agent),
+      response: ({ sessionId, agent, event }) =>
+        this.onCommandResponse(sessionId, agent, event),
+      compaction_start: ({ agent }) => this.stopPromptWatchdog(agent),
     };
 
   /** Dispatches one parsed stdout line to the matching per-event handler. */
@@ -1348,7 +1380,8 @@ export class PiAgentManager {
       });
     }
     agent.busy = true;
-    agent.aborted = false;
+    this.clearPendingPrompt(agent);
+    if (agent.aborted) this.writeAbort(agent);
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -1503,6 +1536,77 @@ export class PiAgentManager {
     });
   }
 
+  /**
+   * Settles a prompt meant to start a run once Pi answers it. A rejection (e.g.
+   * no usable model or credentials) fails the run; an acceptance not followed by
+   * `agent_start` (e.g. an extension command) ends it. Neither gets `agent_end`,
+   * so without this the agent would read busy indefinitely.
+   */
+  private onCommandResponse(
+    sessionId: string,
+    agent: AgentProcess,
+    event: PiStdoutEvent,
+  ): void {
+    if (event.command !== "prompt") return;
+    if (!agent.pendingPromptId || event.id !== agent.pendingPromptId) return;
+    this.clearPendingPrompt(agent);
+    if (event.success !== false) {
+      this.armTurnlessPromptTimer(sessionId, agent);
+      return;
+    }
+    this.failInFlight(
+      sessionId,
+      agent,
+      event.error || "The agent could not start working on this message.",
+    );
+  }
+
+  /** Tracks a prompt meant to start a run until Pi acknowledges or starts it. */
+  private armPromptWatchdog(
+    sessionId: string,
+    agent: AgentProcess,
+    promptId: string,
+  ): void {
+    this.clearPendingPrompt(agent);
+    agent.pendingPromptId = promptId;
+    agent.promptWatchdog = setTimeout(() => {
+      if (agent.pendingPromptId !== promptId) return;
+      console.error(
+        `[pi:${sessionId}:${agent.agentId}] no response to prompt after ${PROMPT_ACK_TIMEOUT_MS}ms; restarting`,
+      );
+      this.failInFlight(
+        sessionId,
+        agent,
+        "The agent stopped responding and is being restarted. Please try again.",
+      );
+      agent.child.kill("SIGKILL");
+    }, PROMPT_ACK_TIMEOUT_MS);
+    agent.promptWatchdog.unref?.();
+  }
+
+  /** Ends the run if an accepted prompt is not followed by `agent_start`. */
+  private armTurnlessPromptTimer(sessionId: string, agent: AgentProcess): void {
+    agent.promptWatchdog = setTimeout(() => {
+      console.log(
+        `[pi:${sessionId}:${agent.agentId}] prompt accepted without a turn`,
+      );
+      this.onAgentEnd(sessionId, agent);
+    }, PROMPT_START_GRACE_MS);
+    agent.promptWatchdog.unref?.();
+  }
+
+  /** Stops tracking the pending prompt and cancels its watchdog. */
+  private clearPendingPrompt(agent: AgentProcess): void {
+    this.stopPromptWatchdog(agent);
+    agent.pendingPromptId = null;
+  }
+
+  /** Cancels the prompt watchdog but keeps waiting for Pi's answer to the prompt. */
+  private stopPromptWatchdog(agent: AgentProcess): void {
+    if (agent.promptWatchdog) clearTimeout(agent.promptWatchdog);
+    agent.promptWatchdog = null;
+  }
+
   /** Ends a run: clears busy + the activity indicator. */
   private onAgentEnd(sessionId: string, agent: AgentProcess): void {
     console.log(
@@ -1522,6 +1626,7 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    this.clearPendingPrompt(agent);
 
     this.notifyStatus(sessionId);
     // Emitted before the Run settles, so the run's last event still carries its
@@ -1585,6 +1690,7 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    this.clearPendingPrompt(agent);
     const descriptor = {
       agentId: agent.agentId,
       role: agent.role,

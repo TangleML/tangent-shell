@@ -176,6 +176,16 @@ export interface AgentProcess {
    */
   lastActivity: AgentActivity | null;
   /**
+   * The id of a prompt written to an idle agent whose turn has not started yet,
+   * so a rejection from Pi (no `agent_start` will follow) can fail the run.
+   */
+  pendingPromptId: string | null;
+  /**
+   * Fires if Pi stays silent about {@link pendingPromptId}, or accepts it without
+   * starting a turn; see `PROMPT_ACK_TIMEOUT_MS` and `PROMPT_START_GRACE_MS`.
+   */
+  promptWatchdog: ReturnType<typeof setTimeout> | null;
+  /**
    * Set just before a deliberate `child.kill()` (model change, explicit
    * kill, dispose) so the supervisor's exit handler treats the exit as expected
    * and does NOT auto-respawn the process.
@@ -243,4 +253,12 @@ export interface PiStdoutEvent {
   steering?: unknown;
   /** Present on `queue_update` events: pending follow-up messages. */
   followUp?: unknown;
+  /** Present on `response` events: the id of the command being answered. */
+  id?: string;
+  /** Present on `response` events: the command being answered. */
+  command?: string;
+  /** Present on `response` events: whether the command was accepted. */
+  success?: boolean;
+  /** Present on failed `response` events. */
+  error?: string;
 }
