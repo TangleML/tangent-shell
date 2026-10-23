@@ -4,6 +4,7 @@ import { BlockStack } from "@tangent/ui-primitives/layout";
 import type { Agent } from "@/features/chat/model/agents";
 
 import { AgentCard } from "./AgentCard";
+import { AttachAgentPopover } from "./AttachAgentPopover";
 
 interface AgentListProps {
   agents: Agent[];
@@ -47,6 +48,7 @@ export function AgentList({
               }
             />
           ))}
+          <AttachAgentPopover sessionId={sessionId} />
         </BlockStack>
       </Box>
     </BlockStack>
