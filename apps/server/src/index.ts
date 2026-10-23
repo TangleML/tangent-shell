@@ -33,6 +33,8 @@ import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
+import { createAttachRouter } from "./routes/attach.ts";
+import { createConfigRouter } from "./routes/config.ts";
 import { createEmbedRouter } from "./routes/embed.ts";
 import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
@@ -427,6 +429,8 @@ app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
+// Public, non-sensitive client config (e.g. the shell's public base URL).
+app.use("/api/config", createConfigRouter());
 app.use(
   "/api/embed",
   createEmbedRouter(
@@ -436,6 +440,18 @@ app.use(
     async (sessionId, email) =>
       (await participantService.membershipsOf(sessionId, email)).length > 0,
   ),
+);
+// Public, self-service API an attach bridge drives to join a locally-run ACP
+// agent into a session as an external-inbound sub-agent. Authorized by the
+// session-scoped remote-env token minted at /api/embed/remote-env-token.
+app.use(
+  "/api/attach",
+  createAttachRouter(externalGateway, store, connectors, conversations, {
+    seed: { store, memory, catalog: resourceCatalog },
+    catalog: resourceCatalog,
+    hostPreamble: hostResourcePreamble,
+    emitResourcesUpdated,
+  }),
 );
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use(

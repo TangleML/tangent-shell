@@ -154,12 +154,32 @@ export interface RemoteEnvTokenRequest {
   environmentId?: string;
 }
 
+/**
+ * Response of `GET /api/config`. `shellUrl` is the public base URL at which this
+ * server is reachable by an external client (attach bridge, MCP relay) — the
+ * value an attach command must dial. Empty when `TANGENT_PUBLIC_URL` is unset
+ * (standalone dev), in which case the client falls back to its own origin.
+ */
+export interface PublicConfig {
+  shellUrl: string;
+}
+
 /** Response of `POST /api/embed/remote-env-token`. */
 export interface RemoteEnvTokenResponse {
   token: string;
   environmentId: string;
   expiresAt: string;
 }
+
+/**
+ * Header an attach bridge carries its session-scoped token on, as a fallback to
+ * `Authorization: Bearer`. An SSO proxy (e.g. Okta/Minerva) in front of the
+ * Shell may strip or overwrite `Authorization` for its own auth, which would
+ * leave every `/api/attach/*` call unauthenticated; a non-standard header rides
+ * through such a proxy untouched. Lower-case because header names are
+ * case-insensitive and Express normalizes them.
+ */
+export const ATTACH_TOKEN_HEADER = "x-tangent-attach-token";
 
 /**
  * Distinguishes the session's orchestrating Prime agent from the sub-agents it
