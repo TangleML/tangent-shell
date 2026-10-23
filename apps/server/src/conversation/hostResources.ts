@@ -7,9 +7,14 @@ import {
   type MemoryScope,
 } from "@tangent/shared/contracts.ts";
 
-import { UPLOADS_DIRNAME } from "../config.ts";
+import {
+  ARTIFACTS_DIRNAME,
+  MAX_FILE_RESOURCE_BYTES,
+  UPLOADS_DIRNAME,
+} from "../config.ts";
 import { badRequest } from "../middleware/errorHandler.ts";
 import type { MemoryManager } from "../pi/memory.ts";
+import { isWithin } from "../routes/sessions/utils.ts";
 import type { CatalogInput, Resource } from "../store/resourceStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { orchestratorConversationFor } from "./participantRegistry.ts";
@@ -201,4 +206,73 @@ export async function removeResourceByUri(
   await deps.catalog.remove(sessionId, uri);
   const scope = memoryScopeFromUri(uri);
   if (scope) deps.memory.clear(rootPath, scope);
+}
+
+/** A session resource file's bytes (base64) and the content type its uri implies. */
+export interface SessionResourceFile {
+  content: string;
+  contentType: string;
+}
+
+/** Content types a resource read derives from a file extension, else octet-stream. */
+const CONTENT_TYPES: Record<string, string> = {
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".json": "application/json",
+  ".csv": "text/csv",
+  ".html": "text/html",
+  ".htm": "text/html",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+};
+
+/** The content type a resource uri implies, by extension; octet-stream by default. */
+function contentTypeFor(uri: string): string {
+  return (
+    CONTENT_TYPES[path.extname(uri).toLowerCase()] ?? "application/octet-stream"
+  );
+}
+
+/**
+ * Reads one session resource's bytes by its session-root-relative uri. The uri
+ * is resolved strictly inside the session root's `uploads/` or `artifacts/`
+ * subtree and the payload is capped at {@link MAX_FILE_RESOURCE_BYTES}. Returns
+ * the base64 content and derived content type; a bad uri, a missing file, or an
+ * oversized payload surface as a 400. Shared by the remote-env gateway and the
+ * attach route so an agent on another environment can fetch what a local one
+ * contributed.
+ */
+export async function readSessionResourceFile(
+  rootPath: string,
+  uri: string,
+): Promise<SessionResourceFile> {
+  const target = path.resolve(rootPath, uri);
+  const uploads = path.join(rootPath, UPLOADS_DIRNAME);
+  const artifacts = path.join(rootPath, ARTIFACTS_DIRNAME);
+  if (!isWithin(target, uploads) && !isWithin(target, artifacts)) {
+    throw badRequest("Resource uri is outside the session.");
+  }
+  let stat;
+  try {
+    stat = await fs.stat(target);
+  } catch {
+    throw badRequest("Resource not found.");
+  }
+  if (stat.size > MAX_FILE_RESOURCE_BYTES) {
+    throw badRequest("Resource is too large to read.");
+  }
+  try {
+    const bytes = await fs.readFile(target);
+    return {
+      content: bytes.toString("base64"),
+      contentType: contentTypeFor(uri),
+    };
+  } catch {
+    throw badRequest("Resource not found.");
+  }
 }

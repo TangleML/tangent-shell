@@ -3,67 +3,98 @@ import { test } from "node:test";
 
 import { DeliveryQueue } from "./deliveryQueue.ts";
 
-test("queued work is answered without waiting", async () => {
+test("an unscoped take collects the whole session queue", async () => {
   const queue = new DeliveryQueue();
-  queue.push("s1", { agentId: "ext-1", text: "go" });
-  queue.push("s1", { agentId: "ext-2", text: "also go" });
+  queue.push("s1", { agentId: "a", text: "one" });
+  queue.push("s1", { agentId: "b", text: "two" });
 
-  assert.deepEqual(await queue.take("s1", 5_000), [
-    { agentId: "ext-1", text: "go" },
-    { agentId: "ext-2", text: "also go" },
+  assert.deepEqual(await queue.take("s1", 5), [
+    { agentId: "a", text: "one" },
+    { agentId: "b", text: "two" },
   ]);
 });
 
-test("a taken batch is not handed out twice", async () => {
+test("a scoped take drains only its agent's work", async () => {
   const queue = new DeliveryQueue();
-  queue.push("s1", { agentId: "ext-1", text: "go" });
+  queue.push("s1", { agentId: "a", text: "for a" });
+  queue.push("s1", { agentId: "b", text: "for b" });
 
-  await queue.take("s1", 5_000);
-
-  assert.deepEqual(await queue.take("s1", 5), []);
-});
-
-test("a parked poll is resolved by the next delivery", async () => {
-  const queue = new DeliveryQueue();
-  const polled = queue.take("s1", 5_000);
-
-  queue.push("s1", { agentId: "ext-1", text: "go" });
-
-  assert.deepEqual(await polled, [{ agentId: "ext-1", text: "go" }]);
-});
-
-test("a poll with nothing to carry gives up empty", async () => {
-  const queue = new DeliveryQueue();
-  assert.deepEqual(await queue.take("s1", 5), []);
-});
-
-test("a delivery handed to a waiter is not left queued behind it", async () => {
-  const queue = new DeliveryQueue();
-  const polled = queue.take("s1", 5_000);
-  queue.push("s1", { agentId: "ext-1", text: "go" });
-  await polled;
-
-  assert.deepEqual(await queue.take("s1", 5), []);
-});
-
-test("a dropped participant's work is discarded and its session mate's is not", async () => {
-  const queue = new DeliveryQueue();
-  queue.push("s1", { agentId: "gone", text: "lost" });
-  queue.push("s1", { agentId: "ext-2", text: "kept" });
-
-  queue.drop("s1", "gone");
-
-  assert.deepEqual(await queue.take("s1", 5_000), [
-    { agentId: "ext-2", text: "kept" },
+  assert.deepEqual(await queue.take("s1", 5, { agentId: "a" }), [
+    { agentId: "a", text: "for a" },
+  ]);
+  assert.deepEqual(await queue.take("s1", 5, { agentId: "b" }), [
+    { agentId: "b", text: "for b" },
   ]);
 });
 
-test("one session's poll never sees another session's work", async () => {
+test("a push wakes only a waiter its delivery is addressed to", async () => {
   const queue = new DeliveryQueue();
-  queue.push("s2", { agentId: "ext-1", text: "theirs" });
+  const forB = queue.take("s1", 1_000, { agentId: "b" });
+  queue.push("s1", { agentId: "a", text: "for a" });
 
-  assert.deepEqual(await queue.take("s1", 5), []);
-  assert.deepEqual(await queue.take("s2", 5_000), [
-    { agentId: "ext-1", text: "theirs" },
+  // The delivery for a must not wake b's poll; it waits in the queue.
+  const forA = await queue.take("s1", 5, { agentId: "a" });
+  assert.deepEqual(forA, [{ agentId: "a", text: "for a" }]);
+
+  queue.push("s1", { agentId: "b", text: "for b" });
+  assert.deepEqual(await forB, [{ agentId: "b", text: "for b" }]);
+});
+
+test("an unscoped waiter is woken by any delivery", async () => {
+  const queue = new DeliveryQueue();
+  const any = queue.take("s1", 1_000);
+  queue.push("s1", { agentId: "a", text: "hi" });
+  assert.deepEqual(await any, [{ agentId: "a", text: "hi" }]);
+});
+
+test("a parked scoped poll resolves with the next matching delivery", async () => {
+  const queue = new DeliveryQueue();
+  const parked = queue.take("s1", 1_000, { agentId: "a" });
+  queue.push("s1", { agentId: "a", text: "late" });
+  assert.deepEqual(await parked, [{ agentId: "a", text: "late" }]);
+});
+
+test("a poll times out empty when nothing matches", async () => {
+  const queue = new DeliveryQueue();
+  assert.deepEqual(await queue.take("s1", 5, { agentId: "a" }), []);
+});
+
+test("drop clears queued work and wakes a parked poll for the agent", async () => {
+  const queue = new DeliveryQueue();
+  const parked = queue.take("s1", 5_000, { agentId: "a" });
+  queue.drop("s1", "a");
+  assert.deepEqual(await parked, []);
+
+  queue.push("s1", { agentId: "a", text: "queued" });
+  queue.push("s1", { agentId: "b", text: "keep" });
+  queue.drop("s1", "a");
+  assert.deepEqual(await queue.take("s1", 5), [{ agentId: "b", text: "keep" }]);
+});
+
+test("an aborted take resolves empty and frees its waiter", async () => {
+  const queue = new DeliveryQueue();
+  const controller = new AbortController();
+  const parked = queue.take("s1", 5_000, {
+    agentId: "a",
+    signal: controller.signal,
+  });
+  controller.abort();
+  assert.deepEqual(await parked, []);
+
+  // The freed slot must not swallow a later delivery for the same agent.
+  queue.push("s1", { agentId: "a", text: "after" });
+  assert.deepEqual(await queue.take("s1", 5, { agentId: "a" }), [
+    { agentId: "a", text: "after" },
   ]);
+});
+
+test("an already-aborted signal takes immediately without parking", async () => {
+  const queue = new DeliveryQueue();
+  assert.deepEqual(
+    await queue.take("s1", 5_000, {
+      agentId: "a",
+      signal: AbortSignal.abort(),
+    }),
+    [],
+  );
 });
