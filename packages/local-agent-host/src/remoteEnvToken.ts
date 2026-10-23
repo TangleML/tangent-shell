@@ -13,10 +13,19 @@ export interface ScopedEnvToken {
 
 export interface MintRemoteEnvTokenParams {
   shellUrl: string;
+  /**
+   * Identity to mint as. When empty/omitted, no `Authorization` header is sent,
+   * so the server derives identity from the request's cookie (the Oktasso SSO
+   * cookie in prod) or the anonymous default (local dev).
+   */
+  email?: string;
   /** Routes this host to every session whose tags include it, e.g. `projectId:<id>`. */
-  selector: string;
-  email: string;
+  selector?: string;
+  /** Binds the host to one session (a session-scoped token); wins over `selector`. */
+  sessionId?: string;
   environmentId?: string;
+  /** Test/transport seam; defaults to the global fetch. */
+  fetchImpl?: typeof fetch;
 }
 
 function base64UrlEncode(value: string): string {
@@ -53,32 +62,45 @@ function parseExpiresAtMs(value: string): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-/**
- * Mints a selector-scoped `/remote-env` token as `email`. The server routes a
- * session's spawns and tool calls to the prompting person's scoped hosts, so
- * this host reaches every session whose tags include `selector` — but only when
- * the token's `sub` matches the prompting person. `environmentId` pins this
- * host's place across refreshes; the server honors it when free, so the
- * response's id is authoritative.
- */
-export async function mintRemoteEnvToken({
-  shellUrl,
-  selector,
-  email,
-  environmentId,
-}: MintRemoteEnvTokenParams): Promise<ScopedEnvToken> {
-  const url = `${shellUrl.replace(/\/+$/, "")}${REMOTE_ENV_TOKEN_PATH}`;
-  const body: RemoteEnvTokenRequest = {
-    selector,
-    ...(environmentId ? { environmentId } : {}),
+/** The mint request body: only the scope fields actually set are sent. */
+function buildTokenRequest(
+  params: MintRemoteEnvTokenParams,
+): RemoteEnvTokenRequest {
+  return {
+    ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+    ...(params.selector ? { selector: params.selector } : {}),
+    ...(params.environmentId ? { environmentId: params.environmentId } : {}),
   };
-  const response = await fetch(url, {
+}
+
+/** The request headers, adding the unsigned-JWT identity only when `email` is set. */
+function buildTokenHeaders(email: string | undefined): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (email) headers.Authorization = `Bearer ${createUnsignedJwt({ email })}`;
+  return headers;
+}
+
+/**
+ * Mints a scoped `/remote-env` token. Pass `email` to assert an identity via an
+ * unsigned JWT, or omit it to let the server read the request's cookie (prod
+ * Oktasso SSO) or fall back to the anonymous default (local dev). Pass
+ * `sessionId` for a session-scoped token (bound to one session — what an attach
+ * client uses) or `selector` for a selector-scoped host that reaches every
+ * session whose tags include it; `sessionId` wins when both are set.
+ * `environmentId` pins this host's place across refreshes; the server honors it
+ * when free, so the response's id is authoritative.
+ */
+export async function mintRemoteEnvToken(
+  params: MintRemoteEnvTokenParams,
+): Promise<ScopedEnvToken> {
+  const url = `${params.shellUrl.replace(/\/+$/, "")}${REMOTE_ENV_TOKEN_PATH}`;
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const response = await fetchImpl(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${createUnsignedJwt({ email })}`,
-    },
-    body: JSON.stringify(body),
+    headers: buildTokenHeaders(params.email),
+    body: JSON.stringify(buildTokenRequest(params)),
   });
   if (!response.ok) {
     throw new Error(
