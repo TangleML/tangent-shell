@@ -40,6 +40,43 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
 
+  apps/acp-attach-cli:
+    dependencies:
+      '@tangent/acp-attach-host':
+        specifier: workspace:*
+        version: link:../../packages/acp-attach-host
+      '@tangent/local-agent-host':
+        specifier: workspace:*
+        version: link:../../packages/local-agent-host
+      '@tangent/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      open:
+        specifier: ^11.0.0
+        version: 11.0.0
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../../packages/build
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      esbuild:
+        specifier: 0.28.0
+        version: 0.28.0
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   apps/local-agent-cli:
     dependencies:
       '@tangent/local-agent-host':
