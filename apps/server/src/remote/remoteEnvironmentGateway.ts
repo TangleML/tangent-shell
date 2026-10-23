@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -41,12 +40,7 @@ import {
 } from "@tangent/shared/remoteSubagent.ts";
 import type { Namespace, Server as SocketIOServer, Socket } from "socket.io";
 
-import {
-  ARTIFACTS_DIRNAME,
-  MAX_FILE_RESOURCE_BYTES,
-  SESSIONS_ROOT,
-  UPLOADS_DIRNAME,
-} from "../config.ts";
+import { SESSIONS_ROOT } from "../config.ts";
 import {
   type ConnectorCredential,
   remoteEnvCredential,
@@ -56,6 +50,7 @@ import {
 import { ContextEngine, projectRoom } from "../conversation/context.ts";
 import {
   applyResourceInput,
+  readSessionResourceFile,
   type ResourceSeedDeps,
 } from "../conversation/hostResources.ts";
 import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
@@ -72,7 +67,6 @@ import { loadInstalledConfig } from "../pi/config/bundleLoader.ts";
 import type { HostResourcePreamble } from "../pi/hostResourcePreamble.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
-import { isWithin } from "../routes/sessions/utils.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
@@ -97,30 +91,6 @@ const MAX_METADATA_VALUE_LENGTH = 1024;
  * but idle host (whose pong lands every ping cycle) is never falsely reaped.
  */
 const ENV_IDLE_TTL_MS = 60_000;
-
-/** Content types a resource read derives from a file extension, else octet-stream. */
-const CONTENT_TYPES: Record<string, string> = {
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".json": "application/json",
-  ".csv": "text/csv",
-  ".html": "text/html",
-  ".htm": "text/html",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".svg": "image/svg+xml",
-  ".pdf": "application/pdf",
-};
-
-/** The content type a resource uri implies, by extension; octet-stream by default. */
-function contentTypeFor(uri: string): string {
-  return (
-    CONTENT_TYPES[path.extname(uri).toLowerCase()] ?? "application/octet-stream"
-  );
-}
 
 /** A human-readable message for a thrown value. */
 function errorMessageOf(err: unknown): string {
@@ -1379,27 +1349,14 @@ export class RemoteEnvironmentGateway {
       return;
     }
     const rootPath = path.join(SESSIONS_ROOT, request.sessionId);
-    const target = path.resolve(rootPath, request.uri);
-    const uploads = path.join(rootPath, UPLOADS_DIRNAME);
-    const artifacts = path.join(rootPath, ARTIFACTS_DIRNAME);
-    if (!isWithin(target, uploads) && !isWithin(target, artifacts)) {
-      callback({ ok: false, error: "Resource uri is outside the session." });
-      return;
-    }
     try {
-      const stat = await fs.stat(target);
-      if (stat.size > MAX_FILE_RESOURCE_BYTES) {
-        callback({ ok: false, error: "Resource is too large to read." });
-        return;
-      }
-      const bytes = await fs.readFile(target);
-      callback({
-        ok: true,
-        content: bytes.toString("base64"),
-        contentType: contentTypeFor(request.uri),
-      });
-    } catch {
-      callback({ ok: false, error: "Resource not found." });
+      const { content, contentType } = await readSessionResourceFile(
+        rootPath,
+        request.uri,
+      );
+      callback({ ok: true, content, contentType });
+    } catch (err) {
+      callback({ ok: false, error: errorMessageOf(err) });
     }
   }
 

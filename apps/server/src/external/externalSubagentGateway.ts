@@ -16,7 +16,11 @@ import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
-import { DeliveryQueue, type PendingDelivery } from "./deliveryQueue.ts";
+import {
+  DeliveryQueue,
+  type PendingDelivery,
+  type TakeOptions,
+} from "./deliveryQueue.ts";
 
 /** Display metadata a caller supplies when registering an external sub-agent. */
 export interface RegisterExternalSubagent {
@@ -223,13 +227,17 @@ export class ExternalSubagentGateway {
   /**
    * Hands the session's queued messages to its driver, waiting up to
    * `timeoutMs` for one to arrive. Empty when nothing is queued in that window,
-   * so the driver polls in a loop rather than holding one request forever.
+   * so the driver polls in a loop rather than holding one request forever. A
+   * driver that owns a single agent scopes the take to it (via `options.agentId`)
+   * so it never sees another agent's work; `options.signal` frees the parked poll
+   * when the caller's connection closes.
    */
   takeDeliveries(
     sessionId: string,
     timeoutMs: number,
+    options?: TakeOptions,
   ): Promise<PendingDelivery[]> {
-    return this.outbound.take(sessionId, timeoutMs);
+    return this.outbound.take(sessionId, timeoutMs, options);
   }
 
   /**

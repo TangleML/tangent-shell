@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  RemoteEnvTokenRequest,
-  RemoteEnvTokenResponse,
-  Session,
+import {
+  DEFAULT_USER,
+  type RemoteEnvTokenRequest,
+  type RemoteEnvTokenResponse,
+  type Session,
+  type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
@@ -63,6 +65,21 @@ async function canMintForSession(
   return isSessionMember(session.id, email);
 }
 
+/**
+ * The caller's identity, falling back to the anonymous {@link DEFAULT_USER} when
+ * no JWT resolves — the same fallback chat and session creation use, so an
+ * unauthenticated caller (local dev, or a browser not yet logged in) gets the
+ * one identity the rest of the app already attributes it. Session-scoped mints
+ * stay gated by {@link canMintForSession}, so this never grants access to a
+ * session its caller could not already reach.
+ */
+function resolveMintIdentity(req: Request): UserIdentity {
+  return (
+    resolveUserIdentity(req.headers.cookie, req.headers.authorization) ??
+    DEFAULT_USER
+  );
+}
+
 /** The authenticated, authorized caller a mint runs for. */
 interface MintCaller {
   /** Present on a session-scoped mint; absent for a user- or selector-scoped one. */
@@ -92,11 +109,7 @@ async function authorizeMint(
   req: Request,
   isSessionMember: SessionMemberCheck,
 ): Promise<MintCaller | MintDenied> {
-  const identity = resolveUserIdentity(
-    req.headers.cookie,
-    req.headers.authorization,
-  );
-  if (!identity) return { status: 401, error: "Invalid or missing token" };
+  const identity = resolveMintIdentity(req);
 
   const { sessionId, selector } = getValidated<RemoteEnvTokenRequest>(req).body;
   if (!sessionId) {
