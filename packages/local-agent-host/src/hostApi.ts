@@ -14,11 +14,13 @@ import type { AddressInfo } from "node:net";
  */
 export type HostApiRoute = (body: unknown) => Promise<unknown>;
 
-/** The resource routes the session-resources pi extension calls. */
+/** The loopback routes an attached agent's MCP servers call back into. */
 export interface HostApiRoutes {
   put: HostApiRoute;
   list: HostApiRoute;
   read: HostApiRoute;
+  /** Posts a proactive message to Prime; absent where no such channel exists. */
+  report?: HostApiRoute;
 }
 
 /** A running loopback API: its base url, bearer token, and a stop handle. */
@@ -55,7 +57,7 @@ function authorized(req: IncomingMessage, token: string): boolean {
   return req.headers.authorization === `Bearer ${token}`;
 }
 
-/** The route a request targets (`POST /put|/list|/read`), or undefined. */
+/** The route a request targets (`POST /put|/list|/read|/report`), or undefined. */
 function routeFor(
   routes: HostApiRoutes,
   req: IncomingMessage,
@@ -64,6 +66,7 @@ function routeFor(
   if (req.url === "/put") return routes.put;
   if (req.url === "/list") return routes.list;
   if (req.url === "/read") return routes.read;
+  if (req.url === "/report") return routes.report;
   return undefined;
 }
 
