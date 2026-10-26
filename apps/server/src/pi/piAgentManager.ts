@@ -481,6 +481,24 @@ function spawnEnv(
   };
 }
 
+/**
+ * Resolves a sub-agent spawn request against the session's bundle into the
+ * effective {@link AgentConfig} and reaction mode (request wins, then the
+ * config's own value, then the spawn-time default of relaying to Prime).
+ */
+function resolveSpawnConfig(
+  session: SessionAgents,
+  request: SubagentSpawnRequest,
+): { config: AgentConfig; autoRelayToPrime: boolean } {
+  const config = resolveSubagentConfig(request, {
+    templates: session.config?.templates,
+    defaults: session.config?.subagentDefaults,
+  });
+  const autoRelayToPrime =
+    request.autoRelayToPrime ?? config.autoRelayToPrime ?? true;
+  return { config, autoRelayToPrime };
+}
+
 /** Extracts the per-agent {@link SpawnExtras} from a session's bundle config. */
 function spawnExtras(config: ResolvedSessionConfig | undefined): SpawnExtras {
   if (!config) {
@@ -568,6 +586,42 @@ function busyStreamingBehavior(
   delivery: MessageDelivery,
 ): "steer" | "followUp" {
   return delivery === "steer" ? "steer" : "followUp";
+}
+
+/** Builds a fresh roster entry around a just-spawned child, defaulting the
+ * supervision counters and reaction mode. */
+function buildAgentProcess(
+  descriptor: AgentDescriptor & {
+    template?: string;
+    autoRelayToPrime?: boolean;
+  },
+  config: AgentConfig,
+  child: ChildProcessWithoutNullStreams,
+  supervision?: { restartCount: number; lastRestartAt: number | null },
+): AgentProcess {
+  return {
+    agentId: descriptor.agentId,
+    role: descriptor.role,
+    name: descriptor.name,
+    template: descriptor.template,
+    homeConversationId: descriptor.homeConversationId,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    config,
+    child,
+    busy: false,
+    aborted: false,
+    currentMessageId: null,
+    startEmitted: false,
+    accum: "",
+    thinkingAccum: "",
+    lastFinalContent: "",
+    autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
+    lastActivity: null,
+    intentionalKill: false,
+    restartCount: supervision?.restartCount ?? 0,
+    lastRestartAt: supervision?.lastRestartAt ?? null,
+  };
 }
 
 /**
@@ -757,6 +811,7 @@ export class PiAgentManager {
       },
       this.reconstructSubagentConfig(session, agent),
     );
+    if (!revived) return;
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(revived));
   }
 
@@ -865,6 +920,7 @@ export class PiAgentManager {
     this.runs.settleOpenFor(sessionId, agentId, "cancelled");
 
     const agent = this.spawnAgent(sessionId, session, descriptor, nextConfig);
+    if (!agent) return undefined;
     const info = toSubagentInfo(agent);
     if (agent.role === "subagent") {
       this.handlers.onSubagentUpdate(sessionId, info);
@@ -892,12 +948,7 @@ export class PiAgentManager {
     // subscribe the client makes off it — already carry a Conversation id that
     // is not the agent's id. The store persists this mapping on `recordAgent`.
     const homeConversationId = randomUUID();
-    const config = resolveSubagentConfig(request, {
-      templates: session.config?.templates,
-      defaults: session.config?.subagentDefaults,
-    });
-    const autoRelayToPrime =
-      request.autoRelayToPrime ?? config.autoRelayToPrime ?? true;
+    const { config, autoRelayToPrime } = resolveSpawnConfig(session, request);
 
     const agent = this.spawnAgent(
       sessionId,
@@ -912,6 +963,9 @@ export class PiAgentManager {
       },
       config,
     );
+    if (!agent) {
+      throw new Error(`Failed to start sub-agent "${request.name}".`);
+    }
 
     const info = toSubagentInfo(agent);
     this.handlers.onSubagentUpdate(sessionId, info);
@@ -1111,6 +1165,49 @@ export class PiAgentManager {
     ];
   }
 
+  /**
+   * Launches the raw Pi child, converting a synchronous spawn failure (e.g. the
+   * kernel's `E2BIG` when argv/env exceed its limit) into a relayed `error`
+   * event and a `null` return, so a failed launch never throws out of the
+   * manager and crashes the server. Async spawn failures stay with the process's
+   * own `error` handler ({@link wireChildStreams}).
+   */
+  private trySpawnChild(
+    sessionId: string,
+    descriptor: AgentDescriptor,
+    session: SessionAgents,
+    config: AgentConfig,
+    extras: SpawnExtras,
+  ): ChildProcessWithoutNullStreams | null {
+    try {
+      return this.spawnProcess(
+        PI_BIN,
+        buildPiArgs(config, extras, this.spawnPreambles(sessionId, session)),
+        {
+          cwd: session.rootPath,
+          env: spawnEnv(
+            sessionId,
+            descriptor,
+            { rootPath: session.rootPath },
+            session.env,
+          ),
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      ) as ChildProcessWithoutNullStreams;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[pi:${sessionId}:${descriptor.agentId}] failed to spawn Pi process:`,
+        err,
+      );
+      this.handlers.onAgentEvent(sessionId, descriptor, {
+        type: "error",
+        message: `${descriptor.name} failed to start: ${message}`,
+      });
+      return null;
+    }
+  }
+
   private spawnAgent(
     sessionId: string,
     session: SessionAgents,
@@ -1120,48 +1217,20 @@ export class PiAgentManager {
     },
     config: AgentConfig,
     supervision?: { restartCount: number; lastRestartAt: number | null },
-  ): AgentProcess {
+  ): AgentProcess | undefined {
     const extras = spawnExtras(session.config);
     logSpawn(sessionId, descriptor, session.rootPath, config, extras);
 
-    const child = this.spawnProcess(
-      PI_BIN,
-      buildPiArgs(config, extras, this.spawnPreambles(sessionId, session)),
-      {
-        cwd: session.rootPath,
-        env: spawnEnv(
-          sessionId,
-          descriptor,
-          { rootPath: session.rootPath },
-          session.env,
-        ),
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    ) as ChildProcessWithoutNullStreams;
-
-    const agent: AgentProcess = {
-      agentId: descriptor.agentId,
-      role: descriptor.role,
-      name: descriptor.name,
-      template: descriptor.template,
-      homeConversationId: descriptor.homeConversationId,
-      status: "active",
-      createdAt: new Date().toISOString(),
+    const child = this.trySpawnChild(
+      sessionId,
+      descriptor,
+      session,
       config,
-      child,
-      busy: false,
-      aborted: false,
-      currentMessageId: null,
-      startEmitted: false,
-      accum: "",
-      thinkingAccum: "",
-      lastFinalContent: "",
-      autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
-      lastActivity: null,
-      intentionalKill: false,
-      restartCount: supervision?.restartCount ?? 0,
-      lastRestartAt: supervision?.lastRestartAt ?? null,
-    };
+      extras,
+    );
+    if (!child) return undefined;
+
+    const agent = buildAgentProcess(descriptor, config, child, supervision);
     session.agents.set(descriptor.agentId, agent);
 
     this.wireChildStreams(sessionId, agent);
@@ -1285,6 +1354,7 @@ export class PiAgentManager {
         restartCount: attempt,
         lastRestartAt: Date.now(),
       });
+      if (!respawned) return;
       if (respawned.role === "subagent") {
         this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(respawned));
       }
