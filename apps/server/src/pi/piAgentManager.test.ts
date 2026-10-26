@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
@@ -292,6 +299,30 @@ test("the local roster describes its connector", () => {
   };
   assert.deepEqual(info.connector, expected);
   assert.deepEqual(pi.listSubagents("s1")[0].connector, expected);
+});
+
+test("the appended system prompt is passed as a file, not an inline arg", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+
+  const { args } = spawns[0];
+  const flag = args.indexOf("--append-system-prompt");
+  assert.notEqual(flag, -1, "the spawn passes an appended system prompt");
+  const source = args[flag + 1];
+
+  assert.ok(
+    !source.includes("## Memory"),
+    "the argument is a file path, not the inline prompt text",
+  );
+  assert.ok(existsSync(source), "the prompt file exists at spawn time");
+  assert.match(
+    readFileSync(source, "utf8"),
+    /## Memory\n\n\(empty\)/,
+    "the file holds the combined preamble",
+  );
+
+  pi.dispose("s1");
+  assert.equal(existsSync(source), false, "dispose cleans up the prompt file");
 });
 
 /** Feeds one Pi stdout event into an agent's reader. */

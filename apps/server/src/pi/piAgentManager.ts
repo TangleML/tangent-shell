@@ -1,5 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -259,11 +261,17 @@ const BUILTIN_EXTENSIONS = [
   REMOTE_TOOLS_EXTENSION,
 ];
 
-/** Builds the `pi --mode rpc` CLI args for an agent process. */
+/**
+ * Builds the `pi --mode rpc` CLI args for an agent process. The appended system
+ * prompt is passed as a file path (not inline text): it embeds the unbounded
+ * memory and host-resource preambles, and an oversized inline argument trips the
+ * kernel's `E2BIG` limit. Pi reads `--append-system-prompt` file contents when
+ * the value is an existing path. Omitted when there is nothing to append.
+ */
 function buildPiArgs(
   config: AgentConfig,
   extras: SpawnExtras,
-  preambles: string[],
+  appendPromptSource: string | undefined,
 ): string[] {
   const { provider, model, thinking } = resolveModelArgs(config);
   const args = [
@@ -282,9 +290,10 @@ function buildPiArgs(
     thinking,
     "--tools",
     config.tools.join(","),
-    "--append-system-prompt",
-    appendPreambles(config, preambles),
   ];
+
+  if (appendPromptSource)
+    args.push("--append-system-prompt", appendPromptSource);
 
   for (const extension of BUILTIN_EXTENSIONS)
     args.push("--extension", extension);
@@ -511,6 +520,45 @@ function spawnExtras(config: ResolvedSessionConfig | undefined): SpawnExtras {
   };
 }
 
+/** Directory holding a session's per-agent append-system-prompt files, kept
+ * outside the session workspace (and cleaned up on dispose). */
+function promptDir(sessionId: string): string {
+  return path.join(tmpdir(), "tangent", "pi-prompts", sessionId);
+}
+
+/** Deterministic append-system-prompt file path for an agent, overwritten on
+ * every (re)spawn so it never leaks across the agent's lifetime. */
+function promptFilePath(sessionId: string, agentId: string): string {
+  return path.join(promptDir(sessionId), `${agentId}.md`);
+}
+
+/**
+ * Materializes an agent's appended system prompt to a file and returns the path
+ * to hand to `--append-system-prompt`, so the unbounded prompt is read from disk
+ * instead of passed as an argv string that can trip `E2BIG`. Returns `undefined`
+ * when there is nothing to append, and falls back to the inline text if the file
+ * write fails (preserving the prompt at the cost of the old size risk).
+ */
+function materializeAppendPrompt(
+  sessionId: string,
+  agentId: string,
+  text: string,
+): string | undefined {
+  if (!text) return undefined;
+  const file = promptFilePath(sessionId, agentId);
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, text);
+    return file;
+  } catch (err) {
+    console.error(
+      `[pi:${sessionId}:${agentId}] failed to write append-system-prompt file; passing inline:`,
+      err,
+    );
+    return text;
+  }
+}
+
 /** Logs the resolved spawn configuration (with the proxy key masked). */
 function logSpawn(
   sessionId: string,
@@ -518,6 +566,8 @@ function logSpawn(
   cwd: string,
   config: AgentConfig,
   extras: SpawnExtras,
+  appendPromptFile: string | null,
+  appendPromptBytes: number,
 ): void {
   const { provider, model, thinking } = resolveModelArgs(config);
   console.log(
@@ -535,6 +585,8 @@ function logSpawn(
       skills: extras.skillPaths,
       workflows: extras.workflowPaths,
       extensions: extras.extensionPaths,
+      appendPromptFile,
+      appendPromptBytes,
     }),
   );
 }
@@ -1142,6 +1194,7 @@ export class PiAgentManager {
       agent.intentionalKill = true;
       agent.child.kill();
     }
+    rmSync(promptDir(sessionId), { recursive: true, force: true });
     this.notifyStatus(sessionId);
   }
 
@@ -1178,11 +1231,12 @@ export class PiAgentManager {
     session: SessionAgents,
     config: AgentConfig,
     extras: SpawnExtras,
+    appendPromptSource: string | undefined,
   ): ChildProcessWithoutNullStreams | null {
     try {
       return this.spawnProcess(
         PI_BIN,
-        buildPiArgs(config, extras, this.spawnPreambles(sessionId, session)),
+        buildPiArgs(config, extras, appendPromptSource),
         {
           cwd: session.rootPath,
           env: spawnEnv(
@@ -1219,7 +1273,24 @@ export class PiAgentManager {
     supervision?: { restartCount: number; lastRestartAt: number | null },
   ): AgentProcess | undefined {
     const extras = spawnExtras(session.config);
-    logSpawn(sessionId, descriptor, session.rootPath, config, extras);
+    const appendText = appendPreambles(
+      config,
+      this.spawnPreambles(sessionId, session),
+    );
+    const appendPromptSource = materializeAppendPrompt(
+      sessionId,
+      descriptor.agentId,
+      appendText,
+    );
+    logSpawn(
+      sessionId,
+      descriptor,
+      session.rootPath,
+      config,
+      extras,
+      appendText ? promptFilePath(sessionId, descriptor.agentId) : null,
+      Buffer.byteLength(appendText),
+    );
 
     const child = this.trySpawnChild(
       sessionId,
@@ -1227,6 +1298,7 @@ export class PiAgentManager {
       session,
       config,
       extras,
+      appendPromptSource,
     );
     if (!child) return undefined;
 
