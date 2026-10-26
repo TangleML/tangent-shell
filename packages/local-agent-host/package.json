@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@tangent/remote-subagent": "workspace:*",
-    "@tangent/shared": "workspace:*"
+    "@tangent/shared": "workspace:*",
+    "open": "^11.0.0"
   },
   "devDependencies": {
     "@tangent/build": "workspace:*",

@@ -16,6 +16,11 @@ export type BridgeState = "connecting" | "connected" | "disconnected";
 
 export interface BridgeOptions {
   url: string;
+  /**
+   * engine.io transport path for a mounted-prefix deployment (e.g.
+   * `/api/.../socket.io`). Omit for a root-mounted Shell (default `/socket.io`).
+   */
+  socketPath?: string;
   /** The project selector this host is scoped to, e.g. `projectId:<id>`. */
   selector: string;
   /**
@@ -24,6 +29,12 @@ export interface BridgeOptions {
    * from others and match work to it. Free string->string pairs.
    */
   metadata?: Record<string, string>;
+  /**
+   * Resolves extra transport handshake headers (Node only), e.g. an SSO
+   * `cookie` so an Okta-protected Shell admits the websocket the way it admits
+   * HTTP requests. Called on every (re)connect so a rotated cookie is picked up.
+   */
+  extraHeaders?(): Record<string, string> | undefined;
   /** RPC tools Prime can call on this window without spawning a sub-agent. */
   tools?: RemoteToolMap;
   /** Resolved per spawn so setting changes apply without reconnecting. */
@@ -96,11 +107,16 @@ export class LocalAgentBridge {
     this.client?.disconnect();
     this.environmentId = environmentId;
     this.setState("connecting");
+    const extraHeaders = this.options.extraHeaders?.();
     this.client = this.connectFactory({
       url: this.options.url,
+      ...(this.options.socketPath
+        ? { socketPath: this.options.socketPath }
+        : {}),
       token,
       environmentId,
       ...(this.options.metadata ? { metadata: this.options.metadata } : {}),
+      ...(extraHeaders ? { extraHeaders } : {}),
       tools: this.options.tools,
       handlers: {
         onSpawn: (command) => this.onSpawn(command),

@@ -4,10 +4,8 @@ import { test } from "node:test";
 
 import { parseCli } from "./config.ts";
 
-const env = { REMOTE_ENV_TOKEN: "secret" };
-
 function parse(argv: string[], extraEnv = {}) {
-  const config = parseCli(argv, { ...env, ...extraEnv });
+  const config = parseCli(argv, { ...extraEnv });
   assert.notEqual(config, "help");
   return config as Exclude<typeof config, "help">;
 }
@@ -24,7 +22,18 @@ test("a session URL sets the shell origin and scopes the host id", () => {
   assert.equal(config.sessionId, "abc");
   assert.equal(config.selector, "sessionId:abc");
   assert.equal(config.environmentId, "abc:cli-test");
-  assert.equal(config.token, "secret");
+});
+
+test("email is read from the flag or TANGENT_EMAIL, and omitted otherwise", () => {
+  assert.equal(parse(["--url", "http://h"]).email, undefined);
+  assert.equal(
+    parse(["--url", "http://h", "--email", "me@shopify.com"]).email,
+    "me@shopify.com",
+  );
+  assert.equal(
+    parse(["--url", "http://h"], { TANGENT_EMAIL: "env@shopify.com" }).email,
+    "env@shopify.com",
+  );
 });
 
 test("an explicit session wins over the URL and accepts a pasted URL", () => {
@@ -47,6 +56,67 @@ test("without a session the host connects unscoped with a generated id", () => {
   assert.equal(config.sessionId, undefined);
   assert.equal(config.selector, config.environmentId);
   assert.match(config.environmentId, /^cli-[a-z0-9-]+-[0-9a-f]{8}$/);
+});
+
+test("--project scopes the host to a projectId selector with a stable host id", () => {
+  const config = parse([
+    "--url",
+    "http://h",
+    "--project",
+    "abc",
+    "--host-id",
+    "h1",
+  ]);
+
+  assert.equal(config.sessionId, undefined);
+  assert.equal(config.selector, "projectId:abc");
+  assert.equal(config.environmentId, "h1");
+});
+
+test("--selector is passed through verbatim", () => {
+  const config = parse(["--url", "http://h", "--selector", "projectId:xyz"]);
+  assert.equal(config.selector, "projectId:xyz");
+});
+
+test("--selector wins over --project", () => {
+  const config = parse([
+    "--url",
+    "http://h",
+    "--selector",
+    "team:core",
+    "--project",
+    "abc",
+  ]);
+  assert.equal(config.selector, "team:core");
+});
+
+test("a session wins over --project/--selector", () => {
+  const config = parse([
+    "--url",
+    "http://h",
+    "--session",
+    "s1",
+    "--project",
+    "abc",
+    "--selector",
+    "team:core",
+    "--host-id",
+    "h1",
+  ]);
+  assert.equal(config.sessionId, "s1");
+  assert.equal(config.selector, "sessionId:s1");
+  assert.equal(config.environmentId, "s1:h1");
+});
+
+test("selector and project fall back to environment variables", () => {
+  assert.equal(
+    parse(["--url", "http://h"], { TANGENT_PROJECT_ID: "p1" }).selector,
+    "projectId:p1",
+  );
+  assert.equal(
+    parse(["--url", "http://h"], { TANGENT_SELECTOR: "team:core" }).selector,
+    "team:core",
+  );
 });
 
 test("flags fall back to environment variables", () => {
@@ -77,9 +147,9 @@ test("pi launch options resolve cwd and only pass the proxy key with a proxy", (
   assert.match(proxied.launch.proxyExtensionPath, /proxyProvider\.ts$/);
 });
 
-test("missing URL or token fails clearly; --help short-circuits", () => {
-  assert.throws(() => parseCli([], env), /--url/);
-  assert.throws(() => parseCli(["--url", "http://h"], {}), /REMOTE_ENV_TOKEN/);
-  assert.throws(() => parseCli(["--bogus"], env));
+test("a bare --url parses without a token; missing URL or bad flags fail", () => {
+  assert.doesNotThrow(() => parse(["--url", "http://h"]));
+  assert.throws(() => parseCli([], {}), /--url/);
+  assert.throws(() => parseCli(["--bogus"], {}));
   assert.equal(parseCli(["-h"], {}), "help");
 });

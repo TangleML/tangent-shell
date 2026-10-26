@@ -15,8 +15,7 @@
   "dependencies": {
     "@tangent/acp-attach-host": "workspace:*",
     "@tangent/local-agent-host": "workspace:*",
-    "@tangent/shared": "workspace:*",
-    "open": "^11.0.0"
+    "@tangent/shared": "workspace:*"
   },
   "devDependencies": {
     "@tangent/build": "workspace:*",

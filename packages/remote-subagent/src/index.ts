@@ -124,6 +124,12 @@ export interface ConnectRemoteEnvironmentOptions {
    * so new keys need no contract change. Omit to advertise none.
    */
   metadata?: Record<string, string>;
+  /**
+   * Extra HTTP headers for the transport handshake (Node only; browsers ignore
+   * them). Used to carry an SSO `cookie` so an Okta-protected deployment admits
+   * the websocket upgrade the way it admits the mint request. Omit when none.
+   */
+  extraHeaders?: Record<string, string>;
 }
 
 /**
@@ -238,6 +244,7 @@ export function buildRemoteEnvConnectArgs(
       auth,
       transports: ["websocket"],
       ...(options.socketPath ? { path: options.socketPath } : {}),
+      ...(options.extraHeaders ? { extraHeaders: options.extraHeaders } : {}),
     },
   };
 }

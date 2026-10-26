@@ -1,4 +1,4 @@
-import "./loadEnv.ts";
+import "@tangent/local-agent-host/loadEnv.ts";
 
 import { AttachClient } from "@tangent/acp-attach-host/attachClient.ts";
 import { AttachBridge } from "@tangent/acp-attach-host/bridge.ts";
@@ -7,17 +7,17 @@ import {
   peerSocketPath,
 } from "@tangent/acp-attach-host/peerMailbox.ts";
 import { isPeerSocketAlive } from "@tangent/acp-attach-host/peerSocket.ts";
+import { createOktassoFetch } from "@tangent/local-agent-host/oktassoFetch.ts";
 import { mintRemoteEnvToken } from "@tangent/local-agent-host/remoteEnvToken.ts";
+import { startTokenRefresh } from "@tangent/local-agent-host/tokenRefresh.ts";
 
 import { type AttachConfig, parseAttachConfig, wantsHelp } from "./config.ts";
-import { createOktassoFetch } from "./oktassoFetch.ts";
 import {
   runPeerCommand,
   runPeerMcp,
   runPrimeMcp,
   runResourceMcp,
 } from "./peerCommand.ts";
-import { startTokenRefresh } from "./tokenRefresh.ts";
 import { usage } from "./usage.ts";
 
 function log(line: string): void {
@@ -89,11 +89,13 @@ async function run(config: AttachConfig): Promise<void> {
     ? () => {}
     : startTokenRefresh(
         {
-          shellUrl: config.shellUrl,
-          sessionId: config.sessionId,
-          ...(config.email ? { email: config.email } : {}),
-          client,
-          fetchImpl: oktassoFetch,
+          mintParams: {
+            shellUrl: config.shellUrl,
+            sessionId: config.sessionId,
+            ...(config.email ? { email: config.email } : {}),
+            fetchImpl: oktassoFetch,
+          },
+          applyToken: (token) => client.setToken(token),
           log,
         },
         expiresAtMs,

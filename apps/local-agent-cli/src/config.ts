@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,9 @@ import {
 const OPTIONS = {
   url: { type: "string" },
   session: { type: "string" },
+  selector: { type: "string" },
+  project: { type: "string" },
+  email: { type: "string" },
   cwd: { type: "string" },
   "host-id": { type: "string" },
   "pi-bin": { type: "string" },
@@ -23,22 +27,34 @@ const OPTIONS = {
   help: { type: "boolean", short: "h" },
 } as const;
 
-/** pi loads this from disk, so the build copies it next to the bundle. */
-const PROXY_PROVIDER_PATH = fileURLToPath(
-  new URL("proxyProvider.ts", import.meta.url),
-);
+/**
+ * Absolute path to a pi extension that pi loads from disk. The build copies
+ * these next to the bundle (so `import.meta.url` finds them in the shipped
+ * skill); running from source they aren't there, so fall back to the shared
+ * package's `resources/` dir.
+ */
+function resourcePath(name: string): string {
+  const beside = fileURLToPath(new URL(name, import.meta.url));
+  if (existsSync(beside)) return beside;
+  return fileURLToPath(
+    new URL(
+      `../../../packages/local-agent-host/resources/${name}`,
+      import.meta.url,
+    ),
+  );
+}
 
-/** Session-resources extension; copied next to the bundle like the proxy one. */
-const SESSION_RESOURCES_PATH = fileURLToPath(
-  new URL("sessionResources.ts", import.meta.url),
-);
+const PROXY_PROVIDER_PATH = resourcePath("proxyProvider.ts");
+
+const SESSION_RESOURCES_PATH = resourcePath("sessionResources.ts");
 
 type Env = Record<string, string | undefined>;
 type CliValues = ReturnType<typeof parseFlags>["values"];
 
 export interface CliConfig {
   url: string;
-  token: string;
+  /** Identity to mint (and refresh) the token with; omit to use the SSO cookie. */
+  email?: string;
   sessionId?: string;
   /** Routes this host to matching sessions, e.g. `sessionId:<id>`. */
   selector: string;
@@ -105,6 +121,37 @@ function buildMetadata(
   };
 }
 
+type Scope = Pick<CliConfig, "sessionId" | "selector" | "environmentId">;
+
+/** An explicit selector from `--selector` (wins) or `--project` as `projectId:<id>`. */
+function explicitSelector(values: CliValues, env: Env): string | undefined {
+  const selector = setting(values.selector, env, "TANGENT_SELECTOR");
+  if (selector) return selector;
+  const project = setting(values.project, env, "TANGENT_PROJECT_ID");
+  return project ? `projectId:${project}` : undefined;
+}
+
+/** Derives the session binding and host routing ids from the url and flags. */
+function resolveScope(rawUrl: string, values: CliValues, env: Env): Scope {
+  const session = setting(values.session, env, "TANGENT_SESSION_ID");
+  const sessionId = session
+    ? parseSessionRef(session)
+    : sessionIdFromUrl(rawUrl);
+  const hostId =
+    setting(values["host-id"], env, "TANGENT_HOST_ID") ?? defaultHostId();
+  if (sessionId) {
+    return {
+      sessionId,
+      selector: `sessionId:${sessionId}`,
+      environmentId: `${sessionId}:${hostId}`,
+    };
+  }
+  return {
+    selector: explicitSelector(values, env) ?? hostId,
+    environmentId: hostId,
+  };
+}
+
 /** Parses argv and the environment; `"help"` when usage was requested. */
 export function parseCli(argv: string[], env: Env): CliConfig | "help" {
   const { values } = parseFlags(argv);
@@ -113,16 +160,7 @@ export function parseCli(argv: string[], env: Env): CliConfig | "help" {
     setting(values.url, env, "TANGENT_SHELL_URL"),
     "Pass --url <shell url> or set TANGENT_SHELL_URL.",
   );
-  const token = required(
-    setting(undefined, env, "REMOTE_ENV_TOKEN"),
-    "Set REMOTE_ENV_TOKEN to the Shell's remote environment token.",
-  );
-  const session = setting(values.session, env, "TANGENT_SESSION_ID");
-  const sessionId = session
-    ? parseSessionRef(session)
-    : sessionIdFromUrl(rawUrl);
-  const hostId =
-    setting(values["host-id"], env, "TANGENT_HOST_ID") ?? defaultHostId();
+  const email = setting(values.email, env, "TANGENT_EMAIL");
   const launch = launchOptions(values, env);
   const description = setting(
     values.description,
@@ -131,10 +169,8 @@ export function parseCli(argv: string[], env: Env): CliConfig | "help" {
   );
   return {
     url: normalizeShellUrl(rawUrl),
-    token,
-    sessionId,
-    selector: sessionId ? `sessionId:${sessionId}` : hostId,
-    environmentId: sessionId ? `${sessionId}:${hostId}` : hostId,
+    ...(email ? { email } : {}),
+    ...resolveScope(rawUrl, values, env),
     metadata: buildMetadata(launch.cwd, description),
     launch,
   };

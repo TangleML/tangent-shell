@@ -87,6 +87,22 @@ test("omits metadata from auth when unset", () => {
   assert.deepEqual(opts.auth, { token: "env-token", environmentId: "env-1" });
 });
 
+test("forwards extraHeaders for the transport handshake when set", () => {
+  const { opts } = buildRemoteEnvConnectArgs({
+    ...base,
+    url: "https://host",
+    extraHeaders: { cookie: "MINERVA_TOKEN=abc" },
+  });
+
+  assert.deepEqual(opts.extraHeaders, { cookie: "MINERVA_TOKEN=abc" });
+});
+
+test("omits extraHeaders when unset", () => {
+  const { opts } = buildRemoteEnvConnectArgs({ ...base, url: "https://host" });
+
+  assert.equal("extraHeaders" in opts, false);
+});
+
 test("addResource emits the request and resolves the stored resource", async () => {
   const resource = { id: "r1", uri: "uploads/x.txt" };
   const { socket, emitted } = fakeAckSocket(() => ({ ok: true, resource }));
