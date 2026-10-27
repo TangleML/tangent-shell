@@ -41,7 +41,7 @@ async function handleEgress(
   res: Response,
 ): Promise<void> {
   try {
-    const result = await resolveEgress(input, init);
+    const result = await resolveEgress(input, init, "agent");
     res.json(result);
   } catch (err) {
     if (err instanceof EgressDeniedError) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { test } from "node:test";
 
 import {
@@ -7,6 +8,7 @@ import {
   connectorFor,
   humanAuthor,
   type Session,
+  SocketEvents,
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 import type { Socket } from "socket.io";
@@ -17,7 +19,9 @@ import {
   authorizedConversations,
   type ChatHandlerDeps,
   handleChatMessage,
+  registerChatHandlers,
 } from "./chat.ts";
+import { PresenceTracker } from "./presenceTracker.ts";
 
 const OWNER: UserIdentity = {
   email: "owner@example.com",
@@ -187,4 +191,56 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
   assert.equal(ensureCalls.length, 1);
   assert.equal(ensureCalls[0]?.[5], primeHome);
   assert.equal(postCalls[0]?.conversationId, "sub-1");
+});
+
+test("closing the last browser socket detaches presence without cancelling the server agent", async () => {
+  const io = new EventEmitter();
+  const socket = Object.assign(new EventEmitter(), {
+    handshake: { headers: {}, auth: {} },
+    join: async () => {},
+  });
+  const presence: string[] = [];
+  let cancellations = 0;
+  const deps = {
+    io,
+    presence: new PresenceTracker(),
+    store: {
+      getSession: async () => session(),
+      getSessionEnv: async () => undefined,
+      listAgents: async () => [primeAgent("prime")],
+      getMessages: async () => [],
+      getArtifacts: async () => [],
+    },
+    pi: {
+      ensure: () => {},
+      listActivities: () => [],
+      getAgentSelection: () => undefined,
+      abort: () => {
+        cancellations += 1;
+      },
+    },
+    connectors: {
+      revive: () => {},
+      list: () => [],
+      cancelRun: () => {
+        cancellations += 1;
+      },
+    },
+    triggerEngine: { sync: () => {}, list: () => [] },
+    participantService: {
+      get: async () => ({ id: "human" }),
+      membershipsOf: async () => [],
+      setPresence: async (_sessionId: string, _id: string, state: string) => {
+        presence.push(state);
+      },
+    },
+  } as unknown as ChatHandlerDeps;
+  registerChatHandlers(deps);
+  io.emit("connection", socket);
+  socket.emit(SocketEvents.ChatJoin, { sessionId: "s1" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(presence, ["connected"]);
+  socket.emit("disconnect");
+  assert.deepEqual(presence, ["connected", "detached"]);
+  assert.equal(cancellations, 0);
 });

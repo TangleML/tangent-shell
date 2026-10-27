@@ -43,6 +43,7 @@ export interface EgressResponse {
  */
 interface EgressRule {
   method: NonNullable<EgressRequestInit["method"]>;
+  agentOnly?: boolean;
   matches(url: URL): boolean;
   headers?(): Record<string, string>;
 }
@@ -62,16 +63,25 @@ function tangleAuthHeaders(): Record<string, string> {
 /** Origin of the configured Tangle API; only this host is reachable. */
 const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
 
+const SAVED_PIPELINE_API_PATH =
+  /^\/api\/pipelines\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+
 /**
- * Allowlisted Tangle API endpoints (tags `artifacts` / `executions` /
- * `pipelineRuns` / `projects` / `workspaces` from the OpenAPI doc). Reads are
- * GET; run submit/cancel and annotation mutations carry their own methods.
- * `projects` / `workspaces` are read-only prefixes. Everything else is denied.
+ * Allowlisted Tangle API endpoints; everything else is denied. Saved-pipeline
+ * creation targets the authenticated caller, and updates address a stable UUID
+ * under the backend's resource permissions.
  */
 const TANGLE_PATH_RULES: ReadonlyArray<{
   method: NonNullable<EgressRequestInit["method"]>;
   test: RegExp;
+  agentOnly?: boolean;
 }> = [
+  // saved pipelines / authenticated backend identity
+  { method: "GET", test: /^\/api\/users\/me$/, agentOnly: true },
+  { method: "GET", test: /^\/api\/users\/me\/pipelines$/, agentOnly: true },
+  { method: "PUT", test: /^\/api\/users\/me\/pipelines$/, agentOnly: true },
+  { method: "GET", test: SAVED_PIPELINE_API_PATH, agentOnly: true },
+  { method: "PUT", test: SAVED_PIPELINE_API_PATH, agentOnly: true },
   // pipelineRuns
   { method: "GET", test: /^\/api\/pipeline_runs\/$/ },
   { method: "POST", test: /^\/api\/pipeline_runs\/$/ },
@@ -91,7 +101,7 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   // artifacts
   { method: "GET", test: /^\/api\/artifacts\/[^/]+$/ },
   { method: "GET", test: /^\/api\/artifacts\/[^/]+\/signed_artifact_url$/ },
-  // projects / workspaces (read-only)
+  // projects / workspaces
   { method: "GET", test: /^\/api\/projects(?:\/.*)?$/ },
   { method: "GET", test: /^\/api\/workspaces(?:\/.*)?$/ },
   { method: "POST", test: /^\/api\/projects(?:\/.*)?$/ },
@@ -101,6 +111,7 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
 /** Expands the Tangle path rules into full {@link EgressRule}s. */
 const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
   method: rule.method,
+  agentOnly: rule.agentOnly,
   matches: (url) =>
     url.origin === TANGLE_API_ORIGIN && rule.test.test(url.pathname),
   headers: tangleAuthHeaders,
@@ -266,17 +277,22 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
 /**
  * Resolves an allowlisted egress request by performing the real network call
  * server-side. Throws {@link EgressDeniedError} when `input` cannot resolve to a
- * registered destination. Network/transport failures propagate as generic
- * errors (the route maps them to a 502).
+ * registered destination for this host-selected caller; UI callers cannot opt
+ * into agent-only rules through the request body. Network/transport failures
+ * propagate as generic errors (the route maps them to a 502).
  */
 export async function resolveEgress(
   input: EgressInput,
   init: EgressRequestInit = {},
+  caller: "ui" | "agent" = "ui",
 ): Promise<EgressResponse> {
   const method = init.method ?? "GET";
   const url = resolveUrl(input, init.query);
   const rule = EGRESS_RULES.find(
-    (entry) => entry.method === method && entry.matches(url),
+    (entry) =>
+      (!entry.agentOnly || caller === "agent") &&
+      entry.method === method &&
+      entry.matches(url),
   );
   if (!rule) throw new EgressDeniedError(formatDeniedInput(input));
 

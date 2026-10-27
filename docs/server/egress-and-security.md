@@ -110,11 +110,44 @@ Allowlist properties:
   `{ target: "tangle", path: "/api/executions/<id>/state" }`; trusted internal
   tools may still pass absolute `http(s)` URLs for compatibility.
 - Rules cover the configured Tangle API origin (`TANGLE_API_URL`) for specific
-  `pipeline_runs` / `executions` / `artifacts` paths plus read-only `projects` /
-  `workspaces` prefixes. Credentials are injected by the rule's `headers()` so
-  the caller never sees them.
+  `pipeline_runs` / `executions` / `artifacts` paths, project reads and
+  create/update operations, and workspace reads. Saved-pipeline rules allow
+  `GET /api/users/me`, `GET` / `PUT /api/users/me/pipelines`, and `GET` / `PUT`
+  on `/api/pipelines/<UUID>`. These identity and saved-pipeline rules are
+  restricted to the token-guarded internal agent route. The public bundle-UI
+  proxy cannot select that capability through its request body. Other
+  user-pipeline routes remain denied.
+- Credentials are injected by the rule's `headers()`, so bundle UI code never
+  sees them. This is not a boundary against agents: Pi children inherit the
+  server environment (including `TANGLE_TOKEN` when set) and
+  `TANGENT_INTERNAL_TOKEN`, so an agent with `bash` can call this route, or the
+  backend, directly.
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
   upstream calls; transport failures map to a 502.
+
+### Saved pipeline authoring
+
+Bundle tools can submit a complete definition through the internal egress route
+without a connected browser editor. The backend remains responsible for pipeline
+validation, ownership checks, persistence, and versioning. Creation uses
+`PUT /api/users/me/pipelines?file_path=...`; subsequent reads can use the same
+path, and reads or updates can use the saved pipeline UUID. Opening a saved
+pipeline in the UI is an optional step after confirmed persistence.
+
+Configure `TANGLE_API_URL` and the established trusted authentication in the
+deployment wrapper (`TANGLE_TOKEN` for cookie-based deployments, or the
+deployment's authenticated network path). `GET /api/users/me` identifies the
+backend caller. The proxy does not impersonate session participants, so every
+agent write runs as that one identity: anyone who can message an agent in a
+session can have it create or overwrite pipelines that identity may write,
+including pipelines other owners have shared with it for editing.
+
+A failed or timed-out response does not prove that a write was rolled back.
+Read the original `file_path` and compare the persisted definition before
+retrying an uncertain save. The proxy does not retry writes automatically.
+Closing the last browser socket detaches presence without cancelling the
+server-side agent. This does not make an agent task durable across a server
+restart.
 
 ---
 
