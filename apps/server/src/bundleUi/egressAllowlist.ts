@@ -106,6 +106,8 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   { method: "GET", test: /^\/api\/workspaces(?:\/.*)?$/ },
   { method: "POST", test: /^\/api\/projects(?:\/.*)?$/ },
   { method: "PATCH", test: /^\/api\/projects(?:\/.*)?$/ },
+  // secrets (list only: names and metadata, never values)
+  { method: "GET", test: /^\/api\/secrets\/$/ },
 ];
 
 /** Expands the Tangle path rules into full {@link EgressRule}s. */

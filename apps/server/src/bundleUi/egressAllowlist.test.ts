@@ -353,6 +353,54 @@ test("rejects a DELETE to the projects prefix", async () => {
   );
 });
 
+test("resolves a secrets list with server-side credentials", async () => {
+  process.env.TANGLE_TOKEN = "SESSION=abc";
+  const expectedBase = new URL(TANGLE_API_URL);
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, expectedBase.origin);
+      assert.equal(url.pathname, "/api/secrets/");
+      assert.equal(init?.method, "GET");
+      assert.equal(
+        (init?.headers as Record<string, string> | undefined)?.cookie,
+        "SESSION=abc",
+      );
+      return new Response(JSON.stringify({ secrets: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+
+  const result = await resolveEgress({
+    target: "tangle",
+    path: "/api/secrets/",
+  });
+
+  assert.equal(fetchMock.mock.calls.length, 1);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.json, { secrets: [] });
+});
+
+test("rejects every secrets request other than the list", async () => {
+  const denied = [
+    { method: "POST", path: "/api/secrets/" },
+    { method: "PUT", path: "/api/secrets/API_KEY" },
+    { method: "DELETE", path: "/api/secrets/API_KEY" },
+    { method: "GET", path: "/api/secrets/API_KEY" },
+  ] as const;
+
+  for (const { method, path } of denied) {
+    await assert.rejects(
+      resolveEgress({ target: "tangle", path }, { method }),
+      EgressDeniedError,
+      `${method} ${path}`,
+    );
+  }
+});
+
 test("rejects a logical target path that is not allowlisted", async () => {
   await assert.rejects(
     resolveEgress({ target: "tangle", path: "/api/private" }),
