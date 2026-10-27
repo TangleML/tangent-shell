@@ -33,7 +33,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Pin the Pi coding agent so the `pi` binary is on PATH.
-RUN npm install -g @earendil-works/pi-coding-agent@0.78.1
+RUN npm install -g @earendil-works/pi-coding-agent@0.84.4
 
 WORKDIR /app
 
