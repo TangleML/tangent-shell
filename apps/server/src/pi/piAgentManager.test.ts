@@ -300,6 +300,12 @@ function runTurn(child: FakeChild, text: string): void {
   emitPi(child, { type: "agent_end" });
 }
 
+/** The id of the last RPC command written to an agent's stdin. */
+function lastCommandId(child: FakeChild): string {
+  const lines = child.writes.join("").trim().split("\n");
+  return JSON.parse(lines[lines.length - 1]).id;
+}
+
 /** Yields to the microtask queue so write-through persistence has landed. */
 function flush(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -319,13 +325,229 @@ test("a prompt opens one run and every event in the turn carries its id", async 
   const relayed = h.events.filter((e) => e.agentId === PRIME_AGENT_ID);
   assert.deepEqual(
     relayed.map((e) => e.type),
-    ["activity", "start", "activity", "delta", "end", "activity", "activity"],
+    [
+      "activity",
+      "activity",
+      "start",
+      "activity",
+      "delta",
+      "end",
+      "activity",
+      "activity",
+    ],
   );
   assert.ok(
     relayed.every((e) => e.runId === runId),
     "every event of the turn is attributed to the one run",
   );
   assert.equal((await h.runStore.getRun(runId))?.status, "completed");
+});
+
+test("prompting an idle agent shows warming up until Pi reports agent_start", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const labels = () =>
+    h.pi.listActivities("s1").map((entry) => entry.activity.label);
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  assert.deepEqual(labels(), ["Warming up..."]);
+
+  emitPi(h.spawns[0].child, { type: "agent_start" });
+  assert.deepEqual(labels(), ["Thinking..."]);
+});
+
+test("a crash before agent_start clears the warming up indicator", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  h.spawns[0].child.crash();
+
+  assert.deepEqual(h.pi.listActivities("s1"), []);
+});
+
+test("a prompt Pi rejects fails the run instead of reading busy forever", async () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+  emitPi(h.spawns[0].child, {
+    type: "response",
+    id: lastCommandId(h.spawns[0].child),
+    command: "prompt",
+    success: false,
+    error: "No API key found",
+  });
+  await flush();
+
+  assert.deepEqual(h.pi.listActivities("s1"), []);
+  assert.ok(h.events.some((e) => e.type === "error"));
+  assert.equal((await h.runStore.getRun(runId))?.status, "failed");
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
+});
+
+test("a prompt Pi never answers restarts the agent and fails the run", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+  t.mock.timers.tick(59_999);
+  assert.equal(h.spawns[0].child.killed, false);
+
+  t.mock.timers.tick(1);
+  await flush();
+
+  assert.equal(h.spawns[0].child.killed, true);
+  assert.deepEqual(h.pi.listActivities("s1"), []);
+  assert.equal((await h.runStore.getRun(runId))?.status, "failed");
+
+  h.spawns[0].child.crash();
+  t.mock.timers.tick(1_000);
+  assert.equal(h.spawns.length, 2, "the supervisor respawns the agent");
+});
+
+test("a model change mid-warm-up stands the prompt watchdog down", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  h.pi.setAgentModel("s1", PRIME_AGENT_ID, { model: "other-model" });
+  const errors = t.mock.method(console, "error", () => {});
+  t.mock.timers.tick(120_000);
+
+  assert.equal(h.spawns.length, 2);
+  assert.equal(h.spawns[1].child.killed, false);
+  assert.equal(errors.mock.callCount(), 0);
+});
+
+for (const type of ["agent_start", "compaction_start"]) {
+  test(`${type} stands the prompt watchdog down`, (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = makeManager();
+    h.pi.ensure("s1", "/tmp/s1");
+
+    h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hi" });
+    emitPi(h.spawns[0].child, { type });
+    t.mock.timers.tick(120_000);
+
+    assert.equal(h.spawns[0].child.killed, false);
+    assert.ok(h.runs.current("s1", PRIME_AGENT_ID));
+  });
+}
+
+/** Emits Pi's acceptance of the last prompt written to `child`. */
+function ackPrompt(child: FakeChild): void {
+  emitPi(child, {
+    type: "response",
+    id: lastCommandId(child),
+    command: "prompt",
+    success: true,
+  });
+}
+
+test("an accepted prompt followed by agent_start keeps the run going", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  ackPrompt(h.spawns[0].child);
+  t.mock.timers.tick(4_999);
+  emitPi(h.spawns[0].child, { type: "agent_start" });
+  t.mock.timers.tick(120_000);
+
+  assert.equal(h.spawns[0].child.killed, false);
+  assert.ok(h.runs.current("s1", PRIME_AGENT_ID));
+  assert.deepEqual(
+    h.pi.listActivities("s1").map((entry) => entry.activity.label),
+    ["Thinking..."],
+  );
+});
+
+test("an accepted prompt that starts no turn ends the run", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "/cmd" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+  ackPrompt(h.spawns[0].child);
+  t.mock.timers.tick(4_999);
+  assert.ok(h.runs.current("s1", PRIME_AGENT_ID));
+
+  t.mock.timers.tick(1);
+  await flush();
+
+  assert.equal(h.spawns[0].child.killed, false);
+  assert.deepEqual(h.pi.listActivities("s1"), []);
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
+  assert.equal((await h.runStore.getRun(runId))?.status, "completed");
+});
+
+test("a compaction before an accepted prompt still ends a turnless run", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "/cmd" });
+  const promptId = lastCommandId(h.spawns[0].child);
+  emitPi(h.spawns[0].child, { type: "compaction_start" });
+  emitPi(h.spawns[0].child, {
+    type: "response",
+    id: promptId,
+    command: "prompt",
+    success: true,
+  });
+  t.mock.timers.tick(5_000);
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+});
+
+test("a rejected mid-run message does not fail the run in flight", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "first" });
+  emitPi(h.spawns[0].child, { type: "agent_start" });
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "and also this",
+  });
+  emitPi(h.spawns[0].child, {
+    type: "response",
+    id: lastCommandId(h.spawns[0].child),
+    command: "prompt",
+    success: false,
+    error: "rejected",
+  });
+
+  assert.ok(h.runs.current("s1", PRIME_AGENT_ID));
+  assert.deepEqual(
+    h.pi.listActivities("s1").map((entry) => entry.activity.label),
+    ["Thinking..."],
+  );
+});
+
+test("a message delivered mid-run does not re-emit thinking", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "first" });
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "and also this",
+  });
+
+  assert.equal(h.events.filter((e) => e.type === "activity").length, 1);
 });
 
 test("a message delivered mid-run joins the run in flight", () => {
@@ -363,6 +585,27 @@ test("aborting a run settles it as cancelled, not completed", async () => {
   await flush();
 
   assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
+});
+
+test("abort during warm-up cancels the run once it starts", async () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  const aborts = () =>
+    child.writes.filter((line) => JSON.parse(line).type === "abort").length;
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), true);
+  assert.equal(aborts(), 1);
+
+  emitPi(child, { type: "agent_start" });
+  assert.equal(aborts(), 2, "the abort is resent once Pi's run exists");
+  emitPi(child, { type: "agent_end" });
+  await flush();
+
   assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
 });
 
