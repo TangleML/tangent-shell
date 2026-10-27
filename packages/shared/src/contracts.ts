@@ -180,11 +180,13 @@ export interface ModelOption {
  * Pi can resolve through the proxy-provider extension.
  */
 export const AVAILABLE_MODELS: ModelOption[] = [
-  { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai" },
+  { id: "openai/gpt-6.1-sol", label: "GPT-6.1 Sol", provider: "openai" },
   { id: "openai/gpt-6-astra", label: "GPT-6 Astra", provider: "openai" },
+  { id: "openai/gpt-6.1-terra", label: "GPT-6.1 Terra", provider: "openai" },
+  { id: "openai/gpt-6-luna", label: "GPT-6 Luna", provider: "openai" },
   {
-    id: "anthropic/claude-opus-5",
-    label: "Claude Opus 5",
+    id: "anthropic/claude-opus-5-5",
+    label: "Claude Opus 5.5",
     provider: "anthropic",
   },
   {
@@ -193,13 +195,28 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     provider: "anthropic",
   },
   {
-    id: "anthropic/claude-sonnet-5",
-    label: "Claude Sonnet 5",
+    id: "anthropic/claude-sonnet-5-5",
+    label: "Claude Sonnet 5.5",
     provider: "anthropic",
+  },
+  {
+    id: "anthropic/claude-haiku-5-5",
+    label: "Claude Haiku 5.5",
+    provider: "anthropic",
+  },
+  {
+    id: "google/gemini-4-argon",
+    label: "Gemini 4 Argon",
+    provider: "google",
   },
   {
     id: "google/gemini-3.8-flash",
     label: "Gemini 3.8 Flash",
+    provider: "google",
+  },
+  {
+    id: "google/gemini-3.5-flash-lite",
+    label: "Gemini 3.5 Flash-Lite",
     provider: "google",
   },
 ];
@@ -211,7 +228,7 @@ export const AVAILABLE_MODELS: ModelOption[] = [
  * default value rather than a generic "Default" label. `DEFAULT_MODEL_ID` is a
  * `provider/model` string matching an {@link AVAILABLE_MODELS} entry.
  */
-export const DEFAULT_MODEL_ID = "openai/gpt-5.6-sol";
+export const DEFAULT_MODEL_ID = "openai/gpt-6.1-sol";
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
 /** Author of a chat message. Chats assume multiple humans and agents. */
