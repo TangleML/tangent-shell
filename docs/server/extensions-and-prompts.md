@@ -209,5 +209,9 @@ defaults })` resolves the effective config:
   present, otherwise the global cached templates.
 
 In all cases the spawned sub-agent's appended prompt is then joined with the
-current memory preamble by `appendWithMemory`, so every agent starts each session
-aware of its global + session memory (see [memory.md](./memory.md)).
+current memory preamble by `appendPreambles`, so every agent starts each session
+aware of its global + session memory (see [memory.md](./memory.md)). The joined
+prompt is written to a per-agent file and handed to Pi as a
+`--append-system-prompt <path>` (Pi reads file contents when the value is an
+existing path). It embeds the unbounded memory and host-resource preambles, so
+passing it inline would eventually overflow the kernel's argv limit (`E2BIG`).

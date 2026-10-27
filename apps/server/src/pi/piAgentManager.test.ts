@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, mock, test } from "node:test";
@@ -52,6 +59,26 @@ interface SpawnRecord {
   child: FakeChild;
 }
 
+/** An `E2BIG`-shaped error, matching Node's synchronous `spawn` failure. */
+function e2bigError(): NodeJS.ErrnoException {
+  const err = new Error("spawn E2BIG") as NodeJS.ErrnoException;
+  err.errno = -7;
+  err.code = "E2BIG";
+  err.syscall = "spawn";
+  return err;
+}
+
+/** Logs a successful fake spawn and returns its child. */
+function recordSpawn(
+  spawns: SpawnRecord[],
+  args: string[],
+  env: NodeJS.ProcessEnv | undefined,
+): ChildProcessWithoutNullStreams {
+  const child = new FakeChild();
+  spawns.push({ args, agentId: env?.TANGENT_AGENT_ID, env, child });
+  return child as unknown as ChildProcessWithoutNullStreams;
+}
+
 /** One relayed agent event, reduced to what the run tests assert on. */
 interface RelayedEvent {
   agentId: string;
@@ -60,7 +87,7 @@ interface RelayedEvent {
 }
 
 /** Builds a manager wired to a fake launcher; returns it plus the spawn log. */
-function makeManager(): {
+function makeManager(options?: { shouldFailSpawn?: () => boolean }): {
   pi: PiAgentManager;
   spawns: SpawnRecord[];
   rosterUpdates: { id: string; status: string }[];
@@ -75,16 +102,10 @@ function makeManager(): {
   const fakeSpawn = ((
     _command: string,
     args: string[],
-    options: { env?: NodeJS.ProcessEnv },
+    spawnOptions: { env?: NodeJS.ProcessEnv },
   ) => {
-    const child = new FakeChild();
-    spawns.push({
-      args,
-      agentId: options?.env?.TANGENT_AGENT_ID,
-      env: options?.env,
-      child,
-    });
-    return child as unknown as ChildProcessWithoutNullStreams;
+    if (options?.shouldFailSpawn?.()) throw e2bigError();
+    return recordSpawn(spawns, args, spawnOptions?.env);
   }) as unknown as typeof spawn;
 
   const handlers: ConversationEventSink = {
@@ -280,6 +301,30 @@ test("the local roster describes its connector", () => {
   assert.deepEqual(pi.listSubagents("s1")[0].connector, expected);
 });
 
+test("the appended system prompt is passed as a file, not an inline arg", () => {
+  const { pi, spawns } = makeManager();
+  pi.ensure("s1", "/tmp/s1");
+
+  const { args } = spawns[0];
+  const flag = args.indexOf("--append-system-prompt");
+  assert.notEqual(flag, -1, "the spawn passes an appended system prompt");
+  const source = args[flag + 1];
+
+  assert.ok(
+    !source.includes("## Memory"),
+    "the argument is a file path, not the inline prompt text",
+  );
+  assert.ok(existsSync(source), "the prompt file exists at spawn time");
+  assert.match(
+    readFileSync(source, "utf8"),
+    /## Memory\n\n\(empty\)/,
+    "the file holds the combined preamble",
+  );
+
+  pi.dispose("s1");
+  assert.equal(existsSync(source), false, "dispose cleans up the prompt file");
+});
+
 /** Feeds one Pi stdout event into an agent's reader. */
 function emitPi(child: FakeChild, event: Record<string, unknown>): void {
   child.stdout.emit("data", Buffer.from(`${JSON.stringify(event)}\n`));
@@ -450,6 +495,42 @@ test("an intentional kill is not auto-respawned", () => {
 
   assert.equal(spawns.length, 2, "no respawn after an intentional kill");
   assert.equal(pi.hasAgent("s1", info.id), false);
+});
+
+test("a synchronous spawn failure is relayed as an error, not thrown", () => {
+  const error = mock.method(console, "error", () => {});
+  const { pi, spawns, events } = makeManager({ shouldFailSpawn: () => true });
+
+  assert.doesNotThrow(() => pi.ensure("s1", "/tmp/s1"));
+  assert.equal(spawns.length, 0, "a failed spawn registers no child");
+  assert.equal(
+    pi.hasAgent("s1", PRIME_AGENT_ID),
+    false,
+    "the agent is not added to the roster",
+  );
+  assert.deepEqual(
+    events.filter((e) => e.type === "error").map((e) => e.agentId),
+    [PRIME_AGENT_ID],
+    "the failure is relayed as one error event for the agent",
+  );
+  assert.ok(error.mock.calls.length > 0, "the failure is logged");
+});
+
+test("a supervisor respawn whose spawn fails does not throw out of the timer", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  mock.method(console, "error", () => {});
+  let failSpawn = false;
+  const { pi, spawns } = makeManager({ shouldFailSpawn: () => failSpawn });
+  pi.ensure("s1", "/tmp/s1");
+  assert.equal(spawns.length, 1);
+
+  // Crash the live process, then make the scheduled respawn's spawn fail.
+  failSpawn = true;
+  spawns[0].child.crash();
+  assert.doesNotThrow(() => mock.timers.tick(1_000));
+
+  assert.equal(spawns.length, 1, "the failed respawn registered no new child");
+  assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
 });
 
 test("session env is injected into Prime and inherited by sub-agents", () => {

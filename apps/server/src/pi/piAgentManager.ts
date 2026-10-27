@@ -1,5 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -259,11 +261,17 @@ const BUILTIN_EXTENSIONS = [
   REMOTE_TOOLS_EXTENSION,
 ];
 
-/** Builds the `pi --mode rpc` CLI args for an agent process. */
+/**
+ * Builds the `pi --mode rpc` CLI args for an agent process. The appended system
+ * prompt is passed as a file path (not inline text): it embeds the unbounded
+ * memory and host-resource preambles, and an oversized inline argument trips the
+ * kernel's `E2BIG` limit. Pi reads `--append-system-prompt` file contents when
+ * the value is an existing path. Omitted when there is nothing to append.
+ */
 function buildPiArgs(
   config: AgentConfig,
   extras: SpawnExtras,
-  preambles: string[],
+  appendPromptSource: string | undefined,
 ): string[] {
   const { provider, model, thinking } = resolveModelArgs(config);
   const args = [
@@ -282,9 +290,10 @@ function buildPiArgs(
     thinking,
     "--tools",
     config.tools.join(","),
-    "--append-system-prompt",
-    appendPreambles(config, preambles),
   ];
+
+  if (appendPromptSource)
+    args.push("--append-system-prompt", appendPromptSource);
 
   for (const extension of BUILTIN_EXTENSIONS)
     args.push("--extension", extension);
@@ -481,6 +490,24 @@ function spawnEnv(
   };
 }
 
+/**
+ * Resolves a sub-agent spawn request against the session's bundle into the
+ * effective {@link AgentConfig} and reaction mode (request wins, then the
+ * config's own value, then the spawn-time default of relaying to Prime).
+ */
+function resolveSpawnConfig(
+  session: SessionAgents,
+  request: SubagentSpawnRequest,
+): { config: AgentConfig; autoRelayToPrime: boolean } {
+  const config = resolveSubagentConfig(request, {
+    templates: session.config?.templates,
+    defaults: session.config?.subagentDefaults,
+  });
+  const autoRelayToPrime =
+    request.autoRelayToPrime ?? config.autoRelayToPrime ?? true;
+  return { config, autoRelayToPrime };
+}
+
 /** Extracts the per-agent {@link SpawnExtras} from a session's bundle config. */
 function spawnExtras(config: ResolvedSessionConfig | undefined): SpawnExtras {
   if (!config) {
@@ -493,6 +520,45 @@ function spawnExtras(config: ResolvedSessionConfig | undefined): SpawnExtras {
   };
 }
 
+/** Directory holding a session's per-agent append-system-prompt files, kept
+ * outside the session workspace (and cleaned up on dispose). */
+function promptDir(sessionId: string): string {
+  return path.join(tmpdir(), "tangent", "pi-prompts", sessionId);
+}
+
+/** Deterministic append-system-prompt file path for an agent, overwritten on
+ * every (re)spawn so it never leaks across the agent's lifetime. */
+function promptFilePath(sessionId: string, agentId: string): string {
+  return path.join(promptDir(sessionId), `${agentId}.md`);
+}
+
+/**
+ * Materializes an agent's appended system prompt to a file and returns the path
+ * to hand to `--append-system-prompt`, so the unbounded prompt is read from disk
+ * instead of passed as an argv string that can trip `E2BIG`. Returns `undefined`
+ * when there is nothing to append, and falls back to the inline text if the file
+ * write fails (preserving the prompt at the cost of the old size risk).
+ */
+function materializeAppendPrompt(
+  sessionId: string,
+  agentId: string,
+  text: string,
+): string | undefined {
+  if (!text) return undefined;
+  const file = promptFilePath(sessionId, agentId);
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, text);
+    return file;
+  } catch (err) {
+    console.error(
+      `[pi:${sessionId}:${agentId}] failed to write append-system-prompt file; passing inline:`,
+      err,
+    );
+    return text;
+  }
+}
+
 /** Logs the resolved spawn configuration (with the proxy key masked). */
 function logSpawn(
   sessionId: string,
@@ -500,6 +566,8 @@ function logSpawn(
   cwd: string,
   config: AgentConfig,
   extras: SpawnExtras,
+  appendPromptFile: string | null,
+  appendPromptBytes: number,
 ): void {
   const { provider, model, thinking } = resolveModelArgs(config);
   console.log(
@@ -517,6 +585,8 @@ function logSpawn(
       skills: extras.skillPaths,
       workflows: extras.workflowPaths,
       extensions: extras.extensionPaths,
+      appendPromptFile,
+      appendPromptBytes,
     }),
   );
 }
@@ -568,6 +638,42 @@ function busyStreamingBehavior(
   delivery: MessageDelivery,
 ): "steer" | "followUp" {
   return delivery === "steer" ? "steer" : "followUp";
+}
+
+/** Builds a fresh roster entry around a just-spawned child, defaulting the
+ * supervision counters and reaction mode. */
+function buildAgentProcess(
+  descriptor: AgentDescriptor & {
+    template?: string;
+    autoRelayToPrime?: boolean;
+  },
+  config: AgentConfig,
+  child: ChildProcessWithoutNullStreams,
+  supervision?: { restartCount: number; lastRestartAt: number | null },
+): AgentProcess {
+  return {
+    agentId: descriptor.agentId,
+    role: descriptor.role,
+    name: descriptor.name,
+    template: descriptor.template,
+    homeConversationId: descriptor.homeConversationId,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    config,
+    child,
+    busy: false,
+    aborted: false,
+    currentMessageId: null,
+    startEmitted: false,
+    accum: "",
+    thinkingAccum: "",
+    lastFinalContent: "",
+    autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
+    lastActivity: null,
+    intentionalKill: false,
+    restartCount: supervision?.restartCount ?? 0,
+    lastRestartAt: supervision?.lastRestartAt ?? null,
+  };
 }
 
 /**
@@ -757,6 +863,7 @@ export class PiAgentManager {
       },
       this.reconstructSubagentConfig(session, agent),
     );
+    if (!revived) return;
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(revived));
   }
 
@@ -865,6 +972,7 @@ export class PiAgentManager {
     this.runs.settleOpenFor(sessionId, agentId, "cancelled");
 
     const agent = this.spawnAgent(sessionId, session, descriptor, nextConfig);
+    if (!agent) return undefined;
     const info = toSubagentInfo(agent);
     if (agent.role === "subagent") {
       this.handlers.onSubagentUpdate(sessionId, info);
@@ -892,12 +1000,7 @@ export class PiAgentManager {
     // subscribe the client makes off it — already carry a Conversation id that
     // is not the agent's id. The store persists this mapping on `recordAgent`.
     const homeConversationId = randomUUID();
-    const config = resolveSubagentConfig(request, {
-      templates: session.config?.templates,
-      defaults: session.config?.subagentDefaults,
-    });
-    const autoRelayToPrime =
-      request.autoRelayToPrime ?? config.autoRelayToPrime ?? true;
+    const { config, autoRelayToPrime } = resolveSpawnConfig(session, request);
 
     const agent = this.spawnAgent(
       sessionId,
@@ -912,6 +1015,9 @@ export class PiAgentManager {
       },
       config,
     );
+    if (!agent) {
+      throw new Error(`Failed to start sub-agent "${request.name}".`);
+    }
 
     const info = toSubagentInfo(agent);
     this.handlers.onSubagentUpdate(sessionId, info);
@@ -1088,6 +1194,7 @@ export class PiAgentManager {
       agent.intentionalKill = true;
       agent.child.kill();
     }
+    rmSync(promptDir(sessionId), { recursive: true, force: true });
     this.notifyStatus(sessionId);
   }
 
@@ -1111,6 +1218,50 @@ export class PiAgentManager {
     ];
   }
 
+  /**
+   * Launches the raw Pi child, converting a synchronous spawn failure (e.g. the
+   * kernel's `E2BIG` when argv/env exceed its limit) into a relayed `error`
+   * event and a `null` return, so a failed launch never throws out of the
+   * manager and crashes the server. Async spawn failures stay with the process's
+   * own `error` handler ({@link wireChildStreams}).
+   */
+  private trySpawnChild(
+    sessionId: string,
+    descriptor: AgentDescriptor,
+    session: SessionAgents,
+    config: AgentConfig,
+    extras: SpawnExtras,
+    appendPromptSource: string | undefined,
+  ): ChildProcessWithoutNullStreams | null {
+    try {
+      return this.spawnProcess(
+        PI_BIN,
+        buildPiArgs(config, extras, appendPromptSource),
+        {
+          cwd: session.rootPath,
+          env: spawnEnv(
+            sessionId,
+            descriptor,
+            { rootPath: session.rootPath },
+            session.env,
+          ),
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      ) as ChildProcessWithoutNullStreams;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[pi:${sessionId}:${descriptor.agentId}] failed to spawn Pi process:`,
+        err,
+      );
+      this.handlers.onAgentEvent(sessionId, descriptor, {
+        type: "error",
+        message: `${descriptor.name} failed to start: ${message}`,
+      });
+      return null;
+    }
+  }
+
   private spawnAgent(
     sessionId: string,
     session: SessionAgents,
@@ -1120,48 +1271,38 @@ export class PiAgentManager {
     },
     config: AgentConfig,
     supervision?: { restartCount: number; lastRestartAt: number | null },
-  ): AgentProcess {
+  ): AgentProcess | undefined {
     const extras = spawnExtras(session.config);
-    logSpawn(sessionId, descriptor, session.rootPath, config, extras);
-
-    const child = this.spawnProcess(
-      PI_BIN,
-      buildPiArgs(config, extras, this.spawnPreambles(sessionId, session)),
-      {
-        cwd: session.rootPath,
-        env: spawnEnv(
-          sessionId,
-          descriptor,
-          { rootPath: session.rootPath },
-          session.env,
-        ),
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    ) as ChildProcessWithoutNullStreams;
-
-    const agent: AgentProcess = {
-      agentId: descriptor.agentId,
-      role: descriptor.role,
-      name: descriptor.name,
-      template: descriptor.template,
-      homeConversationId: descriptor.homeConversationId,
-      status: "active",
-      createdAt: new Date().toISOString(),
+    const appendText = appendPreambles(
       config,
-      child,
-      busy: false,
-      aborted: false,
-      currentMessageId: null,
-      startEmitted: false,
-      accum: "",
-      thinkingAccum: "",
-      lastFinalContent: "",
-      autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
-      lastActivity: null,
-      intentionalKill: false,
-      restartCount: supervision?.restartCount ?? 0,
-      lastRestartAt: supervision?.lastRestartAt ?? null,
-    };
+      this.spawnPreambles(sessionId, session),
+    );
+    const appendPromptSource = materializeAppendPrompt(
+      sessionId,
+      descriptor.agentId,
+      appendText,
+    );
+    logSpawn(
+      sessionId,
+      descriptor,
+      session.rootPath,
+      config,
+      extras,
+      appendText ? promptFilePath(sessionId, descriptor.agentId) : null,
+      Buffer.byteLength(appendText),
+    );
+
+    const child = this.trySpawnChild(
+      sessionId,
+      descriptor,
+      session,
+      config,
+      extras,
+      appendPromptSource,
+    );
+    if (!child) return undefined;
+
+    const agent = buildAgentProcess(descriptor, config, child, supervision);
     session.agents.set(descriptor.agentId, agent);
 
     this.wireChildStreams(sessionId, agent);
@@ -1285,6 +1426,7 @@ export class PiAgentManager {
         restartCount: attempt,
         lastRestartAt: Date.now(),
       });
+      if (!respawned) return;
       if (respawned.role === "subagent") {
         this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(respawned));
       }
