@@ -1,7 +1,7 @@
 schemaVersion: 1
 id: tangle-oss
 name: Tangle OSS
-version: 1.0.0
+version: 1.1.0
 description: An open-source Tangle-aware assistant with Tangle API tools and scoped worker agents for everyday work with Tangle ML pipelines and runs, driven by the open-source Tangle CLI.
 author: Tangent
 icon: icon.svg
@@ -24,6 +24,7 @@ prime:
     - tangle_run_submit
     - tangle_run_cancel
     - tangle_run_annotation_set
+    - tangle_pipeline_save
     - tangle_execution_state
     - tangle_execution_details
     - tangle_execution_logs
@@ -40,10 +41,10 @@ subagents:
   defaultSystemPrompt: prompts/subagent.md
   # Fallback tools for an ad-hoc generic worker (spawned without a named
   # template). The role agents under `agents/` carry their own scoped tool sets
-  # (see `agents:` below) and override these defaults; the heavy ML roles drive
-  # the open-source Tangle CLI (`uv run tangle ...`) via bash, so they don't list
-  # the `tangle_*` API tools. This default keeps a generic worker able to do
-  # Tangle lookups and run-affecting actions, which Prime delegates per
+  # (see `agents:` below) and override these defaults. The heavy ML roles drive
+  # the open-source Tangle CLI (`uv run tangle ...`) via bash; the builder also
+  # saves authored definitions with tangle_pipeline_save. These defaults allow
+  # Tangle lookups, pipeline saves, and run actions, which Prime delegates per
   # `prompts/prime.md`. The tangle-api extension is loaded into every agent, but
   # Pi's --tools allowlist would strip its tools from sub-agents unless they
   # appear here.
@@ -57,6 +58,7 @@ subagents:
     - tangle_run_submit
     - tangle_run_cancel
     - tangle_run_annotation_set
+    - tangle_pipeline_save
     - tangle_execution_state
     - tangle_execution_details
     - tangle_execution_logs

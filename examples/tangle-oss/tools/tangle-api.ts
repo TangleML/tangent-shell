@@ -11,26 +11,25 @@
  * Every tool is a thin client over the server's internal egress proxy
  * (`POST /internal/egress`). The proxy validates the destination against the
  * allowlist and injects the Tangle credential server-side, so this agent never
- * holds the token. The Tangle base URL is read from `TANGLE_API_URL`
- * (defaulting to the local dev server); it must match the server's allowlist
- * origin or the call is denied.
+ * holds the token. The logical `tangle` destination is resolved from the
+ * server's deployment configuration; the bundle never chooses an API origin.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { savePipeline } from "../lib/savedPipeline.ts";
+
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
-const TANGLE_API_URL = process.env.TANGLE_API_URL ?? "https://api.example.com";
-
-interface EgressInit {
+export interface EgressInit {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   headers?: Record<string, string>;
   body?: unknown;
   query?: Record<string, string | number | boolean>;
 }
 
-interface EgressResponse {
+export interface EgressResponse {
   ok: boolean;
   status: number;
   headers: Record<string, string>;
@@ -43,7 +42,7 @@ async function egress(
   path: string,
   init: EgressInit = {},
 ): Promise<EgressResponse> {
-  const input = `${TANGLE_API_URL}${path}`;
+  const input = { target: "tangle", path };
   const response = await fetch(`${INTERNAL_URL}/internal/egress`, {
     method: "POST",
     headers: {
@@ -81,6 +80,67 @@ function renderResult(res: EgressResponse) {
 const enc = encodeURIComponent;
 
 export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "tangle_pipeline_save",
+    label: "Tangle: Save Pipeline",
+    description:
+      "Create or update a complete saved pipeline directly through the backend, without a browser editor. " +
+      "Pass a full root_pipeline_task TaskSpec with componentRef.spec (including its name, tasks and wiring). " +
+      "Backend TaskSpecs do not accept taskInfo; omit it from the root and nested tasks, including CLI-generated definitions. " +
+      "Provide exactly one of file_path (create/upsert under the authenticated backend caller; use a unique path for a new pipeline) " +
+      "or pipeline_id (replace an existing pipeline subject to backend permissions). " +
+      "Updates replace the definition; include annotations you want to retain. Versioning follows the backend's existing policy. " +
+      "Pass project_id from the session's project context to attach the saved pipeline through project resources. " +
+      "Do not put project/run membership annotations in pipeline_run_annotations. " +
+      "Returns saved identity, name, actual backend caller, version, and pipeline://remote/<id> target after persistence. " +
+      "If project attachment fails, saved:true and project.attached:false describe partial success; do not create a duplicate. " +
+      "Browser create_pipeline creates only an empty editor draft and returns a tab/environment. " +
+      "Opening this saved target with open_workarea_target is optional after success.",
+    promptSnippet:
+      "Create or update a complete saved pipeline without an editor",
+    parameters: Type.Object({
+      file_path: Type.Optional(
+        Type.String({
+          minLength: 1,
+          description:
+            "Caller-owned storage path. Existing paths are overwritten by the backend upsert.",
+        }),
+      ),
+      pipeline_id: Type.Optional(
+        Type.String({
+          minLength: 1,
+          description:
+            "Stable saved pipeline ID to update. Backend write permissions apply.",
+        }),
+      ),
+      root_pipeline_task: Type.Record(
+        Type.String(),
+        Type.Unknown({
+          description:
+            "Complete authored TaskSpec, including its embedded componentRef.spec.",
+        }),
+      ),
+      pipeline_run_annotations: Type.Optional(
+        Type.Record(Type.String(), Type.String()),
+      ),
+      project_id: Type.Optional(
+        Type.String({
+          minLength: 1,
+          description:
+            "Project ID from session context; attaches the saved pipeline independently of the browser.",
+        }),
+      ),
+    }),
+    async execute(_id, params) {
+      const saved = await savePipeline(egress, params);
+      return {
+        content: [{ type: "text", text: JSON.stringify(saved, null, 2) }],
+        details: saved,
+        ...(saved.project?.attached === false && { isError: true }),
+      };
+    },
+  });
+
   pi.registerTool({
     name: "tangle_run_list",
     label: "Tangle: List Pipeline Runs",

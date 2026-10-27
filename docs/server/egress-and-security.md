@@ -110,11 +110,47 @@ Allowlist properties:
   `{ target: "tangle", path: "/api/executions/<id>/state" }`; trusted internal
   tools may still pass absolute `http(s)` URLs for compatibility.
 - Rules cover the configured Tangle API origin (`TANGLE_API_URL`) for specific
-  `pipeline_runs` / `executions` / `artifacts` paths plus read-only `projects` /
-  `workspaces` prefixes. Credentials are injected by the rule's `headers()` so
-  the caller never sees them.
+  `pipeline_runs` / `executions` / `artifacts` paths, project reads and
+  create/update operations, and workspace reads. Saved-pipeline rules allow
+  `GET /api/users/me`, `PUT /api/users/me/pipelines`, and `GET` / `PUT` on
+  `/api/pipelines/<UUID>`; other user-pipeline routes remain denied.
+- Caller headers are limited to `accept` and `content-type`. Credentials are
+  injected by the rule's `headers()` so the caller cannot replace the backend
+  editing identity and never sees its credential.
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
   upstream calls; transport failures map to a 502.
+
+### Saved pipeline authoring
+
+The Tangle bundle's `tangle_pipeline_save` tool sends a complete
+`root_pipeline_task` through this proxy. It checks `/api/users/me` for the
+actual backend caller and write permission, then saves through the backend's
+existing validation, resource permissions, and versioning policy. Creation
+uses the caller's `file_path` upsert endpoint; updates use the stable pipeline
+UUID. Conversation identity and session membership do not override backend
+permissions.
+
+After confirmed persistence, the tool returns the saved id, name, owner,
+authenticated caller, version, and `pipeline://remote/<id>` target. When a
+`project_id` is supplied, it then attaches that pipeline through the existing
+project resource API. Attachment failure is reported separately with
+`saved: true` and `project.attached: false`, so a retry need not create another
+pipeline.
+
+Authoring and saving run in the server-side agent without a remote editor
+connection. Opening the returned target through `open_workarea_target` is
+optional after the save. The browser-hosted `create_pipeline` tool retains its
+empty-draft and tab/environment contract; it is not the complete saved-pipeline
+authoring path.
+
+To try changed bundle sources locally, run
+`node scripts/pack-bundle.mjs examples/tangle-oss` from the repository root,
+upload `examples/tangle-oss.zip` through **Agent bundles → Upload bundle**, and
+start a new session with that bundle. Restart the server if its egress rules
+have changed. Packing writes a generated archive; it is a separate step from
+the non-writing source checks. `pnpm seed` initializes an empty marketplace
+and does not update an already populated one. Existing sessions keep their
+installed bundle.
 
 ---
 

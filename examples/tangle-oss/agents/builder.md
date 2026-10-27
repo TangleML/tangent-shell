@@ -1,7 +1,7 @@
 ---
 name: builder
 description: Build, modify, and iterate on Tangle pipelines and components
-tools: read, write, grep, glob, bash
+tools: read, write, grep, glob, bash, tangle_pipeline_save
 ---
 
 # Builder Agent
@@ -15,6 +15,15 @@ Drive the open-source **Tangle CLI** via Bash (`uv run tangle ...`). See
 [`.tangent/skills/tangle-cli/SKILL.md`](.tangent/skills/tangle-cli/SKILL.md) for
 install, auth/env, and the full command reference. Run `uv run tangle quickstart`
 to discover commands and `--help` on any command for details.
+
+Save complete definitions with `tangle_pipeline_save` after authoring and
+validation. Follow the skill's "Saving a pipeline definition" section: use a
+unique `file_path` for creation or `pipeline_id` for an update, and pass the
+session's `project_id` when provided. Include a named embedded component spec
+in `root_pipeline_task`. This save runs server-side and needs no browser
+editor. The browser `create_pipeline` tool only opens an empty draft; do not
+delegate construction to a browser-hosted editor agent. Report the confirmed
+saved id, name, and target to Prime; opening it is optional after saving.
 
 | What you need        | Command                                                                           |
 | -------------------- | --------------------------------------------------------------------------------- |

@@ -63,15 +63,22 @@ function tangleAuthHeaders(): Record<string, string> {
 const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
 
 /**
- * Allowlisted Tangle API endpoints (tags `artifacts` / `executions` /
- * `pipelineRuns` / `projects` / `workspaces` from the OpenAPI doc). Reads are
- * GET; run submit/cancel and annotation mutations carry their own methods.
- * `projects` / `workspaces` are read-only prefixes. Everything else is denied.
+ * Allowlisted Tangle API endpoints. Saved pipeline creation targets the
+ * authenticated caller; updates target a stable UUID and rely on the backend's
+ * resource permissions. Each write has its own method/path rule.
  */
+const SAVED_PIPELINE_PATH =
+  /^\/api\/pipelines\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+
 const TANGLE_PATH_RULES: ReadonlyArray<{
   method: NonNullable<EgressRequestInit["method"]>;
   test: RegExp;
 }> = [
+  // saved pipelines / authenticated backend identity
+  { method: "GET", test: /^\/api\/users\/me$/ },
+  { method: "PUT", test: /^\/api\/users\/me\/pipelines$/ },
+  { method: "GET", test: SAVED_PIPELINE_PATH },
+  { method: "PUT", test: SAVED_PIPELINE_PATH },
   // pipelineRuns
   { method: "GET", test: /^\/api\/pipeline_runs\/$/ },
   { method: "POST", test: /^\/api\/pipeline_runs\/$/ },
@@ -91,7 +98,7 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   // artifacts
   { method: "GET", test: /^\/api\/artifacts\/[^/]+$/ },
   { method: "GET", test: /^\/api\/artifacts\/[^/]+\/signed_artifact_url$/ },
-  // projects / workspaces (read-only)
+  // projects / workspaces
   { method: "GET", test: /^\/api\/projects(?:\/.*)?$/ },
   { method: "GET", test: /^\/api\/workspaces(?:\/.*)?$/ },
   { method: "POST", test: /^\/api\/projects(?:\/.*)?$/ },
@@ -111,6 +118,9 @@ const EGRESS_RULES: EgressRule[] = [...TANGLE_RULES];
 
 /** Response headers we are willing to surface back across the bridge. */
 const ALLOWED_RESPONSE_HEADERS = new Set(["content-type"]);
+
+/** Callers control content negotiation, never upstream authentication/identity. */
+const ALLOWED_REQUEST_HEADERS = new Set(["accept", "content-type"]);
 
 /** Abort an upstream request that hangs longer than this. */
 const EGRESS_TIMEOUT_MS = 10_000;
@@ -191,15 +201,18 @@ function isBodyRequest(
   return method !== "GET" && init.body !== undefined;
 }
 
-/** Merges the default, caller, and server-injected headers. */
+/** Merges safe caller headers with authoritative server credentials. */
 function buildHeaders(
   init: EgressRequestInit,
   rule: EgressRule,
   hasBody: boolean,
 ): Record<string, string> {
+  const callerHeaders = Object.entries(init.headers ?? {})
+    .map(([name, value]) => [name.toLowerCase(), value])
+    .filter(([name]) => ALLOWED_REQUEST_HEADERS.has(name));
   const headers: Record<string, string> = {
     accept: "application/json",
-    ...(init.headers ?? {}),
+    ...Object.fromEntries(callerHeaders),
     ...(rule.headers?.() ?? {}),
   };
   if (hasBody) headers["content-type"] = "application/json";

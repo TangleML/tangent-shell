@@ -1,7 +1,7 @@
 ---
 name: tangle-cli
-description: Drive the open-source Tangle CLI (`tangle-cli`) via Bash for local pipeline/component workflows and API-backed run submission, status, logs, and artifacts. Use whenever an agent needs to validate, hydrate, submit, inspect, or debug Tangle pipelines and runs from the command line.
-allowed-tools: [Bash, Read]
+description: Drive the open-source Tangle CLI (`tangle-cli`) for local pipeline/component workflows, run submission and inspection, and use the bundle's API tool to save complete pipeline definitions. Use to validate, hydrate, save, submit, inspect, or debug Tangle pipelines and runs.
+allowed-tools: [Bash, Read, tangle_pipeline_save]
 ---
 
 # Tangle CLI
@@ -60,6 +60,50 @@ config-file values, which win over environment defaults.
 
 Local-only commands (validate, hydrate, layout, diagram, component generation)
 need no base URL or auth.
+
+## Saving a pipeline definition
+
+Use the bundle's `tangle_pipeline_save` tool to create or update a saved
+pipeline from a complete definition. It uses the existing server-side egress
+authentication, so no browser editor or backend credential in the agent
+workspace is needed. CLI run submission creates a run; saving a pipeline is a
+separate operation.
+
+- `root_pipeline_task`: the full backend TaskSpec. Embed the complete component
+  spec at `componentRef.spec`, including its `name`, graph/tasks, and wiring.
+  Preserve configured task arguments. Validate and hydrate references as
+  needed before saving; this tool does not build a definition from a prompt.
+  The backend TaskSpec does not accept `taskInfo` on the root or nested tasks;
+  omit those fields from CLI-generated definitions while preserving the graph.
+  CLI validation of a component spec alone does not validate the complete
+  backend TaskSpec.
+- Supply exactly one of `file_path` or `pipeline_id`. Use a unique path such as
+  `pipelines/<unique-id>.yaml` for a new pipeline. Saving to an existing caller
+  path updates that pipeline under the backend's upsert contract. Use
+  `pipeline_id` to update a known saved pipeline; the backend checks write permissions.
+- `pipeline_run_annotations` is an optional string map. Never copy project run
+  membership annotations from `TANGLE_ROOT_CONFIG` into a saved pipeline.
+- `project_id` attaches the saved pipeline through the existing project
+  resource API. Use the id from this session's seeded project memory when
+  present, including when Prime passes it in a delegated task.
+
+The tool verifies the authenticated backend caller with `/api/users/me`, then
+waits for the save response. User identity in conversation context and session
+membership do not grant permission to update another user's pipeline. The
+tool omits `versioning_mode` to preserve the backend's versioning policy.
+
+On success it returns `saved: true`, `id`, `name`, `user_id`,
+`authenticated_user_id`, `file_path`, version details, and
+`target: "pipeline://remote/<id>"`, plus project attachment details when
+requested. Report persistence or attachment failures accurately; do not claim
+completion before the backend confirms the save. Reuse the same creation path
+when retrying an uncertain save to avoid creating duplicate pipelines.
+
+The browser-hosted `create_pipeline` tool only creates and opens an empty
+draft, returning tab/environment information. Use `tangle_pipeline_save` for
+complete saved creation even if browser naming guidance mentions that tool.
+After saving, `open_workarea_target` can open the returned target when a
+browser is connected. Opening it is optional and must not gate persistence.
 
 ## Command reference
 
