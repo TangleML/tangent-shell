@@ -26,6 +26,13 @@ const ENVIRONMENT_DETACHED =
   "This sub-agent's environment is disconnected, so the message wasn't delivered.";
 
 /**
+ * Shown when someone other than the owner tries to steer a local agent. It runs
+ * on the owner's machine, so only they may direct it.
+ */
+const NOT_OWNER =
+  "Only the person who connected this local agent can send it messages.";
+
+/**
  * The connector for sub-agents hosted inside a connected remote environment. A
  * thin adapter over {@link RemoteEnvironmentGateway}. Its descriptor carries no
  * `environmentId` — that belongs to each participant's roster entry, not to the
@@ -56,6 +63,15 @@ export class RemoteEnvConnector implements Connector {
   }
 
   deliver(request: DeliveryRequest): DeliveryResult {
+    if (
+      !this.gateway.canDirectSubagent(
+        request.sessionId,
+        request.participantId,
+        request.audienceParticipantId,
+      )
+    ) {
+      return refuseDelivery(this.handlers, request, NOT_OWNER);
+    }
     const delivered = this.gateway.sendToAgent({
       sessionId: request.sessionId,
       agentId: request.participantId,

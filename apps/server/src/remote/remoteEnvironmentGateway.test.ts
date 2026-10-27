@@ -373,6 +373,70 @@ test("a detached participant refuses delivery instead of dropping it silently", 
   assert.equal(send("hello again"), false);
 });
 
+test("the owner may direct their own local sub-agent", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("env-a", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "alice@x"), true);
+});
+
+test("a non-owner may not direct another person's local sub-agent", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("env-a", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "bob@x"), false);
+});
+
+test("an agent-originated delivery to a local sub-agent is not owner-gated", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("env-a", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, undefined), true);
+});
+
+test("an unscoped dev host's sub-agent is not owner-gated", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "anyone@x"), true);
+});
+
+test("a sub-agent whose environment is gone defers the owner gate", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const env = h.connect("env-a", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+  env.disconnect();
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "bob@x"), true);
+});
+
 test("a reconnecting environment gets its persisted roster replayed as detached", async () => {
   const h = makeHarness();
   await seedAgent(h.store, "s1", "remote-1", "env-1");

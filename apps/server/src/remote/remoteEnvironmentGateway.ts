@@ -541,6 +541,27 @@ export class RemoteEnvironmentGateway {
   }
 
   /**
+   * Whether a human may send a directed message to this remote sub-agent. A
+   * local agent is a live window into its owner's machine, so only the person
+   * who connected the hosting environment (`environment.sub`) may steer it.
+   *
+   * Returns `true` for cases the owner gate does not govern: a sub-agent whose
+   * environment is gone (left to {@link sendToAgent}'s detached handling), an
+   * unscoped dev host (no owner), and an agent-originated delivery (no
+   * `audienceParticipantId`, e.g. Prime's own orchestration).
+   */
+  canDirectSubagent(
+    sessionId: string,
+    agentId: string,
+    audienceParticipantId?: string,
+  ): boolean {
+    const environment = this.environmentFor(sessionId, agentId);
+    if (!environment?.sub) return true;
+    if (!audienceParticipantId) return true;
+    return audienceParticipantId === environment.sub;
+  }
+
+  /**
    * Restores a persisted sub-agent's roster entry as `detached`. The protocol
    * has no way to ask an environment what it still runs, so the entry exists to
    * be reattached to rather than claiming to be live: the far end reattaches by

@@ -7,6 +7,7 @@
 - **Scope** — A connects to a whole Tangle **Project**, so any session in that project can use local agents. B attaches to a single **session**.
 - **Agent type** — A spawns **Pi** sub-agents. B lets you attach an agent of your choice (Claude, Codex, Cursor, Pi).
 - **Control** — A is integrated into the editor. B is driven from the Web UI, Prime, and the agent you originally launched from — there's no in-agent control once it's attached.
+- **Security** — A local agent runs on its owner's machine, so only the owner can message it directly. See [local-agents-security.md](local-agents-security.md).
 
 ## Flavor A — VS Code / Cursor extension ("Tangent Local Agent")
 
