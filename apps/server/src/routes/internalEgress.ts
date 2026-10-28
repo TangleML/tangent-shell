@@ -11,7 +11,7 @@ import {
   type EgressOptions,
   type EgressRequestInit,
   EgressUpstreamError,
-  resolveEgress,
+  resolveEgressWithTeam,
 } from "../bundleUi/egressAllowlist.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
@@ -20,9 +20,10 @@ import type { RunRegistry } from "../runs/runRegistry.ts";
 /**
  * Egress request body. `input` must be a non-empty string (replacing the old
  * manual `typeof` guard); `init` stays permissive — it's a structural
- * {@link EgressRequestInit} passed straight through to {@link resolveEgress},
- * so we type it via `z.custom` rather than re-describing its shape, keeping the
- * validated value assignable without an `as` cast.
+ * {@link EgressRequestInit} passed straight through to
+ * {@link resolveEgressWithTeam}, so we type it via `z.custom` rather than
+ * re-describing its shape, keeping the validated value assignable without an
+ * `as` cast.
  */
 const egressInputSchema = z.union([
   z.string().min(1),
@@ -40,7 +41,8 @@ type EgressBody = z.infer<typeof egressBodySchema>;
 
 /**
  * Resolves the requested destination against the egress allowlist, mapping a
- * denied destination to `403` and any other failure to `502`.
+ * denied destination to `403` and any other failure to `502`. A resolved
+ * request reports `appliedTeam`, `null` when it went upstream as no team.
  */
 async function handleEgress(
   input: EgressInput,
@@ -49,8 +51,13 @@ async function handleEgress(
   res: Response,
 ): Promise<void> {
   try {
-    const result = await resolveEgress(input, init, "agent", options);
-    res.json(result);
+    const { response, appliedTeam } = await resolveEgressWithTeam(
+      input,
+      init,
+      "agent",
+      options,
+    );
+    res.json({ ...response, appliedTeam: appliedTeam ?? null });
   } catch (err) {
     if (err instanceof EgressDeniedError) {
       res.status(403).json({ error: err.message });
@@ -69,8 +76,8 @@ async function handleEgress(
  * Internal egress API used by bundle tool extensions running inside each Pi
  * process (e.g. the Tangle API tool). It is the agent-side counterpart to the
  * public bundle-UI `host.fetch` proxy: the request is validated against the
- * same {@link resolveEgress} allowlist and the server injects any credentials,
- * so the agent never holds them.
+ * same allowlist ({@link resolveEgressWithTeam}) and the server injects any
+ * credentials, so the agent never holds them.
  *
  * Guarded by the bearer token shared with the spawned processes via env (the
  * same `INTERNAL_TOKEN` the orchestrator/memory extensions present), so

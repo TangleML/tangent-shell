@@ -180,6 +180,12 @@ The caller is identified by `TANGENT_AGENT_TOKEN`, a per-process secret minted a
 spawn and presented as `x-tangent-agent-token`. It is not the ids in the request
 body. `GET /internal/egress/acting-team` lets a tool report the team in effect.
 
+Every resolved `POST /internal/egress` response carries `appliedTeam`: the team
+that request went upstream as, taken from the same decision that set the header,
+including when Tangle then refuses it. It is `null` when no team was applied, so
+it never means "unknown". The bundle-UI `host.fetch` response has no
+`appliedTeam`, since that route never acts as a team.
+
 ---
 
 ## Other guards

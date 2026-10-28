@@ -42,16 +42,24 @@ export interface EgressOptions {
   actingTeam?: string;
 }
 
+/** An egress response plus the team the request went upstream as, if any. */
+export interface TeamEgressResult {
+  response: EgressResponse;
+  /** The value sent in {@link TANGLE_TEAM_HEADER}; unset when none was sent. */
+  appliedTeam?: string;
+}
+
 /**
  * One allowlisted destination. A request is permitted only when its method and
  * resolved URL match a rule. `headers()` lets the server inject credentials the
- * worker never sees.
+ * worker never sees; `actsAsTeam` rules carry the caller's acting team.
  */
 interface EgressRule {
   method: NonNullable<EgressRequestInit["method"]>;
   agentOnly?: boolean;
   matches(url: URL): boolean;
-  headers?(options: EgressOptions): Record<string, string>;
+  headers?(): Record<string, string>;
+  actsAsTeam?: boolean;
 }
 
 /**
@@ -71,13 +79,6 @@ const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
 
 const SAVED_PIPELINE_API_PATH =
   /^\/api\/pipelines\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
-
-/** The team header for the caller's acting team, or none without one. */
-function tangleTeamHeaders({
-  actingTeam,
-}: EgressOptions): Record<string, string> {
-  return actingTeam ? { [TANGLE_TEAM_HEADER]: actingTeam } : {};
-}
 
 /**
  * Allowlisted Tangle API endpoints; everything else is denied. Saved-pipeline
@@ -140,10 +141,8 @@ const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
   agentOnly: rule.agentOnly,
   matches: (url) =>
     url.origin === TANGLE_API_ORIGIN && rule.test.test(url.pathname),
-  headers: (options) => ({
-    ...tangleAuthHeaders(),
-    ...(rule.actsAsTeam ? tangleTeamHeaders(options) : {}),
-  }),
+  headers: tangleAuthHeaders,
+  actsAsTeam: rule.actsAsTeam,
 }));
 
 /** Registered destinations the bridge may reach. */
@@ -248,11 +247,19 @@ function isBodyRequest(
   return method !== "GET" && init.body !== undefined;
 }
 
+/** The caller's acting team, if `rule` acts as one. */
+function teamFor(
+  rule: EgressRule,
+  { actingTeam }: EgressOptions,
+): string | undefined {
+  return rule.actsAsTeam && actingTeam ? actingTeam : undefined;
+}
+
 /** Merges safe caller headers with authoritative server credentials. */
 function buildHeaders(
   init: EgressRequestInit,
   rule: EgressRule,
-  options: EgressOptions,
+  team: string | undefined,
   hasBody: boolean,
 ): Record<string, string> {
   const callerHeaders = Object.entries(init.headers ?? {})
@@ -261,7 +268,8 @@ function buildHeaders(
   const headers: Record<string, string> = {
     accept: "application/json",
     ...Object.fromEntries(callerHeaders),
-    ...(rule.headers?.(options) ?? {}),
+    ...(rule.headers?.() ?? {}),
+    ...(team ? { [TANGLE_TEAM_HEADER]: team } : {}),
   };
   if (hasBody) headers["content-type"] = "application/json";
   return headers;
@@ -272,13 +280,13 @@ function buildRequestInit(
   method: NonNullable<EgressRequestInit["method"]>,
   init: EgressRequestInit,
   rule: EgressRule,
-  options: EgressOptions,
+  team: string | undefined,
   signal: AbortSignal,
 ): RequestInit {
   const hasBody = isBodyRequest(method, init);
   return {
     method,
-    headers: buildHeaders(init, rule, options, hasBody),
+    headers: buildHeaders(init, rule, team, hasBody),
     body: hasBody ? JSON.stringify(init.body) : undefined,
     signal,
   };
@@ -290,14 +298,14 @@ async function performFetch(
   method: NonNullable<EgressRequestInit["method"]>,
   init: EgressRequestInit,
   rule: EgressRule,
-  options: EgressOptions,
+  team: string | undefined,
 ): Promise<EgressResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EGRESS_TIMEOUT_MS);
   try {
     const response = await fetch(
       url,
-      buildRequestInit(method, init, rule, options, controller.signal),
+      buildRequestInit(method, init, rule, team, controller.signal),
     );
     return await toEgressResponse(response);
   } finally {
@@ -329,17 +337,18 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
 
 /**
  * Resolves an allowlisted egress request by performing the real network call
- * server-side. Throws {@link EgressDeniedError} when `input` cannot resolve to a
- * registered destination for this host-selected caller. UI callers cannot opt
- * into agent-only rules through the request body. Upstream failures map to a 502
+ * server-side, acting as `options.actingTeam` on team-scoped rules. Throws
+ * {@link EgressDeniedError} when `input` cannot resolve to a registered
+ * destination for this host-selected caller. UI callers cannot opt into
+ * agent-only rules through the request body. Upstream failures map to a 502
  * with safe diagnostics; backend status codes and bodies are preserved.
  */
-export async function resolveEgress(
+export async function resolveEgressWithTeam(
   input: EgressInput,
   init: EgressRequestInit = {},
   caller: "ui" | "agent" = "ui",
   options: EgressOptions = {},
-): Promise<EgressResponse> {
+): Promise<TeamEgressResult> {
   const method = init.method ?? "GET";
   const url = resolveUrl(input, init.query);
   const rule = EGRESS_RULES.find(
@@ -350,14 +359,25 @@ export async function resolveEgress(
   );
   if (!rule) throw new EgressDeniedError(formatDeniedInput(input));
 
+  const appliedTeam = teamFor(rule, options);
   try {
-    return await performFetch(url, method, init, rule, options);
+    const response = await performFetch(url, method, init, rule, appliedTeam);
+    return { response, appliedTeam };
   } catch (error) {
     console.warn(
       `[egress] ${method} ${url.origin}${url.pathname} failed: ${describeFailure(error)}`,
     );
     throw new EgressUpstreamError(error);
   }
+}
+
+/** {@link resolveEgressWithTeam} for a caller that never acts as a team. */
+export async function resolveEgress(
+  input: EgressInput,
+  init: EgressRequestInit = {},
+  caller: "ui" | "agent" = "ui",
+): Promise<EgressResponse> {
+  return (await resolveEgressWithTeam(input, init, caller)).response;
 }
 
 /** Name and code only: transport error messages can carry credentials. */

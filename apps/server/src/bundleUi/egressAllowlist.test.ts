@@ -14,6 +14,7 @@ import {
   EgressDeniedError,
   EgressUpstreamError,
   resolveEgress,
+  resolveEgressWithTeam,
   resolveTargetUrl,
 } from "./egressAllowlist.ts";
 
@@ -566,9 +567,9 @@ test("the upstream timeout remains active while reading a stalled response body"
 });
 
 /** Captures the headers of the one outbound fetch a call makes. */
-function captureHeaders(): () => Record<string, string> {
+function captureHeaders(status = 200): () => Record<string, string> {
   const fetchMock = mock.method(globalThis, "fetch", async () =>
-    Response.json({}),
+    Response.json({}, { status }),
   );
   return () => {
     const init = fetchMock.mock.calls[0]?.arguments[1];
@@ -576,10 +577,10 @@ function captureHeaders(): () => Record<string, string> {
   };
 }
 
-test("a team-scoped rule acts as the caller's acting team", async () => {
+test("a team-scoped rule acts as, and reports, the caller's acting team", async () => {
   const headers = captureHeaders();
 
-  await resolveEgress(
+  const { appliedTeam } = await resolveEgressWithTeam(
     { target: "tangle", path: "/api/secrets/" },
     {},
     "agent",
@@ -587,20 +588,25 @@ test("a team-scoped rule acts as the caller's acting team", async () => {
   );
 
   assert.equal(headers()[TANGLE_TEAM_HEADER], "team-a");
+  assert.equal(appliedTeam, "team-a");
 });
 
-test("a team-scoped rule without an acting team sends no team", async () => {
+test("a team-scoped rule without an acting team sends and reports no team", async () => {
   const headers = captureHeaders();
 
-  await resolveEgress({ target: "tangle", path: "/api/secrets/" });
+  const { appliedTeam } = await resolveEgressWithTeam({
+    target: "tangle",
+    path: "/api/secrets/",
+  });
 
   assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
+  assert.equal(appliedTeam, undefined);
 });
 
-test("a rule that is not team-scoped never carries the team", async () => {
+test("a rule that is not team-scoped never carries or reports the team", async () => {
   const headers = captureHeaders();
 
-  await resolveEgress(
+  const { appliedTeam } = await resolveEgressWithTeam(
     { target: "tangle", path: "/api/executions/run-1/state" },
     {},
     "agent",
@@ -608,30 +614,47 @@ test("a rule that is not team-scoped never carries the team", async () => {
   );
 
   assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
+  assert.equal(appliedTeam, undefined);
 });
 
 test("a caller cannot supply its own team header", async () => {
   const forged = { headers: { [TANGLE_TEAM_HEADER.toUpperCase()]: "team-x" } };
+  const teamHeaders = (headers: Record<string, string>) =>
+    Object.entries(headers).filter(
+      ([name]) => name.toLowerCase() === TANGLE_TEAM_HEADER,
+    );
 
   const ungranted = captureHeaders();
-  await resolveEgress({ target: "tangle", path: "/api/secrets/" }, forged);
-  assert.deepEqual(
-    Object.keys(ungranted()).filter(
-      (name) => name.toLowerCase() === TANGLE_TEAM_HEADER,
-    ),
-    [],
+  const ungrantedResult = await resolveEgressWithTeam(
+    { target: "tangle", path: "/api/secrets/" },
+    forged,
   );
+  assert.deepEqual(teamHeaders(ungranted()), []);
+  assert.equal(ungrantedResult.appliedTeam, undefined);
   mock.reset();
 
   const granted = captureHeaders();
-  await resolveEgress(
+  const grantedResult = await resolveEgressWithTeam(
     { target: "tangle", path: "/api/secrets/" },
     forged,
     "agent",
     { actingTeam: "team-a" },
   );
-  const sent = Object.entries(granted()).filter(
-    ([name]) => name.toLowerCase() === TANGLE_TEAM_HEADER,
+  assert.deepEqual(teamHeaders(granted()), [[TANGLE_TEAM_HEADER, "team-a"]]);
+  assert.equal(grantedResult.appliedTeam, "team-a");
+});
+
+test("the applied team is reported when upstream refuses it", async () => {
+  const headers = captureHeaders(401);
+
+  const { response, appliedTeam } = await resolveEgressWithTeam(
+    { target: "tangle", path: "/api/pipeline_runs/" },
+    { method: "POST", body: {} },
+    "agent",
+    { actingTeam: "team-a" },
   );
-  assert.deepEqual(sent, [[TANGLE_TEAM_HEADER, "team-a"]]);
+
+  assert.equal(response.status, 401);
+  assert.equal(headers()[TANGLE_TEAM_HEADER], "team-a");
+  assert.equal(appliedTeam, "team-a");
 });
