@@ -32,7 +32,7 @@ export interface TangentProviderProps {
   /**
    * Returns the Tangle team id the current user grants the message being sent
    * in `sessionId`, or `undefined` to grant none. Read on every send; the agent
-   * turns that message starts act as that team.
+   * turns that message starts may act as that team.
    */
   getActingTeam?: (sessionId: string) => string | undefined;
   /** `light`, `dark`, or `system`. Defaults to `light`. */

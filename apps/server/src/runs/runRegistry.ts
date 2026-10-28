@@ -68,7 +68,7 @@ export class RunRegistry {
   /** The last human audience each participant had, by `(session, participant)`, so
    * an agent/automation wake inherits it rather than routing to nobody. */
   private readonly lastAudience = new Map<string, string>();
-  /** The acting team of each open Run. Held off the {@link Run} so it is never
+  /** The team each open Run may act as. Held off the {@link Run} so it is never
    * persisted or sent to a client. */
   private readonly teams = new Map<RunId, string>();
   /** Notified after a Run settles, so a participant becoming idle can release a
@@ -175,12 +175,12 @@ export class RunRegistry {
     return this.lastAudience.get(keyFor(sessionId, participantId));
   }
 
-  /** The team an open Run acts as, if it was granted one. */
+  /** The team an open Run may act as, if it was granted one. */
   actingTeamOf(runId: RunId | undefined): string | undefined {
     return runId ? this.teams.get(runId) : undefined;
   }
 
-  /** The team a participant's open Run acts as. Idle means no team. */
+  /** The team a participant's open Run may act as. Idle means no team. */
   actingTeamFor(sessionId: string, participantId: string): string | undefined {
     return this.actingTeamOf(this.current(sessionId, participantId)?.id);
   }
@@ -196,7 +196,7 @@ export class RunRegistry {
   }
 
   /** Starts a new scope inside a Run (a follow-up taking over a finished turn),
-   * which acts as whatever the follow-up grants. */
+   * which may act as whatever the follow-up grants. */
   replaceActingTeam(runId: RunId, team: string | undefined): void {
     if (!this.byId.has(runId)) return;
     if (team) this.teams.set(runId, team);

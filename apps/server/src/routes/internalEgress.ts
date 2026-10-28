@@ -12,6 +12,7 @@ import {
   type EgressRequestInit,
   EgressUpstreamError,
   resolveEgressWithTeam,
+  TeamNotGrantedError,
 } from "../bundleUi/egressAllowlist.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
@@ -36,13 +37,15 @@ const egressInputSchema = z.union([
 const egressBodySchema = z.object({
   input: egressInputSchema,
   init: z.custom<EgressRequestInit>().optional(),
+  actAsTeam: z.boolean().optional(),
 });
 type EgressBody = z.infer<typeof egressBodySchema>;
 
 /**
  * Resolves the requested destination against the egress allowlist, mapping a
- * denied destination to `403` and any other failure to `502`. A resolved
- * request reports `appliedTeam`, `null` when it went upstream as no team.
+ * denied destination or an ungranted team to `403` and any other failure to
+ * `502`. A resolved request reports `appliedTeam`, `null` when it went upstream
+ * as no team.
  */
 async function handleEgress(
   input: EgressInput,
@@ -59,7 +62,10 @@ async function handleEgress(
     );
     res.json({ ...response, appliedTeam: appliedTeam ?? null });
   } catch (err) {
-    if (err instanceof EgressDeniedError) {
+    if (
+      err instanceof EgressDeniedError ||
+      err instanceof TeamNotGrantedError
+    ) {
       res.status(403).json({ error: err.message });
       return;
     }
@@ -81,8 +87,9 @@ async function handleEgress(
  *
  * Guarded by the bearer token shared with the spawned processes via env (the
  * same `INTERNAL_TOKEN` the orchestrator/memory extensions present), so
- * arbitrary local callers can't drive egress. A team-scoped request acts as the
- * team of the Run its agent token names; without the token it acts as none.
+ * arbitrary local callers can't drive egress. A team-scoped request acts as a
+ * team only when it sets `actAsTeam`, and then as the team granted to the Run
+ * its agent token names; asking without a grant is refused.
  */
 export function createInternalEgressRouter(
   agents: AgentTokenResolver,
@@ -96,15 +103,15 @@ export function createInternalEgressRouter(
     "/",
     validate({ body: egressBodySchema }),
     (req: Request, res: Response) => {
-      const { input, init } = getValidated<EgressBody>(req).body;
-      const actingTeam = callerActingTeam(req, agents, runs);
-      return handleEgress(input, init, { actingTeam }, res);
+      const { input, init, actAsTeam } = getValidated<EgressBody>(req).body;
+      const grantedTeam = callerActingTeam(req, agents, runs);
+      return handleEgress(input, init, { grantedTeam, actAsTeam }, res);
     },
   );
 
-  // Lets a tool tell the agent which team its current turn acts as.
-  router.get("/acting-team", (req: Request, res: Response) => {
-    res.json({ actingTeam: callerActingTeam(req, agents, runs) ?? null });
+  // Lets a tool tell the agent which team its current turn may act as.
+  router.get("/granted-team", (req: Request, res: Response) => {
+    res.json({ grantedTeam: callerActingTeam(req, agents, runs) ?? null });
   });
 
   return router;

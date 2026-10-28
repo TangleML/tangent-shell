@@ -158,33 +158,49 @@ restart.
 ## Acting team
 
 Team-scoped Tangle calls (submitting or cancelling a run, editing run
-annotations, listing secrets) carry the team impersonation header
-(`TANGLE_TEAM_HEADER`, default `x-tangle-impersonate-team-id`). The server sets
-it from the **Run** the calling agent is in, never from the caller: any copy of
-the header a caller sends is stripped on every egress route.
+annotations, listing secrets) can act as a team by carrying the team
+impersonation header (`TANGLE_TEAM_HEADER`, default
+`x-tangle-impersonate-team-id`). Whether a call may is the server's decision;
+whether it does is the caller's:
 
-A Run gets a team only along the causal chain from a human message:
+- **Grant.** The team comes from the **Run** the calling agent is in, never from
+  the caller. Any copy of the header a caller sends is stripped on every egress
+  route.
+- **Opt in.** A call acts as the granted team only when its `POST
+/internal/egress` body sets `actAsTeam: true`. Without it the call goes as the
+  server's own Tangle identity, even on a granted turn. Opting in without a
+  grant is a 403 (`no Tangle team is granted for this turn`), not a silent
+  fallback. The flag has no effect on rules that are not team-scoped.
+
+Tangle resolves a run's secrets against the run's creator. A run submitted as
+the team can use only the team's secrets, and one submitted without it only the
+server identity's own, so a tool keeps the secrets it lists and the identity it
+submits with the same.
+
+A Run gets a grant only along the causal chain from a human message:
 
 - The host sends `actingTeamId` on a chat message (`getActingTeam` on
   `TangentProvider`). It applies to that message only and is not persisted.
-- The Runs that message opens act as that team. A Prime directive or a
-  sub-agent report carries the authoring Run's team, and so does an agent's
+- The Runs that message opens are granted that team. A Prime directive or a
+  sub-agent report carries the authoring Run's grant, and so does an agent's
   finished turn when it is relayed to Prime.
 - Triggers, reactor wakes, system messages and remote or A2A agents carry none.
-  A Run never inherits a team from an earlier one.
+  A Run never inherits a grant from an earlier one.
 - A message queued onto a busy agent: a follow-up (a new turn) switches the Run
-  to its own team, and a steer (which changes the running turn) keeps the team
+  to its own grant, and a steer (which changes the running turn) keeps the grant
   only if it matches, otherwise it drops it.
 
 The caller is identified by `TANGENT_AGENT_TOKEN`, a per-process secret minted at
 spawn and presented as `x-tangent-agent-token`. It is not the ids in the request
-body. `GET /internal/egress/acting-team` lets a tool report the team in effect.
+body. `GET /internal/egress/granted-team` returns `{ grantedTeam }`, the team the
+caller's turn may act as, or `null`.
 
 Every resolved `POST /internal/egress` response carries `appliedTeam`: the team
 that request went upstream as, taken from the same decision that set the header,
-including when Tangle then refuses it. It is `null` when no team was applied, so
-it never means "unknown". The bundle-UI `host.fetch` response has no
-`appliedTeam`, since that route never acts as a team.
+including when Tangle then refuses it. It is `null` when no team was applied,
+whether for lack of a grant or because the call didn't opt in, so it never means
+"unknown". The bundle-UI `host.fetch` response has no `appliedTeam`, since that
+route never acts as a team.
 
 ---
 
@@ -220,8 +236,8 @@ header only inside the server-side egress proxy. It is removed from the `pi`
 child environment, so agents are not handed a way around the proxy. Do not commit
 this value, bake it into Docker images, or expose it to bundle UI workers.
 
-Tangle authorizes against this token's identity, not the human's: the acting
-team narrows which team a call acts as, but cannot grant more than the token
+Tangle authorizes against this token's identity, not the human's: a granted
+team names which team a call may act as, but cannot grant more than the token
 holds. The team is a claim from the host, trusted like the bearer token. Agent
 tokens stop one agent from posing as another through the API. Neither they nor
 removing `TANGLE_TOKEN` are a hard boundary while agents run as the same OS user

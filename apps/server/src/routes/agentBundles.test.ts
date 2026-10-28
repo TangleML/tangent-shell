@@ -46,6 +46,7 @@ test("the bundle-UI egress response never carries a team", async () => {
     body: JSON.stringify({
       input: { target: "tangle", path: "/api/secrets/" },
       init: { headers: { [TANGLE_TEAM_HEADER]: "team-x" } },
+      actAsTeam: true,
     }),
   });
   const body = (await res.json()) as Record<string, unknown>;

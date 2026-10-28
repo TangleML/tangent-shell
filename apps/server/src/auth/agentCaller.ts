@@ -17,7 +17,7 @@ export type AgentTokenResolver = (
 ) => AgentCaller | undefined;
 
 /**
- * The team the calling agent's open Run acts as. The caller is whoever the
+ * The team the calling agent's open Run may act as. The caller is whoever the
  * request's agent token names, never ids in the body; a route acting for a
  * named participant passes it as `expected`, and any other caller gets no team.
  */

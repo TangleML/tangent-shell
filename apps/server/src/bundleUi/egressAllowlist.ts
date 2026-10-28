@@ -36,10 +36,12 @@ export interface EgressResponse {
   text?: string;
 }
 
-/** Server-side context for one egress request, never taken from the caller. */
+/** How one egress request may act as a Tangle team. */
 export interface EgressOptions {
-  /** The Tangle team the caller's Run acts as. */
-  actingTeam?: string;
+  /** The team the caller's Run may act as; the server's, never the caller's. */
+  grantedTeam?: string;
+  /** The caller's ask to act as {@link grantedTeam} on this request. */
+  actAsTeam?: boolean;
 }
 
 /** An egress response plus the team the request went upstream as, if any. */
@@ -52,7 +54,7 @@ export interface TeamEgressResult {
 /**
  * One allowlisted destination. A request is permitted only when its method and
  * resolved URL match a rule. `headers()` lets the server inject credentials the
- * worker never sees; `actsAsTeam` rules carry the caller's acting team.
+ * worker never sees; `actsAsTeam` rules may act as the caller's granted team.
  */
 interface EgressRule {
   method: NonNullable<EgressRequestInit["method"]>;
@@ -83,8 +85,8 @@ const SAVED_PIPELINE_API_PATH =
 /**
  * Allowlisted Tangle API endpoints; everything else is denied. Saved-pipeline
  * creation targets the authenticated caller, and updates address a stable UUID
- * under the backend's resource permissions. `actsAsTeam` rules carry the
- * caller's acting team.
+ * under the backend's resource permissions. `actsAsTeam` rules may act as the
+ * caller's granted team.
  */
 const TANGLE_PATH_RULES: ReadonlyArray<{
   method: NonNullable<EgressRequestInit["method"]>;
@@ -179,6 +181,14 @@ export class EgressUpstreamError extends Error {
   }
 }
 
+/** Raised when a request asks to act as a team its turn was not granted. */
+export class TeamNotGrantedError extends Error {
+  constructor() {
+    super("no Tangle team is granted for this turn");
+    this.name = "TeamNotGrantedError";
+  }
+}
+
 /** Parses a string as an absolute http(s) URL, or returns `undefined`. */
 function parseHttpUrl(input: string): URL | undefined {
   let url: URL;
@@ -247,12 +257,14 @@ function isBodyRequest(
   return method !== "GET" && init.body !== undefined;
 }
 
-/** The caller's acting team, if `rule` acts as one. */
+/** The granted team, if `rule` acts as one and the caller asked to. */
 function teamFor(
   rule: EgressRule,
-  { actingTeam }: EgressOptions,
+  { grantedTeam, actAsTeam }: EgressOptions,
 ): string | undefined {
-  return rule.actsAsTeam && actingTeam ? actingTeam : undefined;
+  if (!rule.actsAsTeam || !actAsTeam) return undefined;
+  if (!grantedTeam) throw new TeamNotGrantedError();
+  return grantedTeam;
 }
 
 /** Merges safe caller headers with authoritative server credentials. */
@@ -337,11 +349,13 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
 
 /**
  * Resolves an allowlisted egress request by performing the real network call
- * server-side, acting as `options.actingTeam` on team-scoped rules. Throws
- * {@link EgressDeniedError} when `input` cannot resolve to a registered
- * destination for this host-selected caller. UI callers cannot opt into
- * agent-only rules through the request body. Upstream failures map to a 502
- * with safe diagnostics; backend status codes and bodies are preserved.
+ * server-side, acting as the granted team on a team-scoped rule only when the
+ * caller asks to. Throws {@link EgressDeniedError} when `input` cannot resolve
+ * to a registered destination for this host-selected caller, and
+ * {@link TeamNotGrantedError} when the caller asks for a team it wasn't
+ * granted. UI callers cannot opt into agent-only rules through the request
+ * body. Upstream failures map to a 502 with safe diagnostics; backend status
+ * codes and bodies are preserved.
  */
 export async function resolveEgressWithTeam(
   input: EgressInput,

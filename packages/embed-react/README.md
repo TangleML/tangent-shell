@@ -458,8 +458,10 @@ egress allowlist do not apply to them.
 `getActingTeam(sessionId)` is read each time a message is sent. Return the Tangle
 team id the signed-in user grants that message, or `undefined` to grant none. The
 agent turns the message starts (including sub-agent work Prime hands on from
-them) act as that team for team-scoped Tangle calls such as submitting a run or
-listing secrets. The grant never outlives those turns, so a later message from a
+them) may act as that team for team-scoped Tangle calls such as submitting a run
+or listing secrets. Each call chooses: without opting in it goes as the server's
+own Tangle identity, so a granted turn can still list and use that identity's
+own secrets. The grant never outlives those turns, so a later message from a
 user who grants nothing gets no team.
 
 ```tsx

@@ -4,7 +4,11 @@ import { afterEach, mock, test } from "node:test";
 
 import express from "express";
 
-import { INTERNAL_TOKEN, TANGLE_API_URL, TANGLE_TEAM_HEADER } from "../config.ts";
+import {
+  INTERNAL_TOKEN,
+  TANGLE_API_URL,
+  TANGLE_TEAM_HEADER,
+} from "../config.ts";
 import { createAgentBundlesRouter } from "../routes/agentBundles.ts";
 import { createInternalEgressRouter } from "../routes/internalEgress.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
@@ -16,6 +20,7 @@ import {
   resolveEgress,
   resolveEgressWithTeam,
   resolveTargetUrl,
+  TeamNotGrantedError,
 } from "./egressAllowlist.ts";
 
 const resolveAgentEgress = (
@@ -577,40 +582,54 @@ function captureHeaders(status = 200): () => Record<string, string> {
   };
 }
 
-test("a team-scoped rule acts as, and reports, the caller's acting team", async () => {
+const SECRETS = { target: "tangle", path: "/api/secrets/" } as const;
+const GRANTED = { grantedTeam: "team-a", actAsTeam: true };
+
+test("a team-scoped rule that asks acts as, and reports, the granted team", async () => {
   const headers = captureHeaders();
 
   const { appliedTeam } = await resolveEgressWithTeam(
-    { target: "tangle", path: "/api/secrets/" },
+    SECRETS,
     {},
     "agent",
-    { actingTeam: "team-a" },
+    GRANTED,
   );
 
   assert.equal(headers()[TANGLE_TEAM_HEADER], "team-a");
   assert.equal(appliedTeam, "team-a");
 });
 
-test("a team-scoped rule without an acting team sends and reports no team", async () => {
+test("a granted team is not used unless the call asks for it", async () => {
   const headers = captureHeaders();
 
-  const { appliedTeam } = await resolveEgressWithTeam({
-    target: "tangle",
-    path: "/api/secrets/",
+  const { appliedTeam } = await resolveEgressWithTeam(SECRETS, {}, "agent", {
+    grantedTeam: "team-a",
   });
 
   assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
   assert.equal(appliedTeam, undefined);
 });
 
-test("a rule that is not team-scoped never carries or reports the team", async () => {
+test("asking to act as a team without a grant is refused before any fetch", async () => {
+  const fetchMock = mock.method(globalThis, "fetch", async () =>
+    Response.json({}),
+  );
+
+  await assert.rejects(
+    resolveEgressWithTeam(SECRETS, {}, "agent", { actAsTeam: true }),
+    TeamNotGrantedError,
+  );
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("a rule that is not team-scoped ignores the ask", async () => {
   const headers = captureHeaders();
 
   const { appliedTeam } = await resolveEgressWithTeam(
     { target: "tangle", path: "/api/executions/run-1/state" },
     {},
     "agent",
-    { actingTeam: "team-a" },
+    GRANTED,
   );
 
   assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
@@ -624,24 +643,23 @@ test("a caller cannot supply its own team header", async () => {
       ([name]) => name.toLowerCase() === TANGLE_TEAM_HEADER,
     );
 
-  const ungranted = captureHeaders();
-  const ungrantedResult = await resolveEgressWithTeam(
-    { target: "tangle", path: "/api/secrets/" },
-    forged,
-  );
-  assert.deepEqual(teamHeaders(ungranted()), []);
-  assert.equal(ungrantedResult.appliedTeam, undefined);
+  const unasked = captureHeaders();
+  const unaskedResult = await resolveEgressWithTeam(SECRETS, forged, "agent", {
+    grantedTeam: "team-a",
+  });
+  assert.deepEqual(teamHeaders(unasked()), []);
+  assert.equal(unaskedResult.appliedTeam, undefined);
   mock.reset();
 
-  const granted = captureHeaders();
-  const grantedResult = await resolveEgressWithTeam(
-    { target: "tangle", path: "/api/secrets/" },
+  const asked = captureHeaders();
+  const askedResult = await resolveEgressWithTeam(
+    SECRETS,
     forged,
     "agent",
-    { actingTeam: "team-a" },
+    GRANTED,
   );
-  assert.deepEqual(teamHeaders(granted()), [[TANGLE_TEAM_HEADER, "team-a"]]);
-  assert.equal(grantedResult.appliedTeam, "team-a");
+  assert.deepEqual(teamHeaders(asked()), [[TANGLE_TEAM_HEADER, "team-a"]]);
+  assert.equal(askedResult.appliedTeam, "team-a");
 });
 
 test("the applied team is reported when upstream refuses it", async () => {
@@ -651,7 +669,7 @@ test("the applied team is reported when upstream refuses it", async () => {
     { target: "tangle", path: "/api/pipeline_runs/" },
     { method: "POST", body: {} },
     "agent",
-    { actingTeam: "team-a" },
+    GRANTED,
   );
 
   assert.equal(response.status, 401);
