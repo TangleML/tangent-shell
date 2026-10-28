@@ -10,6 +10,7 @@ import { createInternalEgressRouter } from "../routes/internalEgress.ts";
 import type { AgentBundleStore } from "../store/agentBundleStore.ts";
 import {
   EgressDeniedError,
+  EgressUpstreamError,
   resolveEgress,
   resolveTargetUrl,
 } from "./egressAllowlist.ts";
@@ -116,7 +117,19 @@ for (const request of [
 
     const result = await resolveAgentEgress(
       { target: "tangle", path: request.path },
-      { method: request.method, body, query },
+      {
+        method: request.method,
+        body,
+        query,
+        headers: {
+          Accept: "application/json",
+          CoOkIe: "SESSION=untrusted",
+          Authorization: "Bearer untrusted",
+          "X-Alternate-Credential": "untrusted",
+          "X-Forwarded-Email": "another-user@example.com",
+          "X-Auth-User": "another-user@example.com",
+        },
+      },
     );
 
     assert.equal(fetchMock.mock.calls.length, 1);
@@ -124,6 +137,31 @@ for (const request of [
     assert.deepEqual(result.json, responseBody);
   });
 }
+
+test("does not use caller credentials when server credentials are absent", async () => {
+  mock.method(
+    globalThis,
+    "fetch",
+    async (_input: string | URL | Request, init?: RequestInit) => {
+      assert.deepEqual(init?.headers, { accept: "application/json" });
+      return new Response(
+        JSON.stringify({ detail: "Authentication required" }),
+        {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    },
+  );
+
+  const result = await resolveAgentEgress(
+    { target: "tangle", path: "/api/users/me" },
+    { headers: { cookie: "SESSION=untrusted", AUTHORIZATION: "Bearer user" } },
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 401);
+});
 
 for (const status of [401, 403, 422, 500]) {
   test(`preserves saved-pipeline backend errors with HTTP ${status}`, async () => {
@@ -406,4 +444,67 @@ test("saved-pipeline access is denied through public UI egress even with a forge
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("upstream diagnostics explain configuration and timeout failures without exposing secrets", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const detail = "https://private:credential@example.com?token=secret";
+  mock.method(globalThis, "fetch", async () => {
+    throw new Error(detail, { cause: { code: "ECONNREFUSED" } });
+  });
+  await assert.rejects(
+    resolveAgentEgress({ target: "tangle", path: "/api/users/me" }),
+    (error: unknown) => {
+      assert.ok(error instanceof EgressUpstreamError);
+      assert.match(error.message, /TANGLE_API_URL/);
+      assert.equal(error.message.includes(detail), false);
+      assert.equal(error.message.includes("credential"), false);
+      return true;
+    },
+  );
+  mock.restoreAll();
+  mock.method(globalThis, "fetch", async () => {
+    throw new DOMException("aborted", "AbortError");
+  });
+  await assert.rejects(
+    resolveAgentEgress({ target: "tangle", path: "/api/users/me" }),
+    /timed out/,
+  );
+
+  const logged = warn.mock.calls.map((call) => String(call.arguments[0]));
+  assert.match(
+    logged[0] ?? "",
+    /^\[egress\] GET \S+\/api\/users\/me failed: Error \(ECONNREFUSED\)$/,
+  );
+  assert.match(logged[1] ?? "", /failed: AbortError$/);
+  for (const line of logged) {
+    assert.equal(line.includes("credential"), false);
+    assert.equal(line.includes("secret"), false);
+  }
+});
+
+test("the upstream timeout remains active while reading a stalled response body", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mock.method(
+    globalThis,
+    "fetch",
+    async (_input: unknown, init: RequestInit) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            init.signal!.addEventListener("abort", () => {
+              controller.error(new DOMException("aborted", "AbortError"));
+            });
+          },
+        }),
+      ),
+  );
+  const rejected = assert.rejects(
+    resolveAgentEgress({ target: "tangle", path: "/api/users/me" }),
+    /timed out/,
+  );
+  await Promise.resolve();
+  t.mock.timers.tick(10_000);
+  await rejected;
 });

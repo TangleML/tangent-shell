@@ -117,13 +117,17 @@ Allowlist properties:
   restricted to the token-guarded internal agent route. The public bundle-UI
   proxy cannot select that capability through its request body. Other
   user-pipeline routes remain denied.
-- Credentials are injected by the rule's `headers()`, so bundle UI code never
-  sees them. This is not a boundary against agents: Pi children inherit the
-  server environment (including `TANGLE_TOKEN` when set) and
-  `TANGENT_INTERNAL_TOKEN`, so an agent with `bash` can call this route, or the
-  backend, directly.
+- Caller headers are limited to `accept` and `content-type`. Credentials are
+  injected by the rule's `headers()`, so a caller cannot replace the backend
+  identity and bundle UI code never sees the credential. This is not a boundary
+  against agents: Pi children inherit the server environment (including
+  `TANGLE_TOKEN` when set) and `TANGENT_INTERNAL_TOKEN`, so an agent with `bash`
+  can call this route, or the backend, directly.
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
-  upstream calls; transport failures map to a 502.
+  both fetching and consuming the response body. Transport failures map to a
+  502 with safe configuration or timeout diagnostics. Raw transport errors can
+  contain credentials and are not returned to callers. Backend HTTP statuses
+  and response bodies are preserved in the egress response envelope.
 
 ### Saved pipeline authoring
 

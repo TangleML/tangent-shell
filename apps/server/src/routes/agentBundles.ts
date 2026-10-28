@@ -6,6 +6,7 @@ import {
   EgressDeniedError,
   type EgressInput,
   type EgressRequestInit,
+  EgressUpstreamError,
   resolveEgress,
   resolveTargetUrl,
 } from "../bundleUi/egressAllowlist.ts";
@@ -156,7 +157,12 @@ async function handleUiEgress(
       res.status(403).json({ error: err.message });
       return;
     }
-    res.status(502).json({ error: "bundle-ui egress request failed" });
+    res.status(502).json({
+      error:
+        err instanceof EgressUpstreamError
+          ? err.message
+          : "egress request failed",
+    });
   }
 }
 
