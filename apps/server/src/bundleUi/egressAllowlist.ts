@@ -43,6 +43,7 @@ export interface EgressResponse {
  */
 interface EgressRule {
   method: NonNullable<EgressRequestInit["method"]>;
+  agentOnly?: boolean;
   matches(url: URL): boolean;
   headers?(): Record<string, string>;
 }
@@ -62,16 +63,25 @@ function tangleAuthHeaders(): Record<string, string> {
 /** Origin of the configured Tangle API; only this host is reachable. */
 const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
 
+const SAVED_PIPELINE_API_PATH =
+  /^\/api\/pipelines\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+
 /**
- * Allowlisted Tangle API endpoints (tags `artifacts` / `executions` /
- * `pipelineRuns` / `projects` / `workspaces` from the OpenAPI doc). Reads are
- * GET; run submit/cancel and annotation mutations carry their own methods.
- * `projects` / `workspaces` are read-only prefixes. Everything else is denied.
+ * Allowlisted Tangle API endpoints; everything else is denied. Saved-pipeline
+ * creation targets the authenticated caller, and updates address a stable UUID
+ * under the backend's resource permissions.
  */
 const TANGLE_PATH_RULES: ReadonlyArray<{
   method: NonNullable<EgressRequestInit["method"]>;
   test: RegExp;
+  agentOnly?: boolean;
 }> = [
+  // saved pipelines / authenticated backend identity
+  { method: "GET", test: /^\/api\/users\/me$/, agentOnly: true },
+  { method: "GET", test: /^\/api\/users\/me\/pipelines$/, agentOnly: true },
+  { method: "PUT", test: /^\/api\/users\/me\/pipelines$/, agentOnly: true },
+  { method: "GET", test: SAVED_PIPELINE_API_PATH, agentOnly: true },
+  { method: "PUT", test: SAVED_PIPELINE_API_PATH, agentOnly: true },
   // pipelineRuns
   { method: "GET", test: /^\/api\/pipeline_runs\/$/ },
   { method: "POST", test: /^\/api\/pipeline_runs\/$/ },
@@ -91,7 +101,7 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   // artifacts
   { method: "GET", test: /^\/api\/artifacts\/[^/]+$/ },
   { method: "GET", test: /^\/api\/artifacts\/[^/]+\/signed_artifact_url$/ },
-  // projects / workspaces (read-only)
+  // projects / workspaces
   { method: "GET", test: /^\/api\/projects(?:\/.*)?$/ },
   { method: "GET", test: /^\/api\/workspaces(?:\/.*)?$/ },
   { method: "POST", test: /^\/api\/projects(?:\/.*)?$/ },
@@ -101,6 +111,7 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
 /** Expands the Tangle path rules into full {@link EgressRule}s. */
 const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
   method: rule.method,
+  agentOnly: rule.agentOnly,
   matches: (url) =>
     url.origin === TANGLE_API_ORIGIN && rule.test.test(url.pathname),
   headers: tangleAuthHeaders,
@@ -112,6 +123,9 @@ const EGRESS_RULES: EgressRule[] = [...TANGLE_RULES];
 /** Response headers we are willing to surface back across the bridge. */
 const ALLOWED_RESPONSE_HEADERS = new Set(["content-type"]);
 
+/** Callers control content negotiation, never upstream authentication/identity. */
+const ALLOWED_REQUEST_HEADERS = new Set(["accept", "content-type"]);
+
 /** Abort an upstream request that hangs longer than this. */
 const EGRESS_TIMEOUT_MS = 10_000;
 
@@ -120,6 +134,20 @@ export class EgressDeniedError extends Error {
   constructor(input: string) {
     super(`bundle-ui egress destination "${input}" is not allowlisted`);
     this.name = "EgressDeniedError";
+  }
+}
+
+/** Safe diagnostics for callers; underlying errors can contain credentials or URLs. */
+export class EgressUpstreamError extends Error {
+  constructor(cause: unknown) {
+    const timedOut = cause instanceof Error && cause.name === "AbortError";
+    super(
+      timedOut
+        ? "Tangle API request timed out. Check upstream availability; a write may still have persisted."
+        : "Could not reach the Tangle API. Check TANGLE_API_URL, the trusted server authentication/proxy configuration, and upstream availability.",
+      { cause },
+    );
+    this.name = "EgressUpstreamError";
   }
 }
 
@@ -191,15 +219,18 @@ function isBodyRequest(
   return method !== "GET" && init.body !== undefined;
 }
 
-/** Merges the default, caller, and server-injected headers. */
+/** Merges safe caller headers with authoritative server credentials. */
 function buildHeaders(
   init: EgressRequestInit,
   rule: EgressRule,
   hasBody: boolean,
 ): Record<string, string> {
+  const callerHeaders = Object.entries(init.headers ?? {})
+    .map(([name, value]) => [name.toLowerCase(), value])
+    .filter(([name]) => ALLOWED_REQUEST_HEADERS.has(name));
   const headers: Record<string, string> = {
     accept: "application/json",
-    ...(init.headers ?? {}),
+    ...Object.fromEntries(callerHeaders),
     ...(rule.headers?.() ?? {}),
   };
   if (hasBody) headers["content-type"] = "application/json";
@@ -222,20 +253,21 @@ function buildRequestInit(
   };
 }
 
-/** Performs the proxied request under a timeout, returning the live response. */
+/** Fetches and consumes the response under one timeout, including a stalled body. */
 async function performFetch(
   url: URL,
   method: NonNullable<EgressRequestInit["method"]>,
   init: EgressRequestInit,
   rule: EgressRule,
-): Promise<Response> {
+): Promise<EgressResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EGRESS_TIMEOUT_MS);
   try {
-    return await fetch(
+    const response = await fetch(
       url,
       buildRequestInit(method, init, rule, controller.signal),
     );
+    return await toEgressResponse(response);
   } finally {
     clearTimeout(timer);
   }
@@ -266,20 +298,42 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
 /**
  * Resolves an allowlisted egress request by performing the real network call
  * server-side. Throws {@link EgressDeniedError} when `input` cannot resolve to a
- * registered destination. Network/transport failures propagate as generic
- * errors (the route maps them to a 502).
+ * registered destination for this host-selected caller. UI callers cannot opt
+ * into agent-only rules through the request body. Upstream failures map to a 502
+ * with safe diagnostics; backend status codes and bodies are preserved.
  */
 export async function resolveEgress(
   input: EgressInput,
   init: EgressRequestInit = {},
+  caller: "ui" | "agent" = "ui",
 ): Promise<EgressResponse> {
   const method = init.method ?? "GET";
   const url = resolveUrl(input, init.query);
   const rule = EGRESS_RULES.find(
-    (entry) => entry.method === method && entry.matches(url),
+    (entry) =>
+      (!entry.agentOnly || caller === "agent") &&
+      entry.method === method &&
+      entry.matches(url),
   );
   if (!rule) throw new EgressDeniedError(formatDeniedInput(input));
 
-  const response = await performFetch(url, method, init, rule);
-  return toEgressResponse(response);
+  try {
+    return await performFetch(url, method, init, rule);
+  } catch (error) {
+    console.warn(
+      `[egress] ${method} ${url.origin}${url.pathname} failed: ${describeFailure(error)}`,
+    );
+    throw new EgressUpstreamError(error);
+  }
+}
+
+/** Name and code only: transport error messages can carry credentials. */
+function describeFailure(error: unknown): string {
+  if (!(error instanceof Error)) return typeof error;
+  const { cause } = error;
+  const code =
+    typeof cause === "object" && cause !== null && "code" in cause
+      ? String(cause.code)
+      : undefined;
+  return code ? `${error.name} (${code})` : error.name;
 }

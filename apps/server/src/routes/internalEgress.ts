@@ -5,6 +5,7 @@ import {
   EgressDeniedError,
   type EgressInput,
   type EgressRequestInit,
+  EgressUpstreamError,
   resolveEgress,
 } from "../bundleUi/egressAllowlist.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
@@ -41,14 +42,19 @@ async function handleEgress(
   res: Response,
 ): Promise<void> {
   try {
-    const result = await resolveEgress(input, init);
+    const result = await resolveEgress(input, init, "agent");
     res.json(result);
   } catch (err) {
     if (err instanceof EgressDeniedError) {
       res.status(403).json({ error: err.message });
       return;
     }
-    res.status(502).json({ error: "egress request failed" });
+    res.status(502).json({
+      error:
+        err instanceof EgressUpstreamError
+          ? err.message
+          : "egress request failed",
+    });
   }
 }
 
