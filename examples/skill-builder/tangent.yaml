@@ -44,5 +44,3 @@ software:
     - "zip"
   apk:
     - "zip"
-  npm:
-    - "fflate"

@@ -102,6 +102,12 @@ export const SESSION_MEMORY_FILENAME = "MEMORY.md";
 export const PI_BIN = process.env.PI_BIN ?? "pi";
 
 /**
+ * npm-compatible executable that installs a bundle's `software.npm` packages
+ * into the session. Native addons must be built by the same Node that runs Pi.
+ */
+export const NPM_BIN = process.env.NPM_BIN ?? "npm";
+
+/**
  * Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
  * Override in deployments to target the proxy available in that environment.
  * Mirrored here for logging; the extension reads it directly.

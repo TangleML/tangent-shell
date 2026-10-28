@@ -58,8 +58,12 @@ skills:
   ordering. Omit them to rely on directory auto-discovery.
 - Every listed path must be bundle-relative and safe: no `..`, no absolute
   paths.
-- `software` (optional) is declarative metadata only, keyed by package manager
-  (`npm`, `pip`, `brew`, `apk`, ...); it is not installed automatically.
+- `software` (optional) is keyed by package manager (`npm`, `pip`, `brew`,
+  `apk`, ...). `npm` entries (`"<package>"` or `"<package>:<version>"`,
+  registry packages only) are installed into the session's `.tangent/` when it
+  is created, so `tools/*.ts` can import them and their binaries are on `PATH`.
+  Each one slows session creation, so list only what the tools need. Other
+  managers are declarative metadata only.
 
 ## 3. Validate before packaging
 

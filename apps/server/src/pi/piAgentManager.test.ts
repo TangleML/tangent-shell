@@ -21,6 +21,7 @@ import {
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import type { ResolvedSessionConfig } from "./agentConfig.ts";
 import type { MemoryManager } from "./memory.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
@@ -604,6 +605,33 @@ test("session env cannot clobber reserved TANGENT_* keys", () => {
     "the reserved agent id wins over a host-supplied one",
   );
   assert.equal(spawns[0].env?.SAFE_VAR, "ok", "non-reserved vars pass through");
+});
+
+test("a bundle's npm bin dir leads PATH for Prime and sub-agents", () => {
+  const { pi, spawns } = makeManager();
+  const binDir = "/tmp/s1/.tangent/node_modules/.bin";
+  const config: ResolvedSessionConfig = {
+    prime: { tools: [], appendSystemPrompt: "" },
+    subagentDefaults: {},
+    templates: new Map(),
+    skillPaths: [],
+    workflowPaths: [],
+    extensionPaths: [],
+    binPaths: [binDir],
+  };
+  pi.ensure("s1", "/tmp/s1", config, undefined, undefined, undefined, {
+    PATH: "/evil/bin",
+  });
+  pi.spawnSubagent("s1", { name: "Worker" });
+
+  assert.equal(spawns.length, 2);
+  for (const { env } of spawns) {
+    assert.equal(
+      env?.PATH,
+      [binDir, process.env.PATH].join(path.delimiter),
+      "the bin dir is prepended to the host PATH, and session env can't set it",
+    );
+  }
 });
 
 test("session env cannot inject process-sensitive keys", () => {

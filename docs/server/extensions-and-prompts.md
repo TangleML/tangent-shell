@@ -145,6 +145,9 @@ drives every spawn:
   against the installed tree, passed as repeated `--skill` (dir containing
   `SKILL.md`), `--prompt-template`, and extra `--extension` flags to **every**
   agent in the session.
+- **binPaths** = `.tangent/node_modules/.bin` when the bundle installs
+  `software.npm` packages. It is prepended to every agent's `PATH` (a session's
+  own `env` still can't set `PATH`).
 - **welcomeMessage** (optional) = pre-seeded as Prime's first message so the
   agent "speaks first" (no LLM call) on join.
 

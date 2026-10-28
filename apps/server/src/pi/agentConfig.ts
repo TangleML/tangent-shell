@@ -153,6 +153,8 @@ export interface ResolvedSessionConfig {
   workflowPaths: string[];
   /** Absolute paths passed via extra `--extension` flags (custom tools). */
   extensionPaths: string[];
+  /** Absolute dirs prepended to every agent's `PATH` (installed npm binaries). */
+  binPaths: string[];
   /** Pre-seeded Prime first-message content, if the bundle declares one. */
   welcomeMessage?: string;
 }

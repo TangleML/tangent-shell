@@ -103,12 +103,13 @@ interface EventContext {
 
 /**
  * Bundle-supplied capabilities applied to every agent in a session via repeated
- * Pi flags: `--skill`, `--prompt-template`, and extra `--extension`.
+ * Pi flags (`--skill`, `--prompt-template`, extra `--extension`) and `PATH`.
  */
 interface SpawnExtras {
   skillPaths: string[];
   workflowPaths: string[];
   extensionPaths: string[];
+  binPaths: string[];
 }
 
 /**
@@ -469,17 +470,20 @@ function expandEnvPlaceholders(
  * namespace), has its `{{...}}` placeholders expanded ({@link
  * expandEnvPlaceholders}), and is spread first, so the reserved identity and
  * credential keys that follow always win. A host can add safe vars but never
- * clobber the internal ones or hijack process loading.
+ * clobber the internal ones or hijack process loading. The bundle's installed
+ * `binPaths` are prepended to the host `PATH`.
  */
 function spawnEnv(
   sessionId: string,
   descriptor: AgentDescriptor,
   ctx: PlaceholderContext,
+  binPaths: string[],
   sessionEnv?: Record<string, string>,
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
     ...expandEnvPlaceholders(sanitizeSessionEnv(sessionEnv), ctx),
+    ...prependedPath(binPaths),
     TANGENT_SESSION_ID: sessionId,
     TANGENT_AGENT_ID: descriptor.agentId,
     TANGENT_AGENT_ROLE: descriptor.role,
@@ -488,6 +492,13 @@ function spawnEnv(
     TANGENT_INTERNAL_URL: INTERNAL_URL,
     ...piCredential.spawnEnv(),
   };
+}
+
+/** `PATH` with `binPaths` first, or nothing so the host `PATH` is inherited. */
+function prependedPath(binPaths: string[]): { PATH?: string } {
+  if (binPaths.length === 0) return {};
+  const hostPath = process.env.PATH ? [process.env.PATH] : [];
+  return { PATH: [...binPaths, ...hostPath].join(path.delimiter) };
 }
 
 /**
@@ -511,12 +522,18 @@ function resolveSpawnConfig(
 /** Extracts the per-agent {@link SpawnExtras} from a session's bundle config. */
 function spawnExtras(config: ResolvedSessionConfig | undefined): SpawnExtras {
   if (!config) {
-    return { skillPaths: [], workflowPaths: [], extensionPaths: [] };
+    return {
+      skillPaths: [],
+      workflowPaths: [],
+      extensionPaths: [],
+      binPaths: [],
+    };
   }
   return {
     skillPaths: config.skillPaths,
     workflowPaths: config.workflowPaths,
     extensionPaths: config.extensionPaths,
+    binPaths: config.binPaths,
   };
 }
 
@@ -587,6 +604,7 @@ function logSpawn(
       extensions: extras.extensionPaths,
       appendPromptFile,
       appendPromptBytes,
+      binPaths: extras.binPaths,
     }),
   );
 }
@@ -1243,6 +1261,7 @@ export class PiAgentManager {
             sessionId,
             descriptor,
             { rootPath: session.rootPath },
+            extras.binPaths,
             session.env,
           ),
           stdio: ["pipe", "pipe", "pipe"],

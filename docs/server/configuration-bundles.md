@@ -55,6 +55,10 @@ malformed `tangent.yaml` in one pass. Errors are returned as a flat list of
 - A trigger must define `prompt` or `handler`; a `schedule` trigger needs
   `schedule.every` or `schedule.cron`. Duplicate trigger/component names are
   rejected.
+- Each `software.npm` entry must map to a plain registry spec (`toNpmSpec` in
+  [config/npmPackages.ts](../../server/src/pi/config/npmPackages.ts)). This
+  rejects `file:`, git, URL, and alias specs, and anything shaped like an npm
+  flag.
 
 A compile-time guard (`_schemaMatchesContract`) keeps the schema output
 assignable to the shared `BundleManifest` type.
@@ -85,6 +89,7 @@ sequenceDiagram
   else valid
     Install->>FS: writeBundleTree -> root/.tangent/*
     Install->>FS: copyRootFiles -> AGENTS.md + memory/context to root
+    Install->>FS: installNpmPackages (software.npm) -> root/.tangent/node_modules
     Install->>ESBuild: compileTriggerHandlers (IIFE __tgHandler per handler)
     activate ESBuild
     ESBuild-->>Install: compiled .tangent/triggers/<name>.js
@@ -110,17 +115,28 @@ Steps in detail:
 3. **`copyRootFiles`** copies `rules/AGENTS.md` to the root as `AGENTS.md`, and
    flattens `memory/*.md` + declared `contextFiles` to their basenames at the
    root, where Pi auto-discovers them from `cwd`.
-4. **`compileTriggerHandlers`** transpiles each declared trigger handler to a
+4. **`installNpmPackages`** runs
+   `$NPM_BIN install --prefix <stage> --no-audit --no-fund <specs...>` for the
+   manifest's `software.npm` entries, if there are any. `<stage>` is a fresh
+   `.tangent/.npm-*` dir, so a bundle-shipped `package.json`, lockfile, or
+   `.npmrc` can't add packages or change the registry. Its `node_modules` is
+   then moved to `.tangent/node_modules`. This runs before handlers compile so
+   that handlers and `tools/*.ts` extensions can import the packages. A failed
+   install, or one that takes more than 10 minutes, fails the install with npm's
+   output tail. `NPM_BIN` defaults to `npm`. Native addons are built for the
+   Node that runs npm, which must be the Node that runs Pi.
+5. **`compileTriggerHandlers`** transpiles each declared trigger handler to a
    self-contained IIFE (`globalName: "__tgHandler"`) under
    `.tangent/triggers/<name>.js`. A missing/uncompilable handler fails the
    install rather than failing at fire time.
-5. **`ResolvedSessionConfig`** is assembled: `prime` (tools via
+6. **`ResolvedSessionConfig`** is assembled: `prime` (tools via
    `resolvePrimeTools` — the manifest tools unioned with the shared and Prime-only
    groups, including the trigger tools, so a bundle never re-declares them; prompt
    via `composePrimePrompt`, which prepends the always-on `primeSystemPrompt.md` manual
    to the manifest's prompt), `subagentDefaults`, `templates` (parsed from
    `.tangent/agents`), the absolute skill/workflow/extension paths
-   (`resolveSectionPaths`), and the optional `welcomeMessage`.
+   (`resolveSectionPaths`), `binPaths` (`.tangent/node_modules/.bin` when
+   `software.npm` is non-empty), and the optional `welcomeMessage`.
 
 `listOrDiscover` means an omitted manifest list (e.g. no `skills:`) triggers
 auto-discovery of the conventional directory; when present, the manifest list is
