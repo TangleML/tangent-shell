@@ -1512,6 +1512,11 @@ export interface ChatMessagePayload {
   delivery?: MessageDelivery;
   /** Files the human attached, already uploaded into the session workspace. */
   attachments?: Attachment[];
+  /**
+   * The Tangle team (its id) the sender lets the turns this message wakes act
+   * as. Applies to this message only; omit it to grant none.
+   */
+  actingTeamId?: string;
 }
 
 /** Streamed terminal output from a Pi worker. Reserved/stub for Phase 2. */

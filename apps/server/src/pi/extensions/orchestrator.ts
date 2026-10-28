@@ -31,6 +31,7 @@ const CAPABILITIES = (process.env.TANGENT_AGENT_CAPABILITIES ?? "")
 const IS_ORCHESTRATOR = CAPABILITIES.includes("orchestrator");
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
+const AGENT_TOKEN = process.env.TANGENT_AGENT_TOKEN ?? "";
 
 async function callApi(
   method: "GET" | "POST",
@@ -48,6 +49,7 @@ async function callApi(
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${INTERNAL_TOKEN}`,
+      "x-tangent-agent-token": AGENT_TOKEN,
     },
     body: body ? JSON.stringify(body) : undefined,
   });

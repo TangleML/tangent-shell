@@ -2,14 +2,20 @@ import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import {
+  type AgentTokenResolver,
+  callerActingTeam,
+} from "../auth/agentCaller.ts";
+import {
   EgressDeniedError,
   type EgressInput,
+  type EgressOptions,
   type EgressRequestInit,
   EgressUpstreamError,
   resolveEgress,
 } from "../bundleUi/egressAllowlist.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
+import type { RunRegistry } from "../runs/runRegistry.ts";
 
 /**
  * Egress request body. `input` must be a non-empty string (replacing the old
@@ -39,10 +45,11 @@ type EgressBody = z.infer<typeof egressBodySchema>;
 async function handleEgress(
   input: EgressInput,
   init: EgressRequestInit | undefined,
+  options: EgressOptions,
   res: Response,
 ): Promise<void> {
   try {
-    const result = await resolveEgress(input, init, "agent");
+    const result = await resolveEgress(input, init, "agent", options);
     res.json(result);
   } catch (err) {
     if (err instanceof EgressDeniedError) {
@@ -67,9 +74,13 @@ async function handleEgress(
  *
  * Guarded by the bearer token shared with the spawned processes via env (the
  * same `INTERNAL_TOKEN` the orchestrator/memory extensions present), so
- * arbitrary local callers can't drive egress.
+ * arbitrary local callers can't drive egress. A team-scoped request acts as the
+ * team of the Run its agent token names; without the token it acts as none.
  */
-export function createInternalEgressRouter(): Router {
+export function createInternalEgressRouter(
+  agents: AgentTokenResolver,
+  runs: RunRegistry,
+): Router {
   const router = Router();
 
   router.use(requireInternalToken);
@@ -79,9 +90,15 @@ export function createInternalEgressRouter(): Router {
     validate({ body: egressBodySchema }),
     (req: Request, res: Response) => {
       const { input, init } = getValidated<EgressBody>(req).body;
-      return handleEgress(input, init, res);
+      const actingTeam = callerActingTeam(req, agents, runs);
+      return handleEgress(input, init, { actingTeam }, res);
     },
   );
+
+  // Lets a tool tell the agent which team its current turn acts as.
+  router.get("/acting-team", (req: Request, res: Response) => {
+    res.json({ actingTeam: callerActingTeam(req, agents, runs) ?? null });
+  });
 
   return router;
 }

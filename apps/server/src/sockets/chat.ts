@@ -447,6 +447,12 @@ function markAbsent(deps: ChatHandlerDeps, tracked: Set<string>): void {
   }
 }
 
+/** The team a message grants, read defensively: the payload is unvalidated. */
+function actingTeamOf(payload: ChatMessagePayload): string | undefined {
+  const team = payload.actingTeamId;
+  return typeof team === "string" && team.trim() ? team.trim() : undefined;
+}
+
 /**
  * Posts a human message into the conversation it was typed in. Whoever reacts to
  * it runs: Prime because a human talking in its thread is what it reacts to, a
@@ -504,5 +510,6 @@ export async function handleChatMessage(
     ),
     attachments: payload.attachments,
     delivery: payload.delivery ?? "auto",
+    actingTeam: actingTeamOf(payload),
   });
 }

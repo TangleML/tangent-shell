@@ -38,6 +38,7 @@ import {
 } from "@/features/chat/model/agentStatusQueryKeys";
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
 import { queryClient } from "@/shared/api/queryClient";
+import { getActingTeam } from "@/shared/lib/basePath";
 import { createSocket } from "@/shared/lib/socket";
 
 import {
@@ -120,6 +121,7 @@ class SessionChatRoom {
     const hasAttachments = Boolean(attachments && attachments.length);
     if ((!trimmed && !hasAttachments) || !socket) return;
 
+    const actingTeamId = getActingTeam(this.sessionId);
     const payload: ChatMessagePayload = {
       sessionId: this.sessionId,
       content: trimmed,
@@ -127,6 +129,7 @@ class SessionChatRoom {
         options?.conversationId ?? this.snapshot.primaryConversationId,
       delivery: options?.delivery ?? "auto",
       ...(hasAttachments ? { attachments } : {}),
+      ...(actingTeamId ? { actingTeamId } : {}),
     };
     socket.emit(SocketEvents.ChatMessage, payload);
   }

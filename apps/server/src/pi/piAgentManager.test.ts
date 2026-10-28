@@ -84,6 +84,7 @@ interface RelayedEvent {
   agentId: string;
   type: string;
   runId?: string;
+  actingTeam?: string;
 }
 
 /** Builds a manager wired to a fake launcher; returns it plus the spawn log. */
@@ -114,6 +115,7 @@ function makeManager(options?: { shouldFailSpawn?: () => boolean }): {
         agentId: agent.agentId,
         type: event.type,
         runId: event.runId,
+        actingTeam: event.actingTeam,
       }),
     onSubagentUpdate: (_sessionId, subagent) =>
       rosterUpdates.push({ id: subagent.id, status: subagent.status }),
@@ -390,6 +392,262 @@ test("a message delivered mid-run joins the run in flight", () => {
     runId,
     "a steer/follow-up is part of the turn Pi is already taking",
   );
+});
+
+/** Reports Pi's pending queues, as Pi does whenever one changes. */
+function queueUpdate(
+  child: FakeChild,
+  queues: { steering?: string[]; followUp?: string[] },
+): void {
+  emitPi(child, {
+    type: "queue_update",
+    steering: queues.steering ?? [],
+    followUp: queues.followUp ?? [],
+  });
+}
+
+/** The team Prime's open Run acts as. */
+function primeTeam(h: ReturnType<typeof makeManager>): string | undefined {
+  return h.runs.actingTeamFor("s1", PRIME_AGENT_ID);
+}
+
+test("a prompt's team rides on the run it opens and on that run's events", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "submit it",
+    actingTeam: "team-a",
+  });
+  assert.equal(primeTeam(h), "team-a");
+
+  runTurn(h.spawns[0].child, "done");
+  const end = h.events.find((e) => e.type === "end");
+  assert.equal(end?.actingTeam, "team-a");
+  assert.equal(primeTeam(h), undefined, "the team ends with its run");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+  assert.equal(primeTeam(h), undefined, "a later prompt inherits nothing");
+});
+
+test("a steer from another team narrows the run in flight to no team", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "work",
+    actingTeam: "team-a",
+  });
+  emitPi(child, { type: "agent_start" });
+
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "also",
+    delivery: "steer",
+    actingTeam: "team-b",
+  });
+  queueUpdate(child, { steering: ["also"] });
+  assert.equal(primeTeam(h), "team-a", "a queued steer changes nothing yet");
+
+  queueUpdate(child, {});
+  assert.equal(primeTeam(h), undefined);
+});
+
+test("a steer under the same team keeps it", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "work",
+    actingTeam: "team-a",
+  });
+  emitPi(child, { type: "agent_start" });
+
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "also",
+    delivery: "steer",
+    actingTeam: "team-a",
+  });
+  queueUpdate(child, { steering: ["also"] });
+  queueUpdate(child, {});
+
+  assert.equal(primeTeam(h), "team-a");
+});
+
+test("a follow-up takes over the run as its own team", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "work",
+  });
+  emitPi(child, { type: "agent_start" });
+
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "next",
+    actingTeam: "team-b",
+  });
+  queueUpdate(child, { followUp: ["next"] });
+  assert.equal(primeTeam(h), undefined, "the first scope runs as its own");
+
+  queueUpdate(child, {});
+  assert.equal(primeTeam(h), "team-b");
+});
+
+test("follow-ups drained together keep a team only if they all share it", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "work",
+    actingTeam: "team-a",
+  });
+  emitPi(child, { type: "agent_start" });
+
+  for (const [text, actingTeam] of [
+    ["one", "team-b"],
+    ["two", "team-c"],
+  ]) {
+    h.pi.sendToAgent({
+      sessionId: "s1",
+      agentId: PRIME_AGENT_ID,
+      text,
+      actingTeam,
+    });
+  }
+  queueUpdate(child, { followUp: ["one", "two"] });
+  queueUpdate(child, {});
+
+  assert.equal(primeTeam(h), undefined);
+});
+
+test("follow-ups drained one at a time each take over in turn", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "work" });
+  emitPi(child, { type: "agent_start" });
+
+  for (const [text, actingTeam] of [
+    ["one", "team-b"],
+    ["two", "team-c"],
+  ]) {
+    h.pi.sendToAgent({
+      sessionId: "s1",
+      agentId: PRIME_AGENT_ID,
+      text,
+      actingTeam,
+    });
+  }
+  queueUpdate(child, { followUp: ["one", "two"] });
+  queueUpdate(child, { followUp: ["two"] });
+  assert.equal(primeTeam(h), "team-b");
+
+  emitPi(child, { type: "message_start", message: { role: "assistant" } });
+  queueUpdate(child, {});
+  assert.equal(primeTeam(h), "team-c");
+});
+
+test("a prompt Pi ran directly after its turn ended starts the next run's team", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "work",
+    actingTeam: "team-a",
+  });
+  emitPi(child, { type: "agent_start" });
+
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "next",
+    actingTeam: "team-b",
+  });
+  emitPi(child, { type: "agent_end" });
+  emitPi(child, { type: "agent_start" });
+
+  assert.equal(primeTeam(h), "team-b");
+});
+
+test("aborting drops queued prompts so none is read as consumed", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "work" });
+  emitPi(child, { type: "agent_start" });
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "next",
+    actingTeam: "team-b",
+  });
+  queueUpdate(child, { followUp: ["next"] });
+
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  queueUpdate(child, {});
+  emitPi(child, { type: "agent_end" });
+  emitPi(child, { type: "agent_start" });
+
+  assert.equal(primeTeam(h), undefined);
+});
+
+test("the server alone keeps TANGLE_TOKEN; each agent gets its own token", (t) => {
+  const previous = process.env.TANGLE_TOKEN;
+  process.env.TANGLE_TOKEN = "SESSION=secret";
+  t.after(() => {
+    if (previous === undefined) delete process.env.TANGLE_TOKEN;
+    else process.env.TANGLE_TOKEN = previous;
+  });
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  h.pi.spawnSubagent("s1", { name: "Worker" });
+
+  const [prime, sub] = h.spawns.map((s) => s.env ?? {});
+  assert.equal(prime.TANGLE_TOKEN, undefined);
+  assert.equal(sub.TANGLE_TOKEN, undefined);
+  assert.ok(prime.TANGENT_AGENT_TOKEN);
+  assert.notEqual(prime.TANGENT_AGENT_TOKEN, sub.TANGENT_AGENT_TOKEN);
+});
+
+test("an agent token resolves to its live agent and nothing else", () => {
+  const h = makeManager();
+  h.pi.ensure("s1", "/tmp/s1");
+  const { info } = h.pi.spawnSubagent("s1", { name: "Worker" });
+  const [primeToken, subToken] = h.spawns.map(
+    (s) => s.env?.TANGENT_AGENT_TOKEN,
+  );
+
+  assert.deepEqual(h.pi.agentForToken(primeToken), {
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+  });
+  assert.deepEqual(h.pi.agentForToken(subToken), {
+    sessionId: "s1",
+    agentId: info.id,
+  });
+  assert.equal(h.pi.agentForToken("forged"), undefined);
+  assert.equal(h.pi.agentForToken(undefined), undefined);
+
+  h.pi.killAgent("s1", info.id);
+  assert.equal(h.pi.agentForToken(subToken), undefined);
 });
 
 test("aborting a run settles it as cancelled, not completed", async () => {

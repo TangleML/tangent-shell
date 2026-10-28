@@ -29,6 +29,12 @@ export interface TangentProviderProps {
   channelUrl?: string;
   /** Returns a bearer token for API/socket auth. May be sync or async. */
   getToken?: () => string | undefined | Promise<string | undefined>;
+  /**
+   * Returns the Tangle team id the current user grants the message being sent
+   * in `sessionId`, or `undefined` to grant none. Read on every send; the agent
+   * turns that message starts act as that team.
+   */
+  getActingTeam?: (sessionId: string) => string | undefined;
   /** `light`, `dark`, or `system`. Defaults to `light`. */
   colorScheme?: ColorScheme;
   /** Unstable per-token overrides keyed by Tangent's internal names. */
@@ -64,6 +70,7 @@ export function TangentProvider({
   baseUrl,
   channelUrl,
   getToken,
+  getActingTeam,
   colorScheme,
   tokens,
   socketUrl,
@@ -88,7 +95,13 @@ export function TangentProvider({
     };
   }, [readyPromise]);
 
-  const config = { apiBase: baseUrl, socketUrl, socketPath, getToken };
+  const config = {
+    apiBase: baseUrl,
+    socketUrl,
+    socketPath,
+    getToken,
+    getActingTeam,
+  };
   const theme = { colorScheme, tokens };
   const hostExtensions = {
     uiNames: Object.keys(uiComponents ?? {}),
@@ -123,6 +136,7 @@ export function TangentProvider({
     socketUrl,
     socketPath,
     getToken,
+    getActingTeam,
     colorScheme,
     tokens,
     uiComponents,

@@ -155,6 +155,33 @@ restart.
 
 ---
 
+## Acting team
+
+Team-scoped Tangle calls (submitting or cancelling a run, editing run
+annotations, listing secrets) carry the team impersonation header
+(`TANGLE_TEAM_HEADER`, default `x-tangle-impersonate-team-id`). The server sets
+it from the **Run** the calling agent is in, never from the caller: any copy of
+the header a caller sends is stripped on every egress route.
+
+A Run gets a team only along the causal chain from a human message:
+
+- The host sends `actingTeamId` on a chat message (`getActingTeam` on
+  `TangentProvider`). It applies to that message only and is not persisted.
+- The Runs that message opens act as that team. A Prime directive or a
+  sub-agent report carries the authoring Run's team, and so does an agent's
+  finished turn when it is relayed to Prime.
+- Triggers, reactor wakes, system messages and remote or A2A agents carry none.
+  A Run never inherits a team from an earlier one.
+- A message queued onto a busy agent: a follow-up (a new turn) switches the Run
+  to its own team, and a steer (which changes the running turn) keeps the team
+  only if it matches, otherwise it drops it.
+
+The caller is identified by `TANGENT_AGENT_TOKEN`, a per-process secret minted at
+spawn and presented as `x-tangent-agent-token`. It is not the ids in the request
+body. `GET /internal/egress/acting-team` lets a tool report the team in effect.
+
+---
+
 ## Other guards
 
 - **ZIP path traversal** — both the bundle installer (`isSafeEntryPath` in
@@ -183,8 +210,16 @@ restart.
 ### Note 1: egress credentials are deployment secrets
 
 `TANGLE_TOKEN` is read from the process environment and injected as a cookie
-header only inside the server-side egress proxy. Do not commit this value, bake it
-into Docker images, or expose it to bundle UI workers.
+header only inside the server-side egress proxy. It is removed from the `pi`
+child environment, so agents are not handed a way around the proxy. Do not commit
+this value, bake it into Docker images, or expose it to bundle UI workers.
+
+Tangle authorizes against this token's identity, not the human's: the acting
+team narrows which team a call acts as, but cannot grant more than the token
+holds. The team is a claim from the host, trusted like the bearer token. Agent
+tokens stop one agent from posing as another through the API. Neither they nor
+removing `TANGLE_TOKEN` are a hard boundary while agents run as the same OS user
+as the server, since that user can read other processes' environments.
 
 ### Note 2: default-open internal token in misconfigured deploys
 

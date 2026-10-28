@@ -10,7 +10,7 @@
  * See `docs/bundle-ui/host-bridge.md` for the contract.
  */
 
-import { TANGLE_API_URL } from "../config.ts";
+import { TANGLE_API_URL, TANGLE_TEAM_HEADER } from "../config.ts";
 
 export interface EgressTargetRequest {
   target: "tangle";
@@ -36,6 +36,12 @@ export interface EgressResponse {
   text?: string;
 }
 
+/** Server-side context for one egress request, never taken from the caller. */
+export interface EgressOptions {
+  /** The Tangle team the caller's Run acts as. */
+  actingTeam?: string;
+}
+
 /**
  * One allowlisted destination. A request is permitted only when its method and
  * resolved URL match a rule. `headers()` lets the server inject credentials the
@@ -45,7 +51,7 @@ interface EgressRule {
   method: NonNullable<EgressRequestInit["method"]>;
   agentOnly?: boolean;
   matches(url: URL): boolean;
-  headers?(): Record<string, string>;
+  headers?(options: EgressOptions): Record<string, string>;
 }
 
 /**
@@ -66,15 +72,24 @@ const TANGLE_API_ORIGIN = new URL(TANGLE_API_URL).origin;
 const SAVED_PIPELINE_API_PATH =
   /^\/api\/pipelines\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 
+/** The team header for the caller's acting team, or none without one. */
+function tangleTeamHeaders({
+  actingTeam,
+}: EgressOptions): Record<string, string> {
+  return actingTeam ? { [TANGLE_TEAM_HEADER]: actingTeam } : {};
+}
+
 /**
  * Allowlisted Tangle API endpoints; everything else is denied. Saved-pipeline
  * creation targets the authenticated caller, and updates address a stable UUID
- * under the backend's resource permissions.
+ * under the backend's resource permissions. `actsAsTeam` rules carry the
+ * caller's acting team.
  */
 const TANGLE_PATH_RULES: ReadonlyArray<{
   method: NonNullable<EgressRequestInit["method"]>;
   test: RegExp;
   agentOnly?: boolean;
+  actsAsTeam?: boolean;
 }> = [
   // saved pipelines / authenticated backend identity
   { method: "GET", test: /^\/api\/users\/me$/, agentOnly: true },
@@ -84,14 +99,23 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   { method: "PUT", test: SAVED_PIPELINE_API_PATH, agentOnly: true },
   // pipelineRuns
   { method: "GET", test: /^\/api\/pipeline_runs\/$/ },
-  { method: "POST", test: /^\/api\/pipeline_runs\/$/ },
+  { method: "POST", test: /^\/api\/pipeline_runs\/$/, actsAsTeam: true },
   { method: "GET", test: /^\/api\/pipeline_runs\/[^/]+$/ },
-  { method: "POST", test: /^\/api\/pipeline_runs\/[^/]+\/cancel$/ },
+  {
+    method: "POST",
+    test: /^\/api\/pipeline_runs\/[^/]+\/cancel$/,
+    actsAsTeam: true,
+  },
   { method: "GET", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/$/ },
-  { method: "PUT", test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/ },
+  {
+    method: "PUT",
+    test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/,
+    actsAsTeam: true,
+  },
   {
     method: "DELETE",
     test: /^\/api\/pipeline_runs\/[^/]+\/annotations\/[^/]+$/,
+    actsAsTeam: true,
   },
   // executions
   {
@@ -107,7 +131,7 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   { method: "POST", test: /^\/api\/projects(?:\/.*)?$/ },
   { method: "PATCH", test: /^\/api\/projects(?:\/.*)?$/ },
   // secrets (list only: names and metadata, never values)
-  { method: "GET", test: /^\/api\/secrets\/$/ },
+  { method: "GET", test: /^\/api\/secrets\/$/, actsAsTeam: true },
 ];
 
 /** Expands the Tangle path rules into full {@link EgressRule}s. */
@@ -116,7 +140,10 @@ const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
   agentOnly: rule.agentOnly,
   matches: (url) =>
     url.origin === TANGLE_API_ORIGIN && rule.test.test(url.pathname),
-  headers: tangleAuthHeaders,
+  headers: (options) => ({
+    ...tangleAuthHeaders(),
+    ...(rule.actsAsTeam ? tangleTeamHeaders(options) : {}),
+  }),
 }));
 
 /** Registered destinations the bridge may reach. */
@@ -225,6 +252,7 @@ function isBodyRequest(
 function buildHeaders(
   init: EgressRequestInit,
   rule: EgressRule,
+  options: EgressOptions,
   hasBody: boolean,
 ): Record<string, string> {
   const callerHeaders = Object.entries(init.headers ?? {})
@@ -233,7 +261,7 @@ function buildHeaders(
   const headers: Record<string, string> = {
     accept: "application/json",
     ...Object.fromEntries(callerHeaders),
-    ...(rule.headers?.() ?? {}),
+    ...(rule.headers?.(options) ?? {}),
   };
   if (hasBody) headers["content-type"] = "application/json";
   return headers;
@@ -244,12 +272,13 @@ function buildRequestInit(
   method: NonNullable<EgressRequestInit["method"]>,
   init: EgressRequestInit,
   rule: EgressRule,
+  options: EgressOptions,
   signal: AbortSignal,
 ): RequestInit {
   const hasBody = isBodyRequest(method, init);
   return {
     method,
-    headers: buildHeaders(init, rule, hasBody),
+    headers: buildHeaders(init, rule, options, hasBody),
     body: hasBody ? JSON.stringify(init.body) : undefined,
     signal,
   };
@@ -261,13 +290,14 @@ async function performFetch(
   method: NonNullable<EgressRequestInit["method"]>,
   init: EgressRequestInit,
   rule: EgressRule,
+  options: EgressOptions,
 ): Promise<EgressResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EGRESS_TIMEOUT_MS);
   try {
     const response = await fetch(
       url,
-      buildRequestInit(method, init, rule, controller.signal),
+      buildRequestInit(method, init, rule, options, controller.signal),
     );
     return await toEgressResponse(response);
   } finally {
@@ -308,6 +338,7 @@ export async function resolveEgress(
   input: EgressInput,
   init: EgressRequestInit = {},
   caller: "ui" | "agent" = "ui",
+  options: EgressOptions = {},
 ): Promise<EgressResponse> {
   const method = init.method ?? "GET";
   const url = resolveUrl(input, init.query);
@@ -320,7 +351,7 @@ export async function resolveEgress(
   if (!rule) throw new EgressDeniedError(formatDeniedInput(input));
 
   try {
-    return await performFetch(url, method, init, rule);
+    return await performFetch(url, method, init, rule, options);
   } catch (error) {
     console.warn(
       `[egress] ${method} ${url.origin}${url.pathname} failed: ${describeFailure(error)}`,

@@ -3,10 +3,14 @@ import {
   PI_AGENT,
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
-import { type Response, Router } from "express";
+import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
+import {
+  type AgentTokenResolver,
+  callerActingTeam,
+} from "../auth/agentCaller.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
@@ -120,6 +124,7 @@ async function postInitialTask(
   router: ConversationRouter,
   body: SpawnInput,
   info: SubagentInfo,
+  actingTeam: string | undefined,
 ): Promise<void> {
   const fromConversation = await orchestratorConversationFor(
     store,
@@ -132,6 +137,7 @@ async function postInitialTask(
     info.conversationId,
     body.task,
     fromConversation,
+    actingTeam,
   ).catch((err: unknown) => {
     console.error(`[agents] initial task for ${info.id} failed:`, err);
   });
@@ -150,6 +156,7 @@ async function handleSpawn(
   router: ConversationRouter,
   runs: RunRegistry,
   body: SpawnInput,
+  actingTeam: string | undefined,
   res: Response,
 ): Promise<void> {
   const kind = spawnKind(body.environment);
@@ -197,7 +204,7 @@ async function handleSpawn(
     res.json({ subagent: info });
     // Answered first: the sub-agent exists either way, and a failure to post its
     // first task must not read as a failed spawn Prime might retry.
-    await postInitialTask(store, router, body, info);
+    await postInitialTask(store, router, body, info, actingTeam);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -246,6 +253,7 @@ async function handleAttach(
  * Prime writes this from its own Conversation, so it is a cross-Conversation
  * post: authorized by Prime's Membership in the sub-agent's thread, recorded as
  * having arrived from elsewhere, and kept inside the wave Prime is already in.
+ * It hands on whatever team Prime's own turn acts as.
  */
 async function postDirective(
   router: ConversationRouter,
@@ -254,6 +262,7 @@ async function postDirective(
   conversationId: string,
   text: string | undefined,
   fromConversation: string,
+  actingTeam: string | undefined,
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
   const { message, refused } = await router.postToConversation({
@@ -264,6 +273,7 @@ async function postDirective(
     content: text,
     mentions: [agentId],
     ingress: "tool",
+    actingTeam,
   });
   // Nothing was posted at all: the refusal is about Prime, not the recipient.
   if (!message) return refused[0]?.reason;
@@ -279,6 +289,7 @@ async function handleMessage(
   store: SessionStore,
   router: ConversationRouter,
   body: MessageInput,
+  actingTeam: string | undefined,
   res: Response,
 ): Promise<void> {
   const refused = await postDirective(
@@ -288,6 +299,7 @@ async function handleMessage(
     await homeConversationFor(store, body.sessionId, body.agentId),
     body.text,
     await orchestratorConversationFor(store, body.sessionId),
+    actingTeam,
   );
   res.json({ ok: !refused, ...(refused ? { error: refused } : {}) });
 }
@@ -295,13 +307,14 @@ async function handleMessage(
 /**
  * Posts a sub-agent's report into its own thread, addressed to Prime. A thin
  * alias over the same post `/message` makes: `message_prime` reaches Prime by
- * addressing it, not by a dedicated relay.
+ * addressing it, not by a dedicated relay. It hands on the sub-agent's team.
  */
 async function handleReport(
   store: SessionStore,
   connectors: ConnectorRegistry,
   router: ConversationRouter,
   body: ReportInput,
+  actingTeam: string | undefined,
   res: Response,
 ): Promise<void> {
   const { sessionId, agentId, text } = body;
@@ -318,6 +331,7 @@ async function handleReport(
     content: text,
     mentions: [(await orchestratorIdentity(store, sessionId)).orchestratorId],
     ingress: "tool",
+    actingTeam,
   });
   res.json({ ok: true });
 }
@@ -394,6 +408,7 @@ export function createInternalAgentsRouter(
   a2a: A2aPeerGateway,
   participants: ParticipantService,
   runs: RunRegistry,
+  agents: AgentTokenResolver,
   context?: ContextEngine,
   memberships?: MembershipRegistry,
 ): Router {
@@ -401,16 +416,23 @@ export function createInternalAgentsRouter(
 
   router.use(requireCredential(piCredential));
 
-  router.post("/spawn", validate({ body: spawnSchema }), (req, res) =>
-    handleSpawn(
+  /** The team a directive from Prime hands on: its own turn's, if the caller
+   * really is that session's Prime. */
+  const primeTeam = (req: Request, sessionId: string) =>
+    callerActingTeam(req, agents, runs, { sessionId, agentId: PI_AGENT.id });
+
+  router.post("/spawn", validate({ body: spawnSchema }), (req, res) => {
+    const body = getValidated<SpawnInput>(req).body;
+    return handleSpawn(
       store,
       connectors,
       conversations,
       runs,
-      getValidated<SpawnInput>(req).body,
+      body,
+      primeTeam(req, body.sessionId),
       res,
-    ),
-  );
+    );
+  });
 
   router.post("/attach", validate({ body: attachSchema }), (req, res) =>
     handleAttach(
@@ -422,24 +444,28 @@ export function createInternalAgentsRouter(
     ),
   );
 
-  router.post("/message", validate({ body: messageSchema }), (req, res) =>
-    handleMessage(
+  router.post("/message", validate({ body: messageSchema }), (req, res) => {
+    const body = getValidated<MessageInput>(req).body;
+    return handleMessage(
       store,
       conversations,
-      getValidated<MessageInput>(req).body,
+      body,
+      primeTeam(req, body.sessionId),
       res,
-    ),
-  );
+    );
+  });
 
-  router.post("/report", validate({ body: reportSchema }), (req, res) =>
-    handleReport(
+  router.post("/report", validate({ body: reportSchema }), (req, res) => {
+    const body = getValidated<ReportInput>(req).body;
+    return handleReport(
       store,
       connectors,
       conversations,
-      getValidated<ReportInput>(req).body,
+      body,
+      callerActingTeam(req, agents, runs, body),
       res,
-    ),
-  );
+    );
+  });
 
   router.post("/kill", validate({ body: killSchema }), (req, res) =>
     handleKill(connectors, getValidated<KillInput>(req).body, res),

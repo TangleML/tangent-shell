@@ -77,6 +77,7 @@ Loads the runtime once and owns the shared configuration.
 | ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `baseUrl`         | `string`                                              | Tangent origin. API + socket + channel URL derive from this.                               |
 | `getToken`        | `() => string \| undefined \| Promise<...>`           | Bearer token for API/socket auth. Held in memory, never in URLs.                           |
+| `getActingTeam`   | `(sessionId: string) => string \| undefined`          | Tangle team the current user grants each sent message. See [Acting team](#acting-team).    |
 | `colorScheme`     | `"light" \| "dark" \| "system"`                       | Defaults to `light`.                                                                       |
 | `tokens`          | `Record<string, string>`                              | Unstable escape hatch for one-off token overrides.                                         |
 | `socketUrl`       | `string`                                              | Override the Socket.IO origin (defaults to the API origin).                                |
@@ -451,6 +452,28 @@ slots, so they inherit the host page's CSS and any providers wrapping
 **Security.** Host-owned components run with full host-page privileges — they are
 _not_ sandboxed. Only register components you control; the worker sandbox and its
 egress allowlist do not apply to them.
+
+## Acting team
+
+`getActingTeam(sessionId)` is read each time a message is sent. Return the Tangle
+team id the signed-in user grants that message, or `undefined` to grant none. The
+agent turns the message starts (including sub-agent work Prime hands on from
+them) act as that team for team-scoped Tangle calls such as submitting a run or
+listing secrets. The grant never outlives those turns, so a later message from a
+user who grants nothing gets no team.
+
+```tsx
+<TangentProvider
+  baseUrl="https://tangent.example"
+  getToken={() => auth.getAccessToken()}
+  getActingTeam={() => (team.status === "active" ? team.id : undefined)}
+>
+  {/* ... */}
+</TangentProvider>
+```
+
+The server trusts this the same way it trusts the bearer token, so only return a
+team the user actually belongs to.
 
 ## Versioning
 

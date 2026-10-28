@@ -4,10 +4,12 @@ import { afterEach, mock, test } from "node:test";
 
 import express from "express";
 
-import { INTERNAL_TOKEN, TANGLE_API_URL } from "../config.ts";
+import { INTERNAL_TOKEN, TANGLE_API_URL, TANGLE_TEAM_HEADER } from "../config.ts";
 import { createAgentBundlesRouter } from "../routes/agentBundles.ts";
 import { createInternalEgressRouter } from "../routes/internalEgress.ts";
+import { RunRegistry } from "../runs/runRegistry.ts";
 import type { AgentBundleStore } from "../store/agentBundleStore.ts";
+import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import {
   EgressDeniedError,
   EgressUpstreamError,
@@ -453,7 +455,13 @@ test("saved-pipeline access is denied through public UI egress even with a forge
     "/api/agent-bundles",
     createAgentBundlesRouter({} as AgentBundleStore),
   );
-  app.use("/internal/egress", createInternalEgressRouter());
+  app.use(
+    "/internal/egress",
+    createInternalEgressRouter(
+      () => undefined,
+      new RunRegistry(new InMemoryRunStore()),
+    ),
+  );
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -555,4 +563,75 @@ test("the upstream timeout remains active while reading a stalled response body"
   await Promise.resolve();
   t.mock.timers.tick(10_000);
   await rejected;
+});
+
+/** Captures the headers of the one outbound fetch a call makes. */
+function captureHeaders(): () => Record<string, string> {
+  const fetchMock = mock.method(globalThis, "fetch", async () =>
+    Response.json({}),
+  );
+  return () => {
+    const init = fetchMock.mock.calls[0]?.arguments[1];
+    return (init?.headers ?? {}) as Record<string, string>;
+  };
+}
+
+test("a team-scoped rule acts as the caller's acting team", async () => {
+  const headers = captureHeaders();
+
+  await resolveEgress(
+    { target: "tangle", path: "/api/secrets/" },
+    {},
+    "agent",
+    { actingTeam: "team-a" },
+  );
+
+  assert.equal(headers()[TANGLE_TEAM_HEADER], "team-a");
+});
+
+test("a team-scoped rule without an acting team sends no team", async () => {
+  const headers = captureHeaders();
+
+  await resolveEgress({ target: "tangle", path: "/api/secrets/" });
+
+  assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
+});
+
+test("a rule that is not team-scoped never carries the team", async () => {
+  const headers = captureHeaders();
+
+  await resolveEgress(
+    { target: "tangle", path: "/api/executions/run-1/state" },
+    {},
+    "agent",
+    { actingTeam: "team-a" },
+  );
+
+  assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
+});
+
+test("a caller cannot supply its own team header", async () => {
+  const forged = { headers: { [TANGLE_TEAM_HEADER.toUpperCase()]: "team-x" } };
+
+  const ungranted = captureHeaders();
+  await resolveEgress({ target: "tangle", path: "/api/secrets/" }, forged);
+  assert.deepEqual(
+    Object.keys(ungranted()).filter(
+      (name) => name.toLowerCase() === TANGLE_TEAM_HEADER,
+    ),
+    [],
+  );
+  mock.reset();
+
+  const granted = captureHeaders();
+  await resolveEgress(
+    { target: "tangle", path: "/api/secrets/" },
+    forged,
+    "agent",
+    { actingTeam: "team-a" },
+  );
+  const sent = Object.entries(granted()).filter(
+    ([name]) => name.toLowerCase() === TANGLE_TEAM_HEADER,
+  );
+  assert.deepEqual(sent, [[TANGLE_TEAM_HEADER, "team-a"]]);
 });

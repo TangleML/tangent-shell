@@ -214,3 +214,11 @@ export const TANGLE_API_URL = readAbsoluteUrl(
   "TANGLE_API_URL",
   "https://api.example.com",
 );
+
+/**
+ * Header the Tangle API reads a team impersonation from. Egress injects it from
+ * the acting team of the caller's Run and strips any copy a caller sends.
+ */
+export const TANGLE_TEAM_HEADER = (
+  process.env.TANGLE_TEAM_HEADER?.trim() || "x-tangle-impersonate-team-id"
+).toLowerCase();
