@@ -120,9 +120,10 @@ Allowlist properties:
 - Caller headers are limited to `accept` and `content-type`. Credentials are
   injected by the rule's `headers()`, so a caller cannot replace the backend
   identity and bundle UI code never sees the credential. This is not a boundary
-  against agents: Pi children inherit the server environment (including
-  `TANGLE_TOKEN` when set) and `TANGENT_INTERNAL_TOKEN`, so an agent with `bash`
-  can call this route, or the backend, directly.
+  against agents: Pi children are not given `TANGLE_TOKEN`, but they do get
+  `TANGENT_INTERNAL_TOKEN` and run as the server's OS user, so an agent with
+  `bash` can call this route directly (see
+  [Note 1](#note-1-egress-credentials-are-deployment-secrets)).
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
   both fetching and consuming the response body. Transport failures map to a
   502 with safe configuration or timeout diagnostics. Raw transport errors can
@@ -141,10 +142,11 @@ pipeline in the UI is an optional step after confirmed persistence.
 Configure `TANGLE_API_URL` and the established trusted authentication in the
 deployment wrapper (`TANGLE_TOKEN` for cookie-based deployments, or the
 deployment's authenticated network path). `GET /api/users/me` identifies the
-backend caller. The proxy does not impersonate session participants, so every
-agent write runs as that one identity: anyone who can message an agent in a
-session can have it create or overwrite pipelines that identity may write,
-including pipelines other owners have shared with it for editing.
+backend caller. The proxy does not impersonate session participants, and the
+saved-pipeline rules never act as a team (see [Acting team](#acting-team)), so
+every saved-pipeline write runs as that one identity: anyone who can message an
+agent in a session can have it create or overwrite pipelines that identity may
+write, including pipelines other owners have shared with it for editing.
 
 A failed or timed-out response does not prove that a write was rolled back.
 Read the original `file_path` and compare the persisted definition before
@@ -166,10 +168,10 @@ whether it does is the caller's:
 - **Grant.** The team comes from the **Run** the calling agent is in, never from
   the caller. Any copy of the header a caller sends is stripped on every egress
   route.
-- **Opt in.** A call acts as the granted team only when its `POST
-/internal/egress` body sets `actAsTeam: true`. Without it the call goes as the
-  server's own Tangle identity, even on a granted turn. Opting in without a
-  grant is a 403 (`no Tangle team is granted for this turn`), not a silent
+- **Opt in.** A call acts as the granted team only when its
+  `POST /internal/egress` body sets `actAsTeam: true`. Without it the call goes
+  as the server's own Tangle identity, even on a granted turn. Opting in without
+  a grant is a 403 (`no Tangle team is granted for this turn`), not a silent
   fallback. The flag has no effect on rules that are not team-scoped.
 
 Tangle resolves a run's secrets against the run's creator. A run submitted as

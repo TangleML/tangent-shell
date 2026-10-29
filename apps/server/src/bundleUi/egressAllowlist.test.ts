@@ -441,6 +441,12 @@ async function postEgress(url: string, body: unknown, token?: string) {
   });
 }
 
+const egressRouterWithoutAgents = () =>
+  createInternalEgressRouter(
+    () => undefined,
+    new RunRegistry(new InMemoryRunStore()),
+  );
+
 test("saved-pipeline access is denied through public UI egress even with a forged caller", async () => {
   process.env.TANGLE_TOKEN = "SESSION=trusted";
   const originalFetch = globalThis.fetch;
@@ -461,13 +467,7 @@ test("saved-pipeline access is denied through public UI egress even with a forge
     "/api/agent-bundles",
     createAgentBundlesRouter({} as AgentBundleStore),
   );
-  app.use(
-    "/internal/egress",
-    createInternalEgressRouter(
-      () => undefined,
-      new RunRegistry(new InMemoryRunStore()),
-    ),
-  );
+  app.use("/internal/egress", egressRouterWithoutAgents());
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

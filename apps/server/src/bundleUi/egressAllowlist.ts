@@ -347,6 +347,19 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
   };
 }
 
+function findRule(
+  url: URL,
+  method: NonNullable<EgressRequestInit["method"]>,
+  caller: "ui" | "agent",
+): EgressRule | undefined {
+  return EGRESS_RULES.find(
+    (entry) =>
+      (!entry.agentOnly || caller === "agent") &&
+      entry.method === method &&
+      entry.matches(url),
+  );
+}
+
 /**
  * Resolves an allowlisted egress request by performing the real network call
  * server-side, acting as the granted team on a team-scoped rule only when the
@@ -360,17 +373,12 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
 export async function resolveEgressWithTeam(
   input: EgressInput,
   init: EgressRequestInit = {},
-  caller: "ui" | "agent" = "ui",
+  caller: "ui" | "agent",
   options: EgressOptions = {},
 ): Promise<TeamEgressResult> {
   const method = init.method ?? "GET";
   const url = resolveUrl(input, init.query);
-  const rule = EGRESS_RULES.find(
-    (entry) =>
-      (!entry.agentOnly || caller === "agent") &&
-      entry.method === method &&
-      entry.matches(url),
-  );
+  const rule = findRule(url, method, caller);
   if (!rule) throw new EgressDeniedError(formatDeniedInput(input));
 
   const appliedTeam = teamFor(rule, options);
