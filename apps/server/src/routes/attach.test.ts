@@ -24,6 +24,8 @@ const { InMemoryParticipantStore } =
   await import("../store/inMemoryParticipantStore.ts");
 const { InMemoryResourceStore } =
   await import("../store/inMemoryResourceStore.ts");
+const { InMemorySharedFolderStore } =
+  await import("../store/inMemorySharedFolderStore.ts");
 const { ResourceCatalog } = await import("../conversation/resourceCatalog.ts");
 const { HostResourcePreamble } = await import("../pi/hostResourcePreamble.ts");
 const { MemoryManager } = await import("../pi/memory.ts");
@@ -36,6 +38,23 @@ import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import type { ConversationEventSink } from "../pi/types.ts";
 
 const SECRET = "attach-test-secret";
+
+/** The resource-route deps an attach server runs with, over in-memory stores. */
+function attachResources(store: InstanceType<typeof InMemorySessionStore>) {
+  const catalog = new ResourceCatalog(new InMemoryResourceStore());
+  const resources = {
+    seed: {
+      store,
+      memory: new MemoryManager(),
+      catalog,
+      sharedFolders: new InMemorySharedFolderStore(),
+    },
+    catalog,
+    hostPreamble: new HostResourcePreamble(catalog),
+    emitResourcesUpdated: () => {},
+  };
+  return { catalog, resources };
+}
 
 const cleanups: (() => void)[] = [];
 after(() => {
@@ -68,13 +87,7 @@ async function serve() {
     post: async () => {},
   } as unknown as ConversationRouter;
 
-  const catalog = new ResourceCatalog(new InMemoryResourceStore());
-  const resources = {
-    seed: { store, memory: new MemoryManager(), catalog },
-    catalog,
-    hostPreamble: new HostResourcePreamble(catalog),
-    emitResourcesUpdated: () => {},
-  };
+  const { catalog, resources } = attachResources(store);
 
   const app = express();
   app.use(express.json());

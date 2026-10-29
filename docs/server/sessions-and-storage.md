@@ -5,8 +5,8 @@
 A **session** is the unit of work: its Conversations, a scoped workspace folder
 on disk, its Participants and connectors, plus its triggers, memory, and
 Resources. This doc covers the session model, the `SessionStore` abstraction, the
-SQLite schema, the per-session root folder layout, and the path-traversal-guarded
-file server for artifacts and uploads.
+SQLite schema, the per-session root folder layout, cross-session shared folders
+(mounts), and the path-traversal-guarded file server for artifacts and uploads.
 
 ---
 
@@ -64,9 +64,10 @@ changes go exclusively through drizzle migrations; never alter tables ad-hoc.
 | `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript.                                                               |
 | `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.                                                                   |
 | `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.                                                                |
-| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact`, pointing at bytes by `uri`.                                                                      |
+| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact` / `host` / `mount`, pointing at bytes by `uri`.                                                   |
 | `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).                                                                       |
 | `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing).                                                               |
+| `shared_folders`      | cross-session "project" folders a session mounts (by symlink) into its root. Not session-scoped — no FK to `sessions`; bytes live under `SHARED_ROOT/<id>`.  |
 | `session_views`       | when each user last opened a session.                                                                                                                        |
 
 `participants` is the roster's only store. The old `session_agents` table (and
@@ -86,6 +87,7 @@ activity it looks like:
 .sessions/<id>/
   artifacts/            # user-facing files agents write (served over HTTP)
   uploads/              # human chat attachments (served over HTTP)
+  <mountName>/          # symlink -> SHARED_ROOT/<folderId> (mounted shared folder)
   MEMORY.md             # session memory (created on Prime's first remember)
   GLOBAL_MEMORY.md      # read-only snapshot of global memory
   AGENTS.md             # bundle rules file (Pi auto-discovers from cwd)
@@ -104,6 +106,71 @@ directory as the entire world). The `.tangent/` subtree keeps bundle internals
 beside the session but out of the agent's primary view, while rules + seed memory
 are copied to the root precisely because Pi auto-discovers `AGENTS.md` and memory
 from `cwd`.
+
+---
+
+## Shared folders (mounts)
+
+A **shared folder** is a server-managed directory that lives _outside_ any one
+session's root, under `SHARED_ROOT` (default `<cwd>/.shared`, one subdirectory
+per folder: `SHARED_ROOT/<folderId>`). Several sessions can **mount** the same
+shared folder, giving them a common workspace — a lightweight "project" — whose
+edits are live across every session that mounts it.
+
+Because an agent runs with `cwd` set to its session root and its tools follow
+symlinks, a mount is just a symlink at the session root pointing at the shared
+folder:
+
+```
+SESSIONS_ROOT/<sessionId>/<mountName>  ->  SHARED_ROOT/<folderId>
+```
+
+The agent reads, greps, edits, and runs shell commands against `<mountName>/`
+with its ordinary file tools, staying "inside" its root by convention while the
+bytes it touches are shared.
+
+**Registry.** Folder metadata (`id`, `name`, optional creator `user_identity`,
+`created_at`) lives in the `shared_folders` table, written through
+[`SqliteSharedFolderStore`](../../apps/server/src/store/sqliteSharedFolderStore.ts)
+(interface + `sharedFolderPath` in
+[sharedFolderStore.ts](../../apps/server/src/store/sharedFolderStore.ts)). The
+folder is **not** session-scoped — it outlives any session and has no FK to
+`sessions`. The registry REST surface is:
+
+- `POST /api/shared-folders` — create a folder (and its backing directory). Body
+  `{ name? }`; returns `{ folder }`.
+- `GET /api/shared-folders` — list every folder, oldest-first.
+
+**Mounting** reuses the resource-seeding pipeline rather than a bespoke endpoint:
+a mount is a `HostResourceInput` of `kind: "mount"`, so it can be passed at
+session create (`POST /api/sessions` `resources: [...]`) or added later
+(`POST /api/sessions/:id/resources`). `applyResourceInput`
+([conversation/hostResources.ts](../../apps/server/src/conversation/hostResources.ts))
+resolves the folder in the registry (an unknown `folderId` is a 400 — **raw host
+paths are never accepted**), picks a `mountName` (defaulting to a sanitized form
+of the folder name), rejects a reserved name (`artifacts`, `uploads`, `.tangent`,
+`AGENTS.md`, `MEMORY.md`, `GLOBAL_MEMORY.md`) or a collision with an existing
+entry, creates the symlink, and catalogs a `mount` resource
+(`uri: mount://<folderId>`, `meta: { sharedFolderId, mountName, target }`).
+
+**One-way.** There is no unmount endpoint. Removing the `mount` resource drops
+the catalog row but **leaves the symlink in place**, so the agent keeps its
+access. Re-applying the same mount is idempotent (it reuses the stored
+`mountName` and the existing link).
+
+**Limitations / notes.**
+
+- Mounted trees are **not** served over the file HTTP API (only `artifacts/` and
+  `uploads/` are) and are **not** recursively catalogued by the workspace scan
+  (`catalogWorkspaceFiles`), which only walks those two subtrees — avoiding huge
+  scans.
+- There is **no cross-session write locking**: two sessions editing the same
+  files can race. The folder is genuinely shared, not copied.
+- Confinement is by convention — a mount is a deliberate hole in it, and `bash`
+  can traverse out through the link.
+- `deleteSession` does not remove the on-disk folder today; if recursive cleanup
+  is ever added it must remove the _symlink_ (an `fs.rm` on a link deletes the
+  link, not the shared folder's contents).
 
 ---
 

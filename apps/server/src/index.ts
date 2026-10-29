@@ -50,6 +50,7 @@ import { createInternalTriggersRouter } from "./routes/internalTriggers.ts";
 import { createMcpRelayRouter } from "./routes/mcp.ts";
 import { createMeRouter } from "./routes/me.ts";
 import { createSessionsRouter } from "./routes/sessions/index.ts";
+import { createSharedFoldersRouter } from "./routes/sharedFolders.ts";
 import { RunRegistry } from "./runs/runRegistry.ts";
 import {
   createAgentEventHandler,
@@ -77,6 +78,7 @@ import { SqliteReactorStore } from "./store/sqliteReactorStore.ts";
 import { SqliteResourceStore } from "./store/sqliteResourceStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
+import { SqliteSharedFolderStore } from "./store/sqliteSharedFolderStore.ts";
 
 // Opening the DB applies pending drizzle-kit migrations on startup. The single
 // shared connection backs every store: session metadata for the REST routes and
@@ -92,6 +94,10 @@ const participants = new SqliteParticipantStore(db);
 // stay authoritative and this table tracks them so a resource is citable.
 const resourceStore = new SqliteResourceStore(db);
 const store = new SqliteSessionStore(db, resourceStore);
+// Registry of server-managed shared folders: the cross-session "project" folders
+// a session mounts (by symlink) into its root. Metadata lives in SQLite; the
+// bytes live under SHARED_ROOT.
+const sharedFolderStore = new SqliteSharedFolderStore(db);
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
 // Who besides the ADMIN_EMAILS admins may upload and delete those bundles.
@@ -292,7 +298,12 @@ remoteGateway.useContextProjection(contextEngine, memberships);
 // A remote resource add/list/read uses the same catalog write path, preamble
 // refresher, and room notifier the HTTP resource routes hold.
 remoteGateway.useResources({
-  seed: { store, memory, catalog: resourceCatalog },
+  seed: {
+    store,
+    memory,
+    catalog: resourceCatalog,
+    sharedFolders: sharedFolderStore,
+  },
   catalog: resourceCatalog,
   hostPreamble: hostResourcePreamble,
   emitResourcesUpdated,
@@ -409,6 +420,7 @@ app.use(
     agentBundleStore,
     participantService,
     resourceCatalog,
+    sharedFolderStore,
     memory,
     hostResourcePreamble,
     emitResourcesUpdated,
@@ -431,6 +443,8 @@ app.use(
   createAgentBundlesRouter(agentBundleStore, bundleEditorStore),
 );
 app.use("/api/bundle-editors", createBundleEditorsRouter(bundleEditorStore));
+// Registry of cross-session shared folders a session can mount into its root.
+app.use("/api/shared-folders", createSharedFoldersRouter(sharedFolderStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Public MCP relay dialed by an external client; per-channel bearer presented
 // on Authorization (or Mcp-Authorization behind a Basic-auth gateway).
@@ -455,7 +469,12 @@ app.use(
 app.use(
   "/api/attach",
   createAttachRouter(externalGateway, store, connectors, conversations, {
-    seed: { store, memory, catalog: resourceCatalog },
+    seed: {
+      store,
+      memory,
+      catalog: resourceCatalog,
+      sharedFolders: sharedFolderStore,
+    },
     catalog: resourceCatalog,
     hostPreamble: hostResourcePreamble,
     emitResourcesUpdated,

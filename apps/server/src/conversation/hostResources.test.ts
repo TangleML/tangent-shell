@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -8,8 +16,10 @@ import { after, test } from "node:test";
 // modules that read config at load time, so writes never touch the repo.
 const ROOT = mkdtempSync(path.join(tmpdir(), "host-res-"));
 const MEM = mkdtempSync(path.join(tmpdir(), "host-mem-"));
+const SHARED = mkdtempSync(path.join(tmpdir(), "host-shared-"));
 process.env.SESSIONS_ROOT = ROOT;
 process.env.GLOBAL_MEMORY_DIR = MEM;
+process.env.SHARED_ROOT = SHARED;
 
 const { applyResourceInput, memoryScopeFromUri, removeResourceByUri } =
   await import("./hostResources.ts");
@@ -18,6 +28,8 @@ const { MemoryManager } = await import("../pi/memory.ts");
 const { HostResourcePreamble } = await import("../pi/hostResourcePreamble.ts");
 const { InMemoryResourceStore } =
   await import("../store/inMemoryResourceStore.ts");
+const { InMemorySharedFolderStore } =
+  await import("../store/inMemorySharedFolderStore.ts");
 const { MEMORY_AUTHOR } = await import("@tangent/shared/contracts.ts");
 
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -29,11 +41,17 @@ const store = { listAgents: async () => [] } as unknown as SessionStore;
 after(() => {
   rmSync(ROOT, { recursive: true, force: true });
   rmSync(MEM, { recursive: true, force: true });
+  rmSync(SHARED, { recursive: true, force: true });
 });
 
 function deps() {
   const catalog = new ResourceCatalog(new InMemoryResourceStore());
-  return { store, memory: new MemoryManager(), catalog };
+  return {
+    store,
+    memory: new MemoryManager(),
+    catalog,
+    sharedFolders: new InMemorySharedFolderStore(),
+  };
 }
 
 function sessionRoot() {
@@ -286,4 +304,111 @@ test("a file seed does not appear in the host-resources preamble", async () => {
   const preamble = new HostResourcePreamble(d.catalog);
   await preamble.refresh("sfile4");
   assert.equal(preamble.get("sfile4"), "");
+});
+
+test("a mount input symlinks the shared folder into the session root", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+  const folder = await d.sharedFolders.createSharedFolder({
+    name: "project-x",
+  });
+  writeFileSync(path.join(SHARED, folder.id, "hello.txt"), "shared bytes");
+
+  const resource = await applyResourceInput(d, "smount1", rootPath, {
+    kind: "mount",
+    folderId: folder.id,
+  });
+
+  assert.equal(resource.kind, "mount");
+  assert.equal(resource.uri, `mount://${folder.id}`);
+  assert.equal(resource.name, "project-x");
+  assert.equal(resource.meta?.mountName, "project-x");
+
+  const linkPath = path.join(rootPath, "project-x");
+  assert.equal(lstatSync(linkPath).isSymbolicLink(), true);
+  assert.equal(readlinkSync(linkPath), path.join(SHARED, folder.id));
+  // The shared bytes are reachable through the symlink from the session root.
+  assert.equal(
+    readFileSync(path.join(linkPath, "hello.txt"), "utf8"),
+    "shared bytes",
+  );
+});
+
+test("an explicit mountName is honored", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+  const folder = await d.sharedFolders.createSharedFolder({ name: "data" });
+
+  await applyResourceInput(d, "smount2", rootPath, {
+    kind: "mount",
+    folderId: folder.id,
+    mountName: "proj",
+  });
+
+  assert.equal(lstatSync(path.join(rootPath, "proj")).isSymbolicLink(), true);
+});
+
+test("re-applying the same mount keeps one symlink and one row", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+  const folder = await d.sharedFolders.createSharedFolder({ name: "repeat" });
+
+  await applyResourceInput(d, "smount3", rootPath, {
+    kind: "mount",
+    folderId: folder.id,
+  });
+  await applyResourceInput(d, "smount3", rootPath, {
+    kind: "mount",
+    folderId: folder.id,
+  });
+
+  assert.equal((await d.catalog.listForSession("smount3")).length, 1);
+  assert.equal(lstatSync(path.join(rootPath, "repeat")).isSymbolicLink(), true);
+});
+
+test("a mount with an unknown folderId is rejected", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+
+  await assert.rejects(
+    applyResourceInput(d, "smount4", rootPath, {
+      kind: "mount",
+      folderId: "does-not-exist",
+    }),
+    /Unknown shared folder/,
+  );
+  assert.equal((await d.catalog.listForSession("smount4")).length, 0);
+});
+
+test("a reserved mountName is rejected and writes no symlink", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+  const folder = await d.sharedFolders.createSharedFolder({ name: "res" });
+
+  await assert.rejects(
+    applyResourceInput(d, "smount5", rootPath, {
+      kind: "mount",
+      folderId: folder.id,
+      mountName: "artifacts",
+    }),
+    /reserved/,
+  );
+  assert.equal(existsSync(path.join(rootPath, "artifacts")), false);
+  assert.equal((await d.catalog.listForSession("smount5")).length, 0);
+});
+
+test("removing a mount drops the row but leaves the symlink (one-way)", async () => {
+  const d = deps();
+  const rootPath = sessionRoot();
+  const folder = await d.sharedFolders.createSharedFolder({ name: "oneway" });
+  const uri = `mount://${folder.id}`;
+
+  await applyResourceInput(d, "smount6", rootPath, {
+    kind: "mount",
+    folderId: folder.id,
+  });
+  await removeResourceByUri(d, "smount6", rootPath, uri);
+
+  assert.equal((await d.catalog.listForSession("smount6")).length, 0);
+  assert.equal(lstatSync(path.join(rootPath, "oneway")).isSymbolicLink(), true);
 });

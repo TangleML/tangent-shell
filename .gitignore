@@ -27,6 +27,9 @@ ui-dist
 # Saved agent bundles backing the marketplace
 .agent-bundles
 
+# Server-managed shared folders sessions mount into their root
+.shared
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

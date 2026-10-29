@@ -50,13 +50,14 @@ implemented under [server/src/routes/](../../server/src/routes).
 | `DELETE /api/sessions/:id/participants/:participantId/memberships/:conversationId` | Leave a Conversation.                                                                                          |
 | `PATCH /api/sessions/:id/participants/:participantId/memberships/:conversationId`  | Mute/unmute a membership (mute = reaction `never`).                                                            |
 | `GET /api/sessions/:id/resources`                                                  | List the resource catalog (optionally scoped to `?conversationId=&participantId=`).                            |
-| `POST /api/sessions/:id/resources`                                                 | Catalog a host resource (a workspace file, etc.).                                                              |
-| `DELETE /api/sessions/:id/resources`                                               | Remove a catalog entry.                                                                                        |
+| `POST /api/sessions/:id/resources`                                                 | Catalog a host resource (a workspace file, a memory seed, a shared-folder `mount`, etc.).                      |
+| `DELETE /api/sessions/:id/resources`                                               | Remove a catalog entry (a `mount` is one-way: the row drops but its symlink stays).                            |
 | `GET /api/sessions/:id/files/*splat`                                               | Serve a file from the session's `artifacts/` or `uploads/` subtree (path-traversal guarded).                   |
 
-Other API mounts: `/api/agent-bundles`, `/api/global-memory`, `/api/mcp` (public
-MCP relay), `/api/me` (current user), `/api/embed`, and the token-guarded
-`/internal/*` routers the agent extensions call.
+Other API mounts: `/api/agent-bundles`, `/api/shared-folders`,
+`/api/global-memory`, `/api/mcp` (public MCP relay), `/api/me` (current user),
+`/api/embed`, and the token-guarded `/internal/*` routers the agent extensions
+call.
 
 ### Agent bundles — [routes/agentBundles.ts](../../server/src/routes/agentBundles.ts)
 
@@ -70,6 +71,17 @@ MCP relay), `/api/me` (current user), `/api/embed`, and the token-guarded
 | `GET /api/agent-bundles/:id/ui/:file` | Serve a compiled UI component JS asset.                      |
 | `POST /api/agent-bundles/ui-egress`   | The bundle-UI `host.fetch` egress proxy.                     |
 | `DELETE /api/agent-bundles/:id`       | Delete a saved bundle.                                       |
+
+### Shared folders — [routes/sharedFolders.ts](../../apps/server/src/routes/sharedFolders.ts)
+
+Cross-session "project" folders a session mounts (by symlink) into its root. A
+folder is created once here, then mounted into any session as a `mount` resource
+(`POST /api/sessions/:id/resources` or at create via `resources: [...]`).
+
+| Method + path              | Purpose                                                         |
+| -------------------------- | --------------------------------------------------------------- |
+| `GET /api/shared-folders`  | List every shared folder, oldest-first.                         |
+| `POST /api/shared-folders` | Create a shared folder (and its backing dir). Body `{ name? }`. |
 
 `GET /api/health` returns `{ ok: true }`.
 

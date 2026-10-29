@@ -104,7 +104,8 @@ export type EmbedResourceKind =
   | "memory"
   | "attachment"
   | "artifact"
-  | "host";
+  | "host"
+  | "mount";
 
 /**
  * A catalogued piece of content in a session, as returned to the host. The
@@ -131,6 +132,8 @@ export interface EmbedResource {
  * so it can never overwrite a system file) so bundle tools can read it on disk —
  * text passes as-is, binary rides in `content` as base64. Removing a `file`
  * deletes those bytes; unlike the other kinds it is not announced to the agent.
+ * A `mount` entry symlinks an existing shared folder into the session root so the
+ * agent reads and writes it with its ordinary file tools; mounting is one-way.
  */
 export type HostResourceInput =
   | { kind: "memory"; scope?: "session" | "global"; content: string }
@@ -151,6 +154,13 @@ export type HostResourceInput =
       /** Catalog display name; defaults to the path basename. */
       name?: string;
       meta?: Record<string, unknown>;
+    }
+  | {
+      kind: "mount";
+      /** Id of the shared folder to symlink into the session root. */
+      folderId: string;
+      /** Single-segment symlink name; defaults to the folder's sanitized name. */
+      mountName?: string;
     };
 
 /** Host-driven theme inputs forwarded to `<tangent-provider>`. */
