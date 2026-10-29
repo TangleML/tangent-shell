@@ -130,6 +130,24 @@ Allowlist properties:
   contain credentials and are not returned to callers. Backend HTTP statuses
   and response bodies are preserved in the egress response envelope.
 
+### Agent proxy errors
+
+`POST /internal/egress` answers its own failures with a non-200 status and a
+body of `{ error, code }`. `error` is for people and may change; `code` is
+stable:
+
+| Status | `code`                 | Meaning                                                               |
+| ------ | ---------------------- | --------------------------------------------------------------------- |
+| 403    | `egress_denied`        | The destination or method isn't allowlisted. Nothing was sent.        |
+| 403    | `team_not_granted`     | The call set `actAsTeam` without a grant. Nothing was sent.           |
+| 502    | `upstream_timeout`     | Tangle didn't answer within 10s. A write may still have persisted.    |
+| 502    | `upstream_unreachable` | The request to Tangle failed in transport, e.g. a refused connection. |
+| 502    | `egress_failed`        | Any other failure.                                                    |
+
+Tangle's own answers, refusals included, come back as a 200 whose envelope
+carries Tangle's `status` and body, so no `code` describes them. Request
+validation (400) and the internal token check (401) keep their own bodies.
+
 ### Saved pipeline authoring
 
 Bundle tools can submit a complete definition through the internal egress route
@@ -171,8 +189,9 @@ whether it does is the caller's:
 - **Opt in.** A call acts as the granted team only when its
   `POST /internal/egress` body sets `actAsTeam: true`. Without it the call goes
   as the server's own Tangle identity, even on a granted turn. Opting in without
-  a grant is a 403 (`no Tangle team is granted for this turn`), not a silent
-  fallback. The flag has no effect on rules that are not team-scoped.
+  a grant is a 403 with `code: "team_not_granted"` (see
+  [Agent proxy errors](#agent-proxy-errors)), not a silent fallback. The flag
+  has no effect on rules that are not team-scoped.
 
 Tangle resolves a run's secrets against the run's creator. A run submitted as
 the team can use only the team's secrets, and one submitted without it only the

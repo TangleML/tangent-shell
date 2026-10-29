@@ -161,6 +161,8 @@ const EGRESS_TIMEOUT_MS = 10_000;
 
 /** Raised when a request targets a destination that is not allowlisted. */
 export class EgressDeniedError extends Error {
+  readonly code = "egress_denied";
+
   constructor(input: string) {
     super(`bundle-ui egress destination "${input}" is not allowlisted`);
     this.name = "EgressDeniedError";
@@ -169,6 +171,8 @@ export class EgressDeniedError extends Error {
 
 /** Safe diagnostics for callers; underlying errors can contain credentials or URLs. */
 export class EgressUpstreamError extends Error {
+  readonly code: "upstream_timeout" | "upstream_unreachable";
+
   constructor(cause: unknown) {
     const timedOut = cause instanceof Error && cause.name === "AbortError";
     super(
@@ -178,11 +182,14 @@ export class EgressUpstreamError extends Error {
       { cause },
     );
     this.name = "EgressUpstreamError";
+    this.code = timedOut ? "upstream_timeout" : "upstream_unreachable";
   }
 }
 
 /** Raised when a request asks to act as a team its turn was not granted. */
 export class TeamNotGrantedError extends Error {
+  readonly code = "team_not_granted";
+
   constructor() {
     super("no Tangle team is granted for this turn");
     this.name = "TeamNotGrantedError";

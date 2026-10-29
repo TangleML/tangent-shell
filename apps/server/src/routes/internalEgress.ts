@@ -44,8 +44,8 @@ type EgressBody = z.infer<typeof egressBodySchema>;
 /**
  * Resolves the requested destination against the egress allowlist, mapping a
  * denied destination or an ungranted team to `403` and any other failure to
- * `502`. A resolved request reports `appliedTeam`, `null` when it went upstream
- * as no team.
+ * `502`, each with a stable `code` next to `error`. A resolved request reports
+ * `appliedTeam`, `null` when it went upstream as no team.
  */
 async function handleEgress(
   input: EgressInput,
@@ -66,15 +66,16 @@ async function handleEgress(
       err instanceof EgressDeniedError ||
       err instanceof TeamNotGrantedError
     ) {
-      res.status(403).json({ error: err.message });
+      res.status(403).json({ error: err.message, code: err.code });
       return;
     }
-    res.status(502).json({
-      error:
+    res
+      .status(502)
+      .json(
         err instanceof EgressUpstreamError
-          ? err.message
-          : "egress request failed",
-    });
+          ? { error: err.message, code: err.code }
+          : { error: "egress request failed", code: "egress_failed" },
+      );
   }
 }
 

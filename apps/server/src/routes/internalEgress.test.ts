@@ -130,6 +130,7 @@ test("asking to act as a team without a grant is a 403 that never goes upstream"
 
   assert.equal(status, 403);
   assert.equal(body.error, "no Tangle team is granted for this turn");
+  assert.equal(body.code, "team_not_granted");
   assert.equal(fetchMock.mock.callCount(), 0);
 });
 
@@ -159,7 +160,29 @@ test("a denied destination is a 403 without a team", async () => {
   });
 
   assert.equal(status, 403);
+  assert.equal(body.code, "egress_denied");
   assert.equal("appliedTeam" in body, false);
+});
+
+test("an upstream failure is a 502 whose code says whether it timed out", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const base = serve();
+  const failures = [
+    [new DOMException("aborted", "AbortError"), "upstream_timeout"],
+    [
+      new Error("refused", { cause: { code: "ECONNREFUSED" } }),
+      "upstream_unreachable",
+    ],
+  ] as const;
+
+  for (const [failure, code] of failures) {
+    mock.method(globalThis, "fetch", async () => {
+      throw failure;
+    });
+    const { status, body } = await egress(base, { input: SECRETS });
+    assert.deepEqual([status, body.code], [502, code]);
+    mock.reset();
+  }
 });
 
 test("reports the team the caller's turn is granted", async () => {
