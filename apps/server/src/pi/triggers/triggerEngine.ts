@@ -257,6 +257,7 @@ export class TriggerEngine {
       undefined,
       undefined,
       primaryConversationId,
+      await this.store.getSessionEnv(sessionId),
     );
     await this.ensureTriggerParticipant(sessionId, stored);
     await this.conversations.post({
@@ -288,6 +289,7 @@ export class TriggerEngine {
       undefined,
       undefined,
       await orchestratorConversationFor(this.store, sessionId),
+      await this.store.getSessionEnv(sessionId),
     );
     const { agentId } = this.ensureSubagent(sessionId, rootPath, stored);
     await this.ensureTriggerParticipant(sessionId, stored);
