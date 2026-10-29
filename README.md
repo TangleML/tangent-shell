@@ -18,7 +18,7 @@ workflow — research, code generation, document building, scheduled automation,
 
 - **Node.js** (the version matching the Docker base image, currently 24+)
 - **pnpm** `10.28.0` (the pinned package manager)
-- The **`pi`** agent binary on your `PATH` (or set `PI_BIN` to its location)
+- The **`pi`** agent binary, 1.4.0 or later, on your `PATH` (or set `PI_BIN` to its location)
 - Access to an LLM proxy for `pi` to call (see `PI_PROXY_URL` / `PI_PROXY_API_KEY` below)
 
 ### Install and run
