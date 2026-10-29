@@ -1,5 +1,3 @@
-import type { Request } from "express";
-
 import type { RunRegistry } from "../runs/runRegistry.ts";
 
 /** Header a Pi process presents its per-process `TANGENT_AGENT_TOKEN` on. */
@@ -17,17 +15,17 @@ export type AgentTokenResolver = (
 ) => AgentCaller | undefined;
 
 /**
- * The team the calling agent's open Run may act as. The caller is whoever the
- * request's agent token names, never ids in the body; a route acting for a
- * named participant passes it as `expected`, and any other caller gets no team.
+ * The team the calling agent's open Run may act as. The caller is whoever its
+ * agent token names, never ids in the body; a route acting for a named
+ * participant passes it as `expected`, and any other caller gets no team.
  */
 export function callerActingTeam(
-  req: Request,
+  token: string | undefined,
   agents: AgentTokenResolver,
   runs: RunRegistry,
   expected?: AgentCaller,
 ): string | undefined {
-  const caller = agents(req.get(AGENT_TOKEN_HEADER));
+  const caller = agents(token);
   if (!caller) return undefined;
   if (
     expected &&

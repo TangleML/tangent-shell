@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import {
+  AGENT_TOKEN_HEADER,
   type AgentTokenResolver,
   callerActingTeam,
 } from "../auth/agentCaller.ts";
@@ -419,7 +420,10 @@ export function createInternalAgentsRouter(
   /** The team a directive from Prime hands on: its own turn's, if the caller
    * really is that session's Prime. */
   const primeTeam = (req: Request, sessionId: string) =>
-    callerActingTeam(req, agents, runs, { sessionId, agentId: PI_AGENT.id });
+    callerActingTeam(req.get(AGENT_TOKEN_HEADER), agents, runs, {
+      sessionId,
+      agentId: PI_AGENT.id,
+    });
 
   router.post("/spawn", validate({ body: spawnSchema }), (req, res) => {
     const body = getValidated<SpawnInput>(req).body;
@@ -462,7 +466,7 @@ export function createInternalAgentsRouter(
       connectors,
       conversations,
       body,
-      callerActingTeam(req, agents, runs, body),
+      callerActingTeam(req.get(AGENT_TOKEN_HEADER), agents, runs, body),
       res,
     );
   });

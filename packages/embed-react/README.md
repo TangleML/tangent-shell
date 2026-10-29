@@ -474,8 +474,13 @@ user who grants nothing gets no team.
 </TangentProvider>
 ```
 
-The server trusts this the same way it trusts the bearer token, so only return a
-team the user actually belongs to.
+The server takes the id as sent and doesn't check it against the signed-in user.
+Anyone who can send messages in the session can claim any team, and Tangle checks
+only that the server's own Tangle identity belongs to it. So `getActingTeam`
+decides which team your UI grants, not which teams a participant can reach:
+that's every team the server's identity belongs to. An id that isn't visible
+ASCII, or is longer than 256 characters, is dropped and the message grants no
+team. So is the result of a `getActingTeam` call that throws.
 
 ## Versioning
 

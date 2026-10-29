@@ -154,11 +154,10 @@ function primeAgent(homeConversationId: string): SessionAgent {
   };
 }
 
-test("a human message always ensures Prime, even when it targets a sub-agent thread", async () => {
-  const primeHome = "conv-prime-home";
+/** Chat deps that record every `pi.ensure` and `conversations.post` call. */
+function recordingDeps(primeHome: string) {
   const ensureCalls: unknown[][] = [];
-  const postCalls: { conversationId?: string }[] = [];
-
+  const postCalls: { conversationId?: string; actingTeam?: string }[] = [];
   const deps = {
     store: {
       getSession: async () => session(OWNER),
@@ -173,25 +172,58 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
     connectors: { list: () => [] },
     participantService: { list: async () => [] },
     conversations: {
-      post: async (input: { conversationId?: string }) => {
+      post: async (input: { conversationId?: string; actingTeam?: string }) => {
         postCalls.push(input);
         return { message: {}, woke: [], refused: [] };
       },
     },
   } as unknown as ChatHandlerDeps;
+  return { deps, ensureCalls, postCalls };
+}
 
-  const socket = { emit: () => {} } as unknown as Socket;
+const noopSocket = { emit: () => {} } as unknown as Socket;
+
+test("a human message always ensures Prime, even when it targets a sub-agent thread", async () => {
+  const primeHome = "conv-prime-home";
+  const { deps, ensureCalls, postCalls } = recordingDeps(primeHome);
   const payload: ChatMessagePayload = {
     sessionId: "s1",
     content: "hello",
     conversationId: "sub-1",
   };
 
-  await handleChatMessage(socket, deps, humanAuthor(OWNER), payload);
+  await handleChatMessage(noopSocket, deps, humanAuthor(OWNER), payload);
 
   assert.equal(ensureCalls.length, 1);
   assert.equal(ensureCalls[0]?.[5], primeHome);
   assert.equal(postCalls[0]?.conversationId, "sub-1");
+});
+
+test("a message grants its team only when the id is header-safe", async () => {
+  const { deps, postCalls } = recordingDeps("prime");
+  const send = (actingTeamId: string) =>
+    handleChatMessage(noopSocket, deps, humanAuthor(OWNER), {
+      sessionId: "s1",
+      content: "hello",
+      actingTeamId,
+    });
+
+  await send("  ml-team@project.iam.gserviceaccount.com ");
+  await send("team-a\r\nx-injected: 1");
+  await send("tëam");
+  await send("t".repeat(257));
+  await send("   ");
+
+  assert.deepEqual(
+    postCalls.map((call) => call.actingTeam),
+    [
+      "ml-team@project.iam.gserviceaccount.com",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ],
+  );
 });
 
 test("closing the last browser socket detaches presence without cancelling the server agent", async () => {

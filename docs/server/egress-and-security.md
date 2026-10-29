@@ -201,7 +201,8 @@ submits with the same.
 A Run gets a grant only along the causal chain from a human message:
 
 - The host sends `actingTeamId` on a chat message (`getActingTeam` on
-  `TangentProvider`). It applies to that message only and is not persisted.
+  `TangentProvider`). It applies to that message only and is not persisted. An
+  id that isn't visible ASCII, or is longer than 256 characters, is dropped.
 - The Runs that message opens are granted that team. A Prime directive or a
   sub-agent report carries the authoring Run's grant, and so does an agent's
   finished turn when it is relayed to Prime.
@@ -259,8 +260,9 @@ this value, bake it into Docker images, or expose it to bundle UI workers.
 
 Tangle authorizes against this token's identity, not the human's: a granted
 team names which team a call may act as, but cannot grant more than the token
-holds. The team is a claim from the host, trusted like the bearer token. Agent
-tokens stop one agent from posing as another through the API. Neither they nor
+holds. The team is a field on the chat message, taken as sent, so anyone who can
+message a session can claim any team that identity belongs to. Agent tokens stop
+one agent from posing as another through the API. Neither they nor
 removing `TANGLE_TOKEN` are a hard boundary while agents run as the same OS user
 as the server, since that user can read other processes' environments.
 

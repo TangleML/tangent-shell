@@ -2,6 +2,7 @@ import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import {
+  AGENT_TOKEN_HEADER,
   type AgentTokenResolver,
   callerActingTeam,
 } from "../auth/agentCaller.ts";
@@ -100,19 +101,22 @@ export function createInternalEgressRouter(
 
   router.use(requireInternalToken);
 
+  const grantedTeamOf = (req: Request) =>
+    callerActingTeam(req.get(AGENT_TOKEN_HEADER), agents, runs);
+
   router.post(
     "/",
     validate({ body: egressBodySchema }),
     (req: Request, res: Response) => {
       const { input, init, actAsTeam } = getValidated<EgressBody>(req).body;
-      const grantedTeam = callerActingTeam(req, agents, runs);
+      const grantedTeam = grantedTeamOf(req);
       return handleEgress(input, init, { grantedTeam, actAsTeam }, res);
     },
   );
 
   // Lets a tool tell the agent which team its current turn may act as.
   router.get("/granted-team", (req: Request, res: Response) => {
-    res.json({ grantedTeam: callerActingTeam(req, agents, runs) ?? null });
+    res.json({ grantedTeam: grantedTeamOf(req) ?? null });
   });
 
   return router;

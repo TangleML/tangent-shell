@@ -75,7 +75,15 @@ export function getAuthToken():
   return embedConfig.getToken?.();
 }
 
-/** The team a message sent now in `sessionId` acts as, if the host grants one. */
+/**
+ * The team a message sent now in `sessionId` acts as, if the host grants one.
+ * A host lookup that throws grants none rather than blocking the send.
+ */
 export function getActingTeam(sessionId: string): string | undefined {
-  return embedConfig.getActingTeam?.(sessionId);
+  try {
+    return embedConfig.getActingTeam?.(sessionId);
+  } catch (err) {
+    console.error("[chat] getActingTeam threw; sending with no team:", err);
+    return undefined;
+  }
 }

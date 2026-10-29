@@ -447,10 +447,15 @@ function markAbsent(deps: ChatHandlerDeps, tracked: Set<string>): void {
   }
 }
 
+/** Visible ASCII only: the id goes upstream as a header value. */
+const TEAM_ID = /^[\x21-\x7e]{1,256}$/;
+
 /** The team a message grants, read defensively: the payload is unvalidated. */
 function actingTeamOf(payload: ChatMessagePayload): string | undefined {
   const team = payload.actingTeamId;
-  return typeof team === "string" && team.trim() ? team.trim() : undefined;
+  if (typeof team !== "string") return undefined;
+  const trimmed = team.trim();
+  return TEAM_ID.test(trimmed) ? trimmed : undefined;
 }
 
 /**

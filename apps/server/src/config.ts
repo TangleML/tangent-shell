@@ -16,6 +16,26 @@ function readAbsoluteUrl(name: string, fallback: string): string {
   return value;
 }
 
+const HTTP_HEADER_NAME = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
+
+/** Headers egress sets or credentials ride on, which a team header would overwrite. */
+const EGRESS_OWN_HEADERS = new Set([
+  "accept",
+  "authorization",
+  "content-type",
+  "cookie",
+]);
+
+function readTeamHeaderName(name: string, fallback: string): string {
+  const value = (process.env[name]?.trim() || fallback).toLowerCase();
+  if (!HTTP_HEADER_NAME.test(value) || EGRESS_OWN_HEADERS.has(value)) {
+    throw new Error(
+      `${name} must be an HTTP header name other than ${[...EGRESS_OWN_HEADERS].join(", ")}`,
+    );
+  }
+  return value;
+}
+
 /** Port the dev server listens on. Vite proxies /api and /socket.io here. */
 export const PORT = Number(process.env.PORT ?? 8787);
 
@@ -220,6 +240,7 @@ export const TANGLE_API_URL = readAbsoluteUrl(
  * team granted to the caller's Run when a call asks to act as that team, and
  * strips any copy a caller sends.
  */
-export const TANGLE_TEAM_HEADER = (
-  process.env.TANGLE_TEAM_HEADER?.trim() || "x-tangle-impersonate-team-id"
-).toLowerCase();
+export const TANGLE_TEAM_HEADER = readTeamHeaderName(
+  "TANGLE_TEAM_HEADER",
+  "x-tangle-impersonate-team-id",
+);

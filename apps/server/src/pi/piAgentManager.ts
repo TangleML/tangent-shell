@@ -18,6 +18,7 @@ import {
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
+import type { AgentCaller } from "../auth/agentCaller.ts";
 import {
   INTERNAL_URL,
   PI_BIN,
@@ -765,9 +766,7 @@ export class PiAgentManager {
   }
 
   /** The live agent a per-process {@link AgentProcess.agentToken} belongs to. */
-  agentForToken(
-    token: string | undefined,
-  ): { sessionId: string; agentId: string } | undefined {
+  agentForToken(token: string | undefined): AgentCaller | undefined {
     if (!token) return undefined;
     for (const [sessionId, session] of this.sessions) {
       for (const agent of session.agents.values()) {
