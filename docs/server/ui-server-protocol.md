@@ -232,7 +232,7 @@ sequenceDiagram
   Handlers->>PiManager: prompt(id, rootPath, contentWithAttachments)
   activate PiManager
   PiManager->>PiManager: ensure(id) then sendToAgent("prime", text)
-  PiManager->>Prime: stdin { id, type:"prompt", message }
+  PiManager->>Prime: stdin { id, type:"prompt", message, streamingBehavior }
   activate Prime
   deactivate PiManager
   Prime-->>PiManager: stdout agent_start
@@ -250,7 +250,7 @@ sequenceDiagram
   Store-->>Handlers: ok
   deactivate Store
   Handlers-->>UI: agent:end
-  Prime-->>PiManager: stdout agent_end
+  Prime-->>PiManager: stdout agent_end, agent_settled
   deactivate Prime
   PiManager-->>Handlers: onAgentEvent(activity null)
   Handlers-->>UI: agent:activity (cleared)
@@ -288,9 +288,9 @@ sequenceDiagram
   Handlers->>PiManager: abort(sessionId, agentId)
   activate PiManager
   PiManager->>PiManager: mark agent.aborted = true (if busy)
-  PiManager->>Agent: stdin { type:"abort" }
+  PiManager->>Agent: stdin { type:"clear_queue" }, { type:"abort" }
   activate Agent
-  Agent-->>PiManager: stdout agent_end
+  Agent-->>PiManager: stdout agent_end, agent_settled
   deactivate Agent
   PiManager-->>Handlers: onAgentEvent(activity null)
   Handlers-->>UI: agent:activity (cleared)

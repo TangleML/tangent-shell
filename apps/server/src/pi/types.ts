@@ -124,13 +124,18 @@ export interface ConversationEventSink {
   onSessionStatus: SessionStatusHandler;
 }
 
-/** A prompt written to a busy agent, awaiting Pi folding it into the turn. */
-export interface QueuedPrompt {
+/** A prompt written to Pi, until Pi answers what it did with it. */
+export interface SentPrompt {
   kind: "steer" | "followUp";
+  ingress: RunIngress;
+  audienceParticipantId?: string;
   actingTeam?: string;
-  /** Whether a Pi `queue_update` has listed it yet. */
-  seen: boolean;
+  /** The Run it opened by finding the agent idle. */
+  runId?: RunId;
 }
+
+/** A prompt Pi queued into the run in flight, until Pi drains it. */
+export type QueuedPrompt = Pick<SentPrompt, "kind" | "actingTeam">;
 
 export interface AgentProcess {
   agentId: string;
@@ -140,10 +145,16 @@ export interface AgentProcess {
   /** Per-process secret (`TANGENT_AGENT_TOKEN`) that identifies this agent to
    * the internal API, so a caller cannot claim another agent's Run. */
   agentToken: string;
-  /** Prompts written mid-run, in send order, until Pi consumes them. */
+  /** Prompts written to Pi, by command id, until Pi answers each. */
+  sent: Map<string, SentPrompt>;
+  /** Prompts Pi said it queued, in its queue order, until it drains them. */
   queued: QueuedPrompt[];
+  /** The queue lengths Pi last reported. */
+  queueLengths: Record<QueuedPrompt["kind"], number>;
   /** Set while Pi drains consecutive follow-ups into one turn. */
   drainingFollowUps: boolean;
+  /** Prompts sent while an abort is landing, written once Pi answers it. */
+  heldPrompts: { text: string; prompt: SentPrompt }[];
   /**
    * The Conversation this agent posts into. Minted fresh when the agent is
    * spawned (Prime's resolved from the store, a sub-agent's from its spawner) so
@@ -162,9 +173,9 @@ export interface AgentProcess {
   child: ChildProcessWithoutNullStreams;
   busy: boolean;
   /**
-   * Set when the current run was aborted by the user (via the `abort` RPC
-   * command). Carried onto the finalized `end` event so a half-finished reply is
-   * persisted without waking anyone, then reset for the next run.
+   * Set from an `abort` RPC command until Pi answers it. Carried onto the
+   * finalized `end` event so a half-finished reply is persisted without waking
+   * anyone.
    */
   aborted: boolean;
   /** The id of the assistant message currently streaming, if any. */
@@ -262,4 +273,14 @@ export interface PiStdoutEvent {
   steering?: unknown;
   /** Present on `queue_update` events: pending follow-up messages. */
   followUp?: unknown;
+  /** Present on `response` events: the id and type of the command answered. */
+  id?: unknown;
+  command?: string;
+  /** Present on `response` events: whether the command was accepted, and its
+   * result (a prompt's `disposition`) or `error`. */
+  success?: boolean;
+  data?: unknown;
+  error?: unknown;
+  /** Present on `agent_settled` events: whether the run was aborted. */
+  aborted?: boolean;
 }

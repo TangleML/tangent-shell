@@ -111,25 +111,49 @@ to `PI_PROXY_URL`.
 
 The manager writes newline-delimited JSON commands to a process's stdin:
 
-- **prompt** — `{ id, type: "prompt", message }`. Sent by `sendToAgent`. If the
-  target is already `busy`, the command adds `streamingBehavior`, which Pi uses
-  to queue the message instead of dropping it. The agent is marked `busy = true`
-  immediately. `streamingBehavior` is one of:
+- **prompt** — `{ id, type: "prompt", message, streamingBehavior }`. Sent by
+  `sendToAgent`, which marks the agent `busy = true` immediately. Every prompt
+  carries `streamingBehavior`: Pi ignores it when idle, and rejects a prompt
+  without one while a run is in flight. It is one of:
   - `"steer"` — a mid-run nudge: Pi applies it after the current tool call
     finishes, **before the next LLM call**. Chosen when the caller passes
     `delivery: "steer"`.
   - `"followUp"` — queued until the run fully stops. The default for the
     `"auto"` and `"followUp"` deliveries, so internal relays never drop a
     message.
-- **abort** — `{ id, type: "abort" }`. Sent by `abort` when an agent is busy;
-  sets `aborted = true` first. The process stays alive and emits `agent_end`.
+- **clear_queue** + **abort** — `{ id, type }` each, written together by
+  `abort` when an agent is busy; it sets `aborted = true` first. Pi keeps its
+  queue across an abort and would fold it into the next prompt's run, so it is
+  cleared too. The process stays alive and emits `agent_settled`. A prompt sent
+  while the abort lands is held and written once Pi settles.
 
 `sendToAgent(sessionId, agentId, text, surfaceAuthor?, delivery?)` is the single
 entry for delivering text to any agent. `delivery` (`"auto" | "steer" |
 "followUp"`, default `"auto"`) only matters while the target is mid-run; when it
-is idle a plain `prompt` is sent. When `surfaceAuthor` is provided and the target
-is a sub-agent, the text is also surfaced into that sub-agent's transcript (via
+is idle Pi ignores it. When `surfaceAuthor` is provided and the target is a
+sub-agent, the text is also surfaced into that sub-agent's transcript (via
 `onAgentMessage`) so directed tasks read as a real conversation.
+
+### Prompt dispositions and Runs
+
+Pi (1.4.0 and later) answers each prompt with a `response` whose
+`data.disposition` says what it did with it. The manager tracks each prompt by
+its command `id` until that answer arrives:
+
+- `started` — the prompt starts Pi's next run, and the Run that run belongs to
+  is the prompt's. A prompt that finds the agent idle opens its Run as it is
+  written, so admission sees the agent busy at once.
+- `queued` — Pi queued the prompt into the run in flight. Its team applies once
+  Pi drains it, which the manager reads off the queue lengths in `queue_update`.
+- `handled` — an extension command or `input` handler consumed it, and no run
+  starts. A rejected prompt (`success: false`) is the same, except that a Run it
+  opened settles as `failed`.
+
+A Pi run lasts from its `started` answer to `agent_settled`, however many turns
+it takes (a retry, or a follow-up queued as a turn ended), and so does its Run.
+With older Pi, which sends no disposition, the agent's state when the prompt was
+written stands in. An extension that queues its own message behind one of ours
+(`sendUserMessage` with `deliverAs`) still shifts the queue count.
 
 ---
 
@@ -140,18 +164,20 @@ stdout as strict LF-delimited JSONL (deliberately not Node's `readline`, which
 also splits on U+2028/U+2029 that are valid inside JSON strings). Each line is
 parsed and routed through `eventHandlers`, keyed by the Pi RPC `type`:
 
-| Pi event `type`        | Handler                | Effect                                                                                                     |
-| ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `agent_start`          | `onAgentStart`         | Reset run state; emit `activity: "Thinking..."`.                                                           |
-| `message_start`        | `onMessageStart`       | Open a fresh in-flight assistant message (ignore non-assistant).                                           |
-| `message_update`       | `onMessageDelta`       | Accumulate + relay a text/`thinking` delta; lazily emit `start` on the first one.                          |
-| `message_end`          | `onMessageEnd`         | Finalize the message into its own bubble; relay sub-agent replies to Prime.                                |
-| `tool_execution_start` | `onToolExecutionStart` | Emit a descriptive `tool` activity label.                                                                  |
-| `queue_update`         | `onQueueUpdate`        | Relay the pending steer/follow-up queue as a `queue` event (drives the composer's queued-nudge indicator). |
-| `agent_end`            | `onAgentEnd`           | Clear `busy` + activity; reset run state.                                                                  |
+| Pi event `type`        | Handler                | Effect                                                                                                           |
+| ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `agent_start`          | `onAgentStart`         | Open a Run if none belongs to the turn; reset message state; emit `activity: "Thinking..."`.                     |
+| `message_start`        | `onMessageStart`       | Open a fresh in-flight assistant message (ignore non-assistant).                                                 |
+| `message_update`       | `onMessageDelta`       | Accumulate + relay a text/`thinking` delta; lazily emit `start` on the first one.                                |
+| `message_end`          | `onMessageEnd`         | Finalize the message into its own bubble; relay sub-agent replies to Prime.                                      |
+| `tool_execution_start` | `onToolExecutionStart` | Emit a descriptive `tool` activity label.                                                                        |
+| `queue_update`         | `onQueueUpdate`        | Apply drained prompts' teams; relay the queue as a `queue` event (drives the composer's queued-nudge indicator). |
+| `agent_end`            | `onAgentEnd`           | Reset message state. The run may go on to another turn.                                                          |
+| `agent_settled`        | `onAgentSettled`       | Clear `busy` + activity; settle the Run; write prompts held during an abort.                                     |
+| `response`             | `onResponse`           | Follow a prompt to its disposition (see above); end an abort.                                                    |
 
-Unmapped types (`turn_*`, `response`, `extension_ui_request`, etc.) carry no
-chat-visible signal and are ignored. Error-shaped lines are always logged;
+Unmapped types (`turn_*`, `extension_ui_request`, etc.) carry no chat-visible
+signal and are ignored. Error-shaped lines are always logged;
 unparseable lines are logged as errors.
 
 ### Streaming message lifecycle
@@ -190,6 +216,7 @@ sequenceDiagram
   PiManager-->>Handlers: activity { thinking, "Thinking..." }
   Handlers-->>UI: agent:activity
   Pi-->>PiManager: agent_end
+  Pi-->>PiManager: agent_settled
   PiManager-->>Handlers: activity null
   Handlers-->>UI: agent:activity (cleared)
   deactivate PiManager
