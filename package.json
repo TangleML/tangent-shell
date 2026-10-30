@@ -10,6 +10,8 @@
     "tangle:token": "tsx scripts/print-tangle-token.ts",
     "seed": "node scripts/pack-bundle.mjs && AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" SEED_BUNDLES_DIR=\"$PWD/examples\" pnpm --filter @tangent/server seed",
     "build": "turbo run build",
+    "build:acp-skill": "pnpm --filter tangent-acp-attach-cli build",
+    "package:acp-skill": "pnpm --filter tangent-acp-attach-cli package",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",

@@ -99,6 +99,7 @@ function fakeRemote() {
   const gateway = {
     hasAgent: (_sessionId: string, agentId: string) => agentId === "remote-1",
     listSubagents: () => [rosterEntry("remote-1", "remote-env")],
+    canDirectSubagent: () => true,
     sendToAgent: ({ sessionId, agentId, text }: Delivery) => {
       deliveries.push({ sessionId, agentId, text });
       return true;

@@ -1,0 +1,29 @@
+{
+  "name": "tangent-acp-attach-cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "package": "node esbuild.mjs && node package.mjs",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@tangent/acp-attach-host": "workspace:*",
+    "@tangent/local-agent-host": "workspace:*",
+    "@tangent/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "@types/node": "^25.9.1",
+    "esbuild": "0.28.0",
+    "fflate": "^0.8.3",
+    "eslint": "^10.4.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}

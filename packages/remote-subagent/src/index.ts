@@ -14,6 +14,7 @@
 
 import type {
   ChatMessage,
+  Resource,
   RunId,
   SubagentStatus,
 } from "@tangent/shared/contracts.ts";
@@ -26,6 +27,13 @@ import {
   type RemoteEnvHandshake,
   type RemoteKillCommand,
   type RemoteMessageCommand,
+  type RemoteResourceAddRequest,
+  type RemoteResourceAddResponse,
+  type RemoteResourceInput,
+  type RemoteResourceListRequest,
+  type RemoteResourceListResponse,
+  type RemoteResourceReadRequest,
+  type RemoteResourceReadResponse,
   type RemoteRoomReadRequest,
   type RemoteRoomReadResponse,
   type RemoteSpawnCommand,
@@ -44,6 +52,9 @@ import {
 
 /** How long {@link RemoteEnvironmentClient.readRoom} waits for the server ack. */
 const READ_ROOM_TIMEOUT_MS = 10_000;
+
+/** How long a resource add/list/read waits for the server ack (blobs are larger). */
+const RESOURCE_TIMEOUT_MS = 30_000;
 
 /**
  * The command surface a remote environment must implement to host sub-agents.
@@ -83,7 +94,12 @@ export interface ConnectRemoteEnvironmentOptions {
    * (e.g. `/tangent/socket.io`); defaults to Socket.IO's `/socket.io`.
    */
   socketPath?: string;
-  /** Shared bearer token the server validates against `REMOTE_ENV_TOKEN`. */
+  /**
+   * Bearer token the server validates on connect. Normally a scoped token minted
+   * per host via `POST /api/embed/remote-env-token`, whose claims carry the
+   * host's scope (session, selector, or user). The shared `REMOTE_ENV_TOKEN`
+   * secret is an unscoped, dev-only fallback.
+   */
   token: string;
   /** Stable id identifying this environment when several are connected. */
   environmentId: string;
@@ -96,11 +112,24 @@ export interface ConnectRemoteEnvironmentOptions {
    */
   tools?: RemoteToolMap;
   /**
-   * The session this environment's {@link tools} are registered for. Required
-   * when `tools` is set: a scoped embed host knows its session, and the server
-   * only accepts a catalog matching the socket's bound session.
+   * The session this environment's {@link tools} are registered for. Set on a
+   * session-scoped embed host, whose catalog the server matches to the socket's
+   * bound session. Omitted by a user- or selector-scoped host, which is not
+   * bound to a single session.
    */
   sessionId?: string;
+  /**
+   * Generic, extensible host metadata (e.g. `windowName`, `workspacePath`,
+   * `editor`) forwarded in the connection handshake. Free string->string pairs
+   * so new keys need no contract change. Omit to advertise none.
+   */
+  metadata?: Record<string, string>;
+  /**
+   * Extra HTTP headers for the transport handshake (Node only; browsers ignore
+   * them). Used to carry an SSO `cookie` so an Okta-protected deployment admits
+   * the websocket upgrade the way it admits the mint request. Omit when none.
+   */
+  extraHeaders?: Record<string, string>;
 }
 
 /**
@@ -133,6 +162,28 @@ export interface RemoteEnvironmentClient {
   report(sessionId: string, agentId: string, text: string): void;
   /** Read the tail of the shared session transcript (resolved via ack). */
   readRoom(sessionId: string, limit?: number): Promise<ChatMessage[]>;
+  /**
+   * Contribute a resource (a file/blob, a host entry, or a memory write) to the
+   * session so Prime and other agents — including those on other environments —
+   * can see and fetch it. Resolves with the stored {@link Resource}; rejects when
+   * the server rejects the write (unauthorized, too large, bad path).
+   */
+  addResource(
+    sessionId: string,
+    agentId: string,
+    input: RemoteResourceInput,
+  ): Promise<Resource>;
+  /** List the session's catalogued resources (resolved via ack). */
+  listResources(sessionId: string): Promise<Resource[]>;
+  /**
+   * Fetch a session resource's bytes by its session-root-relative uri. Resolves
+   * with the base64 content and derived content type; rejects when the server
+   * denies or cannot serve it.
+   */
+  readResource(
+    sessionId: string,
+    uri: string,
+  ): Promise<{ content: string; contentType: string }>;
   /** Close the connection. */
   disconnect(): void;
 }
@@ -185,6 +236,7 @@ export function buildRemoteEnvConnectArgs(
   const auth: RemoteEnvHandshake = {
     token: options.token,
     environmentId: options.environmentId,
+    ...(options.metadata ? { metadata: options.metadata } : {}),
   };
   return {
     uri: `${normalizeUrl(options.url)}${REMOTE_ENV_NAMESPACE}`,
@@ -192,6 +244,7 @@ export function buildRemoteEnvConnectArgs(
       auth,
       transports: ["websocket"],
       ...(options.socketPath ? { path: options.socketPath } : {}),
+      ...(options.extraHeaders ? { extraHeaders: options.extraHeaders } : {}),
     },
   };
 }
@@ -235,7 +288,7 @@ function registerToolHost(
 
   const announce = (): void => {
     const payload: RemoteToolsRegisterPayload = {
-      sessionId: sessionId ?? "",
+      ...(sessionId ? { sessionId } : {}),
       tools: toolCatalog(tools),
     };
     socket.emit(RemoteEnvEvents.ToolsRegister, payload);
@@ -280,12 +333,19 @@ async function runToolCall(
  * commands are routed to `handlers`, and the returned client is used to stream
  * results back.
  */
+/** How a socket is opened; defaults to socket.io's `io`. A test seam. */
+export type SocketFactory = (
+  uri: string,
+  opts: Partial<ManagerOptions & SocketOptions>,
+) => Socket;
+
 export function connectRemoteEnvironment(
   options: ConnectRemoteEnvironmentOptions,
+  openSocket: SocketFactory = io,
 ): RemoteEnvironmentClient {
   const handlers = withDefaultHandlers(options.handlers ?? {});
   const { uri, opts } = buildRemoteEnvConnectArgs(options);
-  const socket = io(uri, opts);
+  const socket = openSocket(uri, opts);
 
   registerCommandHandlers(socket, handlers);
   registerToolHost(socket, options.tools, options.sessionId);
@@ -331,6 +391,67 @@ export function connectRemoteEnvironment(
           );
       });
     },
+    addResource(sessionId, agentId, input) {
+      const request: RemoteResourceAddRequest = { sessionId, agentId, input };
+      return new Promise<Resource>((resolve, reject) => {
+        socket
+          .timeout(RESOURCE_TIMEOUT_MS)
+          .emit(
+            RemoteEnvEvents.ResourceAdd,
+            request,
+            (err: Error | null, response: RemoteResourceAddResponse) => {
+              if (err) return reject(err);
+              if (!response.ok || !response.resource) {
+                return reject(
+                  new Error(response.error ?? "Resource add failed."),
+                );
+              }
+              resolve(response.resource);
+            },
+          );
+      });
+    },
+    listResources(sessionId) {
+      const request: RemoteResourceListRequest = { sessionId };
+      return new Promise<Resource[]>((resolve, reject) => {
+        socket
+          .timeout(RESOURCE_TIMEOUT_MS)
+          .emit(
+            RemoteEnvEvents.ResourceList,
+            request,
+            (err: Error | null, response: RemoteResourceListResponse) => {
+              if (err) return reject(err);
+              resolve(response.resources);
+            },
+          );
+      });
+    },
+    readResource(sessionId, uri) {
+      const request: RemoteResourceReadRequest = { sessionId, uri };
+      return new Promise<{ content: string; contentType: string }>(
+        (resolve, reject) => {
+          socket
+            .timeout(RESOURCE_TIMEOUT_MS)
+            .emit(
+              RemoteEnvEvents.ResourceRead,
+              request,
+              (err: Error | null, response: RemoteResourceReadResponse) => {
+                if (err) return reject(err);
+                if (!response.ok || response.content === undefined) {
+                  return reject(
+                    new Error(response.error ?? "Resource read failed."),
+                  );
+                }
+                resolve({
+                  content: response.content,
+                  contentType:
+                    response.contentType ?? "application/octet-stream",
+                });
+              },
+            );
+        },
+      );
+    },
     disconnect() {
       socket.disconnect();
     },
@@ -341,6 +462,7 @@ export type {
   RemoteAgentEvent,
   RemoteKillCommand,
   RemoteMessageCommand,
+  RemoteResourceInput,
   RemoteSpawnCommand,
   RemoteToolCallRequest,
   RemoteToolCallResponse,

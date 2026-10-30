@@ -345,6 +345,60 @@ test("a tab going terminal discards what was queued for it", async () => {
   ]);
 });
 
+test("an agent-scoped poll sees only its own work, leaving the rest queued", async () => {
+  const h = makeHarness();
+  const a = await h.gateway.register("s1", { name: "a" });
+  const b = await h.gateway.register("s1", { name: "b" });
+  h.gateway.deliver("s1", a.id, "for a");
+  h.gateway.deliver("s1", b.id, "for b");
+
+  assert.deepEqual(await h.gateway.takeDeliveries("s1", 5, { agentId: b.id }), [
+    { agentId: b.id, text: "for b" },
+  ]);
+  assert.deepEqual(await h.gateway.takeDeliveries("s1", 5, { agentId: a.id }), [
+    { agentId: a.id, text: "for a" },
+  ]);
+});
+
+test("a stale agent's directive is never handed to a fresh agent's poll", async () => {
+  const h = makeHarness();
+  const old = await h.gateway.register("s1", { name: "old" });
+  h.gateway.deliver("s1", old.id, "old work");
+
+  // The old tab is killed, then a fresh one joins the same session.
+  h.gateway.setStatus("s1", old.id, "killed");
+  const fresh = await h.gateway.register("s1", { name: "fresh" });
+
+  assert.deepEqual(
+    await h.gateway.takeDeliveries("s1", 5, { agentId: fresh.id }),
+    [],
+  );
+});
+
+test("a killed agent's parked poll is woken empty, not left to time out", async () => {
+  const h = makeHarness();
+  const { id } = await h.gateway.register("s1", { name: "worker" });
+
+  const parked = h.gateway.takeDeliveries("s1", 5_000, { agentId: id });
+  h.gateway.setStatus("s1", id, "killed");
+
+  assert.deepEqual(await parked, []);
+});
+
+test("an aborted poll resolves empty and frees its waiter", async () => {
+  const h = makeHarness();
+  const { id } = await h.gateway.register("s1", { name: "worker" });
+  const controller = new AbortController();
+
+  const parked = h.gateway.takeDeliveries("s1", 5_000, {
+    agentId: id,
+    signal: controller.signal,
+  });
+  controller.abort();
+
+  assert.deepEqual(await parked, []);
+});
+
 test("listSubagents is scoped per session", async () => {
   const h = makeHarness();
   const a = await h.gateway.register("s1", { name: "one" });

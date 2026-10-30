@@ -12,6 +12,25 @@ import {
 } from "@tangent/shared/contracts.ts";
 
 /**
+ * Folds an {@link UpdateSessionRequest} over the stored session, leaving an
+ * omitted field untouched. Shared by both store implementations so the merge
+ * rules (and their `tags` handling) live in one place.
+ */
+export function applySessionUpdate(
+  existing: Session,
+  input: UpdateSessionRequest,
+): Session {
+  return {
+    ...existing,
+    name: input.name?.trim() || existing.name,
+    archived: input.archived ?? existing.archived,
+    accessPolicy: input.accessPolicy ?? existing.accessPolicy,
+    tags: input.tags ?? existing.tags,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Persisted lifecycle status of a session agent — the same set as the wire
  * {@link SubagentStatus}, deliberately. Nothing is collapsed on the way to the
  * database any more: "finished its task" and "was terminated" are different
@@ -34,6 +53,8 @@ export interface CreateSessionParams {
    * {@link Session}.
    */
   env?: Record<string, string>;
+  /** Selector tags (e.g. `projectId:<GUID>`) to route selector-scoped hosts. */
+  tags?: string[];
 }
 
 /**
@@ -134,6 +155,12 @@ export interface SessionStore {
    * wire {@link Session}.
    */
   getSessionEnv(id: string): Promise<Record<string, string> | undefined>;
+  /**
+   * A session's selector tags, read synchronously so the remote gateway's
+   * hot-path routing can match a selector-scoped host without awaiting. Returns
+   * an empty array for an unknown session or one with no tags.
+   */
+  selectorsOf(id: string): string[];
   deleteSession(id: string): Promise<boolean>;
 
   getMessages(sessionId: string): Promise<ChatMessage[]>;
@@ -194,6 +221,15 @@ export interface SessionStore {
    * alone.
    */
   detachActiveSubagents(): Promise<number>;
+  /**
+   * Resyncs every agent row's presence from its status, returning how many
+   * changed. Corrects rows persisted before terminal statuses stopped reading as
+   * `connected`: a `completed` / `killed` / `error`ed agent kept for its
+   * transcript attributions must no longer show as present. Run at boot, after
+   * {@link detachActiveSubagents}, so an active-but-dead row has already been
+   * detached before its presence is reconciled.
+   */
+  syncAgentPresence(): Promise<number>;
   /**
    * Every sub-agent row hosted by one remote environment, across sessions, so a
    * reconnecting environment can have its roster replayed. Rows written before

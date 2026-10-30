@@ -14,6 +14,7 @@
 import type {
   AgentActivity,
   ChatMessage,
+  HostResourceInput,
   MessageDelivery,
   Resource,
   RunId,
@@ -36,6 +37,12 @@ export const REMOTE_ENV_NAMESPACE = "/remote-env";
 export interface RemoteEnvHandshake {
   environmentId: string;
   token: string;
+  /**
+   * Generic, extensible host metadata (e.g. `windowName`, `workspacePath`,
+   * `editor`) the environment advertises in the Socket.IO `auth` payload. Free
+   * string->string pairs so new keys need no contract change.
+   */
+  metadata?: Record<string, string>;
 }
 
 /**
@@ -62,6 +69,12 @@ export const RemoteEnvEvents = {
   ToolsRegister: "remote:tools:register",
   /** server -> remote (ack): invoke one registered tool and await its result. */
   ToolsCall: "remote:tools:call",
+  /** remote -> server (ack): add a resource (file/blob/memory) to the session. */
+  ResourceAdd: "remote:resource:add",
+  /** remote -> server (ack): list the session's catalogued resources. */
+  ResourceList: "remote:resource:list",
+  /** remote -> server (ack): read a session resource's bytes by uri. */
+  ResourceRead: "remote:resource:read",
 } as const;
 
 export type RemoteEnvEvent =
@@ -208,7 +221,12 @@ export interface RemoteToolDef {
  * and an empty `tools` clears it. Disconnecting drops it entirely.
  */
 export interface RemoteToolsRegisterPayload {
-  sessionId: string;
+  /**
+   * The session this catalog is for, on a session-scoped host. Omitted by a
+   * user- or selector-scoped host, which is not bound to a single session; the
+   * gateway keys the catalog by the socket's environment instead.
+   */
+  sessionId?: string;
   tools: RemoteToolDef[];
 }
 
@@ -233,5 +251,62 @@ export interface RemoteToolCallRequest {
 export interface RemoteToolCallResponse {
   ok: boolean;
   result?: unknown;
+  error?: string;
+}
+
+/**
+ * A resource a remote environment contributes to the session. Reuses the embed
+ * host's {@link HostResourceInput} so a `file` write (bytes under `uploads/`,
+ * binary rides base64 in `content`), a `host` entry, or a `memory` write all
+ * flow through the same server catalog path the HTTP route uses.
+ */
+export type RemoteResourceInput = HostResourceInput;
+
+/**
+ * remote -> server (ack request): add a resource to `sessionId`. `agentId` names
+ * the remote sub-agent that produced it, so the server can attribute authorship.
+ */
+export interface RemoteResourceAddRequest {
+  sessionId: string;
+  agentId: string;
+  input: RemoteResourceInput;
+}
+
+/**
+ * remote -> server (ack response): the stored resource, or an error when the
+ * write was rejected (an unauthorized session, an oversized blob, a bad path).
+ */
+export interface RemoteResourceAddResponse {
+  ok: boolean;
+  resource?: Resource;
+  error?: string;
+}
+
+/** remote -> server (ack request): list the session's catalogued resources. */
+export interface RemoteResourceListRequest {
+  sessionId: string;
+}
+
+/** remote -> server (ack response): every catalogued resource in the session. */
+export interface RemoteResourceListResponse {
+  resources: Resource[];
+}
+
+/** remote -> server (ack request): read one session resource's bytes by uri. */
+export interface RemoteResourceReadRequest {
+  sessionId: string;
+  /** Session-root-relative uri, e.g. `uploads/report.csv` or `artifacts/x.png`. */
+  uri: string;
+}
+
+/**
+ * remote -> server (ack response): the resource's bytes as base64, with its
+ * derived `contentType`; `ok` is false with an `error` when the uri is
+ * unauthorized, escapes the session root, is too large, or does not exist.
+ */
+export interface RemoteResourceReadResponse {
+  ok: boolean;
+  content?: string;
+  contentType?: string;
   error?: string;
 }

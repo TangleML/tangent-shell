@@ -33,6 +33,8 @@ import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
+import { createAttachRouter } from "./routes/attach.ts";
+import { createConfigRouter } from "./routes/config.ts";
 import { createEmbedRouter } from "./routes/embed.ts";
 import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
@@ -103,6 +105,15 @@ const io = new SocketIOServer(httpServer, {
   // an empty allowlist reflects any origin to ease direct local connections;
   // set EMBED_ALLOWED_ORIGINS to pin the handshake to embed hosts.
   cors: { origin: EMBED_ALLOWED_ORIGINS.length ? EMBED_ALLOWED_ORIGINS : true },
+  // Admit a remote environment's resource add/read payload: a `file` blob at its
+  // 1 MiB cap plus the base64 inflation and envelope. Sized like the /api JSON
+  // body limit for the same reason.
+  maxHttpBufferSize: MAX_JSON_BODY_BYTES,
+  // Reap a dead host (crashed VS Code window, dropped network) faster than the
+  // ~45s default so a stale remote environment leaves the roster promptly, while
+  // still tolerating a slow link.
+  pingInterval: 20_000,
+  pingTimeout: 10_000,
 });
 
 // Owns the agents' global + per-session memory stores.
@@ -238,9 +249,19 @@ const agentHandlers: ConversationEventSink = {
 // No participant outlives the server, so every sub-agent row still claiming to
 // be live is stale. Marking them `detached` here is what keeps the sessions list
 // from counting agents that no longer exist; a revive moves them back.
-void store.detachActiveSubagents().then((detached) => {
-  if (detached > 0) console.log(`[agents] detached ${detached} stale row(s)`);
-});
+void store
+  .detachActiveSubagents()
+  .then(async (detached) => {
+    if (detached > 0) console.log(`[agents] detached ${detached} stale row(s)`);
+    // Correct rows whose presence predates terminal statuses reading as gone, so
+    // a killed/completed agent kept for its transcript no longer shows present.
+    const resynced = await store.syncAgentPresence();
+    if (resynced > 0)
+      console.log(`[agents] resynced presence on ${resynced} row(s)`);
+  })
+  .catch((err: unknown) => {
+    console.error("[agents] startup roster reconciliation failed", err);
+  });
 
 // The manager runs a roster of Pi processes per session (Prime + sub-agents);
 // their streaming events and roster changes are relayed to the matching
@@ -264,6 +285,14 @@ const remoteGateway = new RemoteEnvironmentGateway(
 // A remote room read naming a Conversation + Participant is projected through
 // its Membership's visibility, the same as the internal `read_room` path.
 remoteGateway.useContextProjection(contextEngine, memberships);
+// A remote resource add/list/read uses the same catalog write path, preamble
+// refresher, and room notifier the HTTP resource routes hold.
+remoteGateway.useResources({
+  seed: { store, memory, catalog: resourceCatalog },
+  catalog: resourceCatalog,
+  hostPreamble: hostResourcePreamble,
+  emitResourcesUpdated,
+});
 
 // Generic MCP relay: bridges an external MCP client (dialed by a gateway) back
 // into a session. A connector opens a channel for the participant it registers;
@@ -390,6 +419,7 @@ app.use(
       correlations,
       context: contextEngine,
     },
+    remoteGateway,
   ),
 );
 app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
@@ -399,6 +429,8 @@ app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter());
+// Public, non-sensitive client config (e.g. the shell's public base URL).
+app.use("/api/config", createConfigRouter());
 app.use(
   "/api/embed",
   createEmbedRouter(
@@ -408,6 +440,18 @@ app.use(
     async (sessionId, email) =>
       (await participantService.membershipsOf(sessionId, email)).length > 0,
   ),
+);
+// Public, self-service API an attach bridge drives to join a locally-run ACP
+// agent into a session as an external-inbound sub-agent. Authorized by the
+// session-scoped remote-env token minted at /api/embed/remote-env-token.
+app.use(
+  "/api/attach",
+  createAttachRouter(externalGateway, store, connectors, conversations, {
+    seed: { store, memory, catalog: resourceCatalog },
+    catalog: resourceCatalog,
+    hostPreamble: hostResourcePreamble,
+    emitResourcesUpdated,
+  }),
 );
 // Internal API for the orchestrator extension running inside each Pi process.
 app.use(

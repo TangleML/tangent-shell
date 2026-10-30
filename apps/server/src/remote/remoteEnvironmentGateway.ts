@@ -3,11 +3,15 @@ import path from "node:path";
 
 import {
   connectorFor,
+  type EnvironmentUpdatePayload,
   isTerminalStatus,
   type MessageDelivery,
+  type RemoteEnvironmentInfo,
   RESTORABLE_STATUSES,
   type RunId,
   type RunIngress,
+  type Session,
+  SocketEvents,
   type SubagentInfo,
   type SubagentStatus,
 } from "@tangent/shared/contracts.ts";
@@ -19,6 +23,12 @@ import {
   type RemoteEnvHandshake,
   type RemoteKillCommand,
   type RemoteMessageCommand,
+  type RemoteResourceAddRequest,
+  type RemoteResourceAddResponse,
+  type RemoteResourceListRequest,
+  type RemoteResourceListResponse,
+  type RemoteResourceReadRequest,
+  type RemoteResourceReadResponse,
   type RemoteRoomReadRequest,
   type RemoteRoomReadResponse,
   type RemoteSpawnCommand,
@@ -38,8 +48,15 @@ import {
   type ScopedTokenCredential,
 } from "../connectors/credentials.ts";
 import { ContextEngine, projectRoom } from "../conversation/context.ts";
+import {
+  applyResourceInput,
+  readSessionResourceFile,
+  type ResourceSeedDeps,
+} from "../conversation/hostResources.ts";
 import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import { orchestratorIdentity } from "../conversation/participantRegistry.ts";
+import type { ResourceCatalog } from "../conversation/resourceCatalog.ts";
+import { catalogWorkspaceFiles } from "../conversation/workspaceFiles.ts";
 import {
   parseThinkingLevel,
   type ResolvedSessionConfig,
@@ -47,6 +64,7 @@ import {
   type SubagentSpawnRequest,
 } from "../pi/agentConfig.ts";
 import { loadInstalledConfig } from "../pi/config/bundleLoader.ts";
+import type { HostResourcePreamble } from "../pi/hostResourcePreamble.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
@@ -58,6 +76,39 @@ const MAX_ROOM_LIMIT = 200;
 
 /** How long a remote tool call waits for the environment's ack before failing. */
 const TOOL_CALL_TIMEOUT_MS = 30_000;
+
+/** How often the defensive sweep reaps environments whose socket is gone. */
+const ENV_SWEEP_INTERVAL_MS = 20_000;
+
+/** Defensive caps on the free-form handshake metadata an environment advertises. */
+const MAX_METADATA_ENTRIES = 16;
+const MAX_METADATA_KEY_LENGTH = 64;
+const MAX_METADATA_VALUE_LENGTH = 1024;
+
+/**
+ * How long an environment may go without a received packet or heartbeat before
+ * it is treated as dead. Must exceed `pingInterval + pingTimeout` so a healthy
+ * but idle host (whose pong lands every ping cycle) is never falsely reaped.
+ */
+const ENV_IDLE_TTL_MS = 60_000;
+
+/** A human-readable message for a thrown value. */
+function errorMessageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * What the gateway needs to serve resource add/list/read: the catalog write path
+ * (the same {@link ResourceSeedDeps} the HTTP route uses), the spawn-preamble
+ * refresher, and the room notifier. Wired after construction via {@link
+ * RemoteEnvironmentGateway.useResources}.
+ */
+export interface ResourceGatewayDeps {
+  seed: ResourceSeedDeps;
+  catalog: ResourceCatalog;
+  hostPreamble: HostResourcePreamble;
+  emitResourcesUpdated: (sessionId: string) => void;
+}
 
 /** One message to deliver to one remote sub-agent. */
 export interface RemoteSendOptions {
@@ -73,24 +124,48 @@ export interface RemoteSendOptions {
   audienceParticipantId?: string;
 }
 
-/** A connected remote environment and its live Socket.IO connection. */
+/**
+ * A connected remote environment and its live Socket.IO connection.
+ *
+ * Its scope is one of four kinds, classified by the scoped token's claims:
+ * unscoped (no `sub`, a shared-secret dev host), session-scoped (`sub` +
+ * `sessionId`, a browser embed), user-scoped (`sub`, no `sessionId`/`selector`,
+ * serves every session its `sub` prompts in), and selector-scoped (`sub` +
+ * `selector`, serves every session whose tags include the selector).
+ */
 interface RemoteEnvConnection {
   environmentId: string;
   /** Set when the environment authenticated with a scoped per-session token. */
   sessionId?: string;
+  /** A session selector this host serves (e.g. `projectId:<GUID>`), when set. */
+  selector?: string;
   /** The human this environment belongs to (scoped token `sub`), when scoped. */
   sub?: string;
+  /** Generic, extensible metadata the host advertised on connect. */
+  metadata?: Record<string, string>;
   socket: Socket;
   /** The RPC tools this environment currently offers, keyed by tool name. */
   tools: Map<string, RemoteToolDef>;
   /** Monotonic connection order, so the most recent of a person's hosts wins. */
   seq: number;
+  /**
+   * When the far end last proved it was alive — bumped on every received packet
+   * and heartbeat (pong). A half-open socket stops producing these while still
+   * reporting `connected`, so idle past the TTL is the only reliable "dead" tell.
+   */
+  lastSeenAt: number;
 }
 
 /** Looks up a session's installed bundle config for remote spawn resolution. */
 export type SessionConfigLookup = (
   sessionId: string,
 ) => ResolvedSessionConfig | undefined;
+
+/** True when `email` holds a Membership in `sessionId` — the gate chat/mint use. */
+export type SessionMemberCheck = (
+  sessionId: string,
+  email: string,
+) => Promise<boolean>;
 
 /** Re-resolves the session's installed bundle, or `undefined` for a plain session. */
 function loadSessionBundleConfig(
@@ -114,6 +189,33 @@ function socketDataString(socket: Socket, key: string): string | undefined {
   return value;
 }
 
+/** Whether a metadata entry is a non-empty-keyed string within the length caps. */
+function isMetadataPair(pair: [string, unknown]): pair is [string, string] {
+  const [key, entry] = pair;
+  if (!key || key.length > MAX_METADATA_KEY_LENGTH) return false;
+  return typeof entry === "string" && entry.length <= MAX_METADATA_VALUE_LENGTH;
+}
+
+/**
+ * Keeps only the string->string pairs of an advertised metadata bag, within
+ * defensive caps on entry count and key/value length. Returns `undefined` when
+ * nothing valid survives, so an absent or malformed bag is simply dropped.
+ */
+function readMetadata(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const pairs = Object.entries(value)
+    .filter(isMetadataPair)
+    .slice(0, MAX_METADATA_ENTRIES);
+  return pairs.length > 0 ? Object.fromEntries(pairs) : undefined;
+}
+
+/** Reads the validated metadata bag stored on `socket.data`, or `undefined`. */
+function socketDataMetadata(
+  socket: Socket,
+): Record<string, string> | undefined {
+  return readMetadata(socket.data.metadata);
+}
+
 /** A sub-agent hosted in a remote environment, tracked in the gateway roster. */
 interface RemoteSubagent {
   agentId: string;
@@ -129,6 +231,14 @@ interface RemoteSubagent {
   environmentId: string;
   /** Whether finalized replies auto-relay back to Prime. */
   autoRelayToPrime: boolean;
+}
+
+/** Whether `sub` owns `session` or it is open to anyone — the mint gate, minus
+ * the async membership check its one caller layers on top. */
+function ownsOrOpen(session: Session, sub: string): boolean {
+  if (session.accessPolicy === "open") return true;
+  const owner = session.user?.email;
+  return !owner || owner === sub;
 }
 
 /** Clamps a requested room-read limit to the allowed range. */
@@ -184,6 +294,12 @@ export class RemoteEnvironmentGateway {
    * read naming a Conversation + Participant is projected through its policy. */
   private context?: ContextEngine;
   private memberships?: MembershipRegistry;
+  /** Wired after construction: whether a human holds a Membership in a session,
+   * used to authorize a user-scoped host's reads of a restricted session. */
+  private isSessionMember?: SessionMemberCheck;
+  /** Wired after construction: the resource catalog write/read/notify path a
+   * remote resource add/list/read uses. Absent until {@link useResources}. */
+  private resources?: ResourceGatewayDeps;
 
   /** Connected environments, keyed by `environmentId`. */
   private readonly environments = new Map<string, RemoteEnvConnection>();
@@ -212,6 +328,12 @@ export class RemoteEnvironmentGateway {
     this.scoped = scoped;
     this.sessionConfig = sessionConfig;
     this.setupNamespace();
+    // Defensive reaper for a socket whose `disconnect` never fired; unref'd so it
+    // never keeps the process alive.
+    setInterval(
+      () => this.evictDisconnected(),
+      ENV_SWEEP_INTERVAL_MS,
+    ).unref?.();
   }
 
   /**
@@ -225,6 +347,25 @@ export class RemoteEnvironmentGateway {
   ): void {
     this.context = context;
     this.memberships = memberships;
+  }
+
+  /**
+   * Wires the session-membership check a user-scoped host's room read is
+   * authorized against. Separate from the constructor because the participant
+   * service that answers it is built after the gateway.
+   */
+  useSessionAuthorization(isSessionMember: SessionMemberCheck): void {
+    this.isSessionMember = isSessionMember;
+  }
+
+  /**
+   * Wires the resource catalog path a remote resource add/list/read uses — the
+   * same write deps, preamble refresher, and room notifier the HTTP resource
+   * routes hold. Separate from the constructor because the catalog and preamble
+   * are built after the gateway. Without it, the resource events ack an error.
+   */
+  useResources(resources: ResourceGatewayDeps): void {
+    this.resources = resources;
   }
 
   /** True when at least one remote environment is connected. */
@@ -245,6 +386,60 @@ export class RemoteEnvironmentGateway {
   }
 
   /**
+   * The connected environments `sessionId` can route to: its scoped hosts plus
+   * the unscoped dev hosts eligible for it, most recent first.
+   */
+  listEnvironments(sessionId: string): RemoteEnvironmentInfo[] {
+    const roster = [...(this.sessions.get(sessionId)?.values() ?? [])];
+    return [
+      ...this.scopedEnvironments(sessionId),
+      ...this.unscopedEnvironmentsFor(sessionId),
+    ]
+      .sort((a, b) => b.seq - a.seq)
+      .map((environment) => this.toEnvironmentInfo(environment, roster));
+  }
+
+  /**
+   * The connected environments the prompting human can spawn into or inspect:
+   * that person's own hosts (the unscoped dev host only when the session has no
+   * scoped host at all), most recent first. Distinct from {@link
+   * listEnvironments}, the web UI's session-wide view — this is the Prime-facing
+   * view, scoped to whoever's turn is asking, so Prime chooses among their hosts.
+   */
+  listEnvironmentsFor(
+    sessionId: string,
+    audienceId: string | undefined,
+  ): RemoteEnvironmentInfo[] {
+    const target = this.toolEnvironments(sessionId, audienceId);
+    if (typeof target === "string") return [];
+    const roster = [...(this.sessions.get(sessionId)?.values() ?? [])];
+    return [...target]
+      .sort((a, b) => b.seq - a.seq)
+      .map((environment) => this.toEnvironmentInfo(environment, roster));
+  }
+
+  /** Projects a connected environment onto the wire {@link RemoteEnvironmentInfo}. */
+  private toEnvironmentInfo(
+    environment: RemoteEnvConnection,
+    roster: RemoteSubagent[],
+  ): RemoteEnvironmentInfo {
+    return {
+      environmentId: environment.environmentId,
+      sessionId: environment.sessionId,
+      selector: environment.selector,
+      owner: environment.sub,
+      scoped: Boolean(environment.sub),
+      toolCount: environment.tools.size,
+      subagentCount: roster.filter(
+        (subagent) =>
+          subagent.environmentId === environment.environmentId &&
+          !isTerminalStatus(subagent.status),
+      ).length,
+      ...(environment.metadata ? { metadata: environment.metadata } : {}),
+    };
+  }
+
+  /**
    * Spawns a sub-agent on a connected remote environment. Resolves the
    * effective config from the session's installed bundle templates/defaults
    * (falling back to the global templates), records the roster entry, and emits
@@ -259,8 +454,8 @@ export class RemoteEnvironmentGateway {
     const environment = this.spawnEnvironment(
       sessionId,
       request.audienceParticipantId,
+      request.environmentId,
     );
-
     const agentId = randomUUID();
     const homeConversationId = randomUUID();
     const sessionConfig = this.sessionConfig(sessionId);
@@ -304,6 +499,7 @@ export class RemoteEnvironmentGateway {
 
     const info = toInfo(subagent);
     this.handlers.onSubagentUpdate(sessionId, info);
+    this.emitEnvironmentsChanged(sessionId);
     return {
       info,
       tools,
@@ -342,6 +538,27 @@ export class RemoteEnvironmentGateway {
     };
     environment.socket.emit(RemoteEnvEvents.Message, command);
     return true;
+  }
+
+  /**
+   * Whether a human may send a directed message to this remote sub-agent. A
+   * local agent is a live window into its owner's machine, so only the person
+   * who connected the hosting environment (`environment.sub`) may steer it.
+   *
+   * Returns `true` for cases the owner gate does not govern: a sub-agent whose
+   * environment is gone (left to {@link sendToAgent}'s detached handling), an
+   * unscoped dev host (no owner), and an agent-originated delivery (no
+   * `audienceParticipantId`, e.g. Prime's own orchestration).
+   */
+  canDirectSubagent(
+    sessionId: string,
+    agentId: string,
+    audienceParticipantId?: string,
+  ): boolean {
+    const environment = this.environmentFor(sessionId, agentId);
+    if (!environment?.sub) return true;
+    if (!audienceParticipantId) return true;
+    return audienceParticipantId === environment.sub;
   }
 
   /**
@@ -412,6 +629,13 @@ export class RemoteEnvironmentGateway {
       completed,
     } satisfies RemoteKillCommand);
     this.handlers.onSubagentUpdate(sessionId, toInfo(subagent));
+    this.emitEnvironmentsChanged(sessionId);
+  }
+
+  /** Tells every client that the connected environments changed. */
+  private emitEnvironmentsChanged(sessionId?: string): void {
+    const payload: EnvironmentUpdatePayload = sessionId ? { sessionId } : {};
+    this.io.emit(SocketEvents.EnvironmentUpdate, payload);
   }
 
   /** Emits an event to a specific environment's socket, if still connected. */
@@ -423,10 +647,20 @@ export class RemoteEnvironmentGateway {
     this.environments.get(environmentId)?.socket.emit(event, payload);
   }
 
-  /** Every scoped environment currently connected for `sessionId`. */
+  /**
+   * Every scoped environment eligible for `sessionId`: a browser embed bound to
+   * it, a user-scoped host (serves every session its `sub` prompts in), or a
+   * selector-scoped host whose selector is one of the session's tags. All carry
+   * a `sub`, so the audience owner-gate still decides whose prompts reach them.
+   */
   private scopedEnvironments(sessionId: string): RemoteEnvConnection[] {
+    const selectors = this.store.selectorsOf(sessionId);
     return [...this.environments.values()].filter(
-      (environment) => environment.sessionId === sessionId,
+      (e) =>
+        Boolean(e.sub) &&
+        (e.sessionId === sessionId ||
+          (!e.sessionId && !e.selector) ||
+          (e.selector !== undefined && selectors.includes(e.selector))),
     );
   }
 
@@ -453,9 +687,7 @@ export class RemoteEnvironmentGateway {
    * global list can no longer misroute across sessions.
    */
   private unscopedEnvironmentsFor(sessionId: string): RemoteEnvConnection[] {
-    const unscoped = [...this.environments.values()].filter(
-      (e) => !e.sessionId,
-    );
+    const unscoped = [...this.environments.values()].filter((e) => !e.sub);
     const mine = unscoped.filter(
       (e) => this.unscopedSessionOf(e.environmentId) === sessionId,
     );
@@ -500,19 +732,37 @@ export class RemoteEnvironmentGateway {
   }
 
   /**
-   * The environment a remote sub-agent spawns into: the prompting person's most
-   * recent host, resolved through the same fail-closed rules a tool call uses.
-   * Throws rather than landing the spawn in another viewer's environment.
+   * The environment a remote sub-agent spawns into, resolved through the same
+   * fail-closed rules a tool call uses. With `environmentId`, it targets that
+   * specific host from the prompting person's eligible set, throwing a message
+   * that names the valid hosts when it is unknown or ineligible so Prime can
+   * self-correct. Without it, the prompting person's most recent host. Throws
+   * rather than landing the spawn in another viewer's environment.
    */
   private spawnEnvironment(
     sessionId: string,
     audienceId: string | undefined,
+    environmentId?: string,
   ): RemoteEnvConnection {
     const target = this.toolEnvironments(sessionId, audienceId);
     if (typeof target === "string") throw new Error(target);
+    if (environmentId) return this.pickEnvironment(target, environmentId);
     const environment = this.mostRecent(target);
     if (!environment) throw new Error("No remote environment is connected.");
     return environment;
+  }
+
+  /** Selects `environmentId` from the eligible set, or throws naming the valid ids. */
+  private pickEnvironment(
+    target: RemoteEnvConnection[],
+    environmentId: string,
+  ): RemoteEnvConnection {
+    const environment = target.find((e) => e.environmentId === environmentId);
+    if (environment) return environment;
+    const valid = target.map((e) => e.environmentId).join(", ");
+    throw new Error(
+      `Unknown or ineligible environmentId "${environmentId}". Valid hosts: ${valid || "none"}.`,
+    );
   }
 
   /**
@@ -578,11 +828,14 @@ export class RemoteEnvironmentGateway {
   /** Rejects connections lacking a valid token / environment id. */
   private authenticate(socket: Socket, next: (err?: Error) => void): void {
     const auth = socket.handshake.auth as Partial<RemoteEnvHandshake>;
+    const metadata = readMetadata(auth.metadata);
     const scoped = this.scoped.parse(auth.token);
     if (scoped) {
       socket.data.environmentId = scoped.environmentId;
       socket.data.sessionId = scoped.sessionId;
+      socket.data.selector = scoped.selector;
       socket.data.sub = scoped.sub;
+      socket.data.metadata = metadata;
       next();
       return;
     }
@@ -595,6 +848,7 @@ export class RemoteEnvironmentGateway {
       return;
     }
     socket.data.environmentId = auth.environmentId;
+    socket.data.metadata = metadata;
     next();
   }
 
@@ -603,57 +857,101 @@ export class RemoteEnvironmentGateway {
     const environmentId = socketDataString(socket, "environmentId");
     if (!environmentId) return;
     const sessionId = socketDataString(socket, "sessionId");
+    const selector = socketDataString(socket, "selector");
     const sub = socketDataString(socket, "sub");
+    const metadata = socketDataMetadata(socket);
 
-    this.environments.set(environmentId, {
+    const connection: RemoteEnvConnection = {
       environmentId,
       sessionId,
+      selector,
       sub,
+      metadata,
       socket,
       tools: new Map(),
       seq: ++this.connectSeq,
-    });
+      lastSeenAt: Date.now(),
+    };
+    this.environments.set(environmentId, connection);
     if (sub) this.environmentOwners.set(environmentId, sub);
     console.log(
-      `[remote-env] connected: ${environmentId} session=${sessionId ?? "unscoped"} socket=${socket.id}`,
+      `[remote-env] connected: ${environmentId} scope=${sessionId ?? selector ?? (sub ? "user" : "unscoped")} socket=${socket.id}`,
     );
 
-    this.wireInbound(socket, sessionId);
+    this.trackLiveness(connection);
+    this.wireInbound(socket, connection);
     socket.on("disconnect", () => this.onDisconnect(environmentId, socket));
 
     void this.replayRoster(environmentId);
   }
 
-  /** True when an unscoped env may speak for any session, or the ids match. */
+  /** True when a host may send a session-bound packet: a session-scoped host
+   * only for its own session, any other kind (unscoped, user-, selector-scoped)
+   * for any — those rely on the roster/ownership gate the handlers apply. */
   private acceptsSession(
     boundSessionId: string | undefined,
-    sessionId: string,
+    sessionId: string | undefined,
   ): boolean {
     if (!boundSessionId) return true;
     return boundSessionId === sessionId;
   }
 
+  /**
+   * Whether `connection` may read `sessionId`'s transcript. A session-scoped
+   * host only its own session; a selector-scoped host a session its selector
+   * tags; a user-scoped host a session its owner could mint for (open, owned, or
+   * joined) — the same gate the token mint enforces. An unscoped dev host (no
+   * `sub`, shared secret) may read any session. Unlike the report events, a room
+   * read has no roster entry to gate it, so this is the only check standing
+   * between a scoped host and another session's messages.
+   */
+  private async mayReadSession(
+    connection: RemoteEnvConnection,
+    sessionId: string,
+  ): Promise<boolean> {
+    if (!connection.sub) return true;
+    if (connection.sessionId) return connection.sessionId === sessionId;
+    if (connection.selector) {
+      return this.store.selectorsOf(sessionId).includes(connection.selector);
+    }
+    return this.userScopeMayAccess(connection.sub, sessionId);
+  }
+
+  /** Whether a user-scoped host's owner may reach `sessionId`: an open session,
+   * one they own, or one they hold a Membership in — mirroring the mint gate. */
+  private async userScopeMayAccess(
+    sub: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    const session = await this.store.getSession(sessionId);
+    if (!session) return false;
+    if (ownsOrOpen(session, sub)) return true;
+    if (!this.isSessionMember) return false;
+    return this.isSessionMember(sessionId, sub);
+  }
+
   /** Wires protocol listeners, dropping cross-session traffic on scoped envs. */
-  private wireInbound(socket: Socket, sessionId: string | undefined): void {
+  private wireInbound(socket: Socket, connection: RemoteEnvConnection): void {
+    const { environmentId, sessionId } = connection;
     socket.on(
       RemoteEnvEvents.AgentEvent,
       (payload: RemoteAgentEventPayload) => {
         if (!this.acceptsSession(sessionId, payload.sessionId)) return;
-        this.handleAgentEvent(payload);
+        this.handleAgentEvent(payload, environmentId);
       },
     );
     socket.on(
       RemoteEnvEvents.SubagentUpdate,
       (payload: RemoteSubagentUpdatePayload) => {
         if (!this.acceptsSession(sessionId, payload.sessionId)) return;
-        this.handleSubagentUpdate(payload);
+        this.handleSubagentUpdate(payload, environmentId);
       },
     );
     socket.on(
       RemoteEnvEvents.AgentMessage,
       (payload: RemoteAgentMessagePayload) => {
         if (!this.acceptsSession(sessionId, payload.sessionId)) return;
-        void this.handleAgentMessage(payload);
+        void this.handleAgentMessage(payload, environmentId);
       },
     );
     socket.on(
@@ -662,11 +960,7 @@ export class RemoteEnvironmentGateway {
         request: RemoteRoomReadRequest,
         callback: (response: RemoteRoomReadResponse) => void,
       ) => {
-        if (!this.acceptsSession(sessionId, request.sessionId)) {
-          callback({ messages: [] });
-          return;
-        }
-        void this.handleRoomRead(request, callback);
+        void this.authorizeRoomRead(connection, request, callback);
       },
     );
     socket.on(
@@ -676,6 +970,54 @@ export class RemoteEnvironmentGateway {
         this.handleToolsRegister(socket, payload);
       },
     );
+    this.wireResourceInbound(socket, connection);
+  }
+
+  /** Wires the ack-based resource add/list/read listeners onto the socket. */
+  private wireResourceInbound(
+    socket: Socket,
+    connection: RemoteEnvConnection,
+  ): void {
+    socket.on(
+      RemoteEnvEvents.ResourceAdd,
+      (
+        request: RemoteResourceAddRequest,
+        callback: (response: RemoteResourceAddResponse) => void,
+      ) => {
+        void this.handleResourceAdd(connection, request, callback);
+      },
+    );
+    socket.on(
+      RemoteEnvEvents.ResourceList,
+      (
+        request: RemoteResourceListRequest,
+        callback: (response: RemoteResourceListResponse) => void,
+      ) => {
+        void this.handleResourceList(connection, request, callback);
+      },
+    );
+    socket.on(
+      RemoteEnvEvents.ResourceRead,
+      (
+        request: RemoteResourceReadRequest,
+        callback: (response: RemoteResourceReadResponse) => void,
+      ) => {
+        void this.handleResourceRead(connection, request, callback);
+      },
+    );
+  }
+
+  /** Answers a room read only when the host is authorized for the session. */
+  private async authorizeRoomRead(
+    connection: RemoteEnvConnection,
+    request: RemoteRoomReadRequest,
+    callback: (response: RemoteRoomReadResponse) => void,
+  ): Promise<void> {
+    if (!(await this.mayReadSession(connection, request.sessionId))) {
+      callback({ messages: [] });
+      return;
+    }
+    await this.handleRoomRead(request, callback);
   }
 
   /** Records the catalog an environment declares, replacing any prior one. */
@@ -691,6 +1033,7 @@ export class RemoteEnvironmentGateway {
     console.log(
       `[remote-env] ${environmentId} registered ${environment.tools.size} tool(s)`,
     );
+    this.emitEnvironmentsChanged();
   }
 
   /**
@@ -792,6 +1135,7 @@ export class RemoteEnvironmentGateway {
       if (!RESTORABLE_STATUSES.includes(agent.status)) continue;
       this.reattach(agent.sessionId, agent);
     }
+    this.emitEnvironmentsChanged();
   }
 
   /**
@@ -799,9 +1143,12 @@ export class RemoteEnvironmentGateway {
    * Message there and fanned out from the sub-agent's own Conversation, so this
    * gateway no longer feeds Prime a second copy.
    */
-  private handleAgentEvent(payload: RemoteAgentEventPayload): void {
+  private handleAgentEvent(
+    payload: RemoteAgentEventPayload,
+    environmentId: string,
+  ): void {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
-    if (!subagent) return;
+    if (!subagent || subagent.environmentId !== environmentId) return;
     this.markAttached(payload.sessionId, subagent);
     this.handlers.onAgentEvent(
       payload.sessionId,
@@ -833,24 +1180,37 @@ export class RemoteEnvironmentGateway {
   }
 
   /** Applies a remote sub-agent's status change to the roster + chat layer. */
-  private handleSubagentUpdate(payload: RemoteSubagentUpdatePayload): void {
+  private handleSubagentUpdate(
+    payload: RemoteSubagentUpdatePayload,
+    environmentId: string,
+  ): void {
     const roster = this.sessions.get(payload.sessionId);
     const subagent = roster?.get(payload.agentId);
-    if (!roster || !subagent) return;
+    if (!roster || !subagent || subagent.environmentId !== environmentId)
+      return;
 
     subagent.status = payload.status;
     if (isTerminalStatus(payload.status)) {
-      roster.delete(payload.agentId);
-      // The agent reaching a terminal status is the closest thing the protocol
-      // has to a run-end marker: whatever it was working on is over either way.
-      this.runs.settleOpenFor(
-        payload.sessionId,
-        payload.agentId,
-        payload.status === "completed" ? "completed" : "failed",
-      );
-      this.clearActivity(payload.sessionId, subagent);
+      this.settleTerminalSubagent(roster, payload, subagent);
     }
     this.handlers.onSubagentUpdate(payload.sessionId, toInfo(subagent));
+  }
+
+  /** Retires a sub-agent that reached a terminal status: the closest thing the
+   * protocol has to a run-end marker, so whatever it was doing is now over. */
+  private settleTerminalSubagent(
+    roster: Map<string, RemoteSubagent>,
+    payload: RemoteSubagentUpdatePayload,
+    subagent: RemoteSubagent,
+  ): void {
+    roster.delete(payload.agentId);
+    this.runs.settleOpenFor(
+      payload.sessionId,
+      payload.agentId,
+      payload.status === "completed" ? "completed" : "failed",
+    );
+    this.clearActivity(payload.sessionId, subagent);
+    this.emitEnvironmentsChanged(payload.sessionId);
   }
 
   /**
@@ -861,9 +1221,10 @@ export class RemoteEnvironmentGateway {
    */
   private async handleAgentMessage(
     payload: RemoteAgentMessagePayload,
+    environmentId: string,
   ): Promise<void> {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
-    if (!subagent) return;
+    if (!subagent || subagent.environmentId !== environmentId) return;
     this.markAttached(payload.sessionId, subagent);
 
     this.handlers.onAgentMessage({
@@ -917,10 +1278,163 @@ export class RemoteEnvironmentGateway {
     callback({ messages: all.slice(-clampLimit(request.limit)) });
   }
 
-  /** Drops a disconnected environment and detaches its sub-agents. */
+  /**
+   * Whether `connection` may write resources into `sessionId`. Reuses the same
+   * identity/scope gate a room read passes, so a host can only contribute content
+   * to a session it is already authorized to read.
+   */
+  private mayWriteSession(
+    connection: RemoteEnvConnection,
+    sessionId: string,
+  ): Promise<boolean> {
+    return this.mayReadSession(connection, sessionId);
+  }
+
+  /**
+   * Adds a remote environment's resource to the session catalog via the same
+   * {@link applyResourceInput} path the HTTP route uses: a `file` input writes
+   * bytes under `uploads/`, a `host`/`memory` input catalogs its entry. Refreshes
+   * the spawn preamble and signals the room, then acks the stored resource.
+   */
+  private async handleResourceAdd(
+    connection: RemoteEnvConnection,
+    request: RemoteResourceAddRequest,
+    callback: (response: RemoteResourceAddResponse) => void,
+  ): Promise<void> {
+    if (!this.resources) {
+      callback({ ok: false, error: "Resource catalog is not available." });
+      return;
+    }
+    if (!(await this.mayWriteSession(connection, request.sessionId))) {
+      callback({ ok: false, error: "Not authorized for this session." });
+      return;
+    }
+    const rootPath = path.join(SESSIONS_ROOT, request.sessionId);
+    try {
+      const resource = await applyResourceInput(
+        this.resources.seed,
+        request.sessionId,
+        rootPath,
+        request.input,
+        connection.sub,
+      );
+      await this.resources.hostPreamble.refresh(request.sessionId);
+      this.resources.emitResourcesUpdated(request.sessionId);
+      callback({ ok: true, resource });
+    } catch (err) {
+      callback({ ok: false, error: errorMessageOf(err) });
+    }
+  }
+
+  /**
+   * Lists the session's catalogued resources for a read-authorized host. Scans
+   * the workspace first (scan-then-list) so a file an agent just wrote is
+   * reflected, matching the HTTP list path.
+   */
+  private async handleResourceList(
+    connection: RemoteEnvConnection,
+    request: RemoteResourceListRequest,
+    callback: (response: RemoteResourceListResponse) => void,
+  ): Promise<void> {
+    if (!this.resources) {
+      callback({ resources: [] });
+      return;
+    }
+    if (!(await this.mayReadSession(connection, request.sessionId))) {
+      callback({ resources: [] });
+      return;
+    }
+    const rootPath = path.join(SESSIONS_ROOT, request.sessionId);
+    await catalogWorkspaceFiles(this.resources.catalog, {
+      id: request.sessionId,
+      rootPath,
+    });
+    callback({
+      resources: await this.resources.catalog.listForSession(request.sessionId),
+    });
+  }
+
+  /**
+   * Reads one session resource's bytes for a read-authorized host, so an agent on
+   * another machine can fetch what a local agent contributed. The uri is resolved
+   * strictly inside the session root's `uploads/` or `artifacts/` subtree, and
+   * the payload is capped at {@link MAX_FILE_RESOURCE_BYTES}.
+   */
+  private async handleResourceRead(
+    connection: RemoteEnvConnection,
+    request: RemoteResourceReadRequest,
+    callback: (response: RemoteResourceReadResponse) => void,
+  ): Promise<void> {
+    if (!(await this.mayReadSession(connection, request.sessionId))) {
+      callback({ ok: false, error: "Not authorized for this session." });
+      return;
+    }
+    const rootPath = path.join(SESSIONS_ROOT, request.sessionId);
+    try {
+      const { content, contentType } = await readSessionResourceFile(
+        rootPath,
+        request.uri,
+      );
+      callback({ ok: true, content, contentType });
+    } catch (err) {
+      callback({ ok: false, error: errorMessageOf(err) });
+    }
+  }
+
+  /**
+   * Bumps {@link RemoteEnvConnection.lastSeenAt} on every packet and heartbeat
+   * the far end sends, so {@link evictDisconnected} can tell a live-but-idle host
+   * (whose pong keeps landing) from a half-open one that has gone silent. Reads
+   * the low-level engine socket defensively: a test double has no `conn`.
+   */
+  private trackLiveness(connection: RemoteEnvConnection): void {
+    const engine = (
+      connection.socket as unknown as {
+        conn?: { on?: (event: string, listener: () => void) => void };
+      }
+    ).conn;
+    if (!engine?.on) return;
+    const bump = (): void => {
+      connection.lastSeenAt = Date.now();
+    };
+    engine.on("packet", bump);
+    engine.on("heartbeat", bump);
+  }
+
+  /**
+   * Reaps dead environments: a socket already reporting gone (a missed or
+   * late `disconnect`), and a half-open one that still reports `connected` but
+   * has produced no packet or heartbeat within {@link ENV_IDLE_TTL_MS}. The
+   * normal path is {@link onDisconnect}; this catches what it missed so a dead
+   * host cannot linger in the roster with a green dot. Force-closing an idle
+   * socket fires `disconnect`, which drops it through the same path; an
+   * already-closed one is dropped here directly. Safe to mutate mid-iteration: a
+   * Map's iterator tolerates removing the current entry.
+   */
+  evictDisconnected(): void {
+    const now = Date.now();
+    for (const [environmentId, environment] of this.environments) {
+      if (environment.socket.connected) {
+        if (now - environment.lastSeenAt <= ENV_IDLE_TTL_MS) continue;
+        console.log(
+          `[remote-env] force-closing idle environment: ${environmentId}`,
+        );
+        environment.socket.disconnect(true);
+        continue;
+      }
+      console.log(`[remote-env] sweeping stale environment: ${environmentId}`);
+      this.dropEnvironment(environmentId);
+    }
+  }
+
+  /**
+   * Drops a disconnected environment and detaches its sub-agents. Skips a row the
+   * sweep already removed or a newer connection replaced, so a force-close
+   * followed by its own `disconnect` cannot drop the environment twice.
+   */
   private onDisconnect(environmentId: string, socket: Socket): void {
     const current = this.environments.get(environmentId);
-    if (current?.socket && current.socket !== socket) return;
+    if (!current || current.socket !== socket) return;
     this.dropEnvironment(environmentId);
   }
 
@@ -934,6 +1448,7 @@ export class RemoteEnvironmentGateway {
     console.log(
       `[remote-env] disconnected: ${environmentId} session=${dropped?.sessionId ?? "unscoped"} socket=${dropped?.socket.id}`,
     );
+    this.emitEnvironmentsChanged();
   }
 
   /**

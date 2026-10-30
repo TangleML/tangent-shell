@@ -50,6 +50,16 @@ export interface Participant {
   createdAt: string;
 }
 
+/**
+ * The {@link Presence} a roster agent's {@link SubagentStatus} reads as. Only a
+ * reachable runtime is `connected`; a `detached` far end and every terminal
+ * status (`completed` / `killed` / `error`) alike are gone, so none of them
+ * lingers in the roster as "connected".
+ */
+export function presenceForStatus(status: SubagentStatus): Presence {
+  return status === "active" ? "connected" : "detached";
+}
+
 /** Folds a roster row's agent-only facts into an {@link AgentPayload}. */
 function agentPayload(agent: SessionAgent): AgentPayload {
   return {
@@ -78,10 +88,10 @@ export function participantFromAgent(agent: SessionAgent): Participant {
     kind: "agent",
     displayName: agent.name,
     capabilities: agent.capabilities,
-    // Presence follows the roster's lifecycle: a detached tab (1.4) is a
-    // participant whose far end is gone, the same question a human's presence
-    // asks. Every other status is a runtime that is reachable.
-    presence: agent.status === "detached" ? "detached" : "connected",
+    // Presence follows the roster's lifecycle: a detached tab (1.4) or a
+    // terminal agent is a participant whose far end is gone, the same question a
+    // human's presence asks. Only an active status is a reachable runtime.
+    presence: presenceForStatus(agent.status),
     connector: agent.connector,
     agent: agentPayload(agent),
     createdAt: agent.createdAt,

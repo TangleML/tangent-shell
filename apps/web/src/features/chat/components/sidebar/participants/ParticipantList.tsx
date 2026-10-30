@@ -2,6 +2,7 @@ import type {
   ParticipantKind,
   ParticipantWithMemberships,
   Presence,
+  RemoteEnvironmentInfo,
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
 import { Icon, type IconName } from "@tangent/ui-primitives/icon";
@@ -14,10 +15,13 @@ import { ListRow } from "@/shared/ui/patterns/list-row";
 import { Pill } from "@/shared/ui/patterns/pill";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 
+import { EnvironmentRow } from "./EnvironmentRow";
 import { PresenceDot } from "./PresenceDot";
 
 interface ParticipantListProps {
   participants: ParticipantWithMemberships[];
+  /** Connected remote environments, listed read-only after the roster. */
+  environments?: RemoteEnvironmentInfo[];
   /**
    * The Conversation currently in view; a participant's mute toggle acts on its
    * Membership there. Muting is only meaningful for a member of this thread.
@@ -78,6 +82,7 @@ function rosterOrder(
  */
 export function ParticipantList({
   participants,
+  environments = [],
   activeConversationId,
   currentUserId,
   onToggleMute,
@@ -85,7 +90,7 @@ export function ParticipantList({
 }: ParticipantListProps) {
   const active = participants.filter((p) => !p.revokedAt).sort(rosterOrder);
 
-  if (active.length === 0) {
+  if (active.length === 0 && environments.length === 0) {
     return (
       <Box padding="base">
         <EmptyState
@@ -183,6 +188,12 @@ export function ParticipantList({
             </ListRow>
           );
         })}
+        {environments.map((environment) => (
+          <EnvironmentRow
+            key={environment.environmentId}
+            environment={environment}
+          />
+        ))}
       </BlockStack>
     </Box>
   );

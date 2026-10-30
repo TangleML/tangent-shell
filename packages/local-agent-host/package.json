@@ -1,0 +1,30 @@
+{
+  "name": "@tangent/local-agent-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./resources/*": "./resources/*",
+    "./*.ts": "./src/*.ts",
+    "./*": "./src/*.ts"
+  },
+  "prettier": "@tangent/build/prettier",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@tangent/remote-subagent": "workspace:*",
+    "@tangent/shared": "workspace:*",
+    "open": "^11.0.0"
+  },
+  "devDependencies": {
+    "@tangent/build": "workspace:*",
+    "@types/node": "^25.9.1",
+    "eslint": "^10.4.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}

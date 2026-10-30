@@ -43,8 +43,9 @@ export const PRIME_ORCHESTRATION_TOOLS = [
  * all agents since Pi's `--tools` filter would otherwise strip the extension's
  * tool from sub-agents. `pin_artifact` is registered by the session extension
  * for every agent, so it must be in the allowlist or Pi would filter it out.
- * `list_remote_tools` / `call_remote_tool` are registered by the remote-tools
- * extension for every agent, so both must be granted or Pi would strip them.
+ * `list_remote_tools` / `call_remote_tool` / `list_environments` are registered
+ * by the remote-tools extension for every agent, so all must be granted or Pi
+ * would strip them.
  */
 export const SHARED_AGENT_TOOLS = [
   "read_room",
@@ -53,6 +54,7 @@ export const SHARED_AGENT_TOOLS = [
   "pin_artifact",
   "list_remote_tools",
   "call_remote_tool",
+  "list_environments",
 ] as const;
 
 /**
@@ -189,6 +191,12 @@ export interface SubagentSpawnRequest {
    * does not land in another viewer's workarea. Ignored for a `local` sub-agent.
    */
   audienceParticipantId?: string;
+  /**
+   * The specific remote host to spawn into, from that person's connected
+   * environments. When omitted, the most recent host is used. Ignored for a
+   * `local` sub-agent.
+   */
+  environmentId?: string;
 }
 
 /** Narrows an arbitrary string to a valid {@link ThinkingLevel}, else undefined. */

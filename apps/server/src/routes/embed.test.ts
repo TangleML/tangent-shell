@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { DEFAULT_USER } from "@tangent/shared/contracts.ts";
 import type { Request, Response } from "express";
 
 import { ScopedTokenCredential } from "../connectors/credentials.ts";
@@ -59,20 +60,46 @@ function validatedRequest(
   return req;
 }
 
-test("minting a remote-env token requires an identity", async () => {
+/** A mint request with no `sessionId` — a user- or selector-scoped host. */
+function sessionlessRequest(email: string, selector?: string): Request {
+  const req = requestWithBearer(email) as Request & {
+    validated: { body: { selector?: string }; params: unknown; query: unknown };
+  };
+  req.validated = {
+    body: selector ? { selector } : {},
+    params: undefined,
+    query: undefined,
+  };
+  return req;
+}
+
+/** A credential-less request (no cookie, no bearer) carrying a validated body. */
+function anonymousRequest(body: Record<string, unknown>): Request {
+  return {
+    headers: {},
+    validated: { body, params: undefined, query: undefined },
+  } as unknown as Request;
+}
+
+test("an unauthenticated caller mints as the anonymous DEFAULT_USER", async () => {
   const store = new InMemorySessionStore();
+  const session = await store.createSession({ name: "Dev" });
   const scoped = new ScopedTokenCredential("signing-secret");
   const response = new TestResponse();
 
   await handleMintRemoteEnvToken(
     store,
     scoped,
-    { headers: {} } as Request,
+    anonymousRequest({ sessionId: session.id }),
     response as unknown as Response,
   );
 
-  assert.equal(response.statusCode, 401);
-  assert.deepEqual(response.body, { error: "Invalid or missing token" });
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { token: string };
+  const claims = scoped.parse(body.token);
+  assert.ok(claims);
+  assert.equal(claims.sessionId, session.id);
+  assert.equal(claims.sub, DEFAULT_USER.email);
 });
 
 test("minting a remote-env token 404s for an unknown session", async () => {
@@ -202,6 +229,69 @@ test("minting a remote-env token succeeds for a session with no user", async () 
   assert.equal(response.statusCode, 200);
   const body = response.body as { token: string };
   assert.ok(scoped.parse(body.token));
+});
+
+test("a selector mint authorizes on identity alone and carries no sessionId", async () => {
+  const store = new InMemorySessionStore();
+  const scoped = new ScopedTokenCredential("signing-secret");
+  const response = new TestResponse();
+
+  await handleMintRemoteEnvToken(
+    store,
+    scoped,
+    sessionlessRequest(USER.email, "projectId:abc"),
+    response as unknown as Response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { token: string };
+  const claims = scoped.parse(body.token);
+  assert.ok(claims);
+  assert.equal(claims.selector, "projectId:abc");
+  assert.equal(claims.sessionId, undefined);
+  assert.equal(claims.sub, USER.email);
+});
+
+test("a user-scoped mint (no session, no selector) authorizes on identity alone", async () => {
+  const store = new InMemorySessionStore();
+  const scoped = new ScopedTokenCredential("signing-secret");
+  const response = new TestResponse();
+
+  await handleMintRemoteEnvToken(
+    store,
+    scoped,
+    sessionlessRequest(USER.email),
+    response as unknown as Response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { token: string };
+  const claims = scoped.parse(body.token);
+  assert.ok(claims);
+  assert.equal(claims.sessionId, undefined);
+  assert.equal(claims.selector, undefined);
+  assert.equal(claims.sub, USER.email);
+});
+
+test("a session-less unauthenticated mint is a user-scoped DEFAULT_USER token", async () => {
+  const store = new InMemorySessionStore();
+  const scoped = new ScopedTokenCredential("signing-secret");
+  const response = new TestResponse();
+
+  await handleMintRemoteEnvToken(
+    store,
+    scoped,
+    anonymousRequest({ selector: "projectId:abc" }),
+    response as unknown as Response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  const body = response.body as { token: string };
+  const claims = scoped.parse(body.token);
+  assert.ok(claims);
+  assert.equal(claims.sub, DEFAULT_USER.email);
+  assert.equal(claims.selector, "projectId:abc");
+  assert.equal(claims.sessionId, undefined);
 });
 
 test("minting honors a pinned environmentId when it is free", async () => {

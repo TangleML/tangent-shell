@@ -78,7 +78,14 @@ const client = connectRemoteEnvironment({
   url: "http://localhost:8787",
   token,
   environmentId,
-  sessionId, // the session these tools are registered for
+  sessionId, // session-scoped host only; omit it for a user/selector host (see Host scope)
+  metadata: {
+    // Self-description Prime reads to tell hosts apart (see Host self-description)
+    description: "VS Code — Tangent Local Agent in ~/proj",
+    capabilities: "runs local pi sub-agents that edit files + run the terminal",
+    editor: "vscode",
+    workspacePath: "/Users/me/proj",
+  },
   tools: {
     get_pipeline_state: {
       description: "Get the current pipeline spec as JSON.",
@@ -105,17 +112,68 @@ the result (any JSON-serializable value) back to the agent that asked. The
 runtime serializes nothing for you: if two calls can race a shared mutable state,
 serialize them in your `execute`.
 
+### Host scope
+
+A host's `token` decides which sessions it can serve. Scoped tokens are minted
+per host by `POST /api/embed/remote-env-token`; they carry the host owner's
+identity (`sub`) and one of three scopes (the shared `REMOTE_ENV_TOKEN` secret is
+a fourth, unscoped, dev-only kind):
+
+| Scope           | Minted with                          | Serves                                                      |
+| --------------- | ------------------------------------ | ----------------------------------------------------------- |
+| session-scoped  | `sessionId`                          | just that session (a browser embed)                         |
+| user-scoped     | neither `sessionId`/`selector`       | every session the owner prompts in                          |
+| selector-scoped | `selector` (e.g. `projectId:<GUID>`) | every session whose `tags` include that selector            |
+| unscoped (dev)  | the shared `REMOTE_ENV_TOKEN`        | any session, as a fallback when no scoped host is connected |
+
+A selector matches a session's `tags` by exact string, so tag a session
+`projectId:abc` and a host minted with `selector: "projectId:abc"` serves it. A
+session- or selector-less mint authorizes on identity alone — safe because
+routing is owner-gated (below), so a host only ever runs work for its own owner.
+Pass the host's `selector` to `connectRemoteEnvironment` for your own reference;
+the scope is read from the token's claims, not the connect options.
+
+### Host self-description
+
+A host advertises free-form `metadata` (string -> string) in the connection
+handshake. It is optional and extensible — new keys need no protocol change — and
+flows through to Prime so it can tell one connected host from another and match
+work to the right one. Recommended keys:
+
+| Key             | What it says                                           |
+| --------------- | ------------------------------------------------------ |
+| `description`   | one line: what this host is (e.g. "VS Code in ~/proj") |
+| `capabilities`  | short phrase: what agents/work it can build here       |
+| `editor`        | the editor/app embedding the host (e.g. `vscode`)      |
+| `windowName`    | a human label for the window/tab                       |
+| `workspacePath` | the folder its sub-agents work in                      |
+
+The server stores it per environment and exposes it to Prime via the
+`list_environments` tool (below). Send a useful `description` / `capabilities`
+pair so Prime can distinguish, say, a VS Code editor host from a browser embed.
+
 ### Routing when several people share a session
 
 A session can have many hosts connected at once — several people, or one person
 across several tabs. The catalog is **per environment**, and the server routes by
 the **prompting human**, not by a single session-bound socket: a tool call (and a
 `remote` sub-agent spawn) goes to the host of whoever sent the prompt that woke
-the agent. A non-human wake (a sub-agent report, a trigger) reuses that agent's
-last human audience. `list_remote_tools` is the union of that person's own hosts;
-if their host is gone the call fails clearly rather than falling back to someone
-else's viewport. Pin `environmentId` across token refreshes so a host keeps its
-place instead of reconnecting as a new environment.
+the agent — only if that host's owner (`sub`) is the prompting human, whichever
+scope made it eligible. A non-human wake (a sub-agent report, a trigger) reuses
+that agent's last human audience. `list_remote_tools` is the union of that
+person's own hosts; if their host is gone the call fails clearly rather than
+falling back to someone else's viewport. Pin `environmentId` across token
+refreshes so a host keeps its place instead of reconnecting as a new environment.
+
+### Choosing a host for a remote sub-agent
+
+When several of the prompting person's hosts are connected, a `remote` spawn
+defaults to the **most recently connected** one. To target a specific host,
+Prime first calls `list_environments` — which returns each eligible host's
+`environmentId`, its self-description (`metadata`), and live tool/sub-agent
+counts — then passes the chosen `environment_id` to `spawn_subagent`. An unknown
+or ineligible id fails with an error naming the valid hosts rather than silently
+falling back, so Prime can self-correct.
 
 ## Outbound helpers
 
@@ -125,7 +183,43 @@ place instead of reconnecting as a new environment.
   (`active` / `completed` / `killed` / `error`).
 - `client.report(sessionId, agentId, text)` — send a directed report to Prime.
 - `client.readRoom(sessionId, limit?)` — read the tail of the shared transcript.
+- `client.addResource(sessionId, agentId, input)` — contribute a resource to the
+  session (see Session resources).
+- `client.listResources(sessionId)` — list the session's catalogued resources.
+- `client.readResource(sessionId, uri)` — fetch a resource's bytes (base64).
 - `client.disconnect()` — close the connection.
+
+## Session resources
+
+An environment can put content — a file/blob, a `host` entry, or a `memory`
+write — into the session so Prime and every other agent can see and fetch it,
+including agents hosted on a different environment that does not share this
+machine's disk. `addResource` reuses the embed host's `HostResourceInput`: a
+`file` lands bytes under the session's `uploads/` folder (binary rides base64 in
+`content`), catalogued and surfaced to Prime; a `host`/`memory` entry catalogs
+its reference.
+
+```ts
+const resource = await client.addResource(sessionId, agentId, {
+  kind: "file",
+  path: "report.csv",
+  content: csvText, // or base64 with `encoding: "base64"` for binary
+  name: "Quarterly report",
+});
+
+// From another environment on another machine, fetch the bytes back:
+const { content, contentType } = await client.readResource(
+  sessionId,
+  resource.uri, // e.g. "uploads/report.csv"
+);
+const bytes = Buffer.from(content, "base64");
+```
+
+Prime and server-local agents read the bytes straight from the session root
+(they share its disk), so they need no fetch call. The server authorizes a write
+with the same scope gate that guards `readRoom`, resolves a `file` strictly
+inside `uploads/`, and caps a blob at 1 MiB. `readResource` serves any uri under
+the session's `uploads/` or `artifacts/` subtree.
 
 ## Protocol
 

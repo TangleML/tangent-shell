@@ -127,7 +127,18 @@ export class HandshakeTokenCredential implements ConnectorCredential {
 export interface ScopedTokenClaims {
   scope: "remote-env";
   environmentId: string;
-  sessionId: string;
+  /**
+   * The session this host is bound to (a browser embed). Absent for a
+   * user-scoped host (serves every session its `sub` prompts in) or a
+   * selector-scoped host (serves every session whose tags match `selector`).
+   */
+  sessionId?: string;
+  /**
+   * A session selector this host serves, e.g. `projectId:<GUID>`. Present only
+   * on a selector-scoped host; the gateway routes it to every session whose
+   * tags include this value.
+   */
+  selector?: string;
   sub: string;
   iat: number;
   exp: number;
@@ -136,7 +147,10 @@ export interface ScopedTokenClaims {
 /** Inputs {@link ScopedTokenCredential.mint} signs into a token. */
 export interface MintScopedTokenInput {
   environmentId: string;
-  sessionId: string;
+  /** Bind the host to one session; omit for a user- or selector-scoped host. */
+  sessionId?: string;
+  /** A session selector (e.g. `projectId:<GUID>`) for a selector-scoped host. */
+  selector?: string;
   sub: string;
 }
 
@@ -186,15 +200,24 @@ function asRecord(raw: unknown): Record<string, unknown> | null {
 }
 
 /** Reads the string claims of a scoped token payload. */
-function readStringClaims(
-  record: Record<string, unknown>,
-): Pick<ScopedTokenClaims, "environmentId" | "sessionId" | "sub"> | null {
+function readStringClaims(record: Record<string, unknown>):
+  | (Pick<ScopedTokenClaims, "environmentId" | "sub"> & {
+      sessionId?: string;
+      selector?: string;
+    })
+  | null {
   if (record.scope !== "remote-env") return null;
   const environmentId = stringClaim(record, "environmentId");
-  const sessionId = stringClaim(record, "sessionId");
   const sub = stringClaim(record, "sub");
-  if (!environmentId || !sessionId || !sub) return null;
-  return { environmentId, sessionId, sub };
+  if (!environmentId || !sub) return null;
+  const sessionId = stringClaim(record, "sessionId");
+  const selector = stringClaim(record, "selector");
+  return {
+    environmentId,
+    sub,
+    ...(sessionId ? { sessionId } : {}),
+    ...(selector ? { selector } : {}),
+  };
 }
 
 /** Parses and validates the JSON claims object from a scoped token payload. */
@@ -242,9 +265,10 @@ function liveClaims(
 }
 
 /**
- * A short-lived HMAC token minted for one embed host + session, presented in
- * the Socket.IO handshake. The gateway derives `environmentId` and `sessionId`
- * from the claims rather than trusting the handshake fields.
+ * A short-lived HMAC token minted for one host, presented in the Socket.IO
+ * handshake. The gateway derives `environmentId`, `sub`, and the host's scope
+ * (`sessionId` for a browser embed, `selector` for a project host, or neither
+ * for a user-scoped host) from the claims rather than trusting the handshake.
  */
 export class ScopedTokenCredential implements ConnectorCredential {
   readonly scheme: CredentialScheme = "scoped-token";
@@ -269,7 +293,8 @@ export class ScopedTokenCredential implements ConnectorCredential {
     const claims: ScopedTokenClaims = {
       scope: "remote-env",
       environmentId: input.environmentId,
-      sessionId: input.sessionId,
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.selector ? { selector: input.selector } : {}),
       sub: input.sub,
       iat,
       exp,

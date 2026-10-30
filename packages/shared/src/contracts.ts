@@ -112,6 +112,11 @@ export interface Session {
   archived: boolean;
   /** Who may access this session. Defaults to `open` for easy collaboration. */
   accessPolicy: SessionAccessPolicy;
+  /**
+   * Selector tags (e.g. `projectId:<GUID>`) used to route selector-scoped
+   * remote hosts to this session. Empty when the session has none.
+   */
+  tags: string[];
   /** Attached by the list endpoint; absent when no viewer is resolved. */
   activity?: SessionActivity;
   /** ISO-8601 timestamp. */
@@ -120,9 +125,26 @@ export interface Session {
   updatedAt: string;
 }
 
-/** Body of `POST /api/embed/remote-env-token`. */
+/**
+ * Body of `POST /api/embed/remote-env-token`. The scope is mutually exclusive —
+ * session, selector, or user (neither) — but expressed as flat optionals for the
+ * embed clients. When both `sessionId` and `selector` are sent, `sessionId`
+ * wins: the server mints a session-scoped token and ignores `selector`.
+ */
 export interface RemoteEnvTokenRequest {
-  sessionId: string;
+  /**
+   * Bind the host to one session (a browser embed). Omit for a user-scoped host
+   * (serves every session its caller prompts in) or a selector-scoped host.
+   * Takes precedence over `selector` when both are set.
+   */
+  sessionId?: string;
+  /**
+   * A session selector this host serves, e.g. `projectId:<GUID>`. The gateway
+   * routes the host to every session whose `tags` include this value. Identity
+   * alone authorizes a selector mint: routing is owner-gated, so a host only
+   * ever runs work for prompts authored by its own caller.
+   */
+  selector?: string;
   /**
    * A previously minted id to reuse across a token refresh, so the host keeps
    * its live socket instead of connecting as a new environment. Honored when the
@@ -132,12 +154,32 @@ export interface RemoteEnvTokenRequest {
   environmentId?: string;
 }
 
+/**
+ * Response of `GET /api/config`. `shellUrl` is the public base URL at which this
+ * server is reachable by an external client (attach bridge, MCP relay) — the
+ * value an attach command must dial. Empty when `TANGENT_PUBLIC_URL` is unset
+ * (standalone dev), in which case the client falls back to its own origin.
+ */
+export interface PublicConfig {
+  shellUrl: string;
+}
+
 /** Response of `POST /api/embed/remote-env-token`. */
 export interface RemoteEnvTokenResponse {
   token: string;
   environmentId: string;
   expiresAt: string;
 }
+
+/**
+ * Header an attach bridge carries its session-scoped token on, as a fallback to
+ * `Authorization: Bearer`. An SSO proxy (e.g. Okta/Minerva) in front of the
+ * Shell may strip or overwrite `Authorization` for its own auth, which would
+ * leave every `/api/attach/*` call unauthenticated; a non-standard header rides
+ * through such a proxy untouched. Lower-case because header names are
+ * case-insensitive and Express normalizes them.
+ */
+export const ATTACH_TOKEN_HEADER = "x-tangent-attach-token";
 
 /**
  * Distinguishes the session's orchestrating Prime agent from the sub-agents it
@@ -1009,6 +1051,36 @@ export interface ListParticipantsResponse {
 }
 
 /**
+ * A connected remote environment (a VS Code window, an embed host) that can host
+ * this session's remote sub-agents and tools. Not a Participant: it is the place
+ * a sub-agent runs, listed only while its socket is connected.
+ */
+export interface RemoteEnvironmentInfo {
+  environmentId: string;
+  /** Set when the host authenticated with a token scoped to this session. */
+  sessionId?: string;
+  /** The session selector a selector-scoped host serves (e.g. `projectId:<GUID>`). */
+  selector?: string;
+  /** The human a scoped host belongs to (the scoped token's `sub`). */
+  owner?: string;
+  /** Scoped to a user/selector, versus a generic dev host shared across sessions. */
+  scoped: boolean;
+  toolCount: number;
+  /** This session's live sub-agents hosted here. */
+  subagentCount: number;
+  /**
+   * Generic, extensible metadata the host advertised on connect (e.g.
+   * `windowName`, `workspacePath`, `editor`). Omitted when the host sent none.
+   */
+  metadata?: Record<string, string>;
+}
+
+/** Response of `GET /api/sessions/:id/environments`. */
+export interface ListEnvironmentsResponse {
+  environments: RemoteEnvironmentInfo[];
+}
+
+/**
  * A serializable snapshot of the {@link ContextPolicy} a Membership's
  * {@link TranscriptVisibility} expands to (unified-model §9.8, "each
  * Participant's ... context policy"). The engine's policy carries a `classify`
@@ -1352,12 +1424,16 @@ export interface CreateSessionRequest {
    * commands can read them. Stored server-side only.
    */
   env?: Record<string, string>;
+  /** Selector tags (e.g. `projectId:<GUID>`) to route selector-scoped hosts. */
+  tags?: string[];
 }
 
 export interface UpdateSessionRequest {
   name?: string;
   archived?: boolean;
   accessPolicy?: SessionAccessPolicy;
+  /** Replace the session's selector tags (e.g. `projectId:<GUID>`). */
+  tags?: string[];
 }
 
 /** Response from `POST /api/sessions/:id/files`: the stored attachments. */
@@ -1567,6 +1643,14 @@ export interface ParticipantPresencePayload {
 }
 
 /**
+ * Signals (server -> client) that connected remote environments changed. Sent to
+ * every client, since a generic dev host is not bound to one session.
+ */
+export interface EnvironmentUpdatePayload {
+  sessionId?: string;
+}
+
+/**
  * Emitted (server -> client) when the agent suggests remembering something that
  * needs user confirmation before it is applied (agent-initiated global memory).
  * Rendered as a confirm/dismiss card in the chat.
@@ -1729,6 +1813,7 @@ export const SocketEvents = {
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
   ParticipantPresence: "participant:presence",
+  EnvironmentUpdate: "environment:update",
   MemorySuggestion: "memory:suggestion",
   MemoryConfirm: "memory:confirm",
   MemoryDismiss: "memory:dismiss",

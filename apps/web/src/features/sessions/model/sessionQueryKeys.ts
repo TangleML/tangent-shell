@@ -18,6 +18,7 @@ export const SessionQueryKeys = {
         ] as const)
       : (["sessions", id, "resources"] as const),
   Participants: (id: string) => ["sessions", id, "participants"] as const,
+  Environments: (id: string) => ["sessions", id, "environments"] as const,
   Workflow: (
     id: string,
     scope?: { conversationId?: string; participantId?: string },

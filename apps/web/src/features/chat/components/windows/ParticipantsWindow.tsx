@@ -7,6 +7,7 @@ export function ParticipantsWindow() {
     participants,
     participantsPending,
     participantsError,
+    environments,
     activeConversationId,
     currentUserId,
     onToggleMuteParticipant,
@@ -26,6 +27,7 @@ export function ParticipantsWindow() {
   return (
     <ParticipantList
       participants={participants}
+      environments={environments}
       activeConversationId={activeConversationId}
       currentUserId={currentUserId}
       onToggleMute={onToggleMuteParticipant}

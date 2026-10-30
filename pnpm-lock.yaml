@@ -40,6 +40,65 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
 
+  apps/acp-attach-cli:
+    dependencies:
+      '@tangent/acp-attach-host':
+        specifier: workspace:*
+        version: link:../../packages/acp-attach-host
+      '@tangent/local-agent-host':
+        specifier: workspace:*
+        version: link:../../packages/local-agent-host
+      '@tangent/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../../packages/build
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      esbuild:
+        specifier: 0.28.0
+        version: 0.28.0
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  apps/local-agent-cli:
+    dependencies:
+      '@tangent/local-agent-host':
+        specifier: workspace:*
+        version: link:../../packages/local-agent-host
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../../packages/build
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      esbuild:
+        specifier: 0.28.0
+        version: 0.28.0
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   apps/server:
     dependencies:
       '@a2a-js/sdk':
@@ -264,6 +323,37 @@ importers:
         specifier: ^8.0.14
         version: 8.0.14(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
 
+  packages/acp-attach-host:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^1.9.0
+        version: 1.9.0(zod@4.4.3)
+      '@tangent/local-agent-host':
+        specifier: workspace:*
+        version: link:../local-agent-host
+      '@tangent/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../build
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/analytics:
     dependencies:
       '@tangent/utils':
@@ -339,6 +429,34 @@ importers:
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.3)(typescript@6.0.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/local-agent-host:
+    dependencies:
+      '@tangent/remote-subagent':
+        specifier: workspace:*
+        version: link:../remote-subagent
+      '@tangent/shared':
+        specifier: workspace:*
+        version: link:../shared
+      open:
+        specifier: ^11.0.0
+        version: 11.0.0
+    devDependencies:
+      '@tangent/build':
+        specifier: workspace:*
+        version: link:../build
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      eslint:
+        specifier: ^10.4.0
+        version: 10.4.0(jiti@2.7.0)
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -550,6 +668,11 @@ packages:
         optional: true
       express:
         optional: true
+
+  '@agentclientprotocol/sdk@1.9.0':
+    resolution: {integrity: sha512-saCOTPYBK1iqWqJFAYHXbg3+zCoFXyZZFoqQAwdTWkbrZZPpAETr80QOnYr2l+dzPwL0jpNhn3eDY8MoEIDbUA==, tarball: https://registry.npmjs.org/@agentclientprotocol/sdk/-/sdk-1.9.0.tgz}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==, tarball: https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.7.tgz}
@@ -4607,6 +4730,10 @@ snapshots:
       uuid: 11.1.1
     optionalDependencies:
       express: 5.2.1
+
+  '@agentclientprotocol/sdk@1.9.0(zod@4.4.3)':
+    dependencies:
+      zod: 4.4.3
 
   '@babel/code-frame@7.29.7':
     dependencies:

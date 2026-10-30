@@ -188,6 +188,11 @@ export interface NewSessionOptions {
    * reading `TANGLE_ROOT_CONFIG`) can read them. Stored server-side only.
    */
   env?: Record<string, string>;
+  /**
+   * Selector tags (e.g. `projectId:<GUID>`) routed to selector-scoped remote
+   * hosts so every session in the project can reach them. Stored server-side.
+   */
+  tags?: string[];
 }
 
 export interface NewSessionResult {

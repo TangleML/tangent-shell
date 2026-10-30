@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 
-import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
+import {
+  type ChatMessage,
+  connectorFor,
+  SocketEvents,
+  type SubagentInfo,
+} from "@tangent/shared/contracts.ts";
 import {
   type RemoteAgentEventPayload,
   RemoteEnvEvents,
+  type RemoteRoomReadResponse,
   type RemoteSpawnCommand,
   type RemoteSubagentUpdatePayload,
   type RemoteToolCallRequest,
@@ -87,7 +94,9 @@ function fakeNamespace() {
     },
     connect(
       environmentId: string,
-      auth: { token?: string } = { token: ENV_TOKEN },
+      auth: { token?: string; metadata?: Record<string, unknown> } = {
+        token: ENV_TOKEN,
+      },
     ) {
       const { socket, listeners, sent } = fakeSocket({
         environmentId,
@@ -101,8 +110,8 @@ function fakeNamespace() {
       return {
         refused,
         sent,
-        send: (event: string, payload: unknown) =>
-          listeners.get(event)?.(payload),
+        send: (event: string, ...args: unknown[]) =>
+          listeners.get(event)?.(...args),
         disconnect: () => listeners.get("disconnect")?.(undefined),
       };
     },
@@ -141,8 +150,14 @@ function makeHarness(options: HarnessOptions = {}) {
   const store = new InMemorySessionStore();
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
+  const broadcasts: Array<{ event: string; payload: unknown }> = [];
+  const io = {
+    of: () => namespace,
+    emit: (event: string, payload: unknown) =>
+      broadcasts.push({ event, payload }),
+  };
   const gateway = new RemoteEnvironmentGateway(
-    { of: () => namespace } as unknown as SocketIOServer,
+    io as unknown as SocketIOServer,
     relayHandlers(rosterUpdates, agentEvents),
     store,
     runs,
@@ -158,6 +173,7 @@ function makeHarness(options: HarnessOptions = {}) {
     runStore,
     rosterUpdates,
     agentEvents,
+    broadcasts,
   };
 }
 
@@ -182,6 +198,25 @@ function mintScoped(
   }).token;
 }
 
+/** A selector-scoped token: a `sub` + `selector`, bound to no single session. */
+function mintSelector(
+  scoped: ScopedTokenCredential,
+  environmentId: string,
+  selector: string,
+  sub = "user@example.com",
+): string {
+  return scoped.mint({ environmentId, selector, sub }).token;
+}
+
+/** A user-scoped token: a `sub` with neither a session nor a selector. */
+function mintUser(
+  scoped: ScopedTokenCredential,
+  environmentId: string,
+  sub = "user@example.com",
+): string {
+  return scoped.mint({ environmentId, sub }).token;
+}
+
 /** Counts the ToolsCall commands an environment's socket was sent. */
 function toolCalls(sent: SentEntry[]): SentEntry[] {
   return sent.filter((entry) => entry.event === RemoteEnvEvents.ToolsCall);
@@ -202,6 +237,41 @@ async function seedAgent(
     status,
     connector: connectorFor("remote-env", environmentId),
   });
+}
+
+/** Seeds one transcript message so a room read has a tail to return. */
+async function seedMessage(
+  store: InMemorySessionStore,
+  sessionId: string,
+  content: string,
+): Promise<void> {
+  const message: ChatMessage = {
+    id: randomUUID(),
+    sessionId,
+    conversationId: "prime",
+    seq: 1,
+    author: { id: "prime", kind: "agent", name: "Prime" },
+    mentions: [],
+    source: { kind: "agent" },
+    content,
+    createdAt: new Date().toISOString(),
+  };
+  await store.appendMessage(message);
+}
+
+/** Drives a room read and resolves with the host's ack response. */
+function readRoom(
+  env: { send: (event: string, ...args: unknown[]) => void },
+  sessionId: string,
+): Promise<RemoteRoomReadResponse> {
+  return new Promise((resolve) => {
+    env.send(RemoteEnvEvents.RoomRead, { sessionId }, resolve);
+  });
+}
+
+/** An owner identity for a session whose access is restricted to members. */
+function owner(email: string) {
+  return { email, first_name: "O", last_name: "wner" };
 }
 
 test("only an environment presenting the connector's credential connects", () => {
@@ -301,6 +371,70 @@ test("a detached participant refuses delivery instead of dropping it silently", 
   env.disconnect();
 
   assert.equal(send("hello again"), false);
+});
+
+test("the owner may direct their own local sub-agent", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("env-a", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "alice@x"), true);
+});
+
+test("a non-owner may not direct another person's local sub-agent", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("env-a", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "bob@x"), false);
+});
+
+test("an agent-originated delivery to a local sub-agent is not owner-gated", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("env-a", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, undefined), true);
+});
+
+test("an unscoped dev host's sub-agent is not owner-gated", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "anyone@x"), true);
+});
+
+test("a sub-agent whose environment is gone defers the owner gate", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const env = h.connect("env-a", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+
+  const { info } = h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+  env.disconnect();
+
+  assert.equal(h.gateway.canDirectSubagent("s1", info.id, "bob@x"), true);
 });
 
 test("a reconnecting environment gets its persisted roster replayed as detached", async () => {
@@ -818,6 +952,127 @@ test("a remote spawn with no known audience does not guess among hosts", () => {
   );
 });
 
+test("a targeted spawn lands in the named host, not the most recent", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const first = h.connect("x", {
+    token: mintScoped(scoped, "env-a1", "s1", "alice@x"),
+  });
+  const second = h.connect("x", {
+    token: mintScoped(scoped, "env-a2", "s1", "alice@x"),
+  });
+
+  h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+    environmentId: "env-a1",
+  });
+
+  assert.equal(lastSpawn(first.sent).sessionId, "s1");
+  assert.equal(
+    second.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+    "the most recent host gets no spawn when another is targeted",
+  );
+});
+
+test("a spawn with no environmentId falls back to the most recent host", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const first = h.connect("x", {
+    token: mintScoped(scoped, "env-a1", "s1", "alice@x"),
+  });
+  const second = h.connect("x", {
+    token: mintScoped(scoped, "env-a2", "s1", "alice@x"),
+  });
+
+  h.gateway.spawnSubagent("s1", {
+    name: "Editor",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.equal(lastSpawn(second.sent).sessionId, "s1");
+  assert.equal(
+    first.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+  );
+});
+
+test("a targeted spawn with an unknown environmentId throws naming the valid hosts", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+
+  assert.throws(
+    () =>
+      h.gateway.spawnSubagent("s1", {
+        name: "Editor",
+        audienceParticipantId: "alice@x",
+        environmentId: "env-missing",
+      }),
+    /ineligible environmentId "env-missing".*env-a/s,
+  );
+  assert.equal(
+    alice.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+    "no spawn lands when the targeted host is invalid",
+  );
+});
+
+test("a targeted spawn cannot reach another person's host", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("x", { token: mintScoped(scoped, "env-a", "s1", "alice@x") });
+  const bob = h.connect("x", {
+    token: mintScoped(scoped, "env-b", "s1", "bob@x"),
+  });
+
+  assert.throws(
+    () =>
+      h.gateway.spawnSubagent("s1", {
+        name: "Editor",
+        audienceParticipantId: "alice@x",
+        environmentId: "env-b",
+      }),
+    /ineligible environmentId "env-b"/,
+  );
+  assert.equal(
+    bob.sent.filter((e) => e.event === RemoteEnvEvents.Spawn).length,
+    0,
+  );
+});
+
+test("listEnvironmentsFor returns only the prompting person's hosts with their metadata", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+    metadata: { description: "Alice's editor", capabilities: "edits files" },
+  });
+  h.connect("x", { token: mintScoped(scoped, "env-b", "s1", "bob@x") });
+
+  const listed = h.gateway.listEnvironmentsFor("s1", "alice@x");
+
+  assert.deepEqual(
+    listed.map((e) => e.environmentId),
+    ["env-a"],
+  );
+  assert.deepEqual(listed[0].metadata, {
+    description: "Alice's editor",
+    capabilities: "edits files",
+  });
+});
+
+test("listEnvironmentsFor is empty when the prompting person has no host", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.connect("x", { token: mintScoped(scoped, "env-b", "s1", "bob@x") });
+
+  assert.deepEqual(h.gateway.listEnvironmentsFor("s1", "alice@x"), []);
+});
+
 test("a call with no known audience does not guess among connected hosts", async () => {
   const scoped = new ScopedTokenCredential(SCOPED_SECRET);
   const h = makeHarness({ scoped });
@@ -855,4 +1110,379 @@ test("an environmentId stays claimed by its owner after they disconnect", () => 
     false,
     "Alice can still reclaim her own id",
   );
+});
+
+test("listEnvironments lists a session's scoped hosts and its dev hosts, newest first", () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const alice = h.connect("x", {
+    token: mintScoped(scoped, "env-a", "s1", "alice@x"),
+  });
+  h.connect("vscode-generic");
+  h.connect("x", { token: mintScoped(scoped, "env-b", "s2", "bob@x") });
+
+  alice.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+  h.gateway.spawnSubagent("s1", {
+    name: "Worker",
+    audienceParticipantId: "alice@x",
+  });
+
+  assert.deepEqual(h.gateway.listEnvironments("s1"), [
+    {
+      environmentId: "vscode-generic",
+      sessionId: undefined,
+      selector: undefined,
+      owner: undefined,
+      scoped: false,
+      toolCount: 0,
+      subagentCount: 0,
+    },
+    {
+      environmentId: "env-a",
+      sessionId: "s1",
+      selector: undefined,
+      owner: "alice@x",
+      scoped: true,
+      toolCount: 1,
+      subagentCount: 1,
+    },
+  ]);
+  assert.deepEqual(
+    h.gateway.listEnvironments("s2").map((e) => e.environmentId),
+    ["env-b", "vscode-generic"],
+  );
+});
+
+test("listEnvironments surfaces the metadata a host advertised on connect", () => {
+  const h = makeHarness();
+  h.connect("vscode-1", {
+    token: ENV_TOKEN,
+    metadata: { windowName: "my-ws", editor: "Cursor" },
+  });
+
+  assert.deepEqual(h.gateway.listEnvironments("s1")[0].metadata, {
+    windowName: "my-ws",
+    editor: "Cursor",
+  });
+});
+
+test("listEnvironments drops malformed metadata and omits it entirely when empty", () => {
+  const h = makeHarness();
+  h.connect("vscode-1", {
+    token: ENV_TOKEN,
+    metadata: { windowName: "ok", bad: 42, nested: { x: 1 } },
+  });
+  h.connect("vscode-2", { token: ENV_TOKEN, metadata: { bad: 42 } });
+
+  const one = h.gateway.listEnvironments("s1");
+  const first = one.find((e) => e.environmentId === "vscode-1");
+  const second = one.find((e) => e.environmentId === "vscode-2");
+  assert.deepEqual(first?.metadata, { windowName: "ok" });
+  assert.equal("metadata" in (second ?? {}), false);
+});
+
+test("a session-pinned dev host replaces the generic one for its session only", () => {
+  const h = makeHarness();
+  h.connect("s1:vscode-1");
+  h.connect("vscode-generic");
+
+  assert.deepEqual(
+    h.gateway.listEnvironments("s1").map((e) => e.environmentId),
+    ["s1:vscode-1"],
+  );
+  assert.deepEqual(
+    h.gateway.listEnvironments("s2").map((e) => e.environmentId),
+    ["vscode-generic"],
+  );
+});
+
+test("environment changes are broadcast and reflected in the list", async () => {
+  const h = makeHarness();
+  const updates = () =>
+    h.broadcasts.filter((b) => b.event === SocketEvents.EnvironmentUpdate)
+      .length;
+
+  const env = h.connect("env-1");
+  await flush();
+  assert.equal(updates(), 1, "connect");
+
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(h.gateway.listEnvironments("s1")[0].subagentCount, 1);
+  h.gateway.killAgent("s1", info.id);
+  assert.equal(h.gateway.listEnvironments("s1")[0].subagentCount, 0);
+  assert.equal(updates(), 3, "spawn and kill");
+
+  env.disconnect();
+  assert.equal(updates(), 4, "disconnect");
+  assert.deepEqual(h.gateway.listEnvironments("s1"), []);
+});
+
+test("evictDisconnected reaps an environment whose socket died without a disconnect", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+  h.gateway.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(h.gateway.listEnvironments("s1").length, 1);
+
+  // A half-open socket the ping timeout closed without firing `disconnect`: the
+  // env is still in the roster but its socket reports gone.
+  const environments = (
+    h.gateway as unknown as {
+      environments: Map<string, { socket: { connected: boolean } }>;
+    }
+  ).environments;
+  const stale = environments.get("env-1");
+  assert.ok(stale);
+  stale.socket.connected = false;
+
+  h.gateway.evictDisconnected();
+
+  assert.deepEqual(h.gateway.listEnvironments("s1"), []);
+  assert.equal(h.gateway.listSubagents("s1")[0].status, "detached");
+});
+
+test("evictDisconnected force-closes an idle environment whose socket still reports connected", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+  h.gateway.spawnSubagent("s1", { name: "Worker" });
+  assert.equal(h.gateway.listEnvironments("s1").length, 1);
+
+  // A half-open socket: still "connected", but no packet/heartbeat for ages.
+  const environments = (
+    h.gateway as unknown as {
+      environments: Map<
+        string,
+        { socket: { connected: boolean }; lastSeenAt: number }
+      >;
+    }
+  ).environments;
+  const stale = environments.get("env-1");
+  assert.ok(stale);
+  assert.equal(stale.socket.connected, true);
+  stale.lastSeenAt = Date.now() - 10 * 60_000;
+
+  h.gateway.evictDisconnected();
+
+  // Force-close fired `disconnect`, which dropped it through the normal path.
+  assert.deepEqual(h.gateway.listEnvironments("s1"), []);
+  assert.equal(h.gateway.listSubagents("s1")[0].status, "detached");
+});
+
+test("a selector-scoped host serves a session whose tags include its selector", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const tagged = await h.store.createSession({
+    name: "P",
+    tags: ["projectId:abc"],
+  });
+  const untagged = await h.store.createSession({ name: "Q" });
+  const host = h.connect("env-sel", {
+    token: mintSelector(scoped, "env-sel", "projectId:abc", "alice@x"),
+  });
+  host.send(RemoteEnvEvents.ToolsRegister, { tools: [ECHO_TOOL] });
+
+  const listed = h.gateway.listEnvironments(tagged.id);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].environmentId, "env-sel");
+  assert.equal(listed[0].selector, "projectId:abc");
+  assert.equal(listed[0].scoped, true);
+  assert.deepEqual(h.gateway.listEnvironments(untagged.id), []);
+
+  const pending = h.gateway.callTool(tagged.id, "prime", "echo", {}, "alice@x");
+  assert.equal(toolCalls(host.sent).length, 1, "the owner's prompt reaches it");
+  toolCalls(host.sent)[0].ack?.(null, { ok: true, result: "ok" });
+  await pending;
+});
+
+test("a user-scoped host serves every session its owner prompts in", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const s1 = await h.store.createSession({ name: "A" });
+  const s2 = await h.store.createSession({ name: "B" });
+  const host = h.connect("env-u", {
+    token: mintUser(scoped, "env-u", "alice@x"),
+  });
+  host.send(RemoteEnvEvents.ToolsRegister, { tools: [ECHO_TOOL] });
+
+  for (const session of [s1, s2]) {
+    const pending = h.gateway.callTool(
+      session.id,
+      "prime",
+      "echo",
+      {},
+      "alice@x",
+    );
+    toolCalls(host.sent).at(-1)?.ack?.(null, { ok: true, result: "ok" });
+    await pending;
+  }
+  assert.equal(toolCalls(host.sent).length, 2, "both sessions routed to it");
+});
+
+test("a selector host owned by one person never serves another's prompt", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const tagged = await h.store.createSession({
+    name: "Shared",
+    tags: ["projectId:abc"],
+  });
+  const bob = h.connect("env-b", {
+    token: mintSelector(scoped, "env-b", "projectId:abc", "bob@x"),
+  });
+  bob.send(RemoteEnvEvents.ToolsRegister, { tools: [ECHO_TOOL] });
+
+  // Bob's host is eligible for the session, but Alice's prompt must fail closed
+  // rather than land in it — and never fall back to a dev host.
+  await assert.rejects(
+    () => h.gateway.callTool(tagged.id, "prime", "echo", {}, "alice@x"),
+    /prompting user's host is not connected/,
+  );
+  assert.equal(toolCalls(bob.sent).length, 0);
+});
+
+test("a selector host and a session-scoped host coexist, newest name wins", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const session = await h.store.createSession({
+    name: "P",
+    tags: ["projectId:abc"],
+  });
+  const selectorHost = h.connect("env-sel", {
+    token: mintSelector(scoped, "env-sel", "projectId:abc", "alice@x"),
+  });
+  const sessionHost = h.connect("env-sess", {
+    token: mintScoped(scoped, "env-sess", session.id, "alice@x"),
+  });
+  selectorHost.send(RemoteEnvEvents.ToolsRegister, { tools: [ECHO_TOOL] });
+  sessionHost.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: session.id,
+    tools: [ECHO_TOOL],
+  });
+
+  const pending = h.gateway.callTool(
+    session.id,
+    "prime",
+    "echo",
+    {},
+    "alice@x",
+  );
+  assert.equal(toolCalls(sessionHost.sent).length, 1, "the newer host wins");
+  assert.equal(toolCalls(selectorHost.sent).length, 0);
+  toolCalls(sessionHost.sent)[0].ack?.(null, { ok: true, result: "ok" });
+  await pending;
+});
+
+test("a user-scoped host reads a restricted session its owner holds", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const session = await h.store.createSession({
+    name: "Owned",
+    user: owner("alice@x"),
+  });
+  await h.store.updateSession(session.id, { accessPolicy: "restricted" });
+  await seedMessage(h.store, session.id, "secret");
+  const host = h.connect("env-u", {
+    token: mintUser(scoped, "env-u", "alice@x"),
+  });
+
+  const response = await readRoom(host, session.id);
+
+  assert.deepEqual(
+    response.messages.map((m) => m.content),
+    ["secret"],
+  );
+});
+
+test("a user-scoped host cannot read a restricted session it has no access to", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const session = await h.store.createSession({
+    name: "Private",
+    user: owner("alice@x"),
+  });
+  await h.store.updateSession(session.id, { accessPolicy: "restricted" });
+  await seedMessage(h.store, session.id, "secret");
+  const intruder = h.connect("env-x", {
+    token: mintUser(scoped, "env-x", "mallory@x"),
+  });
+
+  const response = await readRoom(intruder, session.id);
+
+  assert.deepEqual(response.messages, [], "the transcript is not disclosed");
+});
+
+test("a user-scoped host reads a restricted session it holds a membership in", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  h.gateway.useSessionAuthorization(async () => true);
+  const session = await h.store.createSession({
+    name: "Shared",
+    user: owner("alice@x"),
+  });
+  await h.store.updateSession(session.id, { accessPolicy: "restricted" });
+  await seedMessage(h.store, session.id, "shared");
+  const member = h.connect("env-m", {
+    token: mintUser(scoped, "env-m", "bob@x"),
+  });
+
+  const response = await readRoom(member, session.id);
+
+  assert.deepEqual(
+    response.messages.map((m) => m.content),
+    ["shared"],
+  );
+});
+
+test("a user-scoped host reads any open session", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const session = await h.store.createSession({ name: "Open" });
+  await seedMessage(h.store, session.id, "public");
+  const host = h.connect("env-u", {
+    token: mintUser(scoped, "env-u", "anyone@x"),
+  });
+
+  const response = await readRoom(host, session.id);
+
+  assert.deepEqual(
+    response.messages.map((m) => m.content),
+    ["public"],
+  );
+});
+
+test("a selector-scoped host reads a session its selector tags, not others", async () => {
+  const scoped = new ScopedTokenCredential(SCOPED_SECRET);
+  const h = makeHarness({ scoped });
+  const tagged = await h.store.createSession({
+    name: "P",
+    tags: ["projectId:abc"],
+  });
+  const untagged = await h.store.createSession({ name: "Q" });
+  await seedMessage(h.store, tagged.id, "in-project");
+  await seedMessage(h.store, untagged.id, "elsewhere");
+  const host = h.connect("env-sel", {
+    token: mintSelector(scoped, "env-sel", "projectId:abc", "alice@x"),
+  });
+
+  assert.deepEqual(
+    (await readRoom(host, tagged.id)).messages.map((m) => m.content),
+    ["in-project"],
+  );
+  assert.deepEqual((await readRoom(host, untagged.id)).messages, []);
+});
+
+test("a host cannot report events for a sub-agent another host owns", () => {
+  const h = makeHarness();
+  h.connect("env-1");
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+  const intruder = h.connect("env-2");
+
+  intruder.send(RemoteEnvEvents.AgentEvent, {
+    sessionId: "s1",
+    agentId: info.id,
+    event: { type: "start", messageId: "m1" },
+  } satisfies RemoteAgentEventPayload);
+
+  assert.deepEqual(h.agentEvents, [], "the spoofed event is dropped");
 });
