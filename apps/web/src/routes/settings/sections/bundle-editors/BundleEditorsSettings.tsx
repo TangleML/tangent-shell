@@ -1,13 +1,11 @@
 import { BlockStack } from "@tangent/ui-primitives/layout";
-import { Paragraph, Text } from "@tangent/ui-primitives/typography";
+import { Heading, Paragraph, Text } from "@tangent/ui-primitives/typography";
 
 import { useBundleEditors } from "@/features/bundle-editors/hooks/useBundleEditors";
 import { useMyPermissions } from "@/features/user/hooks/useMyPermissions";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { ListRow } from "@/shared/ui/patterns/list-row";
-import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { Section } from "@/shared/ui/patterns/section";
-import { WorkArea } from "@/shared/ui/patterns/work-area";
 
 import { AddEditorForm } from "./AddEditorForm";
 import { EditorList } from "./EditorList";
@@ -73,16 +71,17 @@ function AdminGate() {
   );
 }
 
-export function BundleEditorsPage() {
+export function BundleEditorsSettings() {
   return (
-    <WorkArea>
-      <BlockStack gap="6" align="stretch">
-        <PageHeader
-          title="Bundle editors"
-          description="People who can upload and delete agent bundles. Admins are always editors and can also edit global memory."
-        />
-        <AdminGate />
+    <BlockStack gap="6" align="stretch">
+      <BlockStack gap="1">
+        <Heading level={2}>Bundle editors</Heading>
+        <Paragraph size="sm" tone="subdued">
+          People who can upload and delete agent bundles. Admins are always
+          editors and can also edit global memory.
+        </Paragraph>
       </BlockStack>
-    </WorkArea>
+      <AdminGate />
+    </BlockStack>
   );
 }
