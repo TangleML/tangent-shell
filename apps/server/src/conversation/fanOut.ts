@@ -41,6 +41,8 @@ export interface FanOutRequest {
   ingress?: RunIngress;
   /** Whether a mid-run delivery steers or queues behind the current turn. */
   delivery?: MessageDelivery;
+  /** The Tangle team this Message grants every turn it wakes. */
+  actingTeam?: string;
   /** The text one recipient receives, projected from the envelope. */
   project: (message: ChatMessage, recipient: Membership) => string;
 }
@@ -265,6 +267,7 @@ export class FanOutEngine {
       ingress: request.ingress ?? member.ingress,
       delivery: request.delivery,
       audienceParticipantId: audienceOf(message),
+      actingTeam: request.actingTeam,
     };
     const performNow = () =>
       this.connectors()

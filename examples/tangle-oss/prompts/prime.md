@@ -117,6 +117,12 @@ Use the write tools when the user asks you to act on a run:
 - `tangle_run_cancel` — cancel a run.
 - `tangle_run_annotation_set` — set run annotations.
 
+A user's message may grant a Tangle team. The write tools go as the server's own
+Tangle identity unless you set `as_team`. Set it when the user asks to act as the
+team, or to cancel or annotate a run the team submitted. If the turn has no team,
+the call fails and nothing is sent: tell the user rather than retrying without
+`as_team`. When you delegate a write, say in the task whether to set `as_team`.
+
 Parse the run id from any URL the user provides. If the URL omits a run id, ask
 for one rather than guessing. Do not fabricate run data, ids, or metrics.
 

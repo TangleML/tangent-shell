@@ -48,6 +48,9 @@ interface EmitContext {
   author: ChatAuthor;
   /** The Run that produced the event, when the connector attributed one. */
   runId?: RunId;
+  /** That Run's team when the event was stamped. Read there because the post
+   * below lands after the Run may have settled. */
+  actingTeam?: string;
 }
 
 /**
@@ -166,6 +169,7 @@ function emitEnd(
       thinking: event.thinking,
       runId: ctx.runId,
       ...(ctx.runId ? { endsRun: true } : {}),
+      actingTeam: ctx.actingTeam,
       provokes: Boolean(event.content.trim()) && !event.aborted,
       broadcast: (message) => {
         const payload: AgentEndPayload = { message, runId: ctx.runId };
@@ -245,6 +249,7 @@ export function createAgentEventHandler(
       conversationId: agent.homeConversationId,
       author: authorFor(agent),
       runId: event.runId,
+      actingTeam: event.actingTeam,
     };
     relayStreamingEvent(io, store, ctx, event);
     relayTerminalEvent(io, conversations, ctx, event);

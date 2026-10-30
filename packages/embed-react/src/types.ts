@@ -220,6 +220,7 @@ export interface TangentProviderElementLike extends HTMLElement {
     socketUrl?: string;
     socketPath?: string;
     getToken?: () => string | undefined | Promise<string | undefined>;
+    getActingTeam?: (sessionId: string) => string | undefined;
   };
   theme: TangentThemeInputs;
   hostExtensions: HostExtensionKeys;

@@ -31,6 +31,11 @@ export interface OpenRunInput {
    * inherits the participant's last human audience instead.
    */
   audienceParticipantId?: string;
+  /**
+   * The Tangle team the message that opened this Run grants. Unlike the
+   * audience it is never inherited: a wake that carries no team runs with none.
+   */
+  actingTeam?: string;
 }
 
 /** The terminal states {@link RunRegistry.settle} accepts. */
@@ -63,6 +68,9 @@ export class RunRegistry {
   /** The last human audience each participant had, by `(session, participant)`, so
    * an agent/automation wake inherits it rather than routing to nobody. */
   private readonly lastAudience = new Map<string, string>();
+  /** The team each open Run may act as. Held off the {@link Run} so it is never
+   * persisted or sent to a client. */
+  private readonly teams = new Map<RunId, string>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
   private onSettled?: (run: Run) => void;
@@ -106,6 +114,7 @@ export class RunRegistry {
 
     this.byParticipant.set(keyFor(run.sessionId, run.participantId), run);
     this.byId.set(run.id, run);
+    if (input.actingTeam) this.teams.set(run.id, input.actingTeam);
     void this.store
       .createRun({
         id: run.id,
@@ -164,6 +173,34 @@ export class RunRegistry {
    */
   audienceFor(sessionId: string, participantId: string): string | undefined {
     return this.lastAudience.get(keyFor(sessionId, participantId));
+  }
+
+  /** The team an open Run may act as, if it was granted one. */
+  actingTeamOf(runId: RunId | undefined): string | undefined {
+    return runId ? this.teams.get(runId) : undefined;
+  }
+
+  /** The team a participant's open Run may act as. Idle means no team. */
+  actingTeamFor(sessionId: string, participantId: string): string | undefined {
+    return this.actingTeamOf(this.current(sessionId, participantId)?.id);
+  }
+
+  /**
+   * Folds a mid-turn steer into a Run: the turn keeps its team only when the
+   * steer grants the same one, because from here on either author's words can
+   * drive any call it makes.
+   */
+  narrowActingTeam(runId: RunId, team: string | undefined): void {
+    if (this.teams.get(runId) === team) return;
+    this.teams.delete(runId);
+  }
+
+  /** Starts a new scope inside a Run (a follow-up taking over a finished turn),
+   * which may act as whatever the follow-up grants. */
+  replaceActingTeam(runId: RunId, team: string | undefined): void {
+    if (!this.byId.has(runId)) return;
+    if (team) this.teams.set(runId, team);
+    else this.teams.delete(runId);
   }
 
   /** An open Run by id. Settled Runs live only in the store. */
@@ -237,6 +274,7 @@ export class RunRegistry {
   /** Drops a Run from both indexes. */
   private forget(run: Run): void {
     this.byId.delete(run.id);
+    this.teams.delete(run.id);
     const key = keyFor(run.sessionId, run.participantId);
     if (this.byParticipant.get(key)?.id === run.id) {
       this.byParticipant.delete(key);

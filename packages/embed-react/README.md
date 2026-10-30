@@ -77,6 +77,7 @@ Loads the runtime once and owns the shared configuration.
 | ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `baseUrl`         | `string`                                              | Tangent origin. API + socket + channel URL derive from this.                               |
 | `getToken`        | `() => string \| undefined \| Promise<...>`           | Bearer token for API/socket auth. Held in memory, never in URLs.                           |
+| `getActingTeam`   | `(sessionId: string) => string \| undefined`          | Tangle team the current user grants each sent message. See [Acting team](#acting-team).    |
 | `colorScheme`     | `"light" \| "dark" \| "system"`                       | Defaults to `light`.                                                                       |
 | `tokens`          | `Record<string, string>`                              | Unstable escape hatch for one-off token overrides.                                         |
 | `socketUrl`       | `string`                                              | Override the Socket.IO origin (defaults to the API origin).                                |
@@ -451,6 +452,35 @@ slots, so they inherit the host page's CSS and any providers wrapping
 **Security.** Host-owned components run with full host-page privileges — they are
 _not_ sandboxed. Only register components you control; the worker sandbox and its
 egress allowlist do not apply to them.
+
+## Acting team
+
+`getActingTeam(sessionId)` is read each time a message is sent. Return the Tangle
+team id the signed-in user grants that message, or `undefined` to grant none. The
+agent turns the message starts (including sub-agent work Prime hands on from
+them) may act as that team for team-scoped Tangle calls such as submitting a run
+or listing secrets. Each call chooses: without opting in it goes as the server's
+own Tangle identity, so a granted turn can still list and use that identity's
+own secrets. The grant never outlives those turns, so a later message from a
+user who grants nothing gets no team.
+
+```tsx
+<TangentProvider
+  baseUrl="https://tangent.example"
+  getToken={() => auth.getAccessToken()}
+  getActingTeam={() => (team.status === "active" ? team.id : undefined)}
+>
+  {/* ... */}
+</TangentProvider>
+```
+
+The server takes the id as sent and doesn't check it against the signed-in user.
+Anyone who can send messages in the session can claim any team, and Tangle checks
+only that the server's own Tangle identity belongs to it. So `getActingTeam`
+decides which team your UI grants, not which teams a participant can reach:
+that's every team the server's identity belongs to. An id that isn't visible
+ASCII, or is longer than 256 characters, is dropped and the message grants no
+team. So is the result of a `getActingTeam` call that throws.
 
 ## Versioning
 

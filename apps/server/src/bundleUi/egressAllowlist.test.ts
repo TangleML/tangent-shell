@@ -4,15 +4,23 @@ import { afterEach, mock, test } from "node:test";
 
 import express from "express";
 
-import { INTERNAL_TOKEN, TANGLE_API_URL } from "../config.ts";
+import {
+  INTERNAL_TOKEN,
+  TANGLE_API_URL,
+  TANGLE_TEAM_HEADER,
+} from "../config.ts";
 import { createAgentBundlesRouter } from "../routes/agentBundles.ts";
 import { createInternalEgressRouter } from "../routes/internalEgress.ts";
+import { RunRegistry } from "../runs/runRegistry.ts";
 import type { AgentBundleStore } from "../store/agentBundleStore.ts";
+import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import {
   EgressDeniedError,
   EgressUpstreamError,
   resolveEgress,
+  resolveEgressWithTeam,
   resolveTargetUrl,
+  TeamNotGrantedError,
 } from "./egressAllowlist.ts";
 
 const resolveAgentEgress = (
@@ -433,6 +441,12 @@ async function postEgress(url: string, body: unknown, token?: string) {
   });
 }
 
+const egressRouterWithoutAgents = () =>
+  createInternalEgressRouter(
+    () => undefined,
+    new RunRegistry(new InMemoryRunStore()),
+  );
+
 test("saved-pipeline access is denied through public UI egress even with a forged caller", async () => {
   process.env.TANGLE_TOKEN = "SESSION=trusted";
   const originalFetch = globalThis.fetch;
@@ -453,7 +467,7 @@ test("saved-pipeline access is denied through public UI egress even with a forge
     "/api/agent-bundles",
     createAgentBundlesRouter({} as AgentBundleStore),
   );
-  app.use("/internal/egress", createInternalEgressRouter());
+  app.use("/internal/egress", egressRouterWithoutAgents());
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -555,4 +569,110 @@ test("the upstream timeout remains active while reading a stalled response body"
   await Promise.resolve();
   t.mock.timers.tick(10_000);
   await rejected;
+});
+
+/** Captures the headers of the one outbound fetch a call makes. */
+function captureHeaders(status = 200): () => Record<string, string> {
+  const fetchMock = mock.method(globalThis, "fetch", async () =>
+    Response.json({}, { status }),
+  );
+  return () => {
+    const init = fetchMock.mock.calls[0]?.arguments[1];
+    return (init?.headers ?? {}) as Record<string, string>;
+  };
+}
+
+const SECRETS = { target: "tangle", path: "/api/secrets/" } as const;
+const GRANTED = { grantedTeam: "team-a", actAsTeam: true };
+
+test("a team-scoped rule that asks acts as, and reports, the granted team", async () => {
+  const headers = captureHeaders();
+
+  const { appliedTeam } = await resolveEgressWithTeam(
+    SECRETS,
+    {},
+    "agent",
+    GRANTED,
+  );
+
+  assert.equal(headers()[TANGLE_TEAM_HEADER], "team-a");
+  assert.equal(appliedTeam, "team-a");
+});
+
+test("a granted team is not used unless the call asks for it", async () => {
+  const headers = captureHeaders();
+
+  const { appliedTeam } = await resolveEgressWithTeam(SECRETS, {}, "agent", {
+    grantedTeam: "team-a",
+  });
+
+  assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
+  assert.equal(appliedTeam, undefined);
+});
+
+test("asking to act as a team without a grant is refused before any fetch", async () => {
+  const fetchMock = mock.method(globalThis, "fetch", async () =>
+    Response.json({}),
+  );
+
+  await assert.rejects(
+    resolveEgressWithTeam(SECRETS, {}, "agent", { actAsTeam: true }),
+    TeamNotGrantedError,
+  );
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("a rule that is not team-scoped ignores the ask", async () => {
+  const headers = captureHeaders();
+
+  const { appliedTeam } = await resolveEgressWithTeam(
+    { target: "tangle", path: "/api/executions/run-1/state" },
+    {},
+    "agent",
+    GRANTED,
+  );
+
+  assert.equal(headers()[TANGLE_TEAM_HEADER], undefined);
+  assert.equal(appliedTeam, undefined);
+});
+
+test("a caller cannot supply its own team header", async () => {
+  const forged = { headers: { [TANGLE_TEAM_HEADER.toUpperCase()]: "team-x" } };
+  const teamHeaders = (headers: Record<string, string>) =>
+    Object.entries(headers).filter(
+      ([name]) => name.toLowerCase() === TANGLE_TEAM_HEADER,
+    );
+
+  const unasked = captureHeaders();
+  const unaskedResult = await resolveEgressWithTeam(SECRETS, forged, "agent", {
+    grantedTeam: "team-a",
+  });
+  assert.deepEqual(teamHeaders(unasked()), []);
+  assert.equal(unaskedResult.appliedTeam, undefined);
+  mock.reset();
+
+  const asked = captureHeaders();
+  const askedResult = await resolveEgressWithTeam(
+    SECRETS,
+    forged,
+    "agent",
+    GRANTED,
+  );
+  assert.deepEqual(teamHeaders(asked()), [[TANGLE_TEAM_HEADER, "team-a"]]);
+  assert.equal(askedResult.appliedTeam, "team-a");
+});
+
+test("the applied team is reported when upstream refuses it", async () => {
+  const headers = captureHeaders(401);
+
+  const { response, appliedTeam } = await resolveEgressWithTeam(
+    { target: "tangle", path: "/api/pipeline_runs/" },
+    { method: "POST", body: {} },
+    "agent",
+    GRANTED,
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(headers()[TANGLE_TEAM_HEADER], "team-a");
+  assert.equal(appliedTeam, "team-a");
 });

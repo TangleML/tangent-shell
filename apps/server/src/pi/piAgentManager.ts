@@ -18,6 +18,7 @@ import {
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
+import type { AgentCaller } from "../auth/agentCaller.ts";
 import {
   INTERNAL_URL,
   PI_BIN,
@@ -50,6 +51,7 @@ import {
   type ConversationEventSink,
   type PiStdoutEvent,
   PRIME_AGENT_ID,
+  type QueuedPrompt,
   type SessionAgents,
 } from "./types.ts";
 import {
@@ -182,6 +184,8 @@ export interface SendToAgentOptions {
   /** The human whose message this is, when it came from a person; stamped on the
    * Run this opens so remote tools route to their host. */
   audienceParticipantId?: string;
+  /** The Tangle team this message grants the turn it opens or joins. */
+  actingTeam?: string;
 }
 
 /** A requested model/thinking change; either field may be omitted to keep it. */
@@ -426,6 +430,17 @@ function sanitizeSessionEnv(
   );
 }
 
+/** Server credentials a Pi process must not inherit: egress injects them, so an
+ * agent holding one could reach Tangle around the allowlist and its team grant. */
+const SERVER_ONLY_ENV_KEYS = ["TANGLE_TOKEN"];
+
+/** The server's own env minus {@link SERVER_ONLY_ENV_KEYS}. */
+function inheritedEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of SERVER_ONLY_ENV_KEYS) delete env[key];
+  return env;
+}
+
 /** Per-spawn values a session env placeholder may expand to. */
 interface PlaceholderContext {
   rootPath: string;
@@ -474,17 +489,19 @@ function expandEnvPlaceholders(
 function spawnEnv(
   sessionId: string,
   descriptor: AgentDescriptor,
+  agentToken: string,
   ctx: PlaceholderContext,
   sessionEnv?: Record<string, string>,
 ): NodeJS.ProcessEnv {
   return {
-    ...process.env,
+    ...inheritedEnv(),
     ...expandEnvPlaceholders(sanitizeSessionEnv(sessionEnv), ctx),
     TANGENT_SESSION_ID: sessionId,
     TANGENT_AGENT_ID: descriptor.agentId,
     TANGENT_AGENT_ROLE: descriptor.role,
     // Gates the extension's orchestration-tool grant on capability, not role.
     TANGENT_AGENT_CAPABILITIES: capabilities(descriptor.role),
+    TANGENT_AGENT_TOKEN: agentToken,
     TANGENT_INTERNAL_URL: INTERNAL_URL,
     ...piCredential.spawnEnv(),
   };
@@ -649,6 +666,7 @@ function buildAgentProcess(
   },
   config: AgentConfig,
   child: ChildProcessWithoutNullStreams,
+  agentToken: string,
   supervision?: { restartCount: number; lastRestartAt: number | null },
 ): AgentProcess {
   return {
@@ -656,6 +674,9 @@ function buildAgentProcess(
     role: descriptor.role,
     name: descriptor.name,
     template: descriptor.template,
+    agentToken,
+    queued: [],
+    drainingFollowUps: false,
     homeConversationId: descriptor.homeConversationId,
     status: "active",
     createdAt: new Date().toISOString(),
@@ -737,7 +758,24 @@ export class PiAgentManager {
     event: AgentEvent,
   ): void {
     const runId = this.runs.current(sessionId, descriptor.agentId)?.id;
-    this.handlers.onAgentEvent(sessionId, descriptor, { ...event, runId });
+    this.handlers.onAgentEvent(sessionId, descriptor, {
+      ...event,
+      runId,
+      actingTeam: this.runs.actingTeamOf(runId),
+    });
+  }
+
+  /** The live agent a per-process {@link AgentProcess.agentToken} belongs to. */
+  agentForToken(token: string | undefined): AgentCaller | undefined {
+    if (!token) return undefined;
+    for (const [sessionId, session] of this.sessions) {
+      for (const agent of session.agents.values()) {
+        if (agent.agentToken === token) {
+          return { sessionId, agentId: agent.agentId };
+        }
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -1061,18 +1099,25 @@ export class PiAgentManager {
       return;
     }
 
-    if (!agent.busy) {
-      const ingress = options.ingress ?? "reaction";
+    const delivery = options.delivery ?? "auto";
+    if (agent.busy) {
+      agent.queued.push({
+        kind: busyStreamingBehavior(delivery),
+        actingTeam: options.actingTeam,
+        seen: false,
+      });
+    } else {
       this.runs.open({
         sessionId,
         participantId: agentId,
         homeConversationId: agent.homeConversationId,
-        ingress,
+        ingress: options.ingress ?? "reaction",
         audienceParticipantId: options.audienceParticipantId,
+        actingTeam: options.actingTeam,
       });
     }
 
-    this.writePrompt(sessionId, agent, text, options.delivery ?? "auto");
+    this.writePrompt(sessionId, agent, text, delivery);
     this.notifyStatus(sessionId);
   }
 
@@ -1124,6 +1169,9 @@ export class PiAgentManager {
     if (!agent || !agent.busy) return false;
 
     agent.aborted = true;
+    // Pi clears its queue on abort; dropping ours first keeps that from reading
+    // as every queued prompt being consumed.
+    agent.queued = [];
     console.log(
       `[pi:${sessionId}:${agentId}] abort`,
       JSON.stringify({ role: agent.role }),
@@ -1232,6 +1280,7 @@ export class PiAgentManager {
     config: AgentConfig,
     extras: SpawnExtras,
     appendPromptSource: string | undefined,
+    agentToken: string,
   ): ChildProcessWithoutNullStreams | null {
     try {
       return this.spawnProcess(
@@ -1242,6 +1291,7 @@ export class PiAgentManager {
           env: spawnEnv(
             sessionId,
             descriptor,
+            agentToken,
             { rootPath: session.rootPath },
             session.env,
           ),
@@ -1272,6 +1322,7 @@ export class PiAgentManager {
     config: AgentConfig,
     supervision?: { restartCount: number; lastRestartAt: number | null },
   ): AgentProcess | undefined {
+    const agentToken = randomUUID();
     const extras = spawnExtras(session.config);
     const appendText = appendPreambles(
       config,
@@ -1299,10 +1350,17 @@ export class PiAgentManager {
       config,
       extras,
       appendPromptSource,
+      agentToken,
     );
     if (!child) return undefined;
 
-    const agent = buildAgentProcess(descriptor, config, child, supervision);
+    const agent = buildAgentProcess(
+      descriptor,
+      config,
+      child,
+      agentToken,
+      supervision,
+    );
     session.agents.set(descriptor.agentId, agent);
 
     this.wireChildStreams(sessionId, agent);
@@ -1455,8 +1513,8 @@ export class PiAgentManager {
         this.onMessageEnd(sessionId, agent, descriptor, event),
       tool_execution_start: ({ sessionId, agent, event }) =>
         this.onToolExecutionStart(sessionId, agent, event),
-      queue_update: ({ sessionId, descriptor, event }) =>
-        this.onQueueUpdate(sessionId, descriptor, event),
+      queue_update: ({ sessionId, agent, descriptor, event }) =>
+        this.onQueueUpdate(sessionId, agent, descriptor, event),
       agent_end: ({ sessionId, agent }) => this.onAgentEnd(sessionId, agent),
     };
 
@@ -1487,8 +1545,10 @@ export class PiAgentManager {
         participantId: agent.agentId,
         homeConversationId: agent.homeConversationId,
         ingress: "reaction",
+        actingTeam: this.takeUnlistedPrompt(agent)?.actingTeam,
       });
     }
+    agent.drainingFollowUps = false;
     agent.busy = true;
     agent.aborted = false;
     agent.currentMessageId = null;
@@ -1510,6 +1570,7 @@ export class PiAgentManager {
    */
   private onMessageStart(agent: AgentProcess, event: PiStdoutEvent): void {
     if (!isAssistantRole(event.message)) return;
+    agent.drainingFollowUps = false;
     agent.currentMessageId = randomUUID();
     agent.startEmitted = false;
     agent.accum = "";
@@ -1635,14 +1696,73 @@ export class PiAgentManager {
    */
   private onQueueUpdate(
     sessionId: string,
+    agent: AgentProcess,
     descriptor: AgentDescriptor,
     event: PiStdoutEvent,
   ): void {
-    this.emit(sessionId, descriptor, {
-      type: "queue",
-      steering: toStringArray(event.steering),
-      followUp: toStringArray(event.followUp),
-    });
+    const steering = toStringArray(event.steering);
+    const followUp = toStringArray(event.followUp);
+    this.reconcileQueue(sessionId, agent, "steer", steering.length);
+    this.reconcileQueue(sessionId, agent, "followUp", followUp.length);
+    this.emit(sessionId, descriptor, { type: "queue", steering, followUp });
+  }
+
+  /**
+   * Matches the length Pi reports for one queue against the prompts written
+   * mid-run. Pi queues FIFO and reports every change, so growth lists the oldest
+   * unlisted prompts and shrinkage has consumed the oldest listed ones. Counting
+   * rather than matching text holds up when Pi expands a prompt template.
+   */
+  private reconcileQueue(
+    sessionId: string,
+    agent: AgentProcess,
+    kind: QueuedPrompt["kind"],
+    length: number,
+  ): void {
+    const ofKind = agent.queued.filter((entry) => entry.kind === kind);
+    const listed = ofKind.filter((entry) => entry.seen);
+    const unlisted = ofKind.filter((entry) => !entry.seen);
+    for (const entry of unlisted.slice(
+      0,
+      Math.max(0, length - listed.length),
+    )) {
+      entry.seen = true;
+    }
+    for (const entry of listed.slice(0, Math.max(0, listed.length - length))) {
+      this.consumeQueued(sessionId, agent, entry);
+    }
+  }
+
+  /**
+   * Applies a consumed prompt's team to the Run it joined. A steer lands mid-turn
+   * alongside the work already under way, so the turn can only narrow. A
+   * follow-up takes over once that work is done, so the first of a batch starts
+   * a new scope; any drained with it narrow that scope.
+   */
+  private consumeQueued(
+    sessionId: string,
+    agent: AgentProcess,
+    entry: QueuedPrompt,
+  ): void {
+    agent.queued.splice(agent.queued.indexOf(entry), 1);
+    const runId = this.runs.current(sessionId, agent.agentId)?.id;
+    if (!runId) return;
+    if (entry.kind === "followUp" && !agent.drainingFollowUps) {
+      agent.drainingFollowUps = true;
+      this.runs.replaceActingTeam(runId, entry.actingTeam);
+      return;
+    }
+    this.runs.narrowActingTeam(runId, entry.actingTeam);
+  }
+
+  /**
+   * A prompt written as busy that Pi never listed, because its turn had already
+   * ended and it ran the prompt directly. That is the turn now starting.
+   */
+  private takeUnlistedPrompt(agent: AgentProcess): QueuedPrompt | undefined {
+    const index = agent.queued.findIndex((entry) => !entry.seen);
+    if (index === -1) return undefined;
+    return agent.queued.splice(index, 1)[0];
   }
 
   /** Ends a run: clears busy + the activity indicator. */

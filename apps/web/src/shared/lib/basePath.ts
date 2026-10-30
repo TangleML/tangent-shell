@@ -30,6 +30,8 @@ export interface EmbedApiConfig {
   socketPath?: string;
   /** Returns a bearer token for API/socket auth. May be sync or async. */
   getToken?: () => string | undefined | Promise<string | undefined>;
+  /** Returns the Tangle team the current user grants the message being sent, if any. */
+  getActingTeam?: (sessionId: string) => string | undefined;
 }
 
 let embedConfig: EmbedApiConfig = {};
@@ -71,4 +73,17 @@ export function getAuthToken():
   | undefined
   | Promise<string | undefined> {
   return embedConfig.getToken?.();
+}
+
+/**
+ * The team a message sent now in `sessionId` acts as, if the host grants one.
+ * A host lookup that throws grants none rather than blocking the send.
+ */
+export function getActingTeam(sessionId: string): string | undefined {
+  try {
+    return embedConfig.getActingTeam?.(sessionId);
+  } catch (err) {
+    console.error("[chat] getActingTeam threw; sending with no team:", err);
+    return undefined;
+  }
 }

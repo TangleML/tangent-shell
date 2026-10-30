@@ -261,3 +261,89 @@ test("recordAudience seeds a sub-agent's audience without opening a run", async 
 
   assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "alice@x");
 });
+
+test("a run acts as the team it was opened with, never an earlier run's", async () => {
+  const h = await newRegistry();
+
+  const granted = h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    actingTeam: "team-a",
+  });
+  assert.equal(h.runs.actingTeamOf(granted.id), "team-a");
+  assert.equal(h.runs.actingTeamFor(h.sessionId, "prime"), "team-a");
+
+  const next = h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+  });
+  assert.equal(h.runs.actingTeamOf(next.id), undefined);
+  assert.equal(h.runs.actingTeamOf(granted.id), undefined);
+  assert.equal(h.runs.actingTeamFor(h.sessionId, "prime"), undefined);
+});
+
+test("settling a run drops its team", async () => {
+  const h = await newRegistry();
+
+  const run = h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    actingTeam: "team-a",
+  });
+  h.runs.settle(run.id, "completed");
+
+  assert.equal(h.runs.actingTeamOf(run.id), undefined);
+});
+
+test("narrowing keeps a team only when the new grant matches it", async () => {
+  const h = await newRegistry();
+  const open = () =>
+    h.runs.open({
+      sessionId: h.sessionId,
+      participantId: "prime",
+      ingress: "reaction",
+      actingTeam: "team-a",
+    });
+
+  const same = open();
+  h.runs.narrowActingTeam(same.id, "team-a");
+  assert.equal(h.runs.actingTeamOf(same.id), "team-a");
+
+  const other = open();
+  h.runs.narrowActingTeam(other.id, "team-b");
+  assert.equal(h.runs.actingTeamOf(other.id), undefined);
+
+  const none = open();
+  h.runs.narrowActingTeam(none.id, undefined);
+  assert.equal(h.runs.actingTeamOf(none.id), undefined);
+
+  const ungranted = h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+  });
+  h.runs.narrowActingTeam(ungranted.id, "team-a");
+  assert.equal(h.runs.actingTeamOf(ungranted.id), undefined);
+});
+
+test("replacing sets a live run's team outright, and ignores settled runs", async () => {
+  const h = await newRegistry();
+
+  const run = h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    actingTeam: "team-a",
+  });
+  h.runs.replaceActingTeam(run.id, "team-b");
+  assert.equal(h.runs.actingTeamOf(run.id), "team-b");
+  h.runs.replaceActingTeam(run.id, undefined);
+  assert.equal(h.runs.actingTeamOf(run.id), undefined);
+
+  h.runs.settle(run.id, "completed");
+  h.runs.replaceActingTeam(run.id, "team-c");
+  assert.equal(h.runs.actingTeamOf(run.id), undefined);
+});

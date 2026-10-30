@@ -7,6 +7,7 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
+import type { AgentTokenResolver } from "./auth/agentCaller.ts";
 import { EMBED_ALLOWED_ORIGINS, MAX_JSON_BODY_BYTES, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { AdmissionEngine } from "./conversation/admission.ts";
@@ -272,6 +273,7 @@ const pi = new PiAgentManager(
   runs,
   hostResourcePreamble,
 );
+const agentForToken: AgentTokenResolver = (token) => pi.agentForToken(token);
 
 // Hosts sub-agents inside a connected remote environment over the `/remote-env`
 // namespace. Remote sub-agents share the same event sink as local ones, so what
@@ -463,6 +465,7 @@ app.use(
     a2aGateway,
     participantService,
     runs,
+    agentForToken,
     contextEngine,
     memberships,
   ),
@@ -474,7 +477,7 @@ app.use(
   createInternalExternalAgentsRouter(externalGateway),
 );
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
-app.use("/internal/egress", createInternalEgressRouter());
+app.use("/internal/egress", createInternalEgressRouter(agentForToken, runs));
 // Internal API for the triggers extension running inside each Pi process.
 app.use(
   "/internal/triggers",

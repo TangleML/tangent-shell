@@ -48,9 +48,13 @@ type AgentEventBody =
  *
  * `runId` is optional because a connector can relay a stream the server never
  * opened a Run for (an event about a participant that no longer exists, or a
- * far end that predates run attribution).
+ * far end that predates run attribution). `actingTeam` is the Run's team at the
+ * moment of the event, so a Message the event becomes carries it on.
  */
-export type AgentEvent = AgentEventBody & { runId?: RunId };
+export type AgentEvent = AgentEventBody & {
+  runId?: RunId;
+  actingTeam?: string;
+};
 
 /** Identifies which agent in a session produced an {@link AgentEvent}. */
 export interface AgentDescriptor {
@@ -120,11 +124,26 @@ export interface ConversationEventSink {
   onSessionStatus: SessionStatusHandler;
 }
 
+/** A prompt written to a busy agent, awaiting Pi folding it into the turn. */
+export interface QueuedPrompt {
+  kind: "steer" | "followUp";
+  actingTeam?: string;
+  /** Whether a Pi `queue_update` has listed it yet. */
+  seen: boolean;
+}
+
 export interface AgentProcess {
   agentId: string;
   role: AgentRole;
   name: string;
   template?: string;
+  /** Per-process secret (`TANGENT_AGENT_TOKEN`) that identifies this agent to
+   * the internal API, so a caller cannot claim another agent's Run. */
+  agentToken: string;
+  /** Prompts written mid-run, in send order, until Pi consumes them. */
+  queued: QueuedPrompt[];
+  /** Set while Pi drains consecutive follow-ups into one turn. */
+  drainingFollowUps: boolean;
   /**
    * The Conversation this agent posts into. Minted fresh when the agent is
    * spawned (Prime's resolved from the store, a sub-agent's from its spawner) so

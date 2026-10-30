@@ -120,14 +120,33 @@ Allowlist properties:
 - Caller headers are limited to `accept` and `content-type`. Credentials are
   injected by the rule's `headers()`, so a caller cannot replace the backend
   identity and bundle UI code never sees the credential. This is not a boundary
-  against agents: Pi children inherit the server environment (including
-  `TANGLE_TOKEN` when set) and `TANGENT_INTERNAL_TOKEN`, so an agent with `bash`
-  can call this route, or the backend, directly.
+  against agents: Pi children are not given `TANGLE_TOKEN`, but they do get
+  `TANGENT_INTERNAL_TOKEN` and run as the server's OS user, so an agent with
+  `bash` can call this route directly (see
+  [Note 1](#note-1-egress-credentials-are-deployment-secrets)).
 - Responses surface only `content-type`; a 10s `AbortController` timeout bounds
   both fetching and consuming the response body. Transport failures map to a
   502 with safe configuration or timeout diagnostics. Raw transport errors can
   contain credentials and are not returned to callers. Backend HTTP statuses
   and response bodies are preserved in the egress response envelope.
+
+### Agent proxy errors
+
+`POST /internal/egress` answers its own failures with a non-200 status and a
+body of `{ error, code }`. `error` is for people and may change; `code` is
+stable:
+
+| Status | `code`                 | Meaning                                                               |
+| ------ | ---------------------- | --------------------------------------------------------------------- |
+| 403    | `egress_denied`        | The destination or method isn't allowlisted. Nothing was sent.        |
+| 403    | `team_not_granted`     | The call set `actAsTeam` without a grant. Nothing was sent.           |
+| 502    | `upstream_timeout`     | Tangle didn't answer within 10s. A write may still have persisted.    |
+| 502    | `upstream_unreachable` | The request to Tangle failed in transport, e.g. a refused connection. |
+| 502    | `egress_failed`        | Any other failure.                                                    |
+
+Tangle's own answers, refusals included, come back as a 200 whose envelope
+carries Tangle's `status` and body, so no `code` describes them. Request
+validation (400) and the internal token check (401) keep their own bodies.
 
 ### Saved pipeline authoring
 
@@ -141,10 +160,11 @@ pipeline in the UI is an optional step after confirmed persistence.
 Configure `TANGLE_API_URL` and the established trusted authentication in the
 deployment wrapper (`TANGLE_TOKEN` for cookie-based deployments, or the
 deployment's authenticated network path). `GET /api/users/me` identifies the
-backend caller. The proxy does not impersonate session participants, so every
-agent write runs as that one identity: anyone who can message an agent in a
-session can have it create or overwrite pipelines that identity may write,
-including pipelines other owners have shared with it for editing.
+backend caller. The proxy does not impersonate session participants, and the
+saved-pipeline rules never act as a team (see [Acting team](#acting-team)), so
+every saved-pipeline write runs as that one identity: anyone who can message an
+agent in a session can have it create or overwrite pipelines that identity may
+write, including pipelines other owners have shared with it for editing.
 
 A failed or timed-out response does not prove that a write was rolled back.
 Read the original `file_path` and compare the persisted definition before
@@ -152,6 +172,57 @@ retrying an uncertain save. The proxy does not retry writes automatically.
 Closing the last browser socket detaches presence without cancelling the
 server-side agent. This does not make an agent task durable across a server
 restart.
+
+---
+
+## Acting team
+
+Team-scoped Tangle calls (submitting or cancelling a run, editing run
+annotations, listing secrets) can act as a team by carrying the team
+impersonation header (`TANGLE_TEAM_HEADER`, default
+`x-tangle-impersonate-team-id`). Whether a call may is the server's decision;
+whether it does is the caller's:
+
+- **Grant.** The team comes from the **Run** the calling agent is in, never from
+  the caller. Any copy of the header a caller sends is stripped on every egress
+  route.
+- **Opt in.** A call acts as the granted team only when its
+  `POST /internal/egress` body sets `actAsTeam: true`. Without it the call goes
+  as the server's own Tangle identity, even on a granted turn. Opting in without
+  a grant is a 403 with `code: "team_not_granted"` (see
+  [Agent proxy errors](#agent-proxy-errors)), not a silent fallback. The flag
+  has no effect on rules that are not team-scoped.
+
+Tangle resolves a run's secrets against the run's creator. A run submitted as
+the team can use only the team's secrets, and one submitted without it only the
+server identity's own, so a tool keeps the secrets it lists and the identity it
+submits with the same.
+
+A Run gets a grant only along the causal chain from a human message:
+
+- The host sends `actingTeamId` on a chat message (`getActingTeam` on
+  `TangentProvider`). It applies to that message only and is not persisted. An
+  id that isn't visible ASCII, or is longer than 256 characters, is dropped.
+- The Runs that message opens are granted that team. A Prime directive or a
+  sub-agent report carries the authoring Run's grant, and so does an agent's
+  finished turn when it is relayed to Prime.
+- Triggers, reactor wakes, system messages and remote or A2A agents carry none.
+  A Run never inherits a grant from an earlier one.
+- A message queued onto a busy agent: a follow-up (a new turn) switches the Run
+  to its own grant, and a steer (which changes the running turn) keeps the grant
+  only if it matches, otherwise it drops it.
+
+The caller is identified by `TANGENT_AGENT_TOKEN`, a per-process secret minted at
+spawn and presented as `x-tangent-agent-token`. It is not the ids in the request
+body. `GET /internal/egress/granted-team` returns `{ grantedTeam }`, the team the
+caller's turn may act as, or `null`.
+
+Every resolved `POST /internal/egress` response carries `appliedTeam`: the team
+that request went upstream as, taken from the same decision that set the header,
+including when Tangle then refuses it. It is `null` when no team was applied,
+whether for lack of a grant or because the call didn't opt in, so it never means
+"unknown". The bundle-UI `host.fetch` response has no `appliedTeam`, since that
+route never acts as a team.
 
 ---
 
@@ -183,8 +254,17 @@ restart.
 ### Note 1: egress credentials are deployment secrets
 
 `TANGLE_TOKEN` is read from the process environment and injected as a cookie
-header only inside the server-side egress proxy. Do not commit this value, bake it
-into Docker images, or expose it to bundle UI workers.
+header only inside the server-side egress proxy. It is removed from the `pi`
+child environment, so agents are not handed a way around the proxy. Do not commit
+this value, bake it into Docker images, or expose it to bundle UI workers.
+
+Tangle authorizes against this token's identity, not the human's: a granted
+team names which team a call may act as, but cannot grant more than the token
+holds. The team is a field on the chat message, taken as sent, so anyone who can
+message a session can claim any team that identity belongs to. Agent tokens stop
+one agent from posing as another through the API. Neither they nor
+removing `TANGLE_TOKEN` are a hard boundary while agents run as the same OS user
+as the server, since that user can read other processes' environments.
 
 ### Note 2: default-open internal token in misconfigured deploys
 

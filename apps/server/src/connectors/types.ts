@@ -40,6 +40,11 @@ export interface DeliveryRequest {
    * agent/automation delivery.
    */
   audienceParticipantId?: string;
+  /**
+   * The Tangle team the Message grants the turn it wakes. Only a connector whose
+   * agents reach Tangle through this server's egress acts on it.
+   */
+  actingTeam?: string;
 }
 
 /** What became of a delivery. `reason` is set only when it was refused. */

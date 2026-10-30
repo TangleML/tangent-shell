@@ -66,6 +66,11 @@ export interface PostInput {
   /** Whether a mid-run delivery steers or queues behind the current turn. */
   delivery?: MessageDelivery;
   /**
+   * The Tangle team this Message grants the turns it wakes: what a human's
+   * client claimed for it, or the authoring agent's own Run team. Not persisted.
+   */
+  actingTeam?: string;
+  /**
    * Set false for output that must not wake anyone — a cancelled turn, whose
    * content is history rather than a request.
    */
@@ -342,6 +347,7 @@ export class ConversationRouter {
       message,
       ingress: input.ingress,
       delivery: input.delivery,
+      actingTeam: input.actingTeam,
       project: (msg, recipient) => deliveryText(msg, recipient, owner),
     });
     return { message, ...outcome };

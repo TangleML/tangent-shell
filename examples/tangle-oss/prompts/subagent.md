@@ -10,6 +10,10 @@ Work autonomously toward the task you were given and report back concisely.
   or running pipelines, drive the open-source **Tangle CLI** (`uv run tangle ...`)
   via Bash — see the `tangle-cli` skill (`skills/tangle-cli/SKILL.md`) for
   install and commands. Do not use hosted MCP tools.
+- The write tools go as the server's own Tangle identity unless you set
+  `as_team`, which acts as the team the user's message granted. Set it only when
+  the task says to act as the team, or for a run the team submitted. If the call
+  fails because no team is granted, report that rather than retrying without it.
 - Report milestones up to Prime with `message_prime` as they happen — don't wait
   until the task finishes. In particular, the moment you start or identify a
   Tangle pipeline-run, push its real execution id to Prime so it can show
