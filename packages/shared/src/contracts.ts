@@ -1456,6 +1456,41 @@ export interface UpdateGlobalMemoryResponse {
   content: string;
 }
 
+/** A user allowed to upload and delete marketplace agent bundles. */
+export interface BundleEditor {
+  /** Lowercased email. */
+  email: string;
+  /** Email of the admin who added this editor. */
+  addedBy: string;
+  createdAt: string;
+}
+
+/** Response from `GET /api/bundle-editors`. */
+export interface ListBundleEditorsResponse {
+  editors: BundleEditor[];
+  /** Admins from the `ADMIN_EMAILS` env var; read-only and always editors. */
+  admins: string[];
+}
+
+/** Request body for `POST /api/bundle-editors`. */
+export interface AddBundleEditorRequest {
+  email: string;
+}
+
+/** Response from `POST /api/bundle-editors`. */
+export interface AddBundleEditorResponse {
+  editor: BundleEditor;
+}
+
+/**
+ * Response from `GET /api/me/permissions`. Both are `true` when no admins are
+ * configured (the role gate is off). Global memory editing keys off `isAdmin`.
+ */
+export interface UserPermissions {
+  isAdmin: boolean;
+  canEditBundles: boolean;
+}
+
 /** Payload sent by the client when joining a session's chat room. */
 export interface ChatJoinPayload {
   sessionId: string;

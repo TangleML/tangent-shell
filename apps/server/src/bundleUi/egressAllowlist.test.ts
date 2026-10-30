@@ -8,6 +8,7 @@ import { INTERNAL_TOKEN, TANGLE_API_URL } from "../config.ts";
 import { createAgentBundlesRouter } from "../routes/agentBundles.ts";
 import { createInternalEgressRouter } from "../routes/internalEgress.ts";
 import type { AgentBundleStore } from "../store/agentBundleStore.ts";
+import type { BundleEditorStore } from "../store/bundleEditorStore.ts";
 import {
   EgressDeniedError,
   EgressUpstreamError,
@@ -433,6 +434,14 @@ async function postEgress(url: string, body: unknown, token?: string) {
   });
 }
 
+/** The agent-bundles router over stores the egress routes never touch. */
+function unusedStoresRouter() {
+  return createAgentBundlesRouter(
+    {} as AgentBundleStore,
+    {} as BundleEditorStore,
+  );
+}
+
 test("saved-pipeline access is denied through public UI egress even with a forged caller", async () => {
   process.env.TANGLE_TOKEN = "SESSION=trusted";
   const originalFetch = globalThis.fetch;
@@ -449,10 +458,7 @@ test("saved-pipeline access is denied through public UI egress even with a forge
     },
   );
   const app = express().use(express.json());
-  app.use(
-    "/api/agent-bundles",
-    createAgentBundlesRouter({} as AgentBundleStore),
-  );
+  app.use("/api/agent-bundles", unusedStoresRouter());
   app.use("/internal/egress", createInternalEgressRouter());
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));

@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 
 import { UserAvatar } from "@/features/user/components/UserAvatar";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
+import { useMyPermissions } from "@/features/user/hooks/useMyPermissions";
 import { TopNav, TopNavLink } from "@/shared/ui/patterns/top-nav";
 
 import { TangleLogo } from "./TangleLogo";
@@ -17,6 +18,7 @@ import { ThemeMenu } from "./ThemeMenu";
  */
 export function AppTopNav() {
   const user = useCurrentUser();
+  const { isAdmin } = useMyPermissions();
   return (
     <TopNav
       brand={
@@ -34,6 +36,9 @@ export function AppTopNav() {
           <TopNavLink to="/sessions">Sessions</TopNavLink>
           <TopNavLink to="/agent-bundles">Agent bundles</TopNavLink>
           <TopNavLink to="/global-memory">Global memory</TopNavLink>
+          {isAdmin ? (
+            <TopNavLink to="/bundle-editors">Bundle editors</TopNavLink>
+          ) : null}
         </>
       }
       actions={

@@ -6,6 +6,7 @@ import { useRef } from "react";
 
 import { useAgentBundles } from "@/features/agent-bundles/hooks/useAgentBundles";
 import { useUploadAgentBundle } from "@/features/agent-bundles/hooks/useUploadAgentBundle";
+import { useMyPermissions } from "@/features/user/hooks/useMyPermissions";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
@@ -15,6 +16,7 @@ import { BundleGrid } from "./bundle-grid";
 
 export function AgentBundlesPage() {
   const { data: bundles, isLoading, error } = useAgentBundles();
+  const { canEditBundles, isLoading: permissionsLoading } = useMyPermissions();
   const uploadBundle = useUploadAgentBundle();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -74,26 +76,36 @@ export function AgentBundlesPage() {
           <EmptyState
             icon="Package"
             title="No agent bundles yet"
-            description="Upload a Configuration Bundle ZIP to add it to the marketplace."
-            action={uploadButton}
+            description={
+              canEditBundles || permissionsLoading
+                ? "Upload a Configuration Bundle ZIP to add it to the marketplace."
+                : "Bundle editors can add Configuration Bundles to the marketplace."
+            }
+            action={canEditBundles ? uploadButton : undefined}
           />
         ) : null}
 
         {bundles && bundles.length > 0 ? (
           <BundleGrid>
             {bundles.map((bundle) => (
-              <AgentBundleCard key={bundle.id} bundle={bundle} />
+              <AgentBundleCard
+                key={bundle.id}
+                bundle={bundle}
+                canDelete={canEditBundles}
+              />
             ))}
-            <Box
-              padding="none"
-              background="card"
-              borderRadius="base"
-              border="sm"
-            >
-              <BlockStack gap="2" fill align="center" inlineAlign="center">
-                {uploadButton}
-              </BlockStack>
-            </Box>
+            {canEditBundles ? (
+              <Box
+                padding="none"
+                background="card"
+                borderRadius="base"
+                border="sm"
+              >
+                <BlockStack gap="2" fill align="center" inlineAlign="center">
+                  {uploadButton}
+                </BlockStack>
+              </Box>
+            ) : null}
           </BundleGrid>
         ) : null}
       </BlockStack>

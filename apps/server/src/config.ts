@@ -206,6 +206,18 @@ export const EMBED_ALLOWED_ORIGINS = (process.env.EMBED_ALLOWED_ORIGINS ?? "")
   .filter(Boolean);
 
 /**
+ * Emails (lowercased) of the admins who manage bundle editors and edit global
+ * memory. Comma-separated. Empty by default, which turns the role gate off so
+ * every caller may upload/delete bundles and edit global memory.
+ */
+export const ADMIN_EMAILS: ReadonlySet<string> = new Set(
+  (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+/**
  * Base URL of the Tangle API reached by the bundle-UI/agent egress allowlist.
  * The OpenAPI doc declares no `servers`, so this is supplied per environment.
  * Only the origin is used when matching egress destinations.

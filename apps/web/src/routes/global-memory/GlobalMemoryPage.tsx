@@ -6,12 +6,14 @@ import { useState } from "react";
 
 import { useGlobalMemory } from "@/features/global-memory/hooks/useGlobalMemory";
 import { useUpdateGlobalMemory } from "@/features/global-memory/hooks/useUpdateGlobalMemory";
+import { useMyPermissions } from "@/features/user/hooks/useMyPermissions";
 import { PageHeader } from "@/shared/ui/patterns/page-header";
 import { Section } from "@/shared/ui/patterns/section";
 import { WorkArea } from "@/shared/ui/patterns/work-area";
 
 export function GlobalMemoryPage() {
   const { data, isLoading, error } = useGlobalMemory();
+  const { isAdmin, isLoading: permissionsLoading } = useMyPermissions();
   const updateMemory = useUpdateGlobalMemory();
   const [value, setValue] = useState("");
   const [syncedContent, setSyncedContent] = useState<string | undefined>(
@@ -43,7 +45,11 @@ export function GlobalMemoryPage() {
       <BlockStack gap="6" align="stretch">
         <PageHeader
           title="Global memory"
-          description="Standing context shared with every session's agents. Edits apply to new sessions; running sessions pick them up on their next spawn."
+          description={
+            isAdmin || permissionsLoading
+              ? "Standing context shared with every session's agents. Edits apply to new sessions; running sessions pick them up on their next spawn."
+              : "Standing context shared with every session's agents. Only admins can edit it."
+          }
         />
 
         {error ? (
@@ -58,12 +64,15 @@ export function GlobalMemoryPage() {
           </Paragraph>
         ) : null}
 
-        <Section title="GLOBAL_MEMORY.md" actions={saveButton}>
+        <Section
+          title="GLOBAL_MEMORY.md"
+          actions={isAdmin ? saveButton : undefined}
+        >
           <Textarea
             rows={24}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            disabled={isLoading || isSaving}
+            disabled={!isAdmin || isLoading || isSaving}
             placeholder={
               isLoading
                 ? "Loading global memory..."

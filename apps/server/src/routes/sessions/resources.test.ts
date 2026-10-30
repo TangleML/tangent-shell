@@ -15,6 +15,7 @@ import { after, test } from "node:test";
 // config at load time, so `createSession`'s mkdir never touches the repo.
 const ROOT = mkdtempSync(path.join(tmpdir(), "resources-rest-"));
 process.env.SESSIONS_ROOT = ROOT;
+process.env.GLOBAL_MEMORY_DIR = path.join(ROOT, "global-memory");
 
 const express = (await import("express")).default;
 const { Router } = await import("express");
@@ -40,8 +41,14 @@ after(() => {
   rmSync(ROOT, { recursive: true, force: true });
 });
 
+/** An unsigned JWT carrying just the email claim the identity resolver reads. */
+function bearerFor(email: string): Record<string, string> {
+  const payload = Buffer.from(JSON.stringify({ email })).toString("base64url");
+  return { authorization: `Bearer header.${payload}.signature` };
+}
+
 /** A running express app mounting the resource route over a seeded catalog. */
-async function serve() {
+async function serve(admins?: ReadonlySet<string>) {
   const sessions = new InMemorySessionStore(new InMemoryParticipantStore());
   const catalog = new ResourceCatalog(new InMemoryResourceStore());
   const session = await sessions.createSession({ name: "S" });
@@ -69,6 +76,7 @@ async function serve() {
     memory: new MemoryManager(),
     hostPreamble: new HostResourcePreamble(catalog),
     emitResourcesUpdated: () => {},
+    admins,
   });
   app.use("/api/sessions", router);
   app.use(errorHandler);
@@ -90,10 +98,14 @@ async function serve() {
     };
   };
 
-  const post = async (pathname: string, body: unknown) => {
+  const post = async (
+    pathname: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ) => {
     const res = await fetch(`${base}${pathname}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
     });
     const text = await res.text();
@@ -105,8 +117,14 @@ async function serve() {
     };
   };
 
-  const del = async (pathname: string) => {
-    const res = await fetch(`${base}${pathname}`, { method: "DELETE" });
+  const del = async (
+    pathname: string,
+    headers: Record<string, string> = {},
+  ) => {
+    const res = await fetch(`${base}${pathname}`, {
+      method: "DELETE",
+      headers,
+    });
     return { status: res.status };
   };
 
@@ -229,6 +247,54 @@ test("DELETE a memory resource clears the store", async () => {
 
   const file = readFileSync(path.join(session.rootPath, "MEMORY.md"), "utf8");
   assert.doesNotMatch(file, /remember-me-secret/);
+});
+
+const ADMINS: ReadonlySet<string> = new Set(["admin@example.com"]);
+const GLOBAL_MEMORY = { kind: "memory", scope: "global", content: "Ship it." };
+const GLOBAL_URI = `?uri=${encodeURIComponent("memory://global")}`;
+
+test("global memory POST needs a signed-in admin when admins are configured", async () => {
+  const { post, sessionId } = await serve(ADMINS);
+  const route = `/${sessionId}/resources`;
+
+  assert.equal((await post(route, GLOBAL_MEMORY)).status, 401);
+  assert.equal(
+    (await post(route, GLOBAL_MEMORY, bearerFor("someone@example.com"))).status,
+    403,
+  );
+  assert.equal(
+    (await post(route, GLOBAL_MEMORY, bearerFor("Admin@Example.com"))).status,
+    201,
+  );
+});
+
+test("global memory DELETE is admin-only when admins are configured", async () => {
+  const { del, sessionId } = await serve(ADMINS);
+  const route = `/${sessionId}/resources${GLOBAL_URI}`;
+
+  assert.equal(
+    (await del(route, bearerFor("someone@example.com"))).status,
+    403,
+  );
+  assert.equal((await del(route, bearerFor("admin@example.com"))).status, 204);
+});
+
+test("session memory stays writable by non-admins when admins are configured", async () => {
+  const { post, del, sessionId } = await serve(ADMINS);
+  const outsider = bearerFor("someone@example.com");
+
+  const created = await post(
+    `/${sessionId}/resources`,
+    { kind: "memory", scope: "session", content: "Prefer concise plans." },
+    outsider,
+  );
+  assert.equal(created.status, 201);
+
+  const removed = await del(
+    `/${sessionId}/resources?uri=${encodeURIComponent("memory://session")}`,
+    outsider,
+  );
+  assert.equal(removed.status, 204);
 });
 
 test("POST a file writes it under uploads/, catalogs it, and lists it", async () => {

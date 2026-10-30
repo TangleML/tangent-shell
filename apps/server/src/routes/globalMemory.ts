@@ -5,6 +5,7 @@ import type {
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import { requireAdmin } from "../middleware/requireRole.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 
@@ -32,9 +33,9 @@ function handleUpdate(
 }
 
 /**
- * Public REST router exposing the global memory file to the editor UI. Reads and
- * writes go through {@link MemoryManager} so the canonical store stays the single
- * source of truth.
+ * Public REST router exposing the global memory file to the editor UI. Reads are
+ * open; writes are admin-only. Both go through {@link MemoryManager} so the
+ * canonical store stays the single source of truth.
  */
 export function createGlobalMemoryRouter(memory: MemoryManager): Router {
   const router = Router();
@@ -43,6 +44,7 @@ export function createGlobalMemoryRouter(memory: MemoryManager): Router {
 
   router.put(
     "/",
+    requireAdmin(),
     validate({ body: updateBodySchema }),
     (req: Request, res: Response) =>
       handleUpdate(memory, getValidated<UpdateBody>(req).body.content, res),
