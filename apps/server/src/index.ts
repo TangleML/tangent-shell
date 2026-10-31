@@ -34,6 +34,7 @@ import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
 import { createAgentBundlesRouter } from "./routes/agentBundles.ts";
 import { createAttachRouter } from "./routes/attach.ts";
+import { createBundleEditorsRouter } from "./routes/bundleEditors.ts";
 import { createConfigRouter } from "./routes/config.ts";
 import { createEmbedRouter } from "./routes/embed.ts";
 import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
@@ -69,6 +70,7 @@ import { roomFor } from "./sockets/rooms.ts";
 import { createUiCommandEmitter } from "./sockets/sessionRoster.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
+import { SqliteBundleEditorStore } from "./store/sqliteBundleEditorStore.ts";
 import { SqliteMembershipStore } from "./store/sqliteMembershipStore.ts";
 import { SqliteParticipantStore } from "./store/sqliteParticipantStore.ts";
 import { SqliteReactorStore } from "./store/sqliteReactorStore.ts";
@@ -92,6 +94,8 @@ const resourceStore = new SqliteResourceStore(db);
 const store = new SqliteSessionStore(db, resourceStore);
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
+// Who besides the ADMIN_EMAILS admins may upload and delete those bundles.
+const bundleEditorStore = new SqliteBundleEditorStore(db);
 
 const app = express();
 // Cross-origin embed hosts (allowlisted via EMBED_ALLOWED_ORIGINS) need CORS on
@@ -422,13 +426,17 @@ app.use(
     remoteGateway,
   ),
 );
-app.use("/api/agent-bundles", createAgentBundlesRouter(agentBundleStore));
+app.use(
+  "/api/agent-bundles",
+  createAgentBundlesRouter(agentBundleStore, bundleEditorStore),
+);
+app.use("/api/bundle-editors", createBundleEditorsRouter(bundleEditorStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 // Public MCP relay dialed by an external client; per-channel bearer presented
 // on Authorization (or Mcp-Authorization behind a Basic-auth gateway).
 app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
-app.use("/api/me", createMeRouter());
+app.use("/api/me", createMeRouter(bundleEditorStore));
 // Public, non-sensitive client config (e.g. the shell's public base URL).
 app.use("/api/config", createConfigRouter());
 app.use(

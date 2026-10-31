@@ -1,6 +1,9 @@
+import type { UserPermissions } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 
 import { resolveUserIdentity } from "../auth/identity.ts";
+import { requestEmail, resolvePermissions } from "../auth/permissions.ts";
+import type { BundleEditorStore } from "../store/bundleEditorStore.ts";
 
 /**
  * Handles `GET /api/me`. Resolves the current user from an
@@ -22,12 +25,28 @@ function handleGetMe(req: Request, res: Response): void {
   res.json({ user_id: identity.email, ...identity });
 }
 
+/** Handles `GET /api/me/permissions`: what the caller may manage. */
+async function handleGetPermissions(
+  editors: BundleEditorStore,
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const response: UserPermissions = await resolvePermissions(
+    requestEmail(req),
+    editors,
+  );
+  res.json(response);
+}
+
 /**
  * Public REST router exposing the current user, derived from the Oktasso JWT in
  * the `OKTASSO_TOKEN` cookie. The signature is not verified at this time.
  */
-export function createMeRouter(): Router {
+export function createMeRouter(editors: BundleEditorStore): Router {
   const router = Router();
   router.get("/", (req: Request, res: Response) => handleGetMe(req, res));
+  router.get("/permissions", (req: Request, res: Response) =>
+    handleGetPermissions(editors, req, res),
+  );
   return router;
 }

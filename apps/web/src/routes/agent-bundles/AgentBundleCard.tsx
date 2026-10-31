@@ -21,9 +21,10 @@ import { BundleIconImage } from "./bundle-grid";
 
 interface AgentBundleCardProps {
   bundle: AgentBundleMeta;
+  canDelete: boolean;
 }
 
-export function AgentBundleCard({ bundle }: AgentBundleCardProps) {
+export function AgentBundleCard({ bundle, canDelete }: AgentBundleCardProps) {
   const navigate = useNavigate();
   const createSession = useCreateSession();
   const deleteBundle = useDeleteAgentBundle();
@@ -83,16 +84,18 @@ export function AgentBundleCard({ bundle }: AgentBundleCardProps) {
           fill
           gap="2"
           blockAlign="center"
-          align="space-between"
+          align={canDelete ? "space-between" : "end"}
           wrap="nowrap"
         >
-          <IconButton
-            icon="Trash2"
-            tone="critical"
-            aria-label={`Delete ${bundle.name}`}
-            onClick={onDelete}
-            disabled={deleteBundle.isPending}
-          />
+          {canDelete ? (
+            <IconButton
+              icon="Trash2"
+              tone="critical"
+              aria-label={`Delete ${bundle.name}`}
+              onClick={onDelete}
+              disabled={deleteBundle.isPending}
+            />
+          ) : null}
           <Button
             size="sm"
             variant="outline"

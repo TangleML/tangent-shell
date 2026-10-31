@@ -10,11 +10,13 @@ import { AppShell } from "@/shared/ui/patterns/app-shell";
 
 import { AgentBundlesPage } from "./agent-bundles/AgentBundlesPage";
 import { BundleUiHarnessPage } from "./bundle-ui-harness/BundleUiHarnessPage";
-import { GlobalMemoryPage } from "./global-memory/GlobalMemoryPage";
 import { AppTopNav } from "./layout/AppTopNav";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { SessionChatPage } from "./sessions/SessionChatPage";
 import { SessionsPage } from "./sessions/SessionsPage";
+import { BundleEditorsSettings } from "./settings/sections/bundle-editors/BundleEditorsSettings";
+import { GlobalMemorySettings } from "./settings/sections/GlobalMemorySettings";
+import { SettingsLayout } from "./settings/SettingsLayout";
 
 function RootLayout() {
   return (
@@ -71,10 +73,30 @@ const agentBundlesRoute = createRoute({
   component: AgentBundlesPage,
 });
 
-const globalMemoryRoute = createRoute({
+const settingsRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
+  path: "/settings",
+  component: SettingsLayout,
+});
+
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/global-memory" });
+  },
+});
+
+const settingsGlobalMemoryRoute = createRoute({
+  getParentRoute: () => settingsRoute,
   path: "/global-memory",
-  component: GlobalMemoryPage,
+  component: GlobalMemorySettings,
+});
+
+const settingsBundleEditorsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/bundle-editors",
+  component: BundleEditorsSettings,
 });
 
 // Dev-only harness for the bundle-UI sandbox runtime (Phase 5).
@@ -90,7 +112,11 @@ export const routeTree = rootRoute.addChildren([
     sessionsRoute,
     sessionChatRoute,
     agentBundlesRoute,
-    globalMemoryRoute,
+    settingsRoute.addChildren([
+      settingsIndexRoute,
+      settingsGlobalMemoryRoute,
+      settingsBundleEditorsRoute,
+    ]),
     ...(env.isDev ? [bundleUiHarnessRoute] : []),
   ]),
 ]);

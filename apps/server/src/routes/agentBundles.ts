@@ -10,12 +10,14 @@ import {
   resolveEgress,
   resolveTargetUrl,
 } from "../bundleUi/egressAllowlist.ts";
+import { requireBundleEditor } from "../middleware/requireRole.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import {
   AgentBundleConflictError,
   type AgentBundleStore,
   AgentBundleValidationError,
 } from "../store/agentBundleStore.ts";
+import type { BundleEditorStore } from "../store/bundleEditorStore.ts";
 import { bundleUpload } from "./bundleUpload.ts";
 
 /** `:id` route param shared by the single-bundle routes. */
@@ -220,11 +222,13 @@ async function handleDelete(
 function registerBundleCollectionRoutes(
   router: Router,
   store: AgentBundleStore,
+  editors: BundleEditorStore,
 ): void {
   router.get("/", (_req: Request, res: Response) => handleList(store, res));
 
   router.post(
     "/",
+    requireBundleEditor(editors),
     bundleUpload.single("bundle"),
     (req: Request, res: Response) => handleUpload(store, req, res),
   );
@@ -252,6 +256,7 @@ function registerBundleCollectionRoutes(
 function registerBundleItemRoutes(
   router: Router,
   store: AgentBundleStore,
+  editors: BundleEditorStore,
 ): void {
   router.get(
     "/:id",
@@ -289,17 +294,21 @@ function registerBundleItemRoutes(
 
   router.delete(
     "/:id",
+    requireBundleEditor(editors),
     validate({ params: idParamsSchema }),
     (req: Request, res: Response) =>
       handleDelete(store, getValidated<unknown, IdParams>(req).params.id, res),
   );
 }
 
-export function createAgentBundlesRouter(store: AgentBundleStore): Router {
+export function createAgentBundlesRouter(
+  store: AgentBundleStore,
+  editors: BundleEditorStore,
+): Router {
   const router = Router();
 
-  registerBundleCollectionRoutes(router, store);
-  registerBundleItemRoutes(router, store);
+  registerBundleCollectionRoutes(router, store, editors);
+  registerBundleItemRoutes(router, store, editors);
 
   return router;
 }

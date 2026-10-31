@@ -1,26 +1,29 @@
-import type { UserIdentity } from "@tangent/shared/contracts";
+// local primitive
 
-import { userInitials } from "@/features/user/model/userDisplay";
+import type { ReactNode } from "react";
+
+import { useGravatar } from "@/features/user/hooks/useGravatar";
 
 interface UserAvatarProps {
-  user: UserIdentity;
+  email: string;
+  fallback: ReactNode;
 }
 
 /**
- * UserAvatar — circular initials badge for the current user.
- *
- * Styles a raw `<div>` (the sanctioned escape hatch, like `StatusDot`), so it
- * is exempt from `tangle-ui/no-classname-on-primitives`.
+ * UserAvatar — resolves a Gravatar image for `email` and renders it as a
+ * circular avatar. While the lookup is in flight or when no Gravatar exists,
+ * it renders `fallback` (typically an initials badge). Styles a raw `<img>`
+ * (the sanctioned escape hatch), so it is exempt from
+ * `tangle-ui/no-classname-on-primitives`.
  */
-export function UserAvatar({ user }: UserAvatarProps) {
-  const fullName = `${user.first_name} ${user.last_name}`.trim();
+export function UserAvatar({ email, fallback }: UserAvatarProps) {
+  const url = useGravatar(email);
+  if (!url) return <>{fallback}</>;
   return (
-    <div
-      title={fullName}
-      aria-label={fullName}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-medium text-secondary-foreground"
-    >
-      {userInitials(user)}
-    </div>
+    <img
+      src={url}
+      alt=""
+      className="size-8 shrink-0 rounded-full object-cover"
+    />
   );
 }

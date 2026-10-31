@@ -430,6 +430,17 @@ export const sessionViews = sqliteTable(
   ],
 );
 
+/**
+ * Emails (lowercased) allowed to upload and delete marketplace agent bundles,
+ * managed by the admins named in `ADMIN_EMAILS`.
+ */
+export const bundleEditors = sqliteTable("bundle_editors", {
+  email: text("email").primaryKey(),
+  /** Email of the admin who added this editor. */
+  addedBy: text("added_by").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export type SessionRow = typeof sessions.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
@@ -440,3 +451,4 @@ export type ResourceRow = typeof resources.$inferSelect;
 export type ResourceReferenceRow = typeof resourceReferences.$inferSelect;
 export type ResourceGrantRow = typeof resourceGrants.$inferSelect;
 export type ReactorStateRow = typeof reactorState.$inferSelect;
+export type BundleEditorRow = typeof bundleEditors.$inferSelect;

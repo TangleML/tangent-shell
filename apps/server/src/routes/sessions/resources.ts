@@ -4,11 +4,13 @@ import { type Request, type Response, Router } from "express";
 import { resolveUserIdentity } from "../../auth/identity.ts";
 import {
   applyResourceInput,
+  memoryScopeFromUri,
   removeResourceByUri,
   type ResourceSeedDeps,
 } from "../../conversation/hostResources.ts";
 import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
 import { catalogWorkspaceFiles } from "../../conversation/workspaceFiles.ts";
+import { rejectNonAdmin } from "../../middleware/requireRole.ts";
 import { getValidated, validate } from "../../middleware/validate.ts";
 import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
 import type { MemoryManager } from "../../pi/memory.ts";
@@ -35,6 +37,8 @@ export interface ResourceRouteDeps {
   hostPreamble: HostResourcePreamble;
   /** Notifies a session's room that its resource catalog changed. */
   emitResourcesUpdated: (sessionId: string) => void;
+  /** Admin emails gating global memory edits; defaults to `ADMIN_EMAILS`. */
+  admins?: ReadonlySet<string>;
 }
 
 /** The seed deps drawn from the route deps. */
@@ -82,10 +86,14 @@ async function handleListResources(
   });
 }
 
+function writesGlobalMemory(body: HostResourceInputBody): boolean {
+  return body.kind === "memory" && body.scope === "global";
+}
+
 /**
  * `POST /:id/resources` → adds a host-owned resource (a memory write or a host
  * entry). Refreshes the spawn preamble and signals the room so open clients
- * refetch. Returns the stored resource.
+ * refetch. Returns the stored resource. Writing global memory is admin-only.
  */
 async function handleAddResource(
   deps: ResourceRouteDeps,
@@ -94,6 +102,8 @@ async function handleAddResource(
   req: Request,
   res: Response,
 ): Promise<void> {
+  if (writesGlobalMemory(body) && rejectNonAdmin(req, res, deps.admins)) return;
+
   const session = await loadSession(deps.store, res, id);
   if (!session) return;
 
@@ -117,14 +127,18 @@ async function handleAddResource(
 /**
  * `DELETE /:id/resources?uri=...` → drops a host-owned resource. Removing a
  * memory store's entry also empties the store so the agent's `read_memory` and
- * the catalog stay consistent.
+ * the catalog stay consistent. Clearing global memory is admin-only.
  */
 async function handleRemoveResource(
   deps: ResourceRouteDeps,
   id: string,
   query: DeleteResourceQuery,
+  req: Request,
   res: Response,
 ): Promise<void> {
+  const clearsGlobalMemory = memoryScopeFromUri(query.uri) === "global";
+  if (clearsGlobalMemory && rejectNonAdmin(req, res, deps.admins)) return;
+
   const session = await loadSession(deps.store, res, id);
   if (!session) return;
   await removeResourceByUri(
@@ -180,7 +194,7 @@ export function registerResourceRoutes(
         SessionParams,
         DeleteResourceQuery
       >(req);
-      return handleRemoveResource(deps, params.id, query, res);
+      return handleRemoveResource(deps, params.id, query, req, res);
     },
   );
 }
