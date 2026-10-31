@@ -109,7 +109,25 @@ sequenceDiagram
   deactivate Agent
 ```
 
+## Project memory, shared or local
+
+Session and global memory cover "this project" and "everywhere." In between, a
+session can carry a **project memory** store — configured on the session itself,
+not on any folder. It layers on top of the usual session and global memory rather
+than replacing them, and comes in a couple of shapes:
+
+- A simple project note the agents keep up to date.
+- A richer, searchable project memory that recalls relevant context at the start
+  of a turn and summarizes what was learned when a session ends.
+
+Where that store lives is up to the session. By default it sits in the session's
+own workspace (private to the session). Point it at a **mounted shared folder**
+instead and the same memory is shared with every other session that mounts the
+folder — so the whole team working on that project pulls from one store. The
+shared folder is just a mount point; the memory binding is what decides to use it.
+
 ## Where this shows up next
 
 - Bundles can seed starting memory: [Agent Bundles](03-agent-bundles.md).
 - Memory shows up in the live conversation: [Session Chat](02-session-chat.md).
+- Shared folders are set up alongside the session root: [Sessions](01-sessions.md).

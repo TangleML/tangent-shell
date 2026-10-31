@@ -169,6 +169,7 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
       ensure: (...args: unknown[]) => {
         ensureCalls.push(args);
       },
+      resolveMemory: async () => undefined,
     },
     connectors: { list: () => [] },
     participantService: { list: async () => [] },
@@ -214,6 +215,7 @@ test("closing the last browser socket detaches presence without cancelling the s
     },
     pi: {
       ensure: () => {},
+      resolveMemory: async () => undefined,
       listActivities: () => [],
       getAgentSelection: () => undefined,
       abort: () => {

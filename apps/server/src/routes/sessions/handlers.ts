@@ -5,6 +5,7 @@ import path from "node:path";
 import type {
   Attachment,
   HostResourceInput,
+  MemoryBinding,
   Session,
   SessionActivity,
   SessionConfigMeta,
@@ -223,6 +224,7 @@ async function createSessionFromBundle(
   user: UserIdentity | undefined,
   resources: HostResourceInput[],
   env: Record<string, string> | undefined,
+  memoryOverride: MemoryBinding | undefined,
   res: Response,
 ): Promise<void> {
   const { store, pi, triggerEngine } = deps;
@@ -252,6 +254,10 @@ async function createSessionFromBundle(
 
     await seedResources(deps, sessionId, rootPath, resources, user);
 
+    const binding = memoryOverride ?? config.memory;
+    if (binding) await store.setSessionMemory(sessionId, binding);
+
+    const resolvedMemory = await pi.resolveMemory(sessionId, rootPath);
     pi.ensure(
       sessionId,
       rootPath,
@@ -260,6 +266,7 @@ async function createSessionFromBundle(
       user,
       primaryConversationId,
       env,
+      resolvedMemory,
     );
     res.status(201).json({ session: withConfig });
   } catch (err) {
@@ -314,6 +321,7 @@ export async function handleCreateSession(
     user,
     body.resources ?? [],
     body.env,
+    body.memory,
     res,
   );
 }

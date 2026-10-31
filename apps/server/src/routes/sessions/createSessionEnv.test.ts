@@ -73,6 +73,7 @@ test("handleCreateSession persists env and forwards it into pi.ensure", async ()
     ) => {
       ensureEnv = env;
     },
+    resolveMemory: async () => undefined,
   };
 
   const deps = {
@@ -80,7 +81,6 @@ test("handleCreateSession persists env and forwards it into pi.ensure", async ()
     pi,
     triggerEngine: { seed: () => {} },
     agentBundleStore: { readBundle: async () => zip },
-    memory: { initSession: () => {} },
     resources: {},
     hostPreamble: { refresh: async () => {} },
     emitResourcesUpdated: () => {},

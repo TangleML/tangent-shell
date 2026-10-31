@@ -2,6 +2,7 @@ import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { z } from "zod";
 
 import { MAX_FILE_RESOURCE_BYTES } from "../../config.ts";
+import { memoryBindingSchema } from "../../pi/config/manifest.ts";
 
 /** Decoded size of `content`: `base64` measures the bytes it decodes to. */
 function decodedByteLength(
@@ -82,6 +83,7 @@ export const createSessionSchema = z.object({
   resources: z.array(hostResourceInputSchema).optional(),
   env: z.record(z.string(), z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  memory: memoryBindingSchema.optional(),
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 

@@ -8,51 +8,43 @@
  * type-check (`@ts-nocheck`) and never imported by the server — only passed as a
  * path to the Pi subprocess.
  *
- * Tools by role (from `TANGENT_AGENT_ROLE`):
- * - all agents: `read_memory` (read the session + global stores).
- * - `prime` only: `remember` (write directly) and `suggest_memory` (propose a
- *   change the user must confirm). Prime owns the human conversation, so it is
- *   the sole writer.
- *
- * All tools are thin clients over this server's internal memory API; the server
- * owns the files and emits the "remembered" highlight from the actual write.
+ * It registers the dispatcher-backed memory tools (`read_memory`, `remember`,
+ * `suggest_memory`) whose `execute` is a thin client over this server's internal
+ * `/internal/memory/call` endpoint — the server owns the files, resolves which
+ * backend handles each call, and emits the "remembered" highlight from the
+ * actual write. Which tools an agent may actually use is decided server-side by
+ * the spawn's `--tools` allowlist (dynamic, per resolved memory), not here.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const SESSION_ID = process.env.TANGENT_SESSION_ID ?? "";
-const ROLE = process.env.TANGENT_AGENT_ROLE ?? "subagent";
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
 
-async function callApi(
-  method: "GET" | "POST",
-  endpoint: string,
-  body?: Record<string, unknown>,
-  query?: Record<string, string>,
-): Promise<unknown> {
-  const url = new URL(`${INTERNAL_URL}/internal/memory/${endpoint}`);
-  for (const [key, value] of Object.entries(query ?? {})) {
-    url.searchParams.set(key, value);
-  }
-
-  const response = await fetch(url, {
-    method,
+/** Invokes one dispatcher memory tool on the server and returns its text. */
+async function callMemory(
+  name: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const response = await fetch(`${INTERNAL_URL}/internal/memory/call`, {
+    method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${INTERNAL_TOKEN}`,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: JSON.stringify({ sessionId: SESSION_ID, name, params }),
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(
-      `internal API ${endpoint} failed (${response.status}): ${text}`,
+      `internal API memory/call (${name}) failed (${response.status}): ${text}`,
     );
   }
-  return response.json();
+  const data = (await response.json()) as { text: string };
+  return data.text;
 }
 
 function textResult(text: string) {
@@ -60,7 +52,6 @@ function textResult(text: string) {
 }
 
 export default function (pi: ExtensionAPI) {
-  // Every agent can read its memory.
   pi.registerTool({
     name: "read_memory",
     label: "Read Memory",
@@ -72,21 +63,10 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Read your global + session memory",
     parameters: Type.Object({}),
     async execute() {
-      const data = (await callApi("GET", "read", undefined, {
-        sessionId: SESSION_ID,
-      })) as { session: string; global: string };
-
-      const session = data.session?.trim() || "(empty)";
-      const global = data.global?.trim() || "(empty)";
-      return textResult(
-        `## Global memory\n\n${global}\n\n## Session memory\n\n${session}`,
-      );
+      return textResult(await callMemory("read_memory", {}));
     },
   });
 
-  if (ROLE !== "prime") return;
-
-  // Prime-only memory-mutation tools below.
   pi.registerTool({
     name: "remember",
     label: "Remember",
@@ -117,17 +97,7 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params) {
-      const data = (await callApi("POST", "remember", {
-        sessionId: SESSION_ID,
-        scope: params.scope ?? "session",
-        text: params.text,
-        replaces: params.replaces,
-      })) as { stored: string; scope: string };
-
-      return textResult(
-        `Stored to ${data.scope} memory. The user has been shown a confirmation ` +
-          `of exactly what was saved.`,
-      );
+      return textResult(await callMemory("remember", params));
     },
   });
 
@@ -150,15 +120,7 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params) {
-      await callApi("POST", "suggest", {
-        sessionId: SESSION_ID,
-        scope: params.scope ?? "global",
-        text: params.text,
-      });
-      return textResult(
-        "Suggestion shown to the user. Awaiting their confirmation before " +
-          "anything is stored; do not assume it was remembered.",
-      );
+      return textResult(await callMemory("suggest_memory", params));
     },
   });
 }

@@ -1,6 +1,7 @@
 import type {
   Attachment,
   HostResourceInput,
+  MemoryBinding,
   MessageDelivery,
   Resource,
   ResourceKind,
@@ -38,6 +39,8 @@ export interface NewSessionOptions {
   env?: Record<string, string>;
   /** Selector tags (e.g. `projectId:<GUID>`) to route selector-scoped hosts. */
   tags?: string[];
+  /** Memory binding for the session, overriding the bundle's default. */
+  memory?: MemoryBinding;
 }
 
 export interface NewSessionResult {
