@@ -60,6 +60,19 @@ export const hostResourceInputSchema = z.discriminatedUnion("kind", [
         path: ["content"],
       },
     ),
+  z.object({
+    kind: z.literal("mount"),
+    folderId: z.string().trim().min(1),
+    mountName: z
+      .string()
+      .trim()
+      .min(1)
+      .refine(
+        (n) => !/[/\\]/.test(n) && n !== "." && n !== "..",
+        "mountName must be a single path segment",
+      )
+      .optional(),
+  }),
 ]);
 export type HostResourceInputBody = z.infer<typeof hostResourceInputSchema>;
 

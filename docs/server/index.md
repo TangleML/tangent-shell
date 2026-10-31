@@ -119,6 +119,9 @@ SqliteResourceStore(db)`, `membershipStore = new SqliteMembershipStore(db)` —
   the relational stores for the roster, catalog, and memberships.
 - `store = new SqliteSessionStore(db, participants, resourceStore)` — the durable
   session store backing REST routes and socket handlers.
+- `sharedFolderStore = new SqliteSharedFolderStore(db)` — the registry of
+  cross-session shared folders a session mounts (by symlink) into its root; bytes
+  live under `SHARED_ROOT`.
 - `agentBundleStore = new FileAgentBundleStore()` — the filesystem-backed
   marketplace of saved bundles.
 - `memory = new MemoryManager()` — the global + per-session memory files.
@@ -158,8 +161,9 @@ participantService)` — arms schedule timers and posts firings into the target'
 The Express app mounts:
 
 - `GET /api/health`
-- `/api/sessions` -> `createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore, participantService, resourceCatalog, memory, hostResourcePreamble, emitResourcesUpdated)`
+- `/api/sessions` -> `createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore, participantService, resourceCatalog, sharedFolderStore, memory, hostResourcePreamble, emitResourcesUpdated, …)`
 - `/api/agent-bundles` -> `createAgentBundlesRouter(agentBundleStore)`
+- `/api/shared-folders` -> `createSharedFoldersRouter(sharedFolderStore)` (cross-session folders a session mounts into its root)
 - `/api/global-memory` -> `createGlobalMemoryRouter(memory)`
 - `/api/mcp` -> `createMcpRelayRouter(mcpRelay, relayReport)` (public MCP relay dialed by an external client)
 - `/api/me` -> `createMeRouter()` (resolves the current user from an auth JWT cookie)
@@ -243,6 +247,8 @@ From [apps/server/src/config.ts](../../apps/server/src/config.ts):
 - `SESSIONS_ROOT` (default `<cwd>/.sessions`) — each session gets `<root>/<id>`.
 - `SESSIONS_DB` (default `<SESSIONS_ROOT>/tangent.db`) — the SQLite metadata DB.
 - `AGENT_BUNDLES_ROOT` (default `<cwd>/.agent-bundles`) — marketplace storage.
+- `SHARED_ROOT` (default `<cwd>/.shared`) — each shared folder gets `<root>/<id>`;
+  sessions symlink these in as mounts.
 - `GLOBAL_MEMORY_DIR` (default `<cwd>/.memory`) + `GLOBAL_MEMORY_FILENAME`
   (`GLOBAL_MEMORY.md`) and `SESSION_MEMORY_FILENAME` (`MEMORY.md`).
 - `ARTIFACTS_DIRNAME` (`artifacts`) and `UPLOADS_DIRNAME` (`uploads`) — the only
@@ -276,7 +282,10 @@ From [apps/server/src/config.ts](../../apps/server/src/config.ts):
 - **Run** — one unit of work by one participant: what a stream of `agent:*` events
   is attributable to, and what cancellation acts on.
 - **Resource** — session-owned catalogued content: `file`, `memory`, `attachment`,
-  or `artifact`.
+  `artifact`, `host`, or `mount`.
+- **Shared folder** — a server-managed, cross-session "project" directory under
+  `SHARED_ROOT`; a session gains access by mounting it (a `mount` resource whose
+  symlink points at it from the session root). One-way: mounts are not undone.
 - **Room** — a Socket.IO room. `conv:<sessionId>:<conversationId>` carries a
   Conversation's Messages; `session:<id>` carries session-level events.
 - **Trigger** — a per-session rule that turns an external signal into a prompt

@@ -139,9 +139,10 @@ const { sessionId } = await newSession(
 #### Resources
 
 A session holds a catalog of resources — memory documents, host-provided
-entries, attachments, and workspace files. The host can seed, add, list, and
-remove the three kinds it owns (`memory`, `host`, and `file`); artifacts and
-attachments stay on their own mechanisms and are read-only through this API.
+entries, workspace files, mounted shared folders, and attachments. The host can
+seed, add, list, and remove the four kinds it owns (`memory`, `host`, `file`, and
+`mount`); artifacts and attachments stay on their own mechanisms and are
+read-only through this API.
 
 ```ts
 type HostResourceInput =
@@ -154,7 +155,8 @@ type HostResourceInput =
       encoding?: "utf8" | "base64";
       name?: string;
       meta?: Record<string, unknown>;
-    };
+    }
+  | { kind: "mount"; folderId: string; mountName?: string };
 
 listResources(sessionId: string): Promise<EmbedResource[]>;
 addResource(sessionId: string, input: HostResourceInput): Promise<EmbedResource>;
@@ -174,6 +176,16 @@ carries binary losslessly, and is capped at 1 MiB of decoded bytes. Unlike `memo
 agent to know it exists. Removing a `memory` resource clears that store; removing
 a `host` resource drops the catalog entry, and removing a `file` drops the entry
 and deletes its bytes from disk.
+
+A `mount` entry symlinks a **shared folder** — a server-managed, cross-session
+"project" directory — into the session root, so the agent reads and writes it with
+its ordinary file tools (and several sessions mounting the same folder share one
+live copy). Create a shared folder first via the server's registry API
+(`POST /api/shared-folders` → `{ folder }`) and mount it by its `folderId`;
+`mountName` is the single-segment symlink name and defaults to a sanitized form of
+the folder's name (reserved names like `artifacts`, `uploads`, and `.tangent` are
+rejected). Mounting is **one-way**: removing a `mount` resource drops the catalog
+entry but leaves the symlink in place, so the agent keeps its access.
 
 ```tsx
 const { newSession, addResource } = useTangent();
@@ -205,6 +217,20 @@ await addResource(sessionId, {
   name: "Returns pipeline",
   uri: "https://tangent.example/pipelines/returns",
   meta: { url: "...", name: "Returns pipeline", description: "..." },
+});
+
+// Mount a shared "project" folder so the agent can work in it directly.
+// Create it once via the server registry, then mount it into any session:
+const { folder } = await fetch("/api/shared-folders", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "Orders project" }),
+}).then((r) => r.json());
+
+await addResource(sessionId, {
+  kind: "mount",
+  folderId: folder.id,
+  mountName: "project",
 });
 ```
 

@@ -32,6 +32,7 @@ import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import { readActivity } from "../../store/chatLog.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
+import type { SharedFolderStore } from "../../store/sharedFolderStore.ts";
 import { injectPageBridge } from "./pageBridge.ts";
 import type {
   CreateSessionInput,
@@ -144,6 +145,7 @@ export interface SessionCreateDeps {
   agentBundleStore: AgentBundleStore;
   memory: MemoryManager;
   resources: ResourceCatalog;
+  sharedFolders: SharedFolderStore;
   hostPreamble: HostResourcePreamble;
   /** Notifies a session's room that its resource catalog changed. */
   emitResourcesUpdated: (sessionId: string) => void;
@@ -164,7 +166,12 @@ async function seedResources(
   if (resources.length === 0) return;
   for (const input of resources) {
     await applyResourceInput(
-      { store: deps.store, memory: deps.memory, catalog: deps.resources },
+      {
+        store: deps.store,
+        memory: deps.memory,
+        catalog: deps.resources,
+        sharedFolders: deps.sharedFolders,
+      },
       sessionId,
       rootPath,
       input,

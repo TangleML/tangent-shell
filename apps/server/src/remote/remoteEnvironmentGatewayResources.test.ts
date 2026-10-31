@@ -26,6 +26,8 @@ const { RunRegistry } = await import("../runs/runRegistry.ts");
 const { InMemoryRunStore } = await import("../store/inMemoryRunStore.ts");
 const { InMemoryResourceStore } =
   await import("../store/inMemoryResourceStore.ts");
+const { InMemorySharedFolderStore } =
+  await import("../store/inMemorySharedFolderStore.ts");
 const { InMemorySessionStore } =
   await import("../store/inMemorySessionStore.ts");
 const { InMemoryParticipantStore } =
@@ -115,7 +117,12 @@ function makeHarness() {
     scoped,
   );
   gateway.useResources({
-    seed: { store, memory, catalog },
+    seed: {
+      store,
+      memory,
+      catalog,
+      sharedFolders: new InMemorySharedFolderStore(),
+    },
     catalog,
     hostPreamble: new HostResourcePreamble(catalog),
     emitResourcesUpdated: () => {},

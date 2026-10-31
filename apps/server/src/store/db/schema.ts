@@ -44,6 +44,21 @@ export const sessions = sqliteTable("sessions", {
 });
 
 /**
+ * A server-managed shared folder: a cross-session "project" directory that any
+ * number of sessions mount (by symlink) into their root. Deliberately NOT
+ * session-scoped — its lifecycle is independent of any one session, so there is
+ * no FK to `sessions`. The bytes live under `SHARED_ROOT/<id>`; a session's
+ * mount is recorded as a `kind: "mount"` row in {@link resources}.
+ */
+export const sharedFolders = sqliteTable("shared_folders", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Serialized `UserIdentity` (the human who created it), if resolved. */
+  userIdentity: text("user_identity"),
+  createdAt: text("created_at").notNull(),
+});
+
+/**
  * An asset (pinned artifact) a user or agent pinned for quick access, scoped to
  * a session. The autoincrement `id` preserves oldest-first ordering; re-pinning
  * a known `path` updates the title in place (keeping its id) via the
@@ -271,7 +286,7 @@ export const resources = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    /** `file` | `memory` | `attachment` | `artifact`. */
+    /** `file` | `memory` | `attachment` | `artifact` | `host` | `mount`. */
     kind: text("kind").notNull(),
     /** Display name / title. */
     name: text("name").notNull(),
@@ -442,6 +457,7 @@ export const bundleEditors = sqliteTable("bundle_editors", {
 });
 
 export type SessionRow = typeof sessions.$inferSelect;
+export type SharedFolderRow = typeof sharedFolders.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;

@@ -46,6 +46,15 @@ export const AGENT_BUNDLES_ROOT =
   path.resolve(process.cwd(), ".agent-bundles");
 
 /**
+ * Root directory holding server-managed shared folders — the cross-session
+ * "project" folders a session mounts into its root by symlink. Each folder gets
+ * its own subdirectory (`SHARED_ROOT/<id>`) that any number of sessions may link
+ * to, so edits in one session are visible to the others. Gitignored by default.
+ */
+export const SHARED_ROOT =
+  process.env.SHARED_ROOT ?? path.resolve(process.cwd(), ".shared");
+
+/**
  * Name of the per-session subdirectory whose contents are served over HTTP as
  * artifacts (images, generated HTML pages, reports). Agents write user-facing
  * outputs here and reference them by this relative path; the file API only

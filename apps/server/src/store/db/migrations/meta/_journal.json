@@ -176,6 +176,13 @@
       "when": 1793379853637,
       "tag": "0024_bizarre_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1793421867727,
+      "tag": "0025_pretty_warpath",
+      "breakpoints": true
     }
   ]
 }
