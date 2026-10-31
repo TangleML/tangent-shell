@@ -15,7 +15,6 @@ import {
   buildTemplatesFromDir,
   composePrimePrompt,
   DEFAULT_TOOLS,
-  PRIME_MEMORY_TOOLS,
   PRIME_ORCHESTRATION_TOOLS,
   PRIME_SESSION_TOOLS,
   PRIME_TRIGGER_TOOLS,
@@ -117,7 +116,9 @@ function tangentDir(root: string, dir: string): string {
   return path.join(root, TANGENT_DIRNAME, dir);
 }
 
-/** Builds Prime's tool allowlist from the manifest, adding required tools. */
+/** Builds Prime's tool allowlist from the manifest, adding required tools.
+ * Memory tools are granted dynamically at spawn from the resolved memory, so
+ * they are not added here. */
 function resolvePrimeTools(manifest: BundleManifest): string[] {
   const base = manifest.prime.tools ?? [...DEFAULT_TOOLS];
   return [
@@ -125,7 +126,6 @@ function resolvePrimeTools(manifest: BundleManifest): string[] {
       ...base,
       ...SHARED_AGENT_TOOLS,
       ...PRIME_ORCHESTRATION_TOOLS,
-      ...PRIME_MEMORY_TOOLS,
       ...PRIME_TRIGGER_TOOLS,
       ...PRIME_SESSION_TOOLS,
     ]),
@@ -362,6 +362,7 @@ export function resolveSessionConfig(
           welcomeMessage: readTextEntry(entries, manifest.prime.welcomeMessage),
         }
       : {}),
+    ...(manifest.memoryBinding ? { memory: manifest.memoryBinding } : {}),
     ...resolveSectionPaths(entries, manifest, installRoot),
   };
 }

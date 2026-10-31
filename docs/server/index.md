@@ -31,6 +31,7 @@ JSONL files on disk. Both survive a restart.
 | [configuration-bundles.md](./configuration-bundles.md)   | The Configuration Bundle format, install pipeline, and the marketplace store.                                                         |
 | [triggers.md](./triggers.md)                             | The trigger subsystem: manager, engine, scheduling, callbacks, and signal-to-prompt resolution.                                       |
 | [memory.md](./memory.md)                                 | Global + session memory stores, the injected preamble, and the suggest/confirm flow.                                                  |
+| [pi-memory-verification.md](./pi-memory-verification.md) | Black-box verification procedure for pluggable pi-memory (incl. multi-session shared memory) an embed host can implement.             |
 | [sessions-and-storage.md](./sessions-and-storage.md)     | The session model, the `SessionStore` abstraction, the SQLite schema, the per-session root folder, and the file server.               |
 | [egress-and-security.md](./egress-and-security.md)       | The internal-token trust model, the egress allowlist proxy, sandboxing, and security findings.                                        |
 

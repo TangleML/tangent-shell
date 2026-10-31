@@ -8,6 +8,7 @@ import {
   type ConnectorDescriptor,
   connectorFor,
   DEFAULT_SESSION_ACCESS_POLICY,
+  type MemoryBinding,
   type PinnedArtifact,
   type Session,
   type SessionConfigMeta,
@@ -85,6 +86,8 @@ export class InMemorySessionStore implements SessionStore {
   private readonly sessions = new Map<string, Session>();
   /** Server-only session env vars, never surfaced on the wire {@link Session}. */
   private readonly envs = new Map<string, Record<string, string>>();
+  /** Server-only per-session memory bindings, mirroring {@link envs}. */
+  private readonly memories = new Map<string, MemoryBinding>();
   private readonly messages = new Map<string, ChatMessage[]>();
   private readonly artifacts = new Map<string, PinnedArtifact[]>();
   private readonly views = new Map<string, Map<string, string>>();
@@ -125,6 +128,21 @@ export class InMemorySessionStore implements SessionStore {
     return this.envs.get(id);
   }
 
+  async getSessionMemory(id: string): Promise<MemoryBinding | undefined> {
+    return this.memories.get(id);
+  }
+
+  async setSessionMemory(
+    id: string,
+    memory: MemoryBinding | undefined,
+  ): Promise<void> {
+    if (memory) {
+      this.memories.set(id, memory);
+    } else {
+      this.memories.delete(id);
+    }
+  }
+
   selectorsOf(id: string): string[] {
     return this.sessions.get(id)?.tags ?? [];
   }
@@ -155,6 +173,7 @@ export class InMemorySessionStore implements SessionStore {
 
     this.sessions.set(id, session);
     if (input.env) this.envs.set(id, input.env);
+    if (input.memory) this.memories.set(id, input.memory);
     this.messages.set(id, []);
     await this.recordAgent(id, {
       id: PRIME_AGENT_ID,

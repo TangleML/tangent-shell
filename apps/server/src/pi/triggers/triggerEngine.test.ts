@@ -30,6 +30,7 @@ function engineFor(target: StoredTrigger["target"]) {
     ensure: (...args: unknown[]) => {
       ensured.push(args);
     },
+    resolveMemory: async () => undefined,
     hasAgent: () => true,
   } as unknown as PiAgentManager;
   const triggers = {

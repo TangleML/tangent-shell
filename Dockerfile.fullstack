@@ -35,6 +35,9 @@ RUN apt-get update \
 # Pin the Pi coding agent so the `pi` binary is on PATH.
 RUN npm install -g @earendil-works/pi-coding-agent@0.84.4
 
+# Install qmd (used by the pi-memory extension at runtime).
+RUN npm install -g @tobilu/qmd
+
 WORKDIR /app
 
 # ---------------------------------------------------------------------------
@@ -129,10 +132,13 @@ COPY docker/nginx.conf.template /app/docker/nginx.conf.template
 COPY docker/docker-entrypoint.sh /app/docker/docker-entrypoint.sh
 RUN chmod +x /app/docker/docker-entrypoint.sh
 
-# esbuild and better-sqlite3 are kept external by apps/server/build.mjs (native
-# binaries, used at runtime). Install just them so node can resolve the bare
-# imports from /app/dist/index.js.
-RUN npm install --no-save --no-package-lock esbuild@0.28.0 better-sqlite3@12.10.0
+# Runtime-external deps the bundle cannot inline (esbuild + better-sqlite3 native
+# addons, plus the pi-memory .ts extension loaded by the pi subprocess). Their
+# names and lockfile-exact versions come from the build's dist/externals.json, so
+# nothing is pinned here. --omit=peer: pi-memory's @earendil-works/* peers are
+# provided by the globally-installed pi from the base stage.
+RUN npm install --no-save --no-package-lock --omit=peer \
+  $(node -p "Object.entries(require('./dist/externals.json')).map(([n,v])=>n+'@'+v).join(' ')")
 
 EXPOSE 8000
 

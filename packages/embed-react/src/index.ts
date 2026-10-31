@@ -21,9 +21,11 @@ export type {
   HostResourceInput,
   HostUIComponentMap,
   HostUIComponentProps,
+  MemoryBinding,
   MessageDelivery,
   NewSessionOptions,
   NewSessionResult,
+  PiMemoryConfig,
   TangentThemeInputs,
 } from "./types";
 export { type Tangent, useTangent } from "./useTangent";

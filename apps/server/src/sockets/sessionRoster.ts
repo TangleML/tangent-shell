@@ -123,6 +123,7 @@ export async function ensureSessionAgents(
     session.id,
   );
   const env = await store.getSessionEnv(session.id);
+  const resolvedMemory = await pi.resolveMemory(session.id, session.rootPath);
   pi.ensure(
     session.id,
     session.rootPath,
@@ -131,6 +132,7 @@ export async function ensureSessionAgents(
     session.user,
     primaryConversationId,
     env,
+    resolvedMemory,
   );
   const persistedAgents = await store.listAgents(session.id);
   connectors.revive(session.id, persistedAgents);

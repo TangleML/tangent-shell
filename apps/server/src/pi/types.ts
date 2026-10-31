@@ -12,6 +12,7 @@ import type {
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
+import type { ResolvedMemory } from "../memory/resolver.ts";
 import type { AgentConfig, ResolvedSessionConfig } from "./agentConfig.ts";
 
 /** Fixed id of the session's Prime agent (one per session). */
@@ -213,6 +214,15 @@ export interface SessionAgents {
    * without any.
    */
   env?: Record<string, string>;
+  /**
+   * The session's resolved pluggable memory, captured on first spawn so every
+   * agent (and every revive / model-change / respawn) shares the same preamble,
+   * dispatcher tools, and spawn extras (env / extensions / allowlist). Set from
+   * a caller-supplied resolution when one is passed to {@link
+   * import("./piAgentManager.ts").PiAgentManager.ensure}, else the SimpleMD-only
+   * default.
+   */
+  resolvedMemory?: ResolvedMemory;
 }
 
 /** A single delta payload nested inside a `message_update` event. */

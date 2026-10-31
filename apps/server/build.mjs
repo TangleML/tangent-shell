@@ -6,7 +6,8 @@
 // as raw TypeScript) are copied next to the bundle, since bundling flattens
 // everything into `dist/`.
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { cp, rm } from "node:fs/promises";
+import { cp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +17,13 @@ const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const piSrc = path.join(serverDir, "src", "pi");
 const migrationsSrc = path.join(serverDir, "src", "store", "db", "migrations");
 const outDir = path.join(serverDir, "dist");
+
+// Deps the self-contained bundle cannot inline, so they must be installed on
+// disk at runtime: esbuild + better-sqlite3 are native addons (kept `external`
+// below), and pi-memory is resolved dynamically and loaded as a `.ts` Pi
+// extension by the agent subprocess. Their versions are emitted to
+// dist/externals.json so the runtime image installs them without re-pinning.
+const RUNTIME_EXTERNALS = ["esbuild", "better-sqlite3", "pi-memory"];
 
 await rm(outDir, { recursive: true, force: true });
 
@@ -31,8 +39,10 @@ await build({
   // esbuild now runs at runtime (to transpile bundle UI sources); it ships a
   // native binary and cannot be inlined, so keep it as a runtime dependency.
   // better-sqlite3 is a native addon and likewise stays external (resolved from
-  // node_modules at runtime).
-  external: ["esbuild", "better-sqlite3"],
+  // node_modules at runtime). pi-memory is never statically imported (it's
+  // resolved dynamically), so marking it external is a harmless no-op that keeps
+  // the runtime-external set in one place.
+  external: RUNTIME_EXTERNALS,
   // Provide `require` in the ESM output for CJS deps that reach for it.
   banner: {
     js: 'import { createRequire as _cr } from "node:module"; const require = _cr(import.meta.url);',
@@ -62,11 +72,26 @@ await cp(path.join(piSrc, "extensions"), path.join(outDir, "extensions"), {
 // these via `new URL("./migrations", import.meta.url)`, i.e. `dist/migrations`.
 await cp(migrationsSrc, path.join(outDir, "migrations"), { recursive: true });
 
+// Manifest of the runtime-external deps + their resolved (lockfile-exact)
+// versions, so the runtime image installs them without re-pinning here.
+const require = createRequire(import.meta.url);
+const externals = Object.fromEntries(
+  RUNTIME_EXTERNALS.map((name) => [
+    name,
+    require(`${name}/package.json`).version,
+  ]),
+);
+await writeFile(
+  path.join(outDir, "externals.json"),
+  `${JSON.stringify(externals, null, 2)}\n`,
+);
+
 // Fail the build loudly if any asset the server reads relative to dist/ is
 // missing, so drift surfaces here instead of as a runtime "path does not
 // exist" crash inside a Pi subprocess.
 const requiredAssets = [
   "index.js",
+  "externals.json",
   "subagentSystemPrompt.md",
   "primeSystemPrompt.md",
   "agents",

@@ -18,10 +18,10 @@ import {
   connectorFor,
 } from "@tangent/shared/contracts.ts";
 
+import type { MemoryResolver } from "../memory/resolver.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
-import type { MemoryManager } from "./memory.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
 
@@ -122,9 +122,16 @@ function makeManager(options?: { shouldFailSpawn?: () => boolean }): {
   };
 
   const memory = {
-    initSession: () => {},
-    buildPreamble: () => "## Memory\n\n(empty)",
-  } as unknown as MemoryManager;
+    resolveDefault: () => ({
+      init: () => {},
+      preamble: () => "## Memory\n\n(empty)",
+      spawnPlan: () => ({
+        env: {},
+        extensionPaths: [],
+        allowlistTools: ["read_memory"],
+      }),
+    }),
+  } as unknown as MemoryResolver;
 
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
@@ -183,9 +190,15 @@ test("reviveSubagent re-spawns a sub-agent from its persisted config", () => {
   assert.equal(spawns.length, 2, "the sub-agent is revived");
   const revived = spawns[1];
   assert.equal(revived.agentId, "sub-active");
+  const revivedTools = revived.args[revived.args.indexOf("--tools") + 1];
   assert.ok(
-    revived.args.includes("read,grep"),
+    revivedTools.split(",").includes("read") &&
+      revivedTools.split(",").includes("grep"),
     "revived process uses the persisted tool allowlist",
+  );
+  assert.ok(
+    revivedTools.split(",").includes("read_memory"),
+    "memory tools are granted dynamically at spawn, not from persisted tools",
   );
   assert.deepEqual(
     pi.listSubagents("s1").map((s) => s.id),

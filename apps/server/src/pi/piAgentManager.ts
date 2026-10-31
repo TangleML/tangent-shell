@@ -29,6 +29,11 @@ import {
   UPLOADS_DIRNAME,
 } from "../config.ts";
 import { piCredential } from "../connectors/credentials.ts";
+import type {
+  MemoryResolver,
+  MemorySpawnPlan,
+  ResolvedMemory,
+} from "../memory/resolver.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
@@ -41,7 +46,6 @@ import {
 } from "./agentConfig.ts";
 import { loadInstalledConfig } from "./config/bundleLoader.ts";
 import type { HostResourcePreamble } from "./hostResourcePreamble.ts";
-import type { MemoryManager } from "./memory.ts";
 import {
   type AgentDescriptor,
   type AgentEvent,
@@ -261,6 +265,13 @@ const BUILTIN_EXTENSIONS = [
   REMOTE_TOOLS_EXTENSION,
 ];
 
+/** A no-op spawn plan, used when a session resolved no pluggable-memory extras. */
+const EMPTY_MEMORY_PLAN: MemorySpawnPlan = {
+  env: {},
+  extensionPaths: [],
+  allowlistTools: [],
+};
+
 /**
  * Builds the `pi --mode rpc` CLI args for an agent process. The appended system
  * prompt is passed as a file path (not inline text): it embeds the unbounded
@@ -272,8 +283,15 @@ function buildPiArgs(
   config: AgentConfig,
   extras: SpawnExtras,
   appendPromptSource: string | undefined,
+  memoryPlan: MemorySpawnPlan | undefined,
 ): string[] {
   const { provider, model, thinking } = resolveModelArgs(config);
+  const memory = memoryPlan ?? EMPTY_MEMORY_PLAN;
+  // Memory tools are granted at spawn from the resolved memory (not baked into
+  // the static allowlist), so a pi-memory-bound session gets that backend's
+  // tools in addition to the always-on SimpleMD tools (the resolution composes
+  // them). Deduped against the config's own allowlist.
+  const tools = [...new Set([...config.tools, ...memory.allowlistTools])];
   const args = [
     "--mode",
     "rpc",
@@ -289,7 +307,7 @@ function buildPiArgs(
     "--thinking",
     thinking,
     "--tools",
-    config.tools.join(","),
+    tools.join(","),
   ];
 
   if (appendPromptSource)
@@ -299,11 +317,13 @@ function buildPiArgs(
     args.push("--extension", extension);
 
   // Bundle-provided skills, workflows, and custom tool extensions, applied to
-  // every agent in the session so they share the bundle's capabilities.
+  // every agent in the session so they share the bundle's capabilities, plus any
+  // extra extensions the resolved memory contributes (e.g. the pi-memory pkg).
   const flagged: Array<[string, string[]]> = [
     ["--skill", extras.skillPaths],
     ["--prompt-template", extras.workflowPaths],
     ["--extension", extras.extensionPaths],
+    ["--extension", memory.extensionPaths],
   ];
   for (const [flag, paths] of flagged) {
     for (const value of paths) args.push(flag, value);
@@ -364,11 +384,13 @@ function backfillSessionRecord(
     config: ResolvedSessionConfig | undefined;
     user: UserIdentity | undefined;
     env: Record<string, string> | undefined;
+    resolvedMemory: ResolvedMemory | undefined;
   },
 ): void {
   record.user ??= values.user;
   record.config ??= values.config;
   record.env ??= values.env;
+  record.resolvedMemory ??= values.resolvedMemory;
 }
 
 /**
@@ -476,10 +498,15 @@ function spawnEnv(
   descriptor: AgentDescriptor,
   ctx: PlaceholderContext,
   sessionEnv?: Record<string, string>,
+  memoryEnv?: Record<string, string>,
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
     ...expandEnvPlaceholders(sanitizeSessionEnv(sessionEnv), ctx),
+    // Memory-contributed env (e.g. PI_MEMORY_DIR) sits after the sanitized
+    // session env so a session's own vars can never override the store the
+    // server pinned, but before the reserved identity keys below.
+    ...(memoryEnv ?? {}),
     TANGENT_SESSION_ID: sessionId,
     TANGENT_AGENT_ID: descriptor.agentId,
     TANGENT_AGENT_ROLE: descriptor.role,
@@ -568,8 +595,11 @@ function logSpawn(
   extras: SpawnExtras,
   appendPromptFile: string | null,
   appendPromptBytes: number,
+  memoryPlan: MemorySpawnPlan | undefined,
 ): void {
   const { provider, model, thinking } = resolveModelArgs(config);
+  const memory = memoryPlan ?? EMPTY_MEMORY_PLAN;
+  const tools = [...new Set([...config.tools, ...memory.allowlistTools])];
   console.log(
     `[pi:${sessionId}:${descriptor.agentId}] spawning`,
     JSON.stringify({
@@ -581,10 +611,11 @@ function logSpawn(
       thinking,
       proxyUrl: PI_PROXY_URL,
       hasProxyApiKey: Boolean(process.env.PI_PROXY_API_KEY),
-      tools: config.tools.join(","),
+      tools: tools.join(","),
       skills: extras.skillPaths,
       workflows: extras.workflowPaths,
-      extensions: extras.extensionPaths,
+      extensions: [...extras.extensionPaths, ...memory.extensionPaths],
+      memoryEnv: Object.keys(memory.env),
       appendPromptFile,
       appendPromptBytes,
     }),
@@ -690,7 +721,7 @@ function buildAgentProcess(
 export class PiAgentManager {
   private readonly sessions = new Map<string, SessionAgents>();
   private readonly handlers: ConversationEventSink;
-  private readonly memory: MemoryManager;
+  private readonly memory: MemoryResolver;
   /**
    * The Runs this manager's agents work under. Pi is the authority on its own
    * run boundaries (`agent_start` opens, `agent_end` settles), so it opens and
@@ -715,7 +746,7 @@ export class PiAgentManager {
 
   constructor(
     handlers: ConversationEventSink,
-    memory: MemoryManager,
+    memory: MemoryResolver,
     runs: RunRegistry,
     hostResources?: HostResourcePreamble,
     spawnProcess: typeof spawn = spawn,
@@ -782,6 +813,26 @@ export class PiAgentManager {
   }
 
   /**
+   * Resolves a session's pluggable memory (SimpleMD plus a mounted shared
+   * folder's binding, when one is a memory root). Callers that can `await`
+   * should resolve first and pass the result into {@link ensure} so a session
+   * with a memory-bound mount spawns with that backend; spawn paths that can't
+   * await fall back to the SimpleMD-only default inside {@link ensure}.
+   */
+  resolveMemory(sessionId: string, rootPath: string): Promise<ResolvedMemory> {
+    return this.memory.resolve(sessionId, rootPath);
+  }
+
+  /** The caller's resolved memory, or the SimpleMD-only default when none. */
+  private defaultedMemory(
+    sessionId: string,
+    rootPath: string,
+    provided: ResolvedMemory | undefined,
+  ): ResolvedMemory {
+    return provided ?? this.memory.resolveDefault(sessionId, rootPath);
+  }
+
+  /**
    * Spawns the session's Prime process if it isn't already running. When a
    * `config` (resolved from a Configuration Bundle) is supplied on first
    * creation, it is captured on the session and drives every agent's spawn;
@@ -802,24 +853,30 @@ export class PiAgentManager {
     user?: UserIdentity,
     homeConversationId: string = PRIME_AGENT_ID,
     env?: Record<string, string>,
+    resolvedMemory?: ResolvedMemory,
   ): void {
     const existing = this.sessions.get(sessionId);
     if (existing?.agents.has(PRIME_AGENT_ID)) return;
 
     warnMissingProxyEnv();
 
-    // Prepare memory before the first spawn so the preamble reflects any
-    // bundle-seeded session memory and the current global store.
-    this.memory.initSession(rootPath);
-
     const effectiveConfig = resolveEffectiveConfig(config, existing, rootPath);
+    // A caller that resolved the session's memory (attaching a mounted shared
+    // folder's binding) wins; otherwise fall back to the SimpleMD-only default
+    // so a spawn that can't await still gets session + global memory.
+    const memory = this.defaultedMemory(sessionId, rootPath, resolvedMemory);
     const session = this.upsertSessionRecord(
       sessionId,
       rootPath,
       effectiveConfig,
       user,
       env,
+      memory,
     );
+
+    // Prepare memory before the first spawn so the preamble reflects any
+    // bundle-seeded session memory and the current global store.
+    memory.init();
     const primeConfig = session.config?.prime ?? getPrimeAgentConfig();
     this.spawnAgent(
       sessionId,
@@ -915,10 +972,11 @@ export class PiAgentManager {
     config: ResolvedSessionConfig | undefined,
     user: UserIdentity | undefined,
     env: Record<string, string> | undefined,
+    resolvedMemory: ResolvedMemory | undefined,
   ): SessionAgents {
     const existing = this.sessions.get(sessionId);
     if (existing) {
-      backfillSessionRecord(existing, { config, user, env });
+      backfillSessionRecord(existing, { config, user, env, resolvedMemory });
       return existing;
     }
 
@@ -928,6 +986,7 @@ export class PiAgentManager {
       config,
       user,
       env,
+      resolvedMemory,
     };
     this.sessions.set(sessionId, created);
     return created;
@@ -1213,7 +1272,7 @@ export class PiAgentManager {
   private spawnPreambles(sessionId: string, session: SessionAgents): string[] {
     return [
       buildUserPreamble(session.user),
-      this.memory.buildPreamble(session.rootPath),
+      session.resolvedMemory?.preamble() ?? "",
       this.hostResources?.get(sessionId) ?? "",
     ];
   }
@@ -1233,10 +1292,11 @@ export class PiAgentManager {
     extras: SpawnExtras,
     appendPromptSource: string | undefined,
   ): ChildProcessWithoutNullStreams | null {
+    const memoryPlan = session.resolvedMemory?.spawnPlan(descriptor.role);
     try {
       return this.spawnProcess(
         PI_BIN,
-        buildPiArgs(config, extras, appendPromptSource),
+        buildPiArgs(config, extras, appendPromptSource, memoryPlan),
         {
           cwd: session.rootPath,
           env: spawnEnv(
@@ -1244,6 +1304,7 @@ export class PiAgentManager {
             descriptor,
             { rootPath: session.rootPath },
             session.env,
+            memoryPlan?.env,
           ),
           stdio: ["pipe", "pipe", "pipe"],
         },
@@ -1290,6 +1351,7 @@ export class PiAgentManager {
       extras,
       appendText ? promptFilePath(sessionId, descriptor.agentId) : null,
       Buffer.byteLength(appendText),
+      session.resolvedMemory?.spawnPlan(descriptor.role),
     );
 
     const child = this.trySpawnChild(

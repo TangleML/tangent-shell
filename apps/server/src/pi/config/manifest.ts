@@ -1,5 +1,6 @@
 import type { BundleManifest } from "@tangent/shared/configBundle.ts";
 import { ICON_FILENAME, SCHEMA_VERSION } from "@tangent/shared/configBundle.ts";
+import type { MemoryBinding } from "@tangent/shared/contracts.ts";
 import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -44,6 +45,34 @@ const safePath = z
   .min(1)
   .refine(isSafeRelativePath, { message: "is not a safe path" });
 
+/** Tunable knobs for a `pi-memory` {@link MemoryBinding}. */
+const piMemoryConfigSchema = z.object({
+  exitSummary: z.boolean().optional(),
+  snapshot: z.enum(["stable", "per-turn"]).optional(),
+  qmdUpdate: z.enum(["background", "manual", "off"]).optional(),
+  search: z.boolean().optional(),
+  exitSummaryModel: z.string().min(1).optional(),
+});
+
+/**
+ * Validator for a {@link MemoryBinding}, shared by the bundle manifest and the
+ * create-session route. `root` is a session-root-relative store directory.
+ */
+export const memoryBindingSchema: z.ZodType<MemoryBinding> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("simple-md"), root: safePath.optional() }),
+    z.object({
+      kind: z.literal("pi-memory"),
+      root: safePath.optional(),
+      config: piMemoryConfigSchema.optional(),
+    }),
+    z.object({
+      kind: z.literal("composite"),
+      children: z.array(memoryBindingSchema),
+    }),
+  ]),
+);
+
 /**
  * zod schema mirroring {@link BundleManifest}. Used in place of the prior
  * hand-rolled validator: it declares required fields, the `id` slug rule, the
@@ -81,6 +110,7 @@ const manifestSchema = z.object({
   agents: z.array(safePath).optional(),
   contextFiles: z.array(safePath).optional(),
   memory: z.array(safePath).optional(),
+  memoryBinding: memoryBindingSchema.optional(),
   extensions: z.array(safePath).optional(),
   software: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   ui: z

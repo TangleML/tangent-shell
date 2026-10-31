@@ -316,6 +316,41 @@ export const PI_AGENT: ChatAuthor = {
 export type MemoryScope = "session" | "global";
 
 /**
+ * Tunable knobs for a {@link MemoryBinding} of kind `"pi-memory"`, mapped onto
+ * the pi-memory extension's env. Omitted fields default to "max memory power"
+ * (every hook and qmd update on). The memory adapter is session configuration,
+ * so these let a session tune pi-memory precisely.
+ */
+export interface PiMemoryConfig {
+  /** LLM-powered exit summary on session end. Default `true`. */
+  exitSummary?: boolean;
+  /** Context-injection snapshot mode. Default `"stable"`. */
+  snapshot?: "stable" | "per-turn";
+  /** Background qmd index update cadence. Default `"background"`. */
+  qmdUpdate?: "background" | "manual" | "off";
+  /** Whether `memory_search` (qmd) is offered. Default `true`. */
+  search?: boolean;
+  /** `provider/model` override for the exit summary; defaults to the session model. */
+  exitSummaryModel?: string;
+}
+
+/**
+ * Declarative memory configuration for a session: a bundle supplies a default
+ * and `CreateSessionRequest.memory` overrides it. The server resolves it into a
+ * pluggable memory backend tree at spawn time. Scoped to these leaves for now —
+ * LLM Wiki / StructuredEntity are not yet supported.
+ *
+ * The directory-backed leaves take an optional `root`: a session-root-relative
+ * POSIX path for the store's directory. Omit it to keep the store local to the
+ * session; point it at a mounted shared folder (e.g. `"<mountName>/pi-memory"`)
+ * to share that store across every session that mounts the folder.
+ */
+export type MemoryBinding =
+  | { kind: "simple-md"; root?: string }
+  | { kind: "pi-memory"; root?: string; config?: PiMemoryConfig }
+  | { kind: "composite"; children: MemoryBinding[] };
+
+/**
  * Author attributed to the system-emitted "remembered" highlight messages. The
  * highlight is produced by the server from the actual memory file write (not the
  * agent's narration), so the user always sees ground truth.
@@ -1470,6 +1505,11 @@ export interface CreateSessionRequest {
   env?: Record<string, string>;
   /** Selector tags (e.g. `projectId:<GUID>`) to route selector-scoped hosts. */
   tags?: string[];
+  /**
+   * Memory binding for the session, overriding the bundle's default. Omit to use
+   * the bundle's declared binding (or none). Resolved and persisted at create.
+   */
+  memory?: MemoryBinding;
 }
 
 export interface UpdateSessionRequest {
