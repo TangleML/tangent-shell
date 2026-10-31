@@ -3,6 +3,7 @@ import {
   type Capability,
   type ChatMessage,
   type ConnectorDescriptor,
+  type MemoryBinding,
   type PinnedArtifact,
   type Session,
   type SessionConfigMeta,
@@ -55,6 +56,8 @@ export interface CreateSessionParams {
   env?: Record<string, string>;
   /** Selector tags (e.g. `projectId:<GUID>`) to route selector-scoped hosts. */
   tags?: string[];
+  /** The session's resolved memory binding (bundle default or create override). */
+  memory?: MemoryBinding;
 }
 
 /**
@@ -155,6 +158,17 @@ export interface SessionStore {
    * wire {@link Session}.
    */
   getSessionEnv(id: string): Promise<Record<string, string> | undefined>;
+  /**
+   * The session's resolved {@link MemoryBinding}, or `undefined` when none was
+   * set (the memory resolver then falls back to the SimpleMD-only default).
+   * Server-only, like {@link getSessionEnv}.
+   */
+  getSessionMemory(id: string): Promise<MemoryBinding | undefined>;
+  /** Persists (or, with `undefined`, clears) the session's memory binding. */
+  setSessionMemory(
+    id: string,
+    memory: MemoryBinding | undefined,
+  ): Promise<void>;
   /**
    * A session's selector tags, read synchronously so the remote gateway's
    * hot-path routing can match a selector-scoped host without awaiting. Returns

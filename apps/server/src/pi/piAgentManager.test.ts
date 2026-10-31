@@ -18,10 +18,11 @@ import {
   connectorFor,
 } from "@tangent/shared/contracts.ts";
 
+import type { MemoryResolver, MemorySpawnPlan } from "../memory/resolver.ts";
+import type { AgentRole } from "../memory/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
-import type { MemoryManager } from "./memory.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
 
@@ -86,8 +87,41 @@ interface RelayedEvent {
   runId?: string;
 }
 
+/** A memory plan granting only `read_memory`, with overrides. */
+function memoryPlan(overrides?: Partial<MemorySpawnPlan>): MemorySpawnPlan {
+  return {
+    env: {},
+    extensionPaths: [],
+    allowlistTools: ["read_memory"],
+    deniedTools: [],
+    ...overrides,
+  };
+}
+
+/** A resolver whose every resolution projects `plan(role)` and a role-tagged
+ * preamble. `plan` is re-read per resolution so a test can change it. */
+function stubResolver(
+  plan: (role: AgentRole) => MemorySpawnPlan = () => memoryPlan(),
+): MemoryResolver {
+  const resolution = () => {
+    const current = plan;
+    return {
+      init: () => {},
+      preamble: (role: AgentRole) => `## Memory\n\n(empty for ${role})`,
+      spawnPlan: (role: AgentRole) => current(role),
+    };
+  };
+  return {
+    resolveDefault: resolution,
+    resolve: async () => resolution(),
+  } as unknown as MemoryResolver;
+}
+
 /** Builds a manager wired to a fake launcher; returns it plus the spawn log. */
-function makeManager(options?: { shouldFailSpawn?: () => boolean }): {
+function makeManager(options?: {
+  shouldFailSpawn?: () => boolean;
+  memory?: MemoryResolver;
+}): {
   pi: PiAgentManager;
   spawns: SpawnRecord[];
   rosterUpdates: { id: string; status: string }[];
@@ -121,10 +155,7 @@ function makeManager(options?: { shouldFailSpawn?: () => boolean }): {
     onSessionStatus: () => {},
   };
 
-  const memory = {
-    initSession: () => {},
-    buildPreamble: () => "## Memory\n\n(empty)",
-  } as unknown as MemoryManager;
+  const memory = options?.memory ?? stubResolver();
 
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
@@ -150,10 +181,12 @@ function agentRow(overrides: Partial<SessionAgent>): SessionAgent {
 }
 
 /** Creates a throwaway session root and removes it after `fn`. */
-function withTempRoot(fn: (root: string) => void): void {
+async function withTempRoot(
+  fn: (root: string) => Promise<void>,
+): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "tangent-pi-manager-"));
   try {
-    fn(root);
+    await fn(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -164,9 +197,9 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-test("reviveSubagent re-spawns a sub-agent from its persisted config", () => {
+test("reviveSubagent re-spawns a sub-agent from its persisted config", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
   assert.equal(spawns.length, 1, "ensure spawns Prime");
 
   pi.reviveSubagent(
@@ -183,9 +216,15 @@ test("reviveSubagent re-spawns a sub-agent from its persisted config", () => {
   assert.equal(spawns.length, 2, "the sub-agent is revived");
   const revived = spawns[1];
   assert.equal(revived.agentId, "sub-active");
+  const revivedTools = revived.args[revived.args.indexOf("--tools") + 1];
   assert.ok(
-    revived.args.includes("read,grep"),
+    revivedTools.split(",").includes("read") &&
+      revivedTools.split(",").includes("grep"),
     "revived process uses the persisted tool allowlist",
+  );
+  assert.ok(
+    revivedTools.split(",").includes("read_memory"),
+    "memory tools are granted dynamically at spawn, not from persisted tools",
   );
   assert.deepEqual(
     pi.listSubagents("s1").map((s) => s.id),
@@ -200,9 +239,9 @@ test("reviveSubagent re-spawns a sub-agent from its persisted config", () => {
   );
 });
 
-test("reviveSubagent restores a detached row, and refuses Prime and terminal ones", () => {
+test("reviveSubagent restores a detached row, and refuses Prime and terminal ones", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
 
   // `detached` is the ordinary pre-revive state: the boot reconciliation puts
   // every stale row there, so revive has to accept it.
@@ -221,9 +260,9 @@ test("reviveSubagent restores a detached row, and refuses Prime and terminal one
   );
 });
 
-test("reviveSubagent is idempotent and skips an already-live agent", () => {
+test("reviveSubagent is idempotent and skips an already-live agent", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
 
   const persisted = agentRow({
     id: "sub-active",
@@ -237,8 +276,8 @@ test("reviveSubagent is idempotent and skips an already-live agent", () => {
   assert.equal(spawns.length, 2, "second revive does not double-spawn");
 });
 
-test("ensure falls back when an installed bundle config cannot be reloaded", () => {
-  withTempRoot((root) => {
+test("ensure falls back when an installed bundle config cannot be reloaded", async () => {
+  await withTempRoot(async (root) => {
     const { pi, spawns } = makeManager();
     const warn = mock.method(console, "warn", () => {});
     mkdirSync(path.join(root, ".tangent"));
@@ -247,7 +286,7 @@ test("ensure falls back when an installed bundle config cannot be reloaded", () 
       "not: valid: yaml",
     );
 
-    assert.doesNotThrow(() => pi.ensure("s1", root));
+    await assert.doesNotReject(pi.ensure("s1", root));
 
     assert.equal(spawns.length, 1, "ensure still spawns Prime");
     assert.ok(
@@ -259,10 +298,10 @@ test("ensure falls back when an installed bundle config cannot be reloaded", () 
   });
 });
 
-test("supervisor auto-respawns a crashed agent with backoff, then gives up", () => {
+test("supervisor auto-respawns a crashed agent with backoff, then gives up", async () => {
   mock.timers.enable({ apis: ["setTimeout"] });
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
   assert.equal(spawns.length, 1);
 
   // Crash #1 -> respawn after 1s.
@@ -286,9 +325,9 @@ test("supervisor auto-respawns a crashed agent with backoff, then gives up", () 
   assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
 });
 
-test("the local roster describes its connector", () => {
+test("the local roster describes its connector", async () => {
   const { pi } = makeManager();
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
   const { info } = pi.spawnSubagent("s1", { name: "Worker" });
 
   const expected = {
@@ -301,9 +340,9 @@ test("the local roster describes its connector", () => {
   assert.deepEqual(pi.listSubagents("s1")[0].connector, expected);
 });
 
-test("the appended system prompt is passed as a file, not an inline arg", () => {
+test("the appended system prompt is passed as a file, not an inline arg", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
 
   const { args } = spawns[0];
   const flag = args.indexOf("--append-system-prompt");
@@ -317,7 +356,7 @@ test("the appended system prompt is passed as a file, not an inline arg", () => 
   assert.ok(existsSync(source), "the prompt file exists at spawn time");
   assert.match(
     readFileSync(source, "utf8"),
-    /## Memory\n\n\(empty\)/,
+    /## Memory\n\n\(empty for prime\)/,
     "the file holds the combined preamble",
   );
 
@@ -352,7 +391,7 @@ function flush(): Promise<void> {
 
 test("a prompt opens one run and every event in the turn carries its id", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
 
   h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
@@ -373,9 +412,9 @@ test("a prompt opens one run and every event in the turn carries its id", async 
   assert.equal((await h.runStore.getRun(runId))?.status, "completed");
 });
 
-test("a message delivered mid-run joins the run in flight", () => {
+test("a message delivered mid-run joins the run in flight", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
 
   h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "first" });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
@@ -394,7 +433,7 @@ test("a message delivered mid-run joins the run in flight", () => {
 
 test("aborting a run settles it as cancelled, not completed", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
   h.pi.sendToAgent({
     sessionId: "s1",
     agentId: PRIME_AGENT_ID,
@@ -411,17 +450,17 @@ test("aborting a run settles it as cancelled, not completed", async () => {
   assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
 });
 
-test("aborting an idle agent refuses instead of cancelling nothing", () => {
+test("aborting an idle agent refuses instead of cancelling nothing", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
 
   assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false);
   assert.equal(h.pi.abort("s1", "ghost"), false);
 });
 
-test("a turn Pi starts on its own still gets a run", () => {
+test("a turn Pi starts on its own still gets a run", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
 
   emitPi(h.spawns[0].child, { type: "agent_start" });
 
@@ -430,7 +469,7 @@ test("a turn Pi starts on its own still gets a run", () => {
 
 test("a crash fails the run that was in flight", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
   h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "work" });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
   assert.ok(runId);
@@ -441,9 +480,9 @@ test("a crash fails the run that was in flight", async () => {
   assert.equal((await h.runStore.getRun(runId))?.status, "failed");
 });
 
-test("a spawn alone opens no run; the task that follows does", () => {
+test("a spawn alone opens no run; the task that follows does", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
 
   const { info } = h.pi.spawnSubagent("s1", { name: "Worker" });
   assert.equal(
@@ -464,7 +503,7 @@ test("a spawn alone opens no run; the task that follows does", () => {
 
 test("killing a sub-agent mid-run cancels its run", async () => {
   const h = makeManager();
-  h.pi.ensure("s1", "/tmp/s1");
+  await h.pi.ensure("s1", "/tmp/s1");
   const { info } = h.pi.spawnSubagent("s1", { name: "Worker" });
   h.pi.sendToAgent({
     sessionId: "s1",
@@ -481,9 +520,9 @@ test("killing a sub-agent mid-run cancels its run", async () => {
   assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
 });
 
-test("an intentional kill is not auto-respawned", () => {
+test("an intentional kill is not auto-respawned", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
 
   const { info } = pi.spawnSubagent("s1", { name: "Worker" });
   assert.equal(spawns.length, 2);
@@ -497,11 +536,11 @@ test("an intentional kill is not auto-respawned", () => {
   assert.equal(pi.hasAgent("s1", info.id), false);
 });
 
-test("a synchronous spawn failure is relayed as an error, not thrown", () => {
+test("a synchronous spawn failure is relayed as an error, not thrown", async () => {
   const error = mock.method(console, "error", () => {});
   const { pi, spawns, events } = makeManager({ shouldFailSpawn: () => true });
 
-  assert.doesNotThrow(() => pi.ensure("s1", "/tmp/s1"));
+  await assert.doesNotReject(pi.ensure("s1", "/tmp/s1"));
   assert.equal(spawns.length, 0, "a failed spawn registers no child");
   assert.equal(
     pi.hasAgent("s1", PRIME_AGENT_ID),
@@ -516,12 +555,12 @@ test("a synchronous spawn failure is relayed as an error, not thrown", () => {
   assert.ok(error.mock.calls.length > 0, "the failure is logged");
 });
 
-test("a supervisor respawn whose spawn fails does not throw out of the timer", () => {
+test("a supervisor respawn whose spawn fails does not throw out of the timer", async () => {
   mock.timers.enable({ apis: ["setTimeout"] });
   mock.method(console, "error", () => {});
   let failSpawn = false;
   const { pi, spawns } = makeManager({ shouldFailSpawn: () => failSpawn });
-  pi.ensure("s1", "/tmp/s1");
+  await pi.ensure("s1", "/tmp/s1");
   assert.equal(spawns.length, 1);
 
   // Crash the live process, then make the scheduled respawn's spawn fail.
@@ -533,10 +572,12 @@ test("a supervisor respawn whose spawn fails does not throw out of the timer", (
   assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
 });
 
-test("session env is injected into Prime and inherited by sub-agents", () => {
+test("session env is injected into Prime and inherited by sub-agents", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
-    TANGLE_ROOT_CONFIG: "annotations.project=p1",
+  await pi.ensure("s1", "/tmp/s1", {
+    env: {
+      TANGLE_ROOT_CONFIG: "annotations.project=p1",
+    },
   });
 
   assert.equal(
@@ -553,12 +594,14 @@ test("session env is injected into Prime and inherited by sub-agents", () => {
   );
 });
 
-test("{{workspacePath}} in session env expands to the session root", () => {
+test("{{workspacePath}} in session env expands to the session root", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
-    TANGLE_ROOT_CONFIG: "{{workspacePath}}/.tangle/root-config.yaml",
-    PLAIN_VAR: "no placeholder here",
-    UNKNOWN_TOKEN: "{{unknownToken}}/x",
+  await pi.ensure("s1", "/tmp/s1", {
+    env: {
+      TANGLE_ROOT_CONFIG: "{{workspacePath}}/.tangle/root-config.yaml",
+      PLAIN_VAR: "no placeholder here",
+      UNKNOWN_TOKEN: "{{unknownToken}}/x",
+    },
   });
 
   assert.equal(
@@ -585,12 +628,14 @@ test("{{workspacePath}} in session env expands to the session root", () => {
   );
 });
 
-test("session env cannot clobber reserved TANGENT_* keys", () => {
+test("session env cannot clobber reserved TANGENT_* keys", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
-    TANGENT_SESSION_ID: "evil",
-    TANGENT_AGENT_ID: "evil",
-    SAFE_VAR: "ok",
+  await pi.ensure("s1", "/tmp/s1", {
+    env: {
+      TANGENT_SESSION_ID: "evil",
+      TANGENT_AGENT_ID: "evil",
+      SAFE_VAR: "ok",
+    },
   });
 
   assert.equal(
@@ -606,14 +651,16 @@ test("session env cannot clobber reserved TANGENT_* keys", () => {
   assert.equal(spawns[0].env?.SAFE_VAR, "ok", "non-reserved vars pass through");
 });
 
-test("session env cannot inject process-sensitive keys", () => {
+test("session env cannot inject process-sensitive keys", async () => {
   const { pi, spawns } = makeManager();
-  pi.ensure("s1", "/tmp/s1", undefined, undefined, undefined, undefined, {
-    NODE_OPTIONS: "--require=/evil.js",
-    LD_PRELOAD: "/evil.so",
-    PATH: "/evil/bin",
-    TANGENT_AGENT_ROLE: "prime",
-    TANGLE_ROOT_CONFIG: "annotations.project=p1",
+  await pi.ensure("s1", "/tmp/s1", {
+    env: {
+      NODE_OPTIONS: "--require=/evil.js",
+      LD_PRELOAD: "/evil.so",
+      PATH: "/evil/bin",
+      TANGENT_AGENT_ROLE: "prime",
+      TANGLE_ROOT_CONFIG: "annotations.project=p1",
+    },
   });
 
   assert.notEqual(
@@ -633,4 +680,128 @@ test("session env cannot inject process-sensitive keys", () => {
     "annotations.project=p1",
     "safe vars still pass through",
   );
+});
+
+/** Reads the appended system prompt a spawn was given. */
+function appendedPrompt(record: SpawnRecord): string {
+  const flag = record.args.indexOf("--append-system-prompt");
+  return readFileSync(record.args[flag + 1], "utf8");
+}
+
+test("concurrent ensure calls spawn Prime once", async () => {
+  const { pi, spawns } = makeManager();
+  await Promise.all([pi.ensure("s1", "/tmp/s1"), pi.ensure("s1", "/tmp/s1")]);
+  assert.equal(spawns.length, 1);
+});
+
+test("dispose cancels an ensure still resolving memory", async () => {
+  const { pi, spawns } = makeManager();
+  const pending = pi.ensure("s1", "/tmp/s1");
+  pi.dispose("s1");
+  await pending;
+  assert.equal(spawns.length, 0);
+  assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
+});
+
+test("every Prime spawn re-resolves memory instead of keeping the first", async () => {
+  mock.method(console, "error", () => {});
+  let failSpawn = true;
+  let generation = "first";
+  const memory = stubResolver(() =>
+    memoryPlan({ env: { PI_MEMORY_DIR: `/mem/${generation}` } }),
+  );
+  const { pi, spawns } = makeManager({
+    memory,
+    shouldFailSpawn: () => failSpawn,
+  });
+  await pi.ensure("s1", "/tmp/s1");
+  assert.equal(spawns.length, 0, "the first spawn failed");
+
+  failSpawn = false;
+  generation = "second";
+  await pi.ensure("s1", "/tmp/s1");
+  assert.equal(spawns[0].env?.PI_MEMORY_DIR, "/mem/second");
+});
+
+test("a sub-agent spawn drops the memory tools its role is denied", async () => {
+  const memory = stubResolver((role) =>
+    memoryPlan({
+      deniedTools: role === "prime" ? [] : ["remember", "memory_write"],
+    }),
+  );
+  const { pi, spawns } = makeManager({ memory });
+  await pi.ensure("s1", "/tmp/s1");
+  pi.spawnSubagent("s1", {
+    name: "Worker",
+    tools: ["read", "remember", "memory_write"],
+  });
+
+  const { args } = spawns[1];
+  const tools = args[args.indexOf("--tools") + 1].split(",");
+  assert.ok(tools.includes("read"));
+  assert.ok(tools.includes("read_memory"));
+  assert.equal(tools.includes("remember"), false);
+  assert.equal(tools.includes("memory_write"), false);
+});
+
+test("memory env wins over inherited and session-supplied memory knobs", async (t) => {
+  const inherited = {
+    PI_MEMORY_EXIT_SUMMARY: "0",
+    PI_MEMORY_SUMMARIZE_TRANSITIONS: "1",
+  };
+  Object.assign(process.env, inherited);
+  t.after(() => {
+    for (const key of Object.keys(inherited)) delete process.env[key];
+  });
+  const memory = stubResolver(() =>
+    memoryPlan({
+      env: {
+        PI_MEMORY_DIR: "/mem",
+        PI_MEMORY_EXIT_SUMMARY: "1",
+        INDEX_PATH: "/mem-qmd/index.sqlite",
+      },
+    }),
+  );
+  const { pi, spawns } = makeManager({ memory });
+  await pi.ensure("s1", "/tmp/s1", {
+    env: {
+      PI_MEMORY_NO_SEARCH: "1",
+      INDEX_PATH: "/elsewhere/index.sqlite",
+      SAFE_VAR: "ok",
+    },
+  });
+
+  const env = spawns[0].env ?? {};
+  assert.equal(env.PI_MEMORY_EXIT_SUMMARY, "1");
+  assert.equal(env.PI_MEMORY_DIR, "/mem");
+  assert.equal(env.PI_MEMORY_SUMMARIZE_TRANSITIONS, undefined);
+  assert.equal(env.PI_MEMORY_NO_SEARCH, undefined);
+  assert.equal(env.INDEX_PATH, "/mem-qmd/index.sqlite");
+  assert.equal(env.SAFE_VAR, "ok");
+});
+
+test("each agent's preamble is rendered for its own role", async () => {
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  pi.spawnSubagent("s1", { name: "Worker" });
+
+  assert.match(appendedPrompt(spawns[0]), /\(empty for prime\)/);
+  assert.match(appendedPrompt(spawns[1]), /\(empty for subagent\)/);
+});
+
+test("memoryCaller hands live agents Prime's resolution and their own role", async () => {
+  const { pi } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  const { info } = pi.spawnSubagent("s1", { name: "Worker" });
+
+  const prime = pi.memoryCaller("s1", PRIME_AGENT_ID);
+  const sub = pi.memoryCaller("s1", info.id);
+  assert.equal(prime?.role, "prime");
+  assert.equal(sub?.role, "subagent");
+  assert.ok(prime?.memory);
+  assert.equal(sub?.memory, prime?.memory, "one resolution per Prime spawn");
+  assert.equal(pi.memoryCaller("s1", "ghost"), undefined);
+
+  pi.dispose("s1");
+  assert.equal(pi.memoryCaller("s1", PRIME_AGENT_ID), undefined);
 });

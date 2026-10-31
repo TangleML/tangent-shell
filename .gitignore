@@ -30,6 +30,9 @@ ui-dist
 # Server-managed shared folders sessions mount into their root
 .shared
 
+# Server-owned qmd indexes for pi-memory stores
+.qmd-state
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

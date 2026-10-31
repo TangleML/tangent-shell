@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
+  type MemoryBinding,
   THINKING_LEVELS,
   type ThinkingLevel,
 } from "@tangent/shared/contracts.ts";
@@ -36,8 +37,8 @@ export const PRIME_ORCHESTRATION_TOOLS = [
 ] as const;
 
 /**
- * Tools every agent gets: read the shared room transcript and its memory, push
- * a directed update to Prime, and pin an artifact to the UI's quick-access list.
+ * Tools every agent gets: read the shared room transcript, push a directed
+ * update to Prime, and pin an artifact to the UI's quick-access list.
  * `message_prime` is only registered by the orchestrator extension for
  * sub-agents (Prime never gets the tool), but it is granted in the allowlist for
  * all agents since Pi's `--tools` filter would otherwise strip the extension's
@@ -46,10 +47,15 @@ export const PRIME_ORCHESTRATION_TOOLS = [
  * `list_remote_tools` / `call_remote_tool` / `list_environments` are registered
  * by the remote-tools extension for every agent, so all must be granted or Pi
  * would strip them.
+ *
+ * Memory tools (`read_memory`, and for Prime `remember` / `suggest_memory`) are
+ * NOT listed here: they are granted dynamically at spawn from the session's
+ * resolved memory (see {@link import("../memory/resolver.ts").ResolvedMemory}),
+ * so a pi-memory-bound session gets that backend's tools in addition to the
+ * always-on SimpleMD tools (the resolution composes them).
  */
 export const SHARED_AGENT_TOOLS = [
   "read_room",
-  "read_memory",
   "message_prime",
   "pin_artifact",
   "list_remote_tools",
@@ -67,13 +73,6 @@ export const PRIME_TRIGGER_TOOLS = [
   "disable_trigger",
   "delete_trigger",
 ] as const;
-
-/**
- * Memory-mutation tools (registered by the memory extension) that only Prime
- * may use, since Prime owns the human conversation. Like the orchestration
- * tools, these must be in Prime's allowlist or Pi would filter them out.
- */
-export const PRIME_MEMORY_TOOLS = ["remember", "suggest_memory"] as const;
 
 /**
  * Session-management tools (registered by the session extension) that only
@@ -157,6 +156,8 @@ export interface ResolvedSessionConfig {
   extensionPaths: string[];
   /** Pre-seeded Prime first-message content, if the bundle declares one. */
   welcomeMessage?: string;
+  /** The bundle's default memory binding, if it declares one. */
+  memory?: MemoryBinding;
 }
 
 /** Request Prime makes to spawn a sub-agent. Inline fields override templates. */
@@ -403,7 +404,6 @@ export function getPrimeAgentConfig(): AgentConfig {
         ...DEFAULT_TOOLS,
         ...SHARED_AGENT_TOOLS,
         ...PRIME_ORCHESTRATION_TOOLS,
-        ...PRIME_MEMORY_TOOLS,
         ...PRIME_TRIGGER_TOOLS,
         ...PRIME_SESSION_TOOLS,
       ],

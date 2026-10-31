@@ -5,6 +5,7 @@ import path from "node:path";
 import type {
   Attachment,
   HostResourceInput,
+  MemoryBinding,
   Session,
   SessionActivity,
   SessionConfigMeta,
@@ -24,6 +25,8 @@ import {
 import { applyResourceInput } from "../../conversation/hostResources.ts";
 import { orchestratorConversationFor } from "../../conversation/participantRegistry.ts";
 import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
+import { mountedFolderPaths, settleBinding } from "../../memory/binding.ts";
+import { removeSessionQmdState } from "../../memory/qmdState.ts";
 import { installBundle } from "../../pi/config/bundleLoader.ts";
 import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
 import type { MemoryManager } from "../../pi/memory.ts";
@@ -183,6 +186,25 @@ async function seedResources(
 }
 
 /**
+ * Settles and stores the session's memory binding. Runs after the seed mounts
+ * exist, so a missing store folder makes the session SimpleMD-only for good
+ * rather than until some later respawn, and a binding can only reach the
+ * folders the session actually mounted.
+ */
+async function storeSessionMemory(
+  deps: SessionCreateDeps,
+  sessionId: string,
+  rootPath: string,
+  requested: MemoryBinding | undefined,
+): Promise<void> {
+  const mounts = mountedFolderPaths(
+    await deps.resources.listForSession(sessionId),
+  );
+  const binding = settleBinding(requested, sessionId, rootPath, mounts);
+  if (binding) await deps.store.setSessionMemory(sessionId, binding);
+}
+
+/**
  * Pre-seeds Prime's first message so the bundle's agent "speaks first" (e.g.
  * renders a welcome card). It replays via `chat:history` on join and renders any
  * `tangent-ui:*` card because the bundle id is already attached. No-op when the
@@ -223,6 +245,7 @@ async function createSessionFromBundle(
   user: UserIdentity | undefined,
   resources: HostResourceInput[],
   env: Record<string, string> | undefined,
+  memoryOverride: MemoryBinding | undefined,
   res: Response,
 ): Promise<void> {
   const { store, pi, triggerEngine } = deps;
@@ -236,9 +259,6 @@ async function createSessionFromBundle(
     };
     const withConfig = await store.attachConfig(sessionId, meta);
 
-    // Seed the bundle's declared triggers and arm any schedules.
-    triggerEngine.seed(sessionId, rootPath, manifest.triggers);
-
     const primaryConversationId = await orchestratorConversationFor(
       store,
       sessionId,
@@ -251,19 +271,27 @@ async function createSessionFromBundle(
     );
 
     await seedResources(deps, sessionId, rootPath, resources, user);
-
-    pi.ensure(
+    await storeSessionMemory(
+      deps,
       sessionId,
       rootPath,
-      config,
-      undefined,
-      user,
-      primaryConversationId,
-      env,
+      memoryOverride ?? config.memory,
     );
+
+    // Armed only once the binding is stored: a firing spawns Prime, which
+    // resolves memory exactly once.
+    triggerEngine.seed(sessionId, rootPath, manifest.triggers);
+
+    await pi.ensure(sessionId, rootPath, {
+      config,
+      user,
+      homeConversationId: primaryConversationId,
+      env,
+    });
     res.status(201).json({ session: withConfig });
   } catch (err) {
     await store.deleteSession(sessionId);
+    removeSessionQmdState(sessionId);
     res.status(400).json({ error: (err as Error).message });
   }
 }
@@ -314,6 +342,7 @@ export async function handleCreateSession(
     user,
     body.resources ?? [],
     body.env,
+    body.memory,
     res,
   );
 }
@@ -459,5 +488,6 @@ export async function handleDeleteSession(
   }
   pi.dispose(id);
   triggerEngine.dispose(id);
+  removeSessionQmdState(id);
   res.status(204).end();
 }

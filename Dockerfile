@@ -30,6 +30,10 @@ RUN apt-get update \
 # Pin the Pi coding agent so the `pi` binary is on PATH.
 RUN npm install -g @earendil-works/pi-coding-agent@0.84.4
 
+# Pin qmd (used by the pi-memory extension at runtime): pi-memory shells out to
+# qmd subcommands and parses their --json output.
+RUN npm install -g @tobilu/qmd@2.8.3
+
 WORKDIR /app
 
 # ---------------------------------------------------------------------------
@@ -87,6 +91,9 @@ ENV NODE_ENV=production
 ENV PORT=8080
 # Writable locations on Cloud Run for session workspaces and Pi's lockfiles/config.
 ENV SESSIONS_ROOT=/tmp/sessions
+# pi-memory qmd indexes; keep on the same storage as the stores they index. qmd
+# models (~2 GB) download to $HOME/.cache/qmd/models on first semantic search.
+ENV QMD_STATE_ROOT=/tmp/qmd-state
 ENV HOME=/tmp
 ENV PI_BIN=pi
 # Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
@@ -100,10 +107,13 @@ ENV PI_PROXY_URL=https://proxy.shopify.ai
 
 COPY --from=builder /app/apps/server/dist ./dist
 
-# esbuild and better-sqlite3 are kept external by apps/server/build.mjs (native
-# binaries, used at runtime). Install just them so node can resolve the bare
-# imports from /app/dist/index.js.
-RUN npm install --no-save --no-package-lock esbuild@0.28.0 better-sqlite3@12.10.0
+# Runtime-external deps the bundle cannot inline (esbuild + better-sqlite3 native
+# addons, plus the pi-memory .ts extension loaded by the pi subprocess). Their
+# names and lockfile-exact versions come from the build's dist/externals.json, so
+# nothing is pinned here. --omit=peer: pi-memory's @earendil-works/* peers are
+# provided by the globally-installed pi from the base stage.
+RUN npm install --no-save --no-package-lock --omit=peer \
+  $(node -p "Object.entries(require('./dist/externals.json')).map(([n,v])=>n+'@'+v).join(' ')")
 
 EXPOSE 8080
 

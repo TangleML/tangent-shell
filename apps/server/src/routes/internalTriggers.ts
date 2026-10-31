@@ -115,7 +115,7 @@ async function handleCreate(
   try {
     const trigger = triggers.create(session.id, session.rootPath, body);
     // Eagerly spawn the dedicated sub-agent so it exists before the first firing.
-    triggerEngine.provision(session.id, session.rootPath, trigger.id);
+    await triggerEngine.provision(session.id, session.rootPath, trigger.id);
     triggerEngine.afterChange(session.id, session.rootPath);
     res.json({ trigger: triggers.get(session.id, trigger.id) ?? trigger });
   } catch (err) {

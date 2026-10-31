@@ -250,15 +250,7 @@ export class TriggerEngine {
   ): Promise<void> {
     const { orchestratorId, homeConversationId: primaryConversationId } =
       await orchestratorIdentity(this.store, sessionId);
-    this.pi.ensure(
-      sessionId,
-      rootPath,
-      undefined,
-      undefined,
-      undefined,
-      primaryConversationId,
-      await this.store.getSessionEnv(sessionId),
-    );
+    await this.ensurePrime(sessionId, rootPath, primaryConversationId);
     await this.ensureTriggerParticipant(sessionId, stored);
     await this.conversations.post({
       sessionId,
@@ -282,16 +274,7 @@ export class TriggerEngine {
     stored: StoredTrigger,
     prompt: string,
   ): Promise<void> {
-    this.pi.ensure(
-      sessionId,
-      rootPath,
-      undefined,
-      undefined,
-      undefined,
-      await orchestratorConversationFor(this.store, sessionId),
-      await this.store.getSessionEnv(sessionId),
-    );
-    const { agentId } = this.ensureSubagent(sessionId, rootPath, stored);
+    const { agentId } = await this.ensureSubagent(sessionId, rootPath, stored);
     await this.ensureTriggerParticipant(sessionId, stored);
     await this.conversations.post({
       sessionId,
@@ -324,10 +307,28 @@ export class TriggerEngine {
    * Eagerly spawns a freshly created `subagent`-target trigger's sub-agent so it
    * exists before the first firing. No-op for a Prime-target or unknown trigger.
    */
-  provision(sessionId: string, rootPath: string, triggerId: string): void {
+  async provision(
+    sessionId: string,
+    rootPath: string,
+    triggerId: string,
+  ): Promise<void> {
     const stored = this.triggers.getStored(sessionId, triggerId);
     if (!stored || stored.target.type !== "subagent") return;
-    this.ensureSubagent(sessionId, rootPath, stored);
+    await this.ensureSubagent(sessionId, rootPath, stored);
+  }
+
+  /** Spawns the session's Prime if needed, with its persisted env and home. */
+  private async ensurePrime(
+    sessionId: string,
+    rootPath: string,
+    homeConversationId?: string,
+  ): Promise<void> {
+    await this.pi.ensure(sessionId, rootPath, {
+      homeConversationId:
+        homeConversationId ??
+        (await orchestratorConversationFor(this.store, sessionId)),
+      env: await this.store.getSessionEnv(sessionId),
+    });
   }
 
   /**
@@ -335,13 +336,13 @@ export class TriggerEngine {
    * when present or spawning a fresh one from the stored spec. Persists the live
    * sub-agent id back onto the trigger and the session's agent roster.
    */
-  private ensureSubagent(
+  private async ensureSubagent(
     sessionId: string,
     rootPath: string,
     stored: StoredTrigger,
-  ): { agentId: string; agentName: string } {
+  ): Promise<{ agentId: string; agentName: string }> {
     // The session/Prime record must exist before a sub-agent can be spawned.
-    this.pi.ensure(sessionId, rootPath);
+    await this.ensurePrime(sessionId, rootPath);
 
     const target = stored.target;
     if (target.type !== "subagent") {

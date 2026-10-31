@@ -6,6 +6,8 @@ import {
   DEFAULT_THINKING_LEVEL,
 } from "@tangent/shared/contracts.ts";
 
+import { nestedRoots } from "./memory/paths.ts";
+
 function readAbsoluteUrl(name: string, fallback: string): string {
   const value = process.env[name] ?? fallback;
   try {
@@ -22,10 +24,12 @@ export const PORT = Number(process.env.PORT ?? 8787);
 /**
  * Root directory that holds every session's scoped folder. Each session gets
  * its own subdirectory (`SESSIONS_ROOT/<id>`) which a Pi worker will run in.
- * Gitignored by default.
+ * Gitignored by default. Always absolute, so path-containment checks against a
+ * session root compare like with like.
  */
-export const SESSIONS_ROOT =
-  process.env.SESSIONS_ROOT ?? path.resolve(process.cwd(), ".sessions");
+export const SESSIONS_ROOT = path.resolve(
+  process.env.SESSIONS_ROOT ?? path.join(process.cwd(), ".sessions"),
+);
 
 /**
  * SQLite database file backing session, asset, and agent-roster metadata.
@@ -51,8 +55,29 @@ export const AGENT_BUNDLES_ROOT =
  * its own subdirectory (`SHARED_ROOT/<id>`) that any number of sessions may link
  * to, so edits in one session are visible to the others. Gitignored by default.
  */
-export const SHARED_ROOT =
-  process.env.SHARED_ROOT ?? path.resolve(process.cwd(), ".shared");
+export const SHARED_ROOT = path.resolve(
+  process.env.SHARED_ROOT ?? path.join(process.cwd(), ".shared"),
+);
+
+/**
+ * Root directory holding each pi-memory store's qmd index and collection config,
+ * kept out of the store itself so agents that can write a shared folder can't
+ * plant qmd `update:` hooks or repoint the collection. Must not be named `.qmd`:
+ * qmd adopts any `.qmd/index.yml` above its working directory. Gitignored by
+ * default.
+ */
+export const QMD_STATE_ROOT = path.resolve(
+  process.env.QMD_STATE_ROOT ?? path.join(process.cwd(), ".qmd-state"),
+);
+
+// Agents write the session and shared trees, and qmd state is keyed by which
+// root a store sits under, so the three must stay disjoint.
+const nested = nestedRoots({ SESSIONS_ROOT, SHARED_ROOT, QMD_STATE_ROOT });
+if (nested) {
+  throw new Error(
+    `${nested[0]} and ${nested[1]} must not be the same directory or nested inside each other`,
+  );
+}
 
 /**
  * Name of the per-session subdirectory whose contents are served over HTTP as

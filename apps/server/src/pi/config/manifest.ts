@@ -1,8 +1,11 @@
 import type { BundleManifest } from "@tangent/shared/configBundle.ts";
 import { ICON_FILENAME, SCHEMA_VERSION } from "@tangent/shared/configBundle.ts";
+import type { MemoryBinding } from "@tangent/shared/contracts.ts";
 import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+
+import { countPiMemoryLeaves } from "../../memory/binding.ts";
 
 /** Pi thinking-depth levels, as a zod enum for manifest validation. */
 const thinkingLevel = z.enum(THINKING_LEVELS);
@@ -44,6 +47,56 @@ const safePath = z
   .min(1)
   .refine(isSafeRelativePath, { message: "is not a safe path" });
 
+/** True when some segment is `.qmd`; see {@link storeRoot}. */
+function hasQmdSegment(value: string): boolean {
+  return value.split(/[\\/]/).includes(".qmd");
+}
+
+/**
+ * A memory store `root`. The store's qmd config dir mirrors this path, and qmd
+ * treats a config dir named `.qmd` as project-local and trust-gates its
+ * collection, which would silently empty the store's search.
+ */
+const storeRoot = safePath.refine((value) => !hasQmdSegment(value), {
+  message: "must not contain a .qmd segment",
+});
+
+/** Tunable knobs for a `pi-memory` {@link MemoryBinding}. */
+const piMemoryConfigSchema = z.object({
+  exitSummary: z.boolean().optional(),
+  snapshot: z.enum(["stable", "per-turn"]).optional(),
+  qmdUpdate: z.enum(["background", "manual", "off"]).optional(),
+  search: z.boolean().optional(),
+  exitSummaryModel: z.string().min(1).optional(),
+});
+
+const memoryBindingNodeSchema: z.ZodType<MemoryBinding> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("simple-md"), root: storeRoot.optional() }),
+    z.object({
+      kind: z.literal("pi-memory"),
+      root: storeRoot.optional(),
+      config: piMemoryConfigSchema.optional(),
+    }),
+    z.object({
+      kind: z.literal("composite"),
+      children: z.array(memoryBindingNodeSchema),
+    }),
+  ]),
+);
+
+/**
+ * Validator for a {@link MemoryBinding}, shared by the bundle manifest and the
+ * create-session route. `root` is a session-root-relative store directory. One
+ * Pi process loads the pi-memory extension once, bound to one `PI_MEMORY_DIR`,
+ * so a binding may hold at most one `pi-memory` leaf.
+ */
+export const memoryBindingSchema: z.ZodType<MemoryBinding> =
+  memoryBindingNodeSchema.refine(
+    (binding) => countPiMemoryLeaves(binding) <= 1,
+    { message: "a memory binding may contain at most one pi-memory store" },
+  );
+
 /**
  * zod schema mirroring {@link BundleManifest}. Used in place of the prior
  * hand-rolled validator: it declares required fields, the `id` slug rule, the
@@ -81,6 +134,7 @@ const manifestSchema = z.object({
   agents: z.array(safePath).optional(),
   contextFiles: z.array(safePath).optional(),
   memory: z.array(safePath).optional(),
+  memoryBinding: memoryBindingSchema.optional(),
   extensions: z.array(safePath).optional(),
   software: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   ui: z

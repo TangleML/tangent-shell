@@ -21,6 +21,8 @@ import { ResourceCatalog } from "./conversation/resourceCatalog.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { createRelayReport } from "./mcp/relayReport.ts";
+import { mountedFolderPaths } from "./memory/binding.ts";
+import { MemoryResolver } from "./memory/resolver.ts";
 import { createEmbedCors } from "./middleware/embedCors.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
 import { HostResourcePreamble } from "./pi/hostResourcePreamble.ts";
@@ -126,8 +128,17 @@ const io = new SocketIOServer(httpServer, {
   pingTimeout: 10_000,
 });
 
-// Owns the agents' global + per-session memory stores.
+// Owns the agents' global + per-session SimpleMD memory stores. Still the
+// imperative store the global-memory route, chat handlers, and host-resource
+// writes use directly.
 const memory = new MemoryManager();
+
+// Resolves each session's pluggable memory (always-on SimpleMD plus the
+// session's own memory binding, when it declares one) for the Pi spawn and the
+// internal /call API.
+const memoryResolver = new MemoryResolver(memory, store, async (sessionId) =>
+  mountedFolderPaths(await resourceStore.listForSession(sessionId)),
+);
 
 // Owns each session's triggers (schedule + callback) and their persistence.
 const triggers = new TriggerManager();
@@ -278,7 +289,7 @@ void store
 // Socket.IO room by the chat handlers.
 const pi = new PiAgentManager(
   agentHandlers,
-  memory,
+  memoryResolver,
   runs,
   hostResourcePreamble,
 );
@@ -510,12 +521,13 @@ app.use(
 // Internal API for the memory extension running inside each Pi process.
 app.use(
   "/internal/memory",
-  createInternalMemoryRouter(
+  createInternalMemoryRouter({
     store,
-    memory,
-    onMemoryRemembered,
-    onMemorySuggestion,
-  ),
+    resolver: memoryResolver,
+    agents: pi,
+    onRemembered: onMemoryRemembered,
+    onSuggestion: onMemorySuggestion,
+  }),
 );
 // Internal API for the resources extension running inside each Pi process.
 app.use(

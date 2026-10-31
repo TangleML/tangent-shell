@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   connectorFor,
   DEFAULT_SESSION_ACCESS_POLICY,
+  type MemoryBinding,
   type PinnedArtifact,
   type Session,
   type SessionAccessPolicy,
@@ -54,6 +55,11 @@ import {
 
 /** Id of the orchestrating Prime agent (mirrors `pi/types.ts`). */
 const PRIME_AGENT_ID = "prime";
+
+/** Serializes an optional value for a nullable JSON column. */
+function jsonOrNull(value: unknown): string | null {
+  return value ? JSON.stringify(value) : null;
+}
 
 /** Maps a sessions row onto the wire {@link Session}, parsing the config JSON. */
 function toSession(row: SessionRow): Session {
@@ -182,6 +188,27 @@ export class SqliteSessionStore implements SessionStore {
     return JSON.parse(row.env) as Record<string, string>;
   }
 
+  async getSessionMemory(id: string): Promise<MemoryBinding | undefined> {
+    const row = this.db
+      .select({ memory: sessions.memory })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    if (!row?.memory) return undefined;
+    return JSON.parse(row.memory) as MemoryBinding;
+  }
+
+  async setSessionMemory(
+    id: string,
+    memory: MemoryBinding | undefined,
+  ): Promise<void> {
+    this.db
+      .update(sessions)
+      .set({ memory: jsonOrNull(memory) })
+      .where(eq(sessions.id, id))
+      .run();
+  }
+
   selectorsOf(id: string): string[] {
     const cached = this.selectors.get(id);
     if (cached) return cached;
@@ -231,8 +258,9 @@ export class SqliteSessionStore implements SessionStore {
         name: session.name,
         rootPath: session.rootPath,
         status: session.status,
-        userIdentity: session.user ? JSON.stringify(session.user) : null,
-        env: input.env ? JSON.stringify(input.env) : null,
+        userIdentity: jsonOrNull(session.user),
+        env: jsonOrNull(input.env),
+        memory: jsonOrNull(input.memory),
         tags: JSON.stringify(session.tags),
         archived: session.archived,
         accessPolicy: session.accessPolicy,

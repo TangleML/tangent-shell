@@ -49,13 +49,19 @@ registered it. That is why `agentConfig.ts` defines tool-name groups that are
 unioned into the allowlist:
 
 - `DEFAULT_TOOLS` = `read, write, edit, bash, grep, find, ls`.
-- `SHARED_AGENT_TOOLS` = `read_room, read_memory, message_prime, pin_artifact,
+- `SHARED_AGENT_TOOLS` = `read_room, message_prime, pin_artifact,
 list_remote_tools, call_remote_tool, list_environments` (granted to every
   agent, even though `message_prime` is only _registered_ for sub-agents and the
   remote-tools trio only functions when a host is connected — the allowlist must
   still permit them).
-- `PRIME_ORCHESTRATION_TOOLS`, `PRIME_MEMORY_TOOLS`, `PRIME_TRIGGER_TOOLS`,
-  `PRIME_SESSION_TOOLS` — Prime-only tool names.
+- `PRIME_ORCHESTRATION_TOOLS`, `PRIME_TRIGGER_TOOLS`, `PRIME_SESSION_TOOLS` —
+  Prime-only tool names.
+- **Memory tools are not static.** They are contributed at spawn by the session's
+  resolved memory (see [memory.md](./memory.md)): `SimpleMdMemory` adds
+  `read_memory` for every agent and `remember` / `suggest_memory` for Prime, and a
+  session's `pi-memory` binding adds its own tools by role. The manager
+  unions these into `--tools` from `memoryPlan.allowlistTools`, so the allowlist —
+  not the extension registration — is the real role gate.
 
 ---
 
@@ -117,10 +123,11 @@ session config:
   artifacts + `pin_artifact`, uploads, triggers, session naming, memory). Built
   via `composePrimePrompt()` with no bundle layer.
 - **Prime tools** = `DEFAULT_TOOLS` + `SHARED_AGENT_TOOLS` +
-  `PRIME_ORCHESTRATION_TOOLS` + `PRIME_MEMORY_TOOLS` + `PRIME_TRIGGER_TOOLS` +
-  `PRIME_SESSION_TOOLS`.
+  `PRIME_ORCHESTRATION_TOOLS` + `PRIME_TRIGGER_TOOLS` + `PRIME_SESSION_TOOLS`,
+  plus the memory tools the resolved memory contributes at spawn.
 - **SpawnExtras** = empty (`spawnExtras(undefined)` returns empty arrays), so no
-  `--skill` / `--prompt-template` / extra `--extension` flags.
+  `--skill` / `--prompt-template` / extra `--extension` flags — except any
+  `--extension` the resolved memory adds (e.g. a `pi-memory` binding).
 - **Sub-agents** spawned later resolve against the **global** templates
   ([server/src/pi/agents/](../../server/src/pi/agents)) and the base
   [subagentSystemPrompt.md](../../server/src/pi/subagentSystemPrompt.md).
@@ -139,7 +146,8 @@ drives every spawn:
   task-specific instructions on top.
 - **Prime tools** = `manifest.prime.tools` (or `DEFAULT_TOOLS`) unioned with
   `SHARED_AGENT_TOOLS` + the Prime-only groups, now including
-  `PRIME_TRIGGER_TOOLS` (`resolvePrimeTools`). So a bundle never needs to list
+  `PRIME_TRIGGER_TOOLS` (`resolvePrimeTools`), plus the memory tools contributed
+  at spawn. So a bundle never needs to list
   orchestration/memory/trigger/session tools; they're always added (matching a
   blank session).
 - **subagentDefaults** = `{ tools, appendSystemPrompt }` from the manifest's

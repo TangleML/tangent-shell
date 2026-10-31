@@ -56,19 +56,19 @@ The relational state lives in [db/schema.ts](../../apps/server/src/store/db/sche
 Chat history is deliberately **not** a table — it stays as JSONL on disk. Schema
 changes go exclusively through drizzle migrations; never alter tables ad-hoc.
 
-| Table                 | Holds                                                                                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sessions`            | one row per session (mirrors the `Session` wire contract, plus `archived`, `user_identity`).                                                                 |
-| `session_assets`      | pinned artifacts, scoped to a session, oldest-first.                                                                                                         |
-| `participants`        | the roster: session-scoped actor identities (`human` / `agent` / `automation`), capabilities, presence, and each agent's connector facets + `agent_payload`. |
-| `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript.                                                               |
-| `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.                                                                   |
-| `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.                                                                |
-| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact` / `host` / `mount`, pointing at bytes by `uri`.                                                   |
-| `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).                                                                       |
-| `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing).                                                               |
-| `shared_folders`      | cross-session "project" folders a session mounts (by symlink) into its root. Not session-scoped — no FK to `sessions`; bytes live under `SHARED_ROOT/<id>`.  |
-| `session_views`       | when each user last opened a session.                                                                                                                        |
+| Table                 | Holds                                                                                                                                                                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessions`            | one row per session (mirrors the `Session` wire contract, plus `archived`, `user_identity`, server-only `env`, and a serialized `MemoryBinding` in `memory`).                                                                                         |
+| `session_assets`      | pinned artifacts, scoped to a session, oldest-first.                                                                                                                                                                                                  |
+| `participants`        | the roster: session-scoped actor identities (`human` / `agent` / `automation`), capabilities, presence, and each agent's connector facets + `agent_payload`.                                                                                          |
+| `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript.                                                                                                                                                        |
+| `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.                                                                                                                                                            |
+| `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.                                                                                                                                                         |
+| `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact` / `host` / `mount`, pointing at bytes by `uri`.                                                                                                                                            |
+| `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).                                                                                                                                                                |
+| `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing).                                                                                                                                                        |
+| `shared_folders`      | cross-session "project" folders a session mounts (by symlink) into its root. Not session-scoped — no FK to `sessions`; bytes live under `SHARED_ROOT/<id>`. A pure mount point — a session's memory binding may point its store into one to share it. |
+| `session_views`       | when each user last opened a session.                                                                                                                                                                                                                 |
 
 `participants` is the roster's only store. The old `session_agents` table (and
 its deprecated `host` column) is gone; `SessionStore.listAgents` /
@@ -140,6 +140,12 @@ folder is **not** session-scoped — it outlives any session and has no FK to
 - `POST /api/shared-folders` — create a folder (and its backing directory). Body
   `{ name? }`; returns `{ folder }`.
 - `GET /api/shared-folders` — list every folder, oldest-first.
+
+A shared folder is a pure mount point and carries no memory itself. Memory is a
+**session** attribute (`sessions.memory`): a session's [memory
+binding](./memory.md) may point its store's `root` at a mounted folder's path to
+share the store across every session that mounts it, or omit `root` to keep it
+session-local.
 
 **Mounting** reuses the resource-seeding pipeline rather than a bespoke endpoint:
 a mount is a `HostResourceInput` of `kind: "mount"`, so it can be passed at

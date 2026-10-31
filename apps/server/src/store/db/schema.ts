@@ -32,6 +32,8 @@ export const sessions = sqliteTable("sessions", {
   userIdentity: text("user_identity"),
   /** Serialized session-scoped env vars injected into agent spawns (server-only). */
   env: text("env"),
+  /** Serialized `MemoryBinding` for the session's pluggable memory (server-only). */
+  memory: text("memory"),
   /** Serialized `string[]` of selector tags (e.g. `projectId:<GUID>`) used to
    * route selector-scoped remote hosts to this session. */
   tags: text("tags"),
