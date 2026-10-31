@@ -37,8 +37,6 @@ extensions:
   - tools/citations.ts
 
 software:
-  npm:
-    - "typescript:^5"
   pip:
     - "requests:2.31.0"
   brew:

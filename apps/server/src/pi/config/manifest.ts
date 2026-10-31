@@ -4,6 +4,8 @@ import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
+import { toNpmSpec } from "./npmPackages.ts";
+
 /** Pi thinking-depth levels, as a zod enum for manifest validation. */
 const thinkingLevel = z.enum(THINKING_LEVELS);
 
@@ -82,7 +84,19 @@ const manifestSchema = z.object({
   contextFiles: z.array(safePath).optional(),
   memory: z.array(safePath).optional(),
   extensions: z.array(safePath).optional(),
-  software: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
+  software: z
+    .record(z.string().min(1), z.array(z.string().min(1)))
+    .superRefine((software, ctx) => {
+      software.npm?.forEach((entry, index) => {
+        if (toNpmSpec(entry)) return;
+        ctx.addIssue({
+          code: "custom",
+          path: ["npm", index],
+          message: `"${entry}" must be a registry package: "<package>" or "<package>:<version>"`,
+        });
+      });
+    })
+    .optional(),
   ui: z
     .object({
       components: z

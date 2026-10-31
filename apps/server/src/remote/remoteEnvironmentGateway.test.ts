@@ -614,6 +614,7 @@ test("a remote spawn resolves tools and prompt from the session's editor templat
     skillPaths: [],
     workflowPaths: [],
     extensionPaths: [],
+    binPaths: [],
   });
   const h = makeHarness({ sessionConfig });
   const env = h.connect("env-1");

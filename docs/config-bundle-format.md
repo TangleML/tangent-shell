@@ -134,19 +134,39 @@ payload passed to the prompt template / handler.
 
 ### `software` (optional)
 
-Declarative software requirements: the package managers, packages, and other
-software a session needs installed to operate. The value is a map keyed by
-package manager (e.g. `npm`, `pip`, `brew`, `apk`, `cargo`), each holding a
-list of dependency specs:
+Software requirements: the package managers, packages, and other software a
+session needs to operate. The value is a map keyed by package manager (e.g.
+`npm`, `pip`, `brew`, `apk`, `cargo`), each holding a list of dependency specs:
 
-- Each entry is a string of the form `"<package>"` or `"<package>:<version>"`.
-- The `:<version>` suffix is an optional convention (e.g. `"typescript:^5"`,
-  `"requests:2.31.0"`); it is recorded but not parsed or validated.
+- Each entry is a string of the form `"<package>"` or `"<package>:<version>"`
+  (e.g. `"better-sqlite3:^12"`, `"requests:2.31.0"`).
 - Keys are arbitrary package-manager names, so any tool can be referenced
   without a schema change.
 
-This block is **declarative metadata only**: Tangent records the requirements
-but does not install them automatically.
+`npm` entries are **installed** when a session is created from the bundle:
+
+- They must be registry packages, with an optional version, range, or tag.
+  `file:`, git, URL, and alias specs are rejected when the manifest is
+  validated.
+- They are installed into `<root>/.tangent/node_modules` before trigger
+  handlers are compiled. Bundle extensions (`tools/*.ts`) and trigger handlers
+  can import them. npm runs in a fresh prefix, so a `package.json`, lockfile,
+  or `.npmrc` shipped in the bundle has no effect on the install.
+- `<root>/.tangent/node_modules/.bin` is prepended to the `PATH` of every agent
+  in the session, so a package's CLI can be run directly.
+- A failed install fails session creation.
+- Installing takes time: each entry, especially one with a native addon, slows
+  session creation. List only what the bundle's own code needs.
+
+```yaml
+software:
+  npm:
+    - "better-sqlite3:^12"
+    - "@tobilu/qmd"
+```
+
+Every other key is **declarative metadata only**: Tangent records the
+requirements but does not install them.
 
 ## Example
 
@@ -202,8 +222,6 @@ triggers:
     handler: triggers/incident.ts
 
 software:
-  npm:
-    - "typescript:^5"
   pip:
     - "requests:2.31.0"
   brew:
@@ -227,8 +245,9 @@ entities are applied as Pi spawn flags (wired in Phase 3):
   handlers are transpiled on upload and executed server-side when a trigger
   fires (no Pi mapping; triggers deliver prompts via the same path as user
   chat).
-- `software` → no Pi mapping; declarative metadata only (not installed
-  automatically).
+- `software.npm` → installed under `.tangent/node_modules` (importable from
+  extensions), with its `.bin` prepended to every agent's `PATH`. Other
+  `software` keys have no Pi mapping; they are declarative metadata only.
 
 ## Memory
 

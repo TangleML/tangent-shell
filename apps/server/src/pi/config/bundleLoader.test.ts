@@ -7,14 +7,17 @@ import {
   rmSync,
   symlinkSync,
 } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { zipSync } from "fflate";
+import { strToU8, zipSync } from "fflate";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { installBundle, loadInstalledConfig } from "./bundleLoader.ts";
+import type { NpmInstaller } from "./npmPackages.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // apps/server/src/pi/config -> repo root is five levels up.
@@ -42,6 +45,18 @@ function collectFiles(
 /** Zips the example bundle source folder into an in-memory ZIP buffer. */
 function packExampleBundle(): Buffer {
   const files = collectFiles(EXAMPLE_BUNDLE, EXAMPLE_BUNDLE, {});
+  return Buffer.from(zipSync(files));
+}
+
+/** Zips the example bundle with `patch` merged into its manifest, plus `extra` files. */
+function packPatchedBundle(
+  patch: Record<string, unknown>,
+  extra: Record<string, string>,
+): Buffer {
+  const files = collectFiles(EXAMPLE_BUNDLE, EXAMPLE_BUNDLE, {});
+  const manifest = parseYaml(new TextDecoder().decode(files["tangent.yaml"]));
+  files["tangent.yaml"] = strToU8(stringifyYaml({ ...manifest, ...patch }));
+  for (const [name, text] of Object.entries(extra)) files[name] = strToU8(text);
   return Buffer.from(zipSync(files));
 }
 
@@ -88,5 +103,74 @@ test("loadInstalledConfig skips non-file entries in the installed tree", async (
 
     assert.ok(reloaded, "expected a config to be recovered from disk");
     assert.deepStrictEqual(reloaded, installed);
+  });
+});
+
+test("installBundle installs software.npm where trigger handlers resolve it", async () => {
+  await withTempRoot(async (root) => {
+    const calls: { specs: string[]; installRoot: string }[] = [];
+    const fakeNpm: NpmInstaller = async (specs, installRoot) => {
+      calls.push({ specs, installRoot });
+      const pkg = path.join(installRoot, "node_modules", "demo-pkg");
+      await mkdir(pkg, { recursive: true });
+      await writeFile(
+        path.join(pkg, "index.js"),
+        'exports.greeting = "hello from demo-pkg";',
+      );
+    };
+    const bundle = packPatchedBundle(
+      {
+        software: { npm: ["demo-pkg", "@tobilu/qmd:2.8.3"] },
+        triggers: [
+          {
+            name: "digest",
+            kind: "schedule",
+            schedule: { every: "1h" },
+            handler: "triggers/digest.ts",
+          },
+        ],
+      },
+      {
+        "triggers/digest.ts":
+          'import { greeting } from "demo-pkg";\nexport default () => greeting;\n',
+      },
+    );
+
+    const { config } = await installBundle(bundle, root, fakeNpm);
+
+    const installRoot = path.join(root, ".tangent");
+    assert.deepEqual(calls, [
+      { specs: ["demo-pkg", "@tobilu/qmd@2.8.3"], installRoot },
+    ]);
+    assert.deepEqual(config.binPaths, [
+      path.join(installRoot, "node_modules", ".bin"),
+    ]);
+    assert.match(
+      readFileSync(path.join(installRoot, "triggers", "digest.js"), "utf8"),
+      /hello from demo-pkg/,
+      "the handler bundles the installed package",
+    );
+    assert.deepStrictEqual(loadInstalledConfig(root), config);
+  });
+});
+
+test("installBundle fails when its npm install fails", async () => {
+  await withTempRoot(async (root) => {
+    const bundle = packPatchedBundle({ software: { npm: ["demo-pkg"] } }, {});
+    const failingNpm: NpmInstaller = async () => {
+      throw new Error("bundle: npm install failed for demo-pkg");
+    };
+
+    await assert.rejects(
+      installBundle(bundle, root, failingNpm),
+      /npm install failed for demo-pkg/,
+    );
+  });
+});
+
+test("a bundle without software.npm adds nothing to PATH", async () => {
+  await withTempRoot(async (root) => {
+    const { config } = await installBundle(packExampleBundle(), root);
+    assert.deepEqual(config.binPaths, []);
   });
 });

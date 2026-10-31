@@ -84,8 +84,10 @@ export interface BundlePrimeConfig {
 /**
  * Optional software requirements, keyed by package manager (e.g. `npm`,
  * `pip`, `brew`, `apk`). Each value lists dependency specs of the form
- * `"<package>"` or `"<package>:<version>"`. Declarative only: documents what
- * a session needs installed; Tangent does not install these automatically.
+ * `"<package>"` or `"<package>:<version>"`. `npm` packages are installed into
+ * the session's `.tangent/` at creation, so bundle extensions can import them
+ * and their binaries are on every agent's `PATH`; other managers are
+ * declarative only.
  */
 export type BundleSoftwareRequirements = Record<string, string[]>;
 

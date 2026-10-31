@@ -24,6 +24,12 @@ import {
   type SubagentDefaults,
 } from "../agentConfig.ts";
 import { parseManifest } from "./manifest.ts";
+import {
+  installNpmPackages,
+  npmBinDir,
+  type NpmInstaller,
+  npmSpecs,
+} from "./npmPackages.ts";
 
 /** Subdirectory under a session root that holds its installed bundle config. */
 export const TANGENT_DIRNAME = ".tangent";
@@ -306,14 +312,17 @@ function resolveSubagentDefaults(
  * files are additionally copied to the workspace root so Pi auto-discovers
  * `AGENTS.md` and memory from its `cwd`. Conventional directories are
  * auto-discovered when their manifest list is omitted; when present, the
- * manifest is authoritative.
+ * manifest is authoritative. `software.npm` packages are installed under
+ * `.tangent/node_modules` before trigger handlers compile, so extensions and
+ * handlers can import them.
  *
- * Throws on an invalid manifest, an unsafe ZIP entry, or a missing referenced
- * file.
+ * Throws on an invalid manifest, an unsafe ZIP entry, a missing referenced
+ * file, or a failed npm install.
  */
 export async function installBundle(
   zipBuffer: Buffer,
   rootPath: string,
+  installNpm: NpmInstaller = installNpmPackages,
 ): Promise<InstalledBundle> {
   const entries = readZipEntries(zipBuffer);
 
@@ -327,6 +336,7 @@ export async function installBundle(
   await copyRootFiles(rootPath, entries, manifest);
 
   const installRoot = path.join(rootPath, TANGENT_DIRNAME);
+  await installNpm(npmSpecs(manifest.software?.npm), installRoot);
   await compileTriggerHandlers(entries, manifest, installRoot);
   const config = resolveSessionConfig(entries, manifest, rootPath);
 
@@ -363,6 +373,7 @@ export function resolveSessionConfig(
         }
       : {}),
     ...resolveSectionPaths(entries, manifest, installRoot),
+    binPaths: manifest.software?.npm?.length ? [npmBinDir(installRoot)] : [],
   };
 }
 
@@ -395,7 +406,8 @@ export function loadInstalledConfig(
 /**
  * Reads every file under the installed `.tangent/` tree into a
  * {@link ZipEntries} map keyed by its POSIX path relative to `installRoot`
- * (matching the original bundle-relative keys produced from the ZIP).
+ * (matching the original bundle-relative keys produced from the ZIP). Installed
+ * `node_modules` trees are skipped: they are not bundle content and can be huge.
  */
 function readInstalledEntries(installRoot: string): ZipEntries {
   const entries: ZipEntries = {};
@@ -403,7 +415,7 @@ function readInstalledEntries(installRoot: string): ZipEntries {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        walk(abs);
+        if (entry.name !== "node_modules") walk(abs);
         continue;
       }
       if (!entry.isFile()) {
