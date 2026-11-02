@@ -11,7 +11,11 @@
  * Phase 1 defines the format only; runtime wiring (install/spawn) arrives later.
  */
 
-import type { MemoryBinding, ThinkingLevel } from "./contracts.ts";
+import type {
+  BundleExtensionPolicy,
+  MemoryBinding,
+  ThinkingLevel,
+} from "./contracts.ts";
 
 /**
  * Manifest schema version. Bump this integer when a change to {@link
@@ -213,6 +217,13 @@ export interface BundleManifest {
   memoryBinding?: MemoryBinding;
   /** Explicit custom tool extension paths (`tools/*.ts`). */
   extensions?: string[];
+  /**
+   * Global-extension opt-in policy for sessions created from this bundle (the
+   * bundle layer, overlaid by a session's selection). See {@link
+   * BundleExtensionPolicy}. Distinct from {@link BundleManifest.extensions},
+   * which lists the bundle's own bundled tool sources.
+   */
+  globalExtensions?: BundleExtensionPolicy;
   /** Optional software requirements keyed by package manager. */
   software?: BundleSoftwareRequirements;
   /** Sandboxed UI components shipped by the bundle. */

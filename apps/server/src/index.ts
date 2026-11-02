@@ -18,6 +18,10 @@ import { ParticipantRegistry } from "./conversation/participantRegistry.ts";
 import { ParticipantService } from "./conversation/participantService.ts";
 import { ReactorRegistry } from "./conversation/reactorRegistry.ts";
 import { ResourceCatalog } from "./conversation/resourceCatalog.ts";
+import { FileExtensionStore } from "./extensions/fileExtensionStore.ts";
+import { GlobalExtensionService } from "./extensions/globalExtensionService.ts";
+import { createMarketplaceRegistry } from "./extensions/marketplaces/registry.ts";
+import { createSessionExtensions } from "./extensions/sessionExtensions.ts";
 import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { createRelayReport } from "./mcp/relayReport.ts";
@@ -40,6 +44,7 @@ import { createAttachRouter } from "./routes/attach.ts";
 import { createBundleEditorsRouter } from "./routes/bundleEditors.ts";
 import { createConfigRouter } from "./routes/config.ts";
 import { createEmbedRouter } from "./routes/embed.ts";
+import { createGlobalExtensionsRouter } from "./routes/globalExtensions.ts";
 import { createGlobalMemoryRouter } from "./routes/globalMemory.ts";
 import { createInternalAgentsRouter } from "./routes/internalAgents.ts";
 import { createInternalEgressRouter } from "./routes/internalEgress.ts";
@@ -103,6 +108,15 @@ const store = new SqliteSessionStore(db, resourceStore);
 const sharedFolderStore = new SqliteSharedFolderStore(db);
 // Filesystem-backed marketplace of saved agent bundles.
 const agentBundleStore = new FileAgentBundleStore();
+// Global extension registry: Pi packages installed from a marketplace (npm,
+// git, file) into the persistent volume and applied to sessions that opt in.
+const extensionService = new GlobalExtensionService(
+  createMarketplaceRegistry(),
+  new FileExtensionStore(),
+);
+// Resolves each session's opted-in extensions (bundle policy overlaid by the
+// session's selection) into the extra spawn flags for the agent manager.
+const sessionExtensions = createSessionExtensions(extensionService, store);
 // Who besides the ADMIN_EMAILS admins may upload and delete those bundles.
 const bundleEditorStore = new SqliteBundleEditorStore(db);
 
@@ -301,6 +315,7 @@ const pi = new PiAgentManager(
   runs,
   hostResourcePreamble,
   (sessionId) => store.selectorsOf(sessionId),
+  sessionExtensions,
 );
 
 // Hosts sub-agents inside a connected remote environment over the `/remote-env`
@@ -464,6 +479,9 @@ app.use(
   createAgentBundlesRouter(agentBundleStore, bundleEditorStore),
 );
 app.use("/api/bundle-editors", createBundleEditorsRouter(bundleEditorStore));
+// Global extension registry: install from a marketplace or file, list, search,
+// and uninstall. Applied to sessions that opt in (bundle policy + selection).
+app.use("/api/extensions", createGlobalExtensionsRouter(extensionService));
 // Registry of cross-session shared folders a session can mount into its root.
 app.use("/api/shared-folders", createSharedFoldersRouter(sharedFolderStore));
 app.use("/api/global-memory", createGlobalMemoryRouter(memory));
@@ -573,6 +591,21 @@ registerChatHandlers({
   participantService,
   presence,
 });
+
+// Load the installed global extensions into memory and reinstall anything the
+// volume is missing (a fresh pod on a reused data volume, or an interrupted
+// write), so an install survives a pod restart. Never fatal: a failed reinstall
+// is logged and the extension is kept as `error` for a later retry.
+await extensionService
+  .reconcile()
+  .then((reinstalled) => {
+    if (reinstalled > 0) {
+      console.log(`[extensions] reinstalled ${reinstalled} extension(s)`);
+    }
+  })
+  .catch((err: unknown) => {
+    console.error("[extensions] startup reconcile failed", err);
+  });
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);

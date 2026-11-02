@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
+  type BundleExtensionPolicy,
   type MemoryBinding,
   THINKING_LEVELS,
   type ThinkingLevel,
@@ -169,6 +170,12 @@ export interface ResolvedSessionConfig {
   welcomeMessage?: string;
   /** The bundle's default memory binding, if it declares one. */
   memory?: MemoryBinding;
+  /**
+   * The bundle's global-extension opt-in policy, if it declares one (the bundle
+   * layer overlaid by a session's selection at spawn). Re-resolved on revive
+   * from the installed manifest.
+   */
+  globalExtensions?: BundleExtensionPolicy;
 }
 
 /** Request Prime makes to spawn a sub-agent. Inline fields override templates. */
