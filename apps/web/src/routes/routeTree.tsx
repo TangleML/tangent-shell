@@ -15,6 +15,7 @@ import { NotFoundPage } from "./not-found/NotFoundPage";
 import { SessionChatPage } from "./sessions/SessionChatPage";
 import { SessionsPage } from "./sessions/SessionsPage";
 import { BundleEditorsSettings } from "./settings/sections/bundle-editors/BundleEditorsSettings";
+import { GlobalExtensionsSettings } from "./settings/sections/global-extensions/GlobalExtensionsSettings";
 import { GlobalMemorySettings } from "./settings/sections/GlobalMemorySettings";
 import { SettingsLayout } from "./settings/SettingsLayout";
 
@@ -93,6 +94,12 @@ const settingsGlobalMemoryRoute = createRoute({
   component: GlobalMemorySettings,
 });
 
+const settingsExtensionsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/extensions",
+  component: GlobalExtensionsSettings,
+});
+
 const settingsBundleEditorsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/bundle-editors",
@@ -115,6 +122,7 @@ export const routeTree = rootRoute.addChildren([
     settingsRoute.addChildren([
       settingsIndexRoute,
       settingsGlobalMemoryRoute,
+      settingsExtensionsRoute,
       settingsBundleEditorsRoute,
     ]),
     ...(env.isDev ? [bundleUiHarnessRoute] : []),
