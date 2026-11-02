@@ -3,6 +3,7 @@ import {
   type Capability,
   type ChatMessage,
   type ConnectorDescriptor,
+  type ExtensionSelection,
   type MemoryBinding,
   type PinnedArtifact,
   type Session,
@@ -168,6 +169,18 @@ export interface SessionStore {
   setSessionMemory(
     id: string,
     memory: MemoryBinding | undefined,
+  ): Promise<void>;
+  /**
+   * A session's global-extension selection (the session layer of the opt-in),
+   * read synchronously so the spawn path can fold it without awaiting — like
+   * {@link SessionStore.selectorsOf}. Returns `undefined` when the session set
+   * none (inherit the bundle policy).
+   */
+  extensionsOf(id: string): ExtensionSelection | undefined;
+  /** Persists (or, with `undefined`, clears to inherit) the session's selection. */
+  setSessionExtensions(
+    id: string,
+    extensions: ExtensionSelection | undefined,
   ): Promise<void>;
   /**
    * A session's selector tags, read synchronously so the remote gateway's

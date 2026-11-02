@@ -34,6 +34,9 @@ export const sessions = sqliteTable("sessions", {
   env: text("env"),
   /** Serialized `MemoryBinding` for the session's pluggable memory (server-only). */
   memory: text("memory"),
+  /** Serialized `ExtensionSelection` for the session's global-extension opt-in
+   * (server-only). NULL means inherit the bundle's policy. */
+  extensions: text("extensions"),
   /** Serialized `string[]` of selector tags (e.g. `projectId:<GUID>`) used to
    * route selector-scoped remote hosts to this session. */
   tags: text("tags"),

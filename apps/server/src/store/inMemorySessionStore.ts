@@ -8,6 +8,7 @@ import {
   type ConnectorDescriptor,
   connectorFor,
   DEFAULT_SESSION_ACCESS_POLICY,
+  type ExtensionSelection,
   type MemoryBinding,
   type PinnedArtifact,
   type Session,
@@ -88,6 +89,8 @@ export class InMemorySessionStore implements SessionStore {
   private readonly envs = new Map<string, Record<string, string>>();
   /** Server-only per-session memory bindings, mirroring {@link envs}. */
   private readonly memories = new Map<string, MemoryBinding>();
+  /** Server-only per-session global-extension selections (opt-in overlay). */
+  private readonly extensionSelections = new Map<string, ExtensionSelection>();
   private readonly messages = new Map<string, ChatMessage[]>();
   private readonly artifacts = new Map<string, PinnedArtifact[]>();
   private readonly views = new Map<string, Map<string, string>>();
@@ -145,6 +148,21 @@ export class InMemorySessionStore implements SessionStore {
 
   selectorsOf(id: string): string[] {
     return this.sessions.get(id)?.tags ?? [];
+  }
+
+  extensionsOf(id: string): ExtensionSelection | undefined {
+    return this.extensionSelections.get(id);
+  }
+
+  async setSessionExtensions(
+    id: string,
+    extensions: ExtensionSelection | undefined,
+  ): Promise<void> {
+    if (extensions === undefined) {
+      this.extensionSelections.delete(id);
+    } else {
+      this.extensionSelections.set(id, extensions);
+    }
   }
 
   async createSession(input: CreateSessionParams): Promise<Session> {
@@ -215,6 +233,7 @@ export class InMemorySessionStore implements SessionStore {
     this.messages.delete(id);
     this.envs.delete(id);
     this.memories.delete(id);
+    this.extensionSelections.delete(id);
     for (const key of this.seqs.keys()) {
       if (key.startsWith(`${id}/`)) this.seqs.delete(key);
     }

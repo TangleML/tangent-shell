@@ -22,6 +22,7 @@ import {
   handleGetSession,
   handleListSessions,
   handleMarkSessionViewed,
+  handleSetSessionExtensions,
   handleUpdateSession,
   handleUploadFiles,
   type SessionCreateDeps,
@@ -32,11 +33,13 @@ import { registerResourceRoutes } from "./resources.ts";
 import type {
   CreateSessionInput,
   SessionParams,
+  SetSessionExtensionsInput,
   UpdateSessionInput,
 } from "./schemas.ts";
 import {
   createSessionSchema,
   sessionParamsSchema,
+  setSessionExtensionsSchema,
   updateSessionSchema,
 } from "./schemas.ts";
 import { registerTriggerRoutes } from "./triggers.ts";
@@ -132,6 +135,18 @@ function registerSessionActivityRoutes(
     uploadFiles.array("files"),
     (req: Request<SessionParams>, res: Response) =>
       handleUploadFiles(store, req, res),
+  );
+
+  router.put(
+    "/:id/extensions",
+    validate({ params: sessionParamsSchema, body: setSessionExtensionsSchema }),
+    (req: Request, res: Response) => {
+      const { params, body } = getValidated<
+        SetSessionExtensionsInput,
+        SessionParams
+      >(req);
+      return handleSetSessionExtensions(store, params.id, body, res);
+    },
   );
 }
 
