@@ -11,7 +11,10 @@ import { WorkArea } from "@/shared/ui/patterns/work-area";
 import { SettingsHeader, SettingsNav } from "./settings-frame";
 
 interface SettingsItem {
-  to: "/settings/global-memory" | "/settings/bundle-editors";
+  to:
+    | "/settings/global-memory"
+    | "/settings/extensions"
+    | "/settings/bundle-editors";
   label: string;
   icon: IconName;
   adminOnly: boolean;
@@ -22,6 +25,12 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     to: "/settings/global-memory",
     label: "Global memory",
     icon: "Brain",
+    adminOnly: false,
+  },
+  {
+    to: "/settings/extensions",
+    label: "Extensions",
+    icon: "Puzzle",
     adminOnly: false,
   },
   {
