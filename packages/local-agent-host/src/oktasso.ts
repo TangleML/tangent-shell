@@ -51,8 +51,8 @@ function readConfig(): OktassoConfig {
     tokenExchangeUrl: requiredEnv("OKTASSO_TOKEN_EXCHANGE_URL"),
     clientId: requiredEnv("OKTASSO_CLIENT_ID"),
     scopes: env("OKTASSO_SCOPES", "profile email openid"),
-    redirectUri: env("OKTASSO_REDIRECT_URI", "http://localhost:3001/auth"),
-    callbackPort: Number(env("OKTASSO_CALLBACK_PORT", "3001")),
+    redirectUri: env("OKTASSO_REDIRECT_URI", "http://localhost:31337/auth"),
+    callbackPort: Number(env("OKTASSO_CALLBACK_PORT", "31337")),
     refreshAfterMs: Number(env("OKTASSO_REFRESH_AFTER_MS", "3300000")),
     cookieName: requiredEnv("AUTH_JWT_TOKEN_COOKIE_NAME"),
   };

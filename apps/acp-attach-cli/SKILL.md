@@ -73,6 +73,6 @@ node <skill-dir>/scripts/tangent-acp-attach.mjs \
   `list_session_resources`, `read_session_resource`), so it can contribute files
   to the Tangent session and read what Prime or agents on other environments
   shared — no setup needed.
-- The Okta login opens a browser and listens on `localhost:3001`, so run the
+- The Okta login opens a browser and listens on `localhost:31337`, so run the
   client on the same machine as the browser you log in with.
 - CLI flag reference lives in [apps/acp-attach-cli/src/usage.ts](../../../apps/acp-attach-cli/src/usage.ts).

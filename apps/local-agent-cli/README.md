@@ -12,7 +12,7 @@ extension — same remote-env host, no editor required.
 
 The client self-mints a short-lived, auto-refreshed remote-env token. On its
 first request it runs the Okta SSO login once (opening a browser and listening on
-`localhost:3001`), caches the cookie, and derives your identity from it. Pass
+`localhost:31337`), caches the cookie, and derives your identity from it. Pass
 `--email` only to mint as a specific identity instead.
 
 The deployment's Okta config must be present at runtime via `OKTASSO_*` and

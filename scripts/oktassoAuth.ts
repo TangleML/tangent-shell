@@ -8,7 +8,7 @@
  * Flow:
  *   1. Generate PKCE verifier + challenge.
  *   2. Open the user's browser at Okta's `/authorize`.
- *   3. Run a one-shot HTTP server on http://localhost:3001/auth to catch the
+ *   3. Run a one-shot HTTP server on http://localhost:31337/auth to catch the
  *      redirect with the authorization code.
  *   4. Exchange the code for an Okta access token at `/token`.
  *   5. Exchange the access token for an Oktasso session token via the
