@@ -294,6 +294,20 @@
   .subtle-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
+  /* Always-visible thin scrollbar (classic, non-overlay). Omits the standard
+     `scrollbar-width` so Chromium keeps the webkit track rendered at all times. */
+  .visible-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .visible-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+  }
+  .visible-scrollbar::-webkit-scrollbar-track {
+    background: color-mix(in oklab, var(--border) 25%, transparent);
+    border-radius: 9999px;
+  }
 }
 
 /* Mac-genie-like collapse: the bubble is sucked straight up toward the row
