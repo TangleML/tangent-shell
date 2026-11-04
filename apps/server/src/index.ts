@@ -292,6 +292,7 @@ const pi = new PiAgentManager(
   memoryResolver,
   runs,
   hostResourcePreamble,
+  (sessionId) => store.selectorsOf(sessionId),
 );
 pi.useTranscript(
   async (sessionId) => (await store.getMessages(sessionId)).length > 0,

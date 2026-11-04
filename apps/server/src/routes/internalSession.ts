@@ -5,6 +5,7 @@ import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import type { UiCommandEmitter } from "../sockets/sessionRoster.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import { mountSessionRecallRoutes } from "./internalSessionRecall.ts";
 import { loadSession } from "./sessions/utils.ts";
 
 /** Rename body: a non-empty trimmed `name` applied to the given session. */
@@ -100,10 +101,11 @@ async function handleUnpinArtifact(
 /**
  * Internal API used only by the session extension running inside each Pi
  * process. It lets Prime rename the session (e.g. to a concise,
- * conversation-derived title) and lets any agent pin/unpin artifacts for quick
- * access; the server owns the session record and broadcasts changes to the
- * room. Guarded by the same bearer token as the other internal APIs so
- * arbitrary local callers can't mutate a session.
+ * conversation-derived title), lets any agent pin/unpin artifacts for quick
+ * access, and serves Prime's selector-scoped cross-session recall reads; the
+ * server owns the session record and broadcasts changes to the room. Guarded
+ * by the same bearer token as the other internal APIs so arbitrary local
+ * callers can't mutate a session.
  */
 export function createInternalSessionRouter(
   store: SessionStore,
@@ -148,6 +150,8 @@ export function createInternalSessionRouter(
         res,
       ),
   );
+
+  mountSessionRecallRoutes(router, store);
 
   return router;
 }

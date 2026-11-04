@@ -42,10 +42,12 @@ import {
   parseThinkingLevel,
   type ResolvedSessionConfig,
   resolveSubagentConfig,
+  SESSION_RECALL_TOOLS,
   type SubagentSpawnRequest,
 } from "./agentConfig.ts";
 import { loadInstalledConfig } from "./config/bundleLoader.ts";
 import type { HostResourcePreamble } from "./hostResourcePreamble.ts";
+import { sessionRecallPreamble } from "./sessionRecallPreamble.ts";
 import {
   type AgentDescriptor,
   type AgentEvent,
@@ -68,6 +70,7 @@ import {
   REMOTE_TOOLS_EXTENSION,
   RESOURCES_EXTENSION,
   SESSION_EXTENSION,
+  SESSION_RECALL_EXTENSION,
   toDescriptor,
   toolActivityLabel,
   toSubagentInfo,
@@ -193,6 +196,19 @@ export interface SendToAgentOptions {
   audienceParticipantId?: string;
 }
 
+/** A session's selector tags, read synchronously at spawn. */
+export type SessionSelectors = (sessionId: string) => string[];
+
+/**
+ * Who a spawn is for: the session (also handed to Pi as its session id, so
+ * pi-memory stamps entries with it) and whether the agent gets the
+ * cross-session recall tools.
+ */
+interface SpawnGrant {
+  sessionId: string;
+  recall: boolean;
+}
+
 /** A requested model/thinking change; either field may be omitted to keep it. */
 export interface AgentModelSelection {
   model?: string;
@@ -283,16 +299,48 @@ const EMPTY_MEMORY_PLAN: MemorySpawnPlan = {
  * resolved memory (not baked into the static allowlist), so a pi-memory-bound
  * session gets that backend's tools in addition to the always-on SimpleMD tools.
  * Memory tools the role may not use are dropped even when a spawn request or
- * template lists them.
+ * template lists them, and the recall tools are present only when `recall`
+ * grants them.
  */
-function spawnToolList(config: AgentConfig, memory: MemorySpawnPlan): string[] {
+function spawnToolList(
+  config: AgentConfig,
+  memory: MemorySpawnPlan,
+  recall: boolean,
+): string[] {
   const denied = new Set(memory.deniedTools);
-  return [
-    ...new Set([
-      ...config.tools.filter((name) => !denied.has(name)),
-      ...memory.allowlistTools,
-    ]),
+  const tools = new Set([
+    ...config.tools.filter((name) => !denied.has(name)),
+    ...memory.allowlistTools,
+    ...(recall ? SESSION_RECALL_TOOLS : []),
+  ]);
+  if (!recall) {
+    for (const name of SESSION_RECALL_TOOLS) tools.delete(name);
+  }
+  return [...tools];
+}
+
+/**
+ * The repeated resource flags for a spawn: the always-on built-in extensions,
+ * the bundle's skills/workflows/extensions (shared by every agent in the
+ * session), and the resolved memory's extra extensions (e.g. the pi-memory pkg).
+ */
+function resourceFlagArgs(
+  extras: SpawnExtras,
+  memory: MemorySpawnPlan,
+): string[] {
+  const flagged: Array<[string, string[]]> = [
+    ["--skill", extras.skillPaths],
+    ["--prompt-template", extras.workflowPaths],
+    ["--extension", extras.extensionPaths],
+    ["--extension", memory.extensionPaths],
   ];
+  const args: string[] = [];
+  for (const extension of BUILTIN_EXTENSIONS)
+    args.push("--extension", extension);
+  for (const [flag, paths] of flagged) {
+    for (const value of paths) args.push(flag, value);
+  }
+  return args;
 }
 
 /**
@@ -307,14 +355,17 @@ function buildPiArgs(
   extras: SpawnExtras,
   appendPromptSource: string | undefined,
   memoryPlan: MemorySpawnPlan | undefined,
+  grant: SpawnGrant,
 ): string[] {
   const { provider, model, thinking } = resolveModelArgs(config);
   const memory = memoryPlan ?? EMPTY_MEMORY_PLAN;
-  const tools = spawnToolList(config, memory);
+  const tools = spawnToolList(config, memory, grant.recall);
   const args = [
     "--mode",
     "rpc",
     "--no-session",
+    "--session-id",
+    grant.sessionId,
     // Disable Pi's skill auto-discovery (~/.pi/agent/skills, project .pi/skills)
     // so only bundle-provided --skill paths load. Matches the container where
     // HOME=/tmp leaves nothing to discover.
@@ -332,22 +383,8 @@ function buildPiArgs(
   if (appendPromptSource)
     args.push("--append-system-prompt", appendPromptSource);
 
-  for (const extension of BUILTIN_EXTENSIONS)
-    args.push("--extension", extension);
-
-  // Bundle-provided skills, workflows, and custom tool extensions, applied to
-  // every agent in the session so they share the bundle's capabilities, plus any
-  // extra extensions the resolved memory contributes (e.g. the pi-memory pkg).
-  const flagged: Array<[string, string[]]> = [
-    ["--skill", extras.skillPaths],
-    ["--prompt-template", extras.workflowPaths],
-    ["--extension", extras.extensionPaths],
-    ["--extension", memory.extensionPaths],
-  ];
-  for (const [flag, paths] of flagged) {
-    for (const value of paths) args.push(flag, value);
-  }
-
+  args.push(...resourceFlagArgs(extras, memory));
+  if (grant.recall) args.push("--extension", SESSION_RECALL_EXTENSION);
   return args;
 }
 
@@ -535,7 +572,7 @@ function withoutMemoryEnv<T extends string | undefined>(
  * dropped so only the binding configures the store.
  */
 function spawnEnv(
-  sessionId: string,
+  grant: SpawnGrant,
   descriptor: AgentDescriptor,
   ctx: PlaceholderContext,
   sessionEnv?: Record<string, string>,
@@ -547,11 +584,12 @@ function spawnEnv(
     ...(pinsMemory ? withoutMemoryEnv(process.env) : process.env),
     ...(pinsMemory ? withoutMemoryEnv(session) : session),
     ...(memoryEnv ?? {}),
-    TANGENT_SESSION_ID: sessionId,
+    TANGENT_SESSION_ID: grant.sessionId,
     TANGENT_AGENT_ID: descriptor.agentId,
     TANGENT_AGENT_ROLE: descriptor.role,
     // Gates the extension's orchestration-tool grant on capability, not role.
     TANGENT_AGENT_CAPABILITIES: capabilities(descriptor.role),
+    TANGENT_SESSION_RECALL: grant.recall ? "1" : "0",
     TANGENT_INTERNAL_URL: INTERNAL_URL,
     ...piCredential.spawnEnv(),
   };
@@ -628,7 +666,7 @@ function materializeAppendPrompt(
 
 /** Logs the resolved spawn configuration (with the proxy key masked). */
 function logSpawn(
-  sessionId: string,
+  grant: SpawnGrant,
   descriptor: AgentDescriptor,
   cwd: string,
   config: AgentConfig,
@@ -639,9 +677,9 @@ function logSpawn(
 ): void {
   const { provider, model, thinking } = resolveModelArgs(config);
   const memory = memoryPlan ?? EMPTY_MEMORY_PLAN;
-  const tools = spawnToolList(config, memory);
+  const tools = spawnToolList(config, memory, grant.recall);
   console.log(
-    `[pi:${sessionId}:${descriptor.agentId}] spawning`,
+    `[pi:${grant.sessionId}:${descriptor.agentId}] spawning`,
     JSON.stringify({
       bin: PI_BIN,
       role: descriptor.role,
@@ -775,6 +813,11 @@ export class PiAgentManager {
    */
   private readonly hostResources?: HostResourcePreamble;
   /**
+   * Reads a session's selector tags, which gate Prime's cross-session recall
+   * tools. Optional so a bare manager (e.g. a test) spawns with recall off.
+   */
+  private readonly selectorsOf?: SessionSelectors;
+  /**
    * Process launcher, injectable so tests can supply a fake child without
    * spawning a real `pi` binary. Defaults to Node's {@link spawn}.
    */
@@ -795,6 +838,7 @@ export class PiAgentManager {
     memory: MemoryResolver,
     runs: RunRegistry,
     hostResources?: HostResourcePreamble,
+    selectorsOf?: SessionSelectors,
     spawnProcess: typeof spawn = spawn,
   ) {
     this.spawnProcess = spawnProcess;
@@ -802,6 +846,7 @@ export class PiAgentManager {
     this.memory = memory;
     this.runs = runs;
     this.hostResources = hostResources;
+    this.selectorsOf = selectorsOf;
   }
 
   /**
@@ -1358,15 +1403,29 @@ export class PiAgentManager {
    * embedding app attached. Empty entries are dropped downstream.
    */
   private spawnPreambles(
-    sessionId: string,
+    grant: SpawnGrant,
     session: SessionAgents,
     role: AgentDescriptor["role"],
   ): string[] {
     return [
       buildUserPreamble(session.user),
       session.resolvedMemory?.preamble(role) ?? "",
-      this.hostResources?.get(sessionId) ?? "",
+      this.hostResources?.get(grant.sessionId) ?? "",
+      grant.recall ? sessionRecallPreamble() : "",
     ];
+  }
+
+  /**
+   * The spawn's {@link SpawnGrant}. Recall is Prime-only and requires the
+   * session to carry at least one selector tag; an untagged session never sees
+   * the tools. Read per spawn, so a tag change applies on the next spawn.
+   */
+  private spawnGrant(
+    sessionId: string,
+    role: AgentDescriptor["role"],
+  ): SpawnGrant {
+    const tagged = (this.selectorsOf?.(sessionId).length ?? 0) > 0;
+    return { sessionId, recall: role === "prime" && tagged };
   }
 
   /**
@@ -1377,22 +1436,23 @@ export class PiAgentManager {
    * own `error` handler ({@link wireChildStreams}).
    */
   private trySpawnChild(
-    sessionId: string,
+    grant: SpawnGrant,
     descriptor: AgentDescriptor,
     session: SessionAgents,
     config: AgentConfig,
     extras: SpawnExtras,
     appendPromptSource: string | undefined,
   ): ChildProcessWithoutNullStreams | null {
+    const { sessionId } = grant;
     const memoryPlan = session.resolvedMemory?.spawnPlan(descriptor.role);
     try {
       return this.spawnProcess(
         PI_BIN,
-        buildPiArgs(config, extras, appendPromptSource, memoryPlan),
+        buildPiArgs(config, extras, appendPromptSource, memoryPlan, grant),
         {
           cwd: session.rootPath,
           env: spawnEnv(
-            sessionId,
+            grant,
             descriptor,
             { rootPath: session.rootPath },
             session.env,
@@ -1426,9 +1486,10 @@ export class PiAgentManager {
     supervision?: { restartCount: number; lastRestartAt: number | null },
   ): AgentProcess | undefined {
     const extras = spawnExtras(session.config);
+    const grant = this.spawnGrant(sessionId, descriptor.role);
     const appendText = appendPreambles(
       config,
-      this.spawnPreambles(sessionId, session, descriptor.role),
+      this.spawnPreambles(grant, session, descriptor.role),
     );
     const appendPromptSource = materializeAppendPrompt(
       sessionId,
@@ -1436,7 +1497,7 @@ export class PiAgentManager {
       appendText,
     );
     logSpawn(
-      sessionId,
+      grant,
       descriptor,
       session.rootPath,
       config,
@@ -1447,7 +1508,7 @@ export class PiAgentManager {
     );
 
     const child = this.trySpawnChild(
-      sessionId,
+      grant,
       descriptor,
       session,
       config,

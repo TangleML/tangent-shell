@@ -82,6 +82,17 @@ export const PRIME_TRIGGER_TOOLS = [
 export const PRIME_SESSION_TOOLS = ["rename_session"] as const;
 
 /**
+ * Cross-session recall tools (registered by the session-recall extension). Deliberately
+ * not in {@link PRIME_SESSION_TOOLS}: they are granted at spawn only to Prime in
+ * a session with at least one selector tag, and stripped everywhere else.
+ */
+export const SESSION_RECALL_TOOLS = [
+  "list_related_sessions",
+  "search_session_transcripts",
+  "read_session_transcript",
+] as const;
+
+/**
  * Per-agent configuration. Drives the tool allowlist and appended system prompt
  * passed to a Pi process, whether it is the session's Prime agent or one of the
  * sub-agents Prime spawns.

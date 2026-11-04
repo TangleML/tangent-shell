@@ -86,6 +86,16 @@ export const REMOTE_TOOLS_EXTENSION = path.join(
   "remoteTools.ts",
 );
 
+/**
+ * Absolute path to the session-recall extension. Not always-on: it is loaded
+ * only into a Prime spawn granted cross-session recall (a tagged session).
+ */
+export const SESSION_RECALL_EXTENSION = path.join(
+  import.meta.dirname,
+  "extensions",
+  "sessionRecall.ts",
+);
+
 /** Drops a single optional trailing CR from a line. */
 function stripTrailingCr(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;

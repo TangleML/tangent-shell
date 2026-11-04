@@ -56,6 +56,16 @@ list_remote_tools, call_remote_tool, list_environments` (granted to every
   still permit them).
 - `PRIME_ORCHESTRATION_TOOLS`, `PRIME_TRIGGER_TOOLS`, `PRIME_SESSION_TOOLS` —
   Prime-only tool names.
+- **Recall tools are not static either.** `SESSION_RECALL_TOOLS`
+  (`list_related_sessions`, `search_session_transcripts`,
+  `read_session_transcript`) are granted at spawn only to Prime in a session with
+  at least one selector tag. Only that spawn loads the extra
+  [extensions/sessionRecall.ts](../../server/src/pi/extensions/sessionRecall.ts)
+  extension, sets `TANGENT_SESSION_RECALL=1` (the extension registers nothing
+  without it), and appends the "Related sessions" preamble. Everywhere else they are stripped from `--tools`, even when a bundle
+  or spawn request lists them. They read `/internal/session/{related,search,transcript}`,
+  which only reach sessions carrying every selector of the caller (and, when
+  restricted, sharing its owner); anything else is refused with one fixed answer.
 - **Memory tools are not static.** They are contributed at spawn by the session's
   resolved memory (see [memory.md](./memory.md)): `SimpleMdMemory` adds
   `read_memory` for every agent and `remember` / `suggest_memory` for Prime, and a
