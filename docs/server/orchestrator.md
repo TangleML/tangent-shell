@@ -67,7 +67,7 @@ Every stream is attributed to a **Run** (see [connectors.md](./connectors.md)), 
 stdout/stderr readers, and registers the process. The command line:
 
 ```
-pi --mode rpc --no-session --no-skills
+pi --mode rpc --no-session --session-id <sessionId> --no-skills
    --provider <PI_PROVIDER> --model <PI_MODEL>
    --tools <comma-joined allowlist>
    --append-system-prompt "<agent prompt>\n\n<memory preamble>"
@@ -82,6 +82,8 @@ pi --mode rpc --no-session --no-skills
 - `--mode rpc` runs Pi as a line-delimited JSON RPC server over stdio.
 - `--no-session` keeps Pi from persisting its own session state (the server owns
   history).
+- `--session-id` makes Pi's in-memory session id the Tangent session id, so
+  pi-memory's `[xxxxxxxx]` entry stamps name the session that wrote them.
 - `--no-skills` disables Pi's skill auto-discovery so only bundle-provided
   `--skill` paths load (matches the container where `HOME=/tmp`).
 - `--tools` is the allowlist; because Pi's allowlist also filters

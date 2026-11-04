@@ -169,7 +169,8 @@ Bindings:
   sub-agents get read-only `memory_read` / `memory_search` / `memory_status`).
   Its lifecycle hooks (snapshot injection on `before_agent_start`, exit summary on
   `session_shutdown`, qmd upkeep) run inside that process; all fire under
-  `pi --mode rpc --no-session`. `PiMemoryConfig` tunes the hooks via env knobs
+  `pi --mode rpc --no-session --session-id <sessionId>`, so the `[xxxxxxxx]`
+  stamp on each daily-log entry is the writing session's id prefix. `PiMemoryConfig` tunes the hooks via env knobs
   (`exitSummary`, `snapshot`, `qmdUpdate`, `search`, `exitSummaryModel`) and
   defaults to "max memory power" (everything on). Every knob is emitted
   explicitly, and inherited `PI_MEMORY_*` / qmd env from the server or the

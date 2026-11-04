@@ -121,6 +121,7 @@ function stubResolver(
 function makeManager(options?: {
   shouldFailSpawn?: () => boolean;
   memory?: MemoryResolver;
+  selectors?: string[];
 }): {
   pi: PiAgentManager;
   spawns: SpawnRecord[];
@@ -159,7 +160,14 @@ function makeManager(options?: {
 
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
-  const pi = new PiAgentManager(handlers, memory, runs, undefined, fakeSpawn);
+  const pi = new PiAgentManager(
+    handlers,
+    memory,
+    runs,
+    undefined,
+    () => options?.selectors ?? [],
+    fakeSpawn,
+  );
   return { pi, spawns, rosterUpdates, events, runs, runStore };
 }
 
@@ -804,4 +812,65 @@ test("memoryCaller hands live agents Prime's resolution and their own role", asy
 
   pi.dispose("s1");
   assert.equal(pi.memoryCaller("s1", PRIME_AGENT_ID), undefined);
+});
+
+/** The `--tools` allowlist a spawn was given. */
+function spawnedTools(record: SpawnRecord): string[] {
+  return record.args[record.args.indexOf("--tools") + 1].split(",");
+}
+
+function loadsRecallExtension(record: SpawnRecord): boolean {
+  return record.args.some((arg) => arg.endsWith("sessionRecall.ts"));
+}
+
+const RECALL_TOOLS = [
+  "list_related_sessions",
+  "search_session_transcripts",
+  "read_session_transcript",
+];
+
+test("every agent runs under the Tangent session id as its Pi session id", async () => {
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  pi.spawnSubagent("s1", { name: "Worker" });
+
+  for (const { args } of spawns) {
+    assert.equal(args[args.indexOf("--session-id") + 1], "s1");
+    assert.ok(args.includes("--no-session"));
+  }
+});
+
+test("a tagged session's Prime gets the recall tools, env flag, and preamble", async () => {
+  const { pi, spawns } = makeManager({ selectors: ["projectId:A"] });
+  await pi.ensure("s1", "/tmp/s1");
+
+  const tools = spawnedTools(spawns[0]);
+  for (const name of RECALL_TOOLS) assert.ok(tools.includes(name), name);
+  assert.ok(loadsRecallExtension(spawns[0]));
+  assert.equal(spawns[0].env?.TANGENT_SESSION_RECALL, "1");
+  assert.match(appendedPrompt(spawns[0]), /## Related sessions/);
+});
+
+test("an untagged session's Prime gets no recall tools, flag, or preamble", async () => {
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+
+  const tools = spawnedTools(spawns[0]);
+  for (const name of RECALL_TOOLS) assert.equal(tools.includes(name), false);
+  assert.equal(loadsRecallExtension(spawns[0]), false);
+  assert.equal(spawns[0].env?.TANGENT_SESSION_RECALL, "0");
+  assert.doesNotMatch(appendedPrompt(spawns[0]), /## Related sessions/);
+});
+
+test("a sub-agent never gets the recall tools, even when it asks for them", async () => {
+  const { pi, spawns } = makeManager({ selectors: ["projectId:A"] });
+  await pi.ensure("s1", "/tmp/s1");
+  pi.spawnSubagent("s1", { name: "Worker", tools: ["read", ...RECALL_TOOLS] });
+
+  const tools = spawnedTools(spawns[1]);
+  assert.ok(tools.includes("read"));
+  for (const name of RECALL_TOOLS) assert.equal(tools.includes(name), false);
+  assert.equal(loadsRecallExtension(spawns[1]), false);
+  assert.equal(spawns[1].env?.TANGENT_SESSION_RECALL, "0");
+  assert.doesNotMatch(appendedPrompt(spawns[1]), /## Related sessions/);
 });
