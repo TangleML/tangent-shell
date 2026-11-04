@@ -292,6 +292,7 @@ const pi = new PiAgentManager(
   memoryResolver,
   runs,
   hostResourcePreamble,
+  (sessionId) => store.selectorsOf(sessionId),
 );
 
 // Hosts sub-agents inside a connected remote environment over the `/remote-env`
