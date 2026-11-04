@@ -104,7 +104,8 @@ export type EmbedResourceKind =
   | "memory"
   | "attachment"
   | "artifact"
-  | "host";
+  | "host"
+  | "mount";
 
 /**
  * A catalogued piece of content in a session, as returned to the host. The
@@ -131,6 +132,8 @@ export interface EmbedResource {
  * so it can never overwrite a system file) so bundle tools can read it on disk —
  * text passes as-is, binary rides in `content` as base64. Removing a `file`
  * deletes those bytes; unlike the other kinds it is not announced to the agent.
+ * A `mount` entry symlinks an existing shared folder into the session root so the
+ * agent reads and writes it with its ordinary file tools; mounting is one-way.
  */
 export type HostResourceInput =
   | { kind: "memory"; scope?: "session" | "global"; content: string }
@@ -151,7 +154,44 @@ export type HostResourceInput =
       /** Catalog display name; defaults to the path basename. */
       name?: string;
       meta?: Record<string, unknown>;
+    }
+  | {
+      kind: "mount";
+      /** Id of the shared folder to symlink into the session root. */
+      folderId: string;
+      /** Single-segment symlink name; defaults to the folder's sanitized name. */
+      mountName?: string;
     };
+
+/**
+ * Tunable knobs for a `"pi-memory"` {@link MemoryBinding}. Omitted fields keep
+ * the extension's defaults (every hook and qmd update on). Mirrors the server's
+ * `PiMemoryConfig`.
+ */
+export interface PiMemoryConfig {
+  /** LLM-powered exit summary on session end. Default `true`. */
+  exitSummary?: boolean;
+  /** Context-injection snapshot mode. Default `"stable"`. */
+  snapshot?: "stable" | "per-turn";
+  /** Background qmd index update cadence. Default `"background"`. */
+  qmdUpdate?: "background" | "manual" | "off";
+  /** Whether `memory_search` (qmd) is offered. Default `true`. */
+  search?: boolean;
+  /** `provider/model` override for the exit summary; defaults to the session model. */
+  exitSummaryModel?: string;
+}
+
+/**
+ * Declarative memory configuration for a session, overriding the bundle's
+ * default. A leaf's optional `root` is a session-root-relative POSIX path; point
+ * it into a mounted shared folder (e.g. `"<mountName>/pi-memory"`) to share the
+ * store across every session that mounts the folder. Mirrors the server's
+ * `MemoryBinding`.
+ */
+export type MemoryBinding =
+  | { kind: "simple-md"; root?: string }
+  | { kind: "pi-memory"; root?: string; config?: PiMemoryConfig }
+  | { kind: "composite"; children: MemoryBinding[] };
 
 /** Host-driven theme inputs forwarded to `<tangent-provider>`. */
 export interface TangentThemeInputs {
@@ -193,6 +233,11 @@ export interface NewSessionOptions {
    * hosts so every session in the project can reach them. Stored server-side.
    */
   tags?: string[];
+  /**
+   * Memory binding for the session, overriding the bundle's default. Resolved
+   * after `resources` are seeded, so a `root` may point into a `mount`.
+   */
+  memory?: MemoryBinding;
 }
 
 export interface NewSessionResult {

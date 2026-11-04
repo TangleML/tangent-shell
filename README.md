@@ -29,7 +29,7 @@ pnpm dev
 ```
 
 `pnpm dev` sets the session/bundle/memory paths to local gitignored folders (`.sessions`,
-`.agent-bundles`, `.memory`) so a checkout runs without extra setup.
+`.agent-bundles`, `.memory`, `.shared`) so a checkout runs without extra setup.
 
 Copy `.env.example` to `.env` for local-only provider values. Keep real deployment
 URLs, cookies, proxy credentials, and auth endpoints out of committed files; inject them
@@ -54,6 +54,9 @@ pnpm seed         # installs bundles from examples
   builder, reviewer, …) that run in parallel in a shared workspace and report back.
 - **Memory** — Per-session memory plus a global, cross-session store the agent reads and
   writes. Memory changes the agent suggests are confirmed by you before they stick.
+- **Shared folders** — Server-managed "project" folders that live outside any one session.
+  Mount one into a session (a symlink at its root) and several sessions can work in the same
+  live workspace. Mounting is one-way — there is no unmount.
 - **Triggers** — Schedule work on a cron or interval, or fire it from an inbound callback.
 - **Artifacts** — Files the agent creates (HTML, code, PDFs, …) are surfaced and pinnable in
   the UI.
@@ -93,7 +96,7 @@ agent per session and spawns sub-agents on demand, streaming their events to the
 Socket.IO rooms.
 
 - **REST API** (`/api/*`) — sessions CRUD, file uploads and artifact serving, agent bundles,
-  global memory, and current-user lookup.
+  shared folders, global memory, and current-user lookup.
 - **Internal API** (`/internal/*`) — called by agents (guarded by a bearer token) to spawn
   and message sub-agents, read/write memory, manage triggers, and make sandboxed egress
   requests through an allowlist.
@@ -131,6 +134,7 @@ the full list and defaults):
 | `SESSIONS_ROOT`                                   | Root directory for per-session workspaces                      |
 | `SESSIONS_DB`                                     | SQLite metadata database file                                  |
 | `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                     |
+| `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)       |
 | `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                            |
 | `PI_BIN`                                          | Path to the `pi` agent executable                              |
 | `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                |

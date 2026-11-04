@@ -5,14 +5,14 @@ import type { Server } from "socket.io";
 
 import type { ConversationRouter } from "../../conversation/conversationRouter.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
-import type { PiAgentManager } from "../piAgentManager.ts";
+import type { PiAgentManager, PrimeSpawnOptions } from "../piAgentManager.ts";
 import { TriggerEngine } from "./triggerEngine.ts";
 import type { StoredTrigger, TriggerManager } from "./triggerManager.ts";
 
 const SESSION_ENV = { STUDIO_ENGINE_URL: "http://127.0.0.1:8100" };
 
 function engineFor(target: StoredTrigger["target"]) {
-  const ensured: unknown[][] = [];
+  const ensured: PrimeSpawnOptions[] = [];
   const stored = {
     id: "t1",
     name: "engine-step",
@@ -27,8 +27,8 @@ function engineFor(target: StoredTrigger["target"]) {
     recordAgent: async () => undefined,
   } as unknown as SessionStore;
   const pi = {
-    ensure: (...args: unknown[]) => {
-      ensured.push(args);
+    ensure: async (_id: string, _root: string, options: PrimeSpawnOptions) => {
+      ensured.push(options);
     },
     hasAgent: () => true,
   } as unknown as PiAgentManager;
@@ -53,7 +53,7 @@ function engineFor(target: StoredTrigger["target"]) {
 test("a Prime-target firing revives Prime with the session's env", async () => {
   const { engine, ensured } = engineFor({ type: "prime" });
   await engine.fire("s1", "/tmp/s1", "t1", { body: { prompt: "go" } });
-  assert.deepEqual(ensured[0]?.[6], SESSION_ENV);
+  assert.deepEqual(ensured[0]?.env, SESSION_ENV);
 });
 
 test("a sub-agent-target firing revives Prime with the session's env", async () => {
@@ -63,5 +63,5 @@ test("a sub-agent-target firing revives Prime with the session's env", async () 
     spec: { name: "worker" },
   } as StoredTrigger["target"]);
   await engine.fire("s1", "/tmp/s1", "t1", { body: { prompt: "go" } });
-  assert.deepEqual(ensured[0]?.[6], SESSION_ENV);
+  assert.deepEqual(ensured[0]?.env, SESSION_ENV);
 });

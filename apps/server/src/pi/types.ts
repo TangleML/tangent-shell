@@ -12,6 +12,7 @@ import type {
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
+import type { ResolvedMemory } from "../memory/resolver.ts";
 import type { AgentConfig, ResolvedSessionConfig } from "./agentConfig.ts";
 
 /** Fixed id of the session's Prime agent (one per session). */
@@ -213,6 +214,13 @@ export interface SessionAgents {
    * without any.
    */
   env?: Record<string, string>;
+  /**
+   * The session's resolved pluggable memory, re-resolved on every Prime spawn by
+   * {@link import("./piAgentManager.ts").PiAgentManager.ensure} so every agent
+   * spawned under that Prime (and every revive / model-change / respawn) shares
+   * the same preamble, dispatcher tools, and spawn extras.
+   */
+  resolvedMemory?: ResolvedMemory;
 }
 
 /** A single delta payload nested inside a `message_update` event. */

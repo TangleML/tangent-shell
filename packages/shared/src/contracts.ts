@@ -316,6 +316,41 @@ export const PI_AGENT: ChatAuthor = {
 export type MemoryScope = "session" | "global";
 
 /**
+ * Tunable knobs for a {@link MemoryBinding} of kind `"pi-memory"`, mapped onto
+ * the pi-memory extension's env. Omitted fields default to "max memory power"
+ * (every hook and qmd update on). The memory adapter is session configuration,
+ * so these let a session tune pi-memory precisely.
+ */
+export interface PiMemoryConfig {
+  /** LLM-powered exit summary on session end. Default `true`. */
+  exitSummary?: boolean;
+  /** Context-injection snapshot mode. Default `"stable"`. */
+  snapshot?: "stable" | "per-turn";
+  /** Background qmd index update cadence. Default `"background"`. */
+  qmdUpdate?: "background" | "manual" | "off";
+  /** Whether `memory_search` (qmd) is offered. Default `true`. */
+  search?: boolean;
+  /** `provider/model` override for the exit summary; defaults to the session model. */
+  exitSummaryModel?: string;
+}
+
+/**
+ * Declarative memory configuration for a session: a bundle supplies a default
+ * and `CreateSessionRequest.memory` overrides it. The server resolves it into a
+ * pluggable memory backend tree at spawn time. Scoped to these leaves for now —
+ * LLM Wiki / StructuredEntity are not yet supported.
+ *
+ * The directory-backed leaves take an optional `root`: a session-root-relative
+ * POSIX path for the store's directory. Omit it to keep the store local to the
+ * session; point it at a mounted shared folder (e.g. `"<mountName>/pi-memory"`)
+ * to share that store across every session that mounts the folder.
+ */
+export type MemoryBinding =
+  | { kind: "simple-md"; root?: string }
+  | { kind: "pi-memory"; root?: string; config?: PiMemoryConfig }
+  | { kind: "composite"; children: MemoryBinding[] };
+
+/**
  * Author attributed to the system-emitted "remembered" highlight messages. The
  * highlight is produced by the server from the actual memory file write (not the
  * agent's narration), so the user always sees ground truth.
@@ -470,7 +505,8 @@ export type ResourceKind =
   | "memory"
   | "attachment"
   | "artifact"
-  | "host";
+  | "host"
+  | "mount";
 
 /**
  * A catalogued piece of content in a session — a pinned `artifact`, a human
@@ -511,7 +547,9 @@ export interface ListResourcesResponse {
  * `uploads/` so it can never overwrite a system file) so bundle tools can read
  * it on disk — text passes as-is, binary rides in `content` as base64. Removing
  * a `file` deletes those bytes; unlike the other kinds it is not announced to
- * the agent.
+ * the agent. A `mount` entry symlinks an existing {@link SharedFolder} into the
+ * session root so the agent reads and writes it with its ordinary file tools;
+ * mounting is one-way (removing the catalog entry leaves the symlink in place).
  */
 export type HostResourceInput =
   | { kind: "memory"; scope?: MemoryScope; content: string }
@@ -532,7 +570,48 @@ export type HostResourceInput =
       /** Catalog display name; defaults to the path basename. */
       name?: string;
       meta?: Record<string, unknown>;
+    }
+  | {
+      kind: "mount";
+      /** Id of the {@link SharedFolder} to symlink into the session root. */
+      folderId: string;
+      /**
+       * Single-segment name for the symlink under the session root. Defaults to
+       * a sanitized form of the shared folder's name.
+       */
+      mountName?: string;
     };
+
+/**
+ * A server-managed shared folder: a cross-session "project" directory that any
+ * number of sessions can mount (by symlink) into their root. Its bytes live
+ * under `SHARED_ROOT/<id>` and are shared live across every session that mounts
+ * it.
+ */
+export interface SharedFolder {
+  id: string;
+  name: string;
+  /** The human who created it, resolved from their Oktasso JWT, when known. */
+  user?: UserIdentity;
+  /** ISO-8601 timestamp. */
+  createdAt: string;
+}
+
+/** Body of `POST /api/shared-folders`. */
+export interface CreateSharedFolderRequest {
+  /** Display name; defaults to a generated `Shared folder N` when omitted. */
+  name?: string;
+}
+
+/** Response from `POST /api/shared-folders`: the created folder. */
+export interface CreateSharedFolderResponse {
+  folder: SharedFolder;
+}
+
+/** Response from `GET /api/shared-folders`. */
+export interface ListSharedFoldersResponse {
+  folders: SharedFolder[];
+}
 
 /** Response from `POST /api/sessions/:id/resources`: the stored resource. */
 export interface AddResourceResponse {
@@ -1426,6 +1505,11 @@ export interface CreateSessionRequest {
   env?: Record<string, string>;
   /** Selector tags (e.g. `projectId:<GUID>`) to route selector-scoped hosts. */
   tags?: string[];
+  /**
+   * Memory binding for the session, overriding the bundle's default. Omit to use
+   * the bundle's declared binding (or none). Resolved and persisted at create.
+   */
+  memory?: MemoryBinding;
 }
 
 export interface UpdateSessionRequest {

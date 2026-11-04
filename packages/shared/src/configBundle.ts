@@ -11,7 +11,7 @@
  * Phase 1 defines the format only; runtime wiring (install/spawn) arrives later.
  */
 
-import type { ThinkingLevel } from "./contracts.ts";
+import type { MemoryBinding, ThinkingLevel } from "./contracts.ts";
 
 /**
  * Manifest schema version. Bump this integer when a change to {@link
@@ -204,6 +204,13 @@ export interface BundleManifest {
   contextFiles?: string[];
   /** Explicit seed memory files (`memory/*.md`). */
   memory?: string[];
+  /**
+   * Default memory binding for sessions created from this bundle (how the
+   * agent's pluggable memory is wired). `CreateSessionRequest.memory` overrides
+   * it. Distinct from {@link BundleManifest.memory}, which lists seed markdown
+   * files copied into the workspace.
+   */
+  memoryBinding?: MemoryBinding;
   /** Explicit custom tool extension paths (`tools/*.ts`). */
   extensions?: string[];
   /** Optional software requirements keyed by package manager. */

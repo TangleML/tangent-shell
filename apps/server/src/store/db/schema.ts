@@ -32,6 +32,8 @@ export const sessions = sqliteTable("sessions", {
   userIdentity: text("user_identity"),
   /** Serialized session-scoped env vars injected into agent spawns (server-only). */
   env: text("env"),
+  /** Serialized `MemoryBinding` for the session's pluggable memory (server-only). */
+  memory: text("memory"),
   /** Serialized `string[]` of selector tags (e.g. `projectId:<GUID>`) used to
    * route selector-scoped remote hosts to this session. */
   tags: text("tags"),
@@ -41,6 +43,21 @@ export const sessions = sqliteTable("sessions", {
   accessPolicy: text("access_policy").notNull().default("open"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * A server-managed shared folder: a cross-session "project" directory that any
+ * number of sessions mount (by symlink) into their root. Deliberately NOT
+ * session-scoped — its lifecycle is independent of any one session, so there is
+ * no FK to `sessions`. The bytes live under `SHARED_ROOT/<id>`; a session's
+ * mount is recorded as a `kind: "mount"` row in {@link resources}.
+ */
+export const sharedFolders = sqliteTable("shared_folders", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Serialized `UserIdentity` (the human who created it), if resolved. */
+  userIdentity: text("user_identity"),
+  createdAt: text("created_at").notNull(),
 });
 
 /**
@@ -271,7 +288,7 @@ export const resources = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    /** `file` | `memory` | `attachment` | `artifact`. */
+    /** `file` | `memory` | `attachment` | `artifact` | `host` | `mount`. */
     kind: text("kind").notNull(),
     /** Display name / title. */
     name: text("name").notNull(),
@@ -442,6 +459,7 @@ export const bundleEditors = sqliteTable("bundle_editors", {
 });
 
 export type SessionRow = typeof sessions.$inferSelect;
+export type SharedFolderRow = typeof sharedFolders.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;

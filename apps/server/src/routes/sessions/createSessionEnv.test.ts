@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import type { MemoryBinding } from "@tangent/shared/contracts.ts";
 import { zipSync } from "fflate";
+
+import type { PrimeSpawnOptions } from "../../pi/piAgentManager.ts";
 
 // Point the session root at a throwaway dir before importing modules that read
 // config at load time.
@@ -62,16 +65,12 @@ test("handleCreateSession persists env and forwards it into pi.ensure", async ()
 
   let ensureEnv: Record<string, string> | undefined;
   const pi = {
-    ensure: (
+    ensure: async (
       _sessionId: string,
       _rootPath: string,
-      _config: unknown,
-      _override: unknown,
-      _user: unknown,
-      _conversationId: string,
-      env?: Record<string, string>,
+      options: PrimeSpawnOptions,
     ) => {
-      ensureEnv = env;
+      ensureEnv = options.env;
     },
   };
 
@@ -80,8 +79,7 @@ test("handleCreateSession persists env and forwards it into pi.ensure", async ()
     pi,
     triggerEngine: { seed: () => {} },
     agentBundleStore: { readBundle: async () => zip },
-    memory: { initSession: () => {} },
-    resources: {},
+    resources: { listForSession: async () => [] },
     hostPreamble: { refresh: async () => {} },
     emitResourcesUpdated: () => {},
   } as unknown as Parameters<typeof handleCreateSession>[0];
@@ -105,4 +103,51 @@ test("handleCreateSession persists env and forwards it into pi.ensure", async ()
     "env is persisted server-side",
   );
   assert.deepEqual(ensureEnv, env, "env is forwarded into the Prime spawn");
+});
+
+/** Creates a session with `memory`, returning the binding it ended up storing
+ * and the order the memory and trigger steps ran in. */
+async function createWithMemory(memory: MemoryBinding) {
+  const store = new InMemorySessionStore();
+  const steps: string[] = [];
+  const setSessionMemory = store.setSessionMemory.bind(store);
+  store.setSessionMemory = async (...args) => {
+    steps.push("memory");
+    return setSessionMemory(...args);
+  };
+  const deps = {
+    store,
+    pi: { ensure: async () => {} },
+    triggerEngine: { seed: () => steps.push("triggers") },
+    agentBundleStore: { readBundle: async () => packMinimalBundle() },
+    resources: { listForSession: async () => [] },
+    hostPreamble: { refresh: async () => {} },
+    emitResourcesUpdated: () => {},
+  } as unknown as Parameters<typeof handleCreateSession>[0];
+
+  const response = new TestResponse();
+  await handleCreateSession(
+    deps,
+    { headers: {} } as unknown as Parameters<typeof handleCreateSession>[1],
+    { bundleId: "test-bundle", memory },
+    response as unknown as Parameters<typeof handleCreateSession>[3],
+  );
+  assert.equal(response.statusCode, 201, "the session is created");
+  const sessionId = (response.body as { session: { id: string } }).session.id;
+  return { stored: await store.getSessionMemory(sessionId), steps };
+}
+
+test("handleCreateSession stores a session-local pi-memory binding before arming triggers", async () => {
+  const { stored, steps } = await createWithMemory({ kind: "pi-memory" });
+  assert.deepEqual(stored, { kind: "pi-memory" });
+  assert.deepEqual(steps, ["memory", "triggers"]);
+});
+
+test("handleCreateSession drops pi-memory whose folder wasn't mounted", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const { stored } = await createWithMemory({
+    kind: "pi-memory",
+    root: "proj/pi-memory",
+  });
+  assert.equal(stored, undefined, "the session is SimpleMD-only for good");
 });

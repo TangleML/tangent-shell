@@ -123,15 +123,12 @@ export async function ensureSessionAgents(
     session.id,
   );
   const env = await store.getSessionEnv(session.id);
-  pi.ensure(
-    session.id,
-    session.rootPath,
-    undefined,
+  await pi.ensure(session.id, session.rootPath, {
     primeOverride,
-    session.user,
-    primaryConversationId,
+    user: session.user,
+    homeConversationId: primaryConversationId,
     env,
-  );
+  });
   const persistedAgents = await store.listAgents(session.id);
   connectors.revive(session.id, persistedAgents);
 }

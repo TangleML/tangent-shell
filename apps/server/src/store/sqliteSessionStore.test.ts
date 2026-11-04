@@ -58,6 +58,35 @@ test("getSessionEnv round-trips the stored env, and is undefined without one", a
   assert.equal((wire as unknown as { env?: unknown }).env, undefined);
 });
 
+test("getSessionMemory round-trips a binding; setSessionMemory sets and clears it", async () => {
+  const store = newStore();
+
+  const withMemory = await store.createSession({
+    name: "with-memory",
+    memory: { kind: "pi-memory", root: "proj/pi-memory" },
+  });
+  assert.deepEqual(await store.getSessionMemory(withMemory.id), {
+    kind: "pi-memory",
+    root: "proj/pi-memory",
+  });
+
+  const plain = await store.createSession({ name: "no-memory" });
+  assert.equal(await store.getSessionMemory(plain.id), undefined);
+
+  await store.setSessionMemory(plain.id, { kind: "simple-md", root: "notes" });
+  assert.deepEqual(await store.getSessionMemory(plain.id), {
+    kind: "simple-md",
+    root: "notes",
+  });
+
+  await store.setSessionMemory(plain.id, undefined);
+  assert.equal(await store.getSessionMemory(plain.id), undefined);
+
+  // Memory is server-only: it never leaks onto the wire Session.
+  const wire = await store.getSession(withMemory.id);
+  assert.equal((wire as unknown as { memory?: unknown }).memory, undefined);
+});
+
 test("the sessions table has a nullable env column", () => {
   const db = openDb(":memory:");
   const columns = db.$client.prepare("PRAGMA table_info(sessions)").all() as {

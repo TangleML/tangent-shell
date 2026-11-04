@@ -10,6 +10,7 @@ import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
+import type { SharedFolderStore } from "../../store/sharedFolderStore.ts";
 import {
   type EnvironmentLister,
   registerEnvironmentRoutes,
@@ -142,6 +143,7 @@ export function createSessionsRouter(
   agentBundleStore: AgentBundleStore,
   participants: ParticipantService,
   resources: ResourceCatalog,
+  sharedFolders: SharedFolderStore,
   memory: MemoryManager,
   hostPreamble: HostResourcePreamble,
   emitResourcesUpdated: (sessionId: string) => void,
@@ -157,6 +159,7 @@ export function createSessionsRouter(
     agentBundleStore,
     memory,
     resources,
+    sharedFolders,
     hostPreamble,
     emitResourcesUpdated,
   };
@@ -171,6 +174,7 @@ export function createSessionsRouter(
     store,
     resources,
     memory,
+    sharedFolders,
     hostPreamble,
     emitResourcesUpdated,
   });

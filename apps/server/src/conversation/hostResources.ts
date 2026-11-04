@@ -5,11 +5,14 @@ import {
   type HostResourceInput,
   MEMORY_AUTHOR,
   type MemoryScope,
+  type SharedFolder,
 } from "@tangent/shared/contracts.ts";
 
 import {
   ARTIFACTS_DIRNAME,
+  GLOBAL_MEMORY_FILENAME,
   MAX_FILE_RESOURCE_BYTES,
+  SESSION_MEMORY_FILENAME,
   UPLOADS_DIRNAME,
 } from "../config.ts";
 import { badRequest } from "../middleware/errorHandler.ts";
@@ -17,6 +20,10 @@ import type { MemoryManager } from "../pi/memory.ts";
 import { isWithin } from "../routes/sessions/utils.ts";
 import type { CatalogInput, Resource } from "../store/resourceStore.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
+import {
+  sharedFolderPath,
+  type SharedFolderStore,
+} from "../store/sharedFolderStore.ts";
 import { orchestratorConversationFor } from "./participantRegistry.ts";
 import type { ResourceCatalog } from "./resourceCatalog.ts";
 
@@ -25,6 +32,29 @@ export interface ResourceSeedDeps {
   store: SessionStore;
   memory: MemoryManager;
   catalog: ResourceCatalog;
+  /** Resolves the shared folder a `mount` input symlinks into the session. */
+  sharedFolders: SharedFolderStore;
+}
+
+/**
+ * Names a mount symlink may not take at the session root — the files and folders
+ * the session provisions and serves — so a mount can never shadow `.tangent/`,
+ * the memory files, or the HTTP-served subtrees.
+ */
+const RESERVED_MOUNT_NAMES = new Set([
+  ARTIFACTS_DIRNAME,
+  UPLOADS_DIRNAME,
+  ".tangent",
+  "AGENTS.md",
+  SESSION_MEMORY_FILENAME,
+  GLOBAL_MEMORY_FILENAME,
+]);
+
+/** A single, traversal-free path segment derived from a shared folder's name. */
+function sanitizeMountName(name: string): string {
+  const base = path.basename(name).replace(/[/\\]/g, "_");
+  const cleaned = base.replace(/^\.+/, "").trim();
+  return cleaned || "shared";
 }
 
 /** The catalog entry a memory store stands for, keyed by its scope. */
@@ -116,6 +146,104 @@ function fileResource(
   };
 }
 
+/** The catalog entry a mounted shared folder stands for, keyed by its uri. */
+function mountResource(
+  sessionId: string,
+  folder: SharedFolder,
+  mountName: string,
+  authorParticipantId: string | undefined,
+): CatalogInput {
+  return {
+    sessionId,
+    kind: "mount",
+    name: folder.name,
+    uri: `mount://${folder.id}`,
+    authorParticipantId,
+    meta: {
+      sharedFolderId: folder.id,
+      mountName,
+      target: sharedFolderPath(folder.id),
+    },
+  };
+}
+
+/**
+ * Creates the symlink that mounts a shared folder at `mountName` under the
+ * session root. Idempotent: a link already pointing at `target` is left as-is,
+ * so re-applying the same mount is a no-op; a different file or folder already
+ * occupying the name is a 400 rather than a silent overwrite.
+ */
+async function createMountSymlink(
+  rootPath: string,
+  mountName: string,
+  target: string,
+): Promise<void> {
+  const linkPath = path.join(rootPath, mountName);
+  const existing = await fs.lstat(linkPath).catch(() => null);
+  if (existing) {
+    if (existing.isSymbolicLink()) {
+      const current = await fs.readlink(linkPath).catch(() => null);
+      if (current === target) return;
+    }
+    throw badRequest("A file or folder already exists at the mount name");
+  }
+  await fs.symlink(target, linkPath, "dir");
+}
+
+/**
+ * Resolves a shared folder and symlinks it into the session root, returning the
+ * mount name used. Reuses an existing mount's name so re-applying never spawns a
+ * second link under a different name; rejects an unknown folder or a reserved
+ * name with a 400.
+ */
+async function mountSharedFolder(
+  deps: ResourceSeedDeps,
+  sessionId: string,
+  rootPath: string,
+  folder: SharedFolder,
+  requestedName: string | undefined,
+): Promise<string> {
+  const uri = `mount://${folder.id}`;
+  const resources = await deps.catalog.listForSession(sessionId);
+  const existing = resources.find((resource) => resource.uri === uri);
+  const mountName =
+    (existing?.meta?.mountName as string | undefined) ??
+    requestedName ??
+    sanitizeMountName(folder.name);
+  if (RESERVED_MOUNT_NAMES.has(mountName)) {
+    throw badRequest(`"${mountName}" is a reserved name; choose another`);
+  }
+  await createMountSymlink(rootPath, mountName, sharedFolderPath(folder.id));
+  return mountName;
+}
+
+/**
+ * Mounts a shared folder into the session (symlink) and catalogs the `mount`
+ * entry in the orchestrator's Conversation. Rejects an unknown folder with a 400.
+ */
+async function applyMount(
+  deps: ResourceSeedDeps,
+  sessionId: string,
+  rootPath: string,
+  conversationId: string,
+  input: Extract<HostResourceInput, { kind: "mount" }>,
+  authorParticipantId: string | undefined,
+): Promise<Resource> {
+  const folder = await deps.sharedFolders.getSharedFolder(input.folderId);
+  if (!folder) throw badRequest("Unknown shared folder");
+  const mountName = await mountSharedFolder(
+    deps,
+    sessionId,
+    rootPath,
+    folder,
+    input.mountName,
+  );
+  return deps.catalog.catalogIn(
+    conversationId,
+    mountResource(sessionId, folder, mountName, authorParticipantId),
+  );
+}
+
 /** The memory scope a `memory://` uri names, or null for any other uri. */
 export function memoryScopeFromUri(uri: string): MemoryScope | null {
   if (uri === "memory://session") return "session";
@@ -161,6 +289,16 @@ export async function applyResourceInput(
       fileResource(sessionId, uri, input, authorParticipantId),
     );
   }
+  if (input.kind === "mount") {
+    return applyMount(
+      deps,
+      sessionId,
+      rootPath,
+      conversationId,
+      input,
+      authorParticipantId,
+    );
+  }
   return deps.catalog.catalogIn(
     conversationId,
     hostResource(sessionId, input, authorParticipantId),
@@ -194,7 +332,8 @@ async function unlinkManagedFile(
  * Removes a catalogued resource by uri, cascading its references. Removing a
  * memory store's entry also empties the store, so `read_memory` and the catalog
  * agree; removing a host `file` also deletes its bytes so the workspace rescan
- * can't resurrect it.
+ * can't resurrect it. A `mount` entry is one-way: dropping its row leaves the
+ * symlink in place, so the agent keeps its access to the shared folder.
  */
 export async function removeResourceByUri(
   deps: ResourceSeedDeps,

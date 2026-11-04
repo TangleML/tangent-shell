@@ -483,15 +483,10 @@ export async function handleChatMessage(
   // send that races `chat:join` (or arrives right after a backend restart) with
   // the seed id skips the ensure and falls through to the NullConnector refusal.
   const env = await store.getSessionEnv(session.id);
-  pi.ensure(
-    session.id,
-    session.rootPath,
-    undefined,
-    undefined,
-    undefined,
-    primaryConversationId,
+  await pi.ensure(session.id, session.rootPath, {
+    homeConversationId: primaryConversationId,
     env,
-  );
+  });
 
   await conversations.post({
     sessionId: session.id,

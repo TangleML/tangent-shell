@@ -13,6 +13,7 @@ import {
 } from "@tangent/shared/contracts.ts";
 import type { Socket } from "socket.io";
 
+import type { PrimeSpawnOptions } from "../pi/piAgentManager.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
@@ -156,7 +157,7 @@ function primeAgent(homeConversationId: string): SessionAgent {
 
 test("a human message always ensures Prime, even when it targets a sub-agent thread", async () => {
   const primeHome = "conv-prime-home";
-  const ensureCalls: unknown[][] = [];
+  const ensureCalls: PrimeSpawnOptions[] = [];
   const postCalls: { conversationId?: string }[] = [];
 
   const deps = {
@@ -166,8 +167,12 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
       listAgents: async () => [primeAgent(primeHome)],
     },
     pi: {
-      ensure: (...args: unknown[]) => {
-        ensureCalls.push(args);
+      ensure: async (
+        _id: string,
+        _root: string,
+        options: PrimeSpawnOptions,
+      ) => {
+        ensureCalls.push(options);
       },
     },
     connectors: { list: () => [] },
@@ -190,7 +195,7 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
   await handleChatMessage(socket, deps, humanAuthor(OWNER), payload);
 
   assert.equal(ensureCalls.length, 1);
-  assert.equal(ensureCalls[0]?.[5], primeHome);
+  assert.equal(ensureCalls[0]?.homeConversationId, primeHome);
   assert.equal(postCalls[0]?.conversationId, "sub-1");
 });
 
@@ -213,7 +218,7 @@ test("closing the last browser socket detaches presence without cancelling the s
       getArtifacts: async () => [],
     },
     pi: {
-      ensure: () => {},
+      ensure: async () => {},
       listActivities: () => [],
       getAgentSelection: () => undefined,
       abort: () => {

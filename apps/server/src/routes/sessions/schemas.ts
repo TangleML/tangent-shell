@@ -2,6 +2,7 @@ import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { z } from "zod";
 
 import { MAX_FILE_RESOURCE_BYTES } from "../../config.ts";
+import { memoryBindingSchema } from "../../pi/config/manifest.ts";
 
 /** Decoded size of `content`: `base64` measures the bytes it decodes to. */
 function decodedByteLength(
@@ -60,6 +61,19 @@ export const hostResourceInputSchema = z.discriminatedUnion("kind", [
         path: ["content"],
       },
     ),
+  z.object({
+    kind: z.literal("mount"),
+    folderId: z.string().trim().min(1),
+    mountName: z
+      .string()
+      .trim()
+      .min(1)
+      .refine(
+        (n) => !/[/\\]/.test(n) && n !== "." && n !== "..",
+        "mountName must be a single path segment",
+      )
+      .optional(),
+  }),
 ]);
 export type HostResourceInputBody = z.infer<typeof hostResourceInputSchema>;
 
@@ -69,6 +83,7 @@ export const createSessionSchema = z.object({
   resources: z.array(hostResourceInputSchema).optional(),
   env: z.record(z.string(), z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  memory: memoryBindingSchema.optional(),
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 

@@ -15,6 +15,7 @@ import { getValidated, validate } from "../../middleware/validate.ts";
 import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
 import type { MemoryManager } from "../../pi/memory.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
+import type { SharedFolderStore } from "../../store/sharedFolderStore.ts";
 import type {
   DeleteResourceQuery,
   HostResourceInputBody,
@@ -34,6 +35,7 @@ export interface ResourceRouteDeps {
   store: SessionStore;
   resources: ResourceCatalog;
   memory: MemoryManager;
+  sharedFolders: SharedFolderStore;
   hostPreamble: HostResourcePreamble;
   /** Notifies a session's room that its resource catalog changed. */
   emitResourcesUpdated: (sessionId: string) => void;
@@ -43,7 +45,12 @@ export interface ResourceRouteDeps {
 
 /** The seed deps drawn from the route deps. */
 function seedDeps(deps: ResourceRouteDeps): ResourceSeedDeps {
-  return { store: deps.store, memory: deps.memory, catalog: deps.resources };
+  return {
+    store: deps.store,
+    memory: deps.memory,
+    catalog: deps.resources,
+    sharedFolders: deps.sharedFolders,
+  };
 }
 
 /**

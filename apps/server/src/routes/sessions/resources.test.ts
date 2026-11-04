@@ -27,6 +27,8 @@ const { HostResourcePreamble } =
 const { MemoryManager } = await import("../../pi/memory.ts");
 const { InMemoryResourceStore } =
   await import("../../store/inMemoryResourceStore.ts");
+const { InMemorySharedFolderStore } =
+  await import("../../store/inMemorySharedFolderStore.ts");
 const { InMemorySessionStore } =
   await import("../../store/inMemorySessionStore.ts");
 const { InMemoryParticipantStore } =
@@ -74,6 +76,7 @@ async function serve(admins?: ReadonlySet<string>) {
     store: sessions,
     resources: catalog,
     memory: new MemoryManager(),
+    sharedFolders: new InMemorySharedFolderStore(),
     hostPreamble: new HostResourcePreamble(catalog),
     emitResourcesUpdated: () => {},
     admins,
