@@ -254,6 +254,7 @@ From [apps/server/src/config.ts](../../apps/server/src/config.ts):
   connector; `A2A_TOKEN` — the outbound bearer for A2A peers.
 - `EMBED_ALLOWED_ORIGINS` — cross-origin embed hosts (CORS + Socket.IO handshake).
 - `TANGLE_API_URL` — origin for the egress allowlist.
+- `SESSION_DELEGATORS` + `SESSION_DELEGATE_EMAIL_HEADER` — callers trusted to create a session for the person a proxy-stamped header names (off unless both are set).
 
 ## Glossary
 

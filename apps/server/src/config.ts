@@ -218,6 +218,30 @@ export const ADMIN_EMAILS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Callers (lowercased emails) trusted to create a session on behalf of the
+ * person named in {@link SESSION_DELEGATE_EMAIL_HEADER}, e.g. an agent
+ * platform's service identity whose egress proxy stamps that header. Both
+ * settings must be set; empty by default, which turns delegation off.
+ */
+export const SESSION_DELEGATORS: ReadonlySet<string> = new Set(
+  (process.env.SESSION_DELEGATORS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+/**
+ * Request header (lowercased) naming the person a trusted delegator creates a
+ * session for. It must be set by infrastructure the delegator cannot control;
+ * see {@link SESSION_DELEGATORS}.
+ */
+export const SESSION_DELEGATE_EMAIL_HEADER = (
+  process.env.SESSION_DELEGATE_EMAIL_HEADER ?? ""
+)
+  .trim()
+  .toLowerCase();
+
+/**
  * Base URL of the Tangle API reached by the bundle-UI/agent egress allowlist.
  * The OpenAPI doc declares no `servers`, so this is supplied per environment.
  * Only the origin is used when matching egress destinations.
