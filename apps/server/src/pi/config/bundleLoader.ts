@@ -363,6 +363,9 @@ export function resolveSessionConfig(
         }
       : {}),
     ...(manifest.memoryBinding ? { memory: manifest.memoryBinding } : {}),
+    ...(manifest.globalExtensions !== undefined
+      ? { globalExtensions: manifest.globalExtensions }
+      : {}),
     ...resolveSectionPaths(entries, manifest, installRoot),
   };
 }

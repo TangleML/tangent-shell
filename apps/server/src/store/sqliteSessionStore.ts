@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   connectorFor,
   DEFAULT_SESSION_ACCESS_POLICY,
+  type ExtensionSelection,
   type MemoryBinding,
   type PinnedArtifact,
   type Session,
@@ -139,6 +140,15 @@ export class SqliteSessionStore implements SessionStore {
   private readonly rootPaths = new Map<string, string>();
   /** Caches sessionId -> selector tags so `selectorsOf` stays a sync lookup. */
   private readonly selectors = new Map<string, string[]>();
+  /**
+   * Caches sessionId -> global-extension selection so `extensionsOf` stays a
+   * sync lookup. `null` records a session known to carry no selection (inherit),
+   * distinct from an uncached entry.
+   */
+  private readonly extensionSelections = new Map<
+    string,
+    ExtensionSelection | null
+  >();
   private readonly db: Db;
   /**
    * The resource catalog a pinned artifact mirrors into, so an artifact is a
@@ -209,6 +219,33 @@ export class SqliteSessionStore implements SessionStore {
       .run();
   }
 
+  extensionsOf(id: string): ExtensionSelection | undefined {
+    const cached = this.extensionSelections.get(id);
+    if (cached !== undefined) return cached === null ? undefined : cached;
+    const row = this.db
+      .select({ extensions: sessions.extensions })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    const selection = row?.extensions
+      ? (JSON.parse(row.extensions) as ExtensionSelection)
+      : undefined;
+    this.extensionSelections.set(id, selection ?? null);
+    return selection;
+  }
+
+  async setSessionExtensions(
+    id: string,
+    extensions: ExtensionSelection | undefined,
+  ): Promise<void> {
+    this.db
+      .update(sessions)
+      .set({ extensions: jsonOrNull(extensions) })
+      .where(eq(sessions.id, id))
+      .run();
+    this.extensionSelections.set(id, extensions ?? null);
+  }
+
   selectorsOf(id: string): string[] {
     const cached = this.selectors.get(id);
     if (cached) return cached;
@@ -271,6 +308,7 @@ export class SqliteSessionStore implements SessionStore {
 
     this.rootPaths.set(id, rootPath);
     this.selectors.set(id, session.tags);
+    this.extensionSelections.set(id, null);
     await this.recordAgent(id, {
       id: PRIME_AGENT_ID,
       role: "prime",

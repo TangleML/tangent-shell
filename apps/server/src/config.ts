@@ -80,6 +80,20 @@ if (nested) {
 }
 
 /**
+ * Root directory backing the global extension registry: Pi packages
+ * (extensions, skills, prompt templates) installed from a marketplace (npm,
+ * git, file upload) and applied to sessions that opt in. Each install gets its
+ * own subdirectory (`EXTENSIONS_ROOT/<id>`) holding its `extension.json`
+ * metadata, the preserved upload (`source/`), and the installed tree (`pkg/`).
+ *
+ * Defaults under {@link SESSIONS_ROOT} so the same persistent volume that holds
+ * sessions also survives a pod restart with no extra deployment wiring; the
+ * server reconciles (reinstalling anything missing) on every start.
+ */
+export const EXTENSIONS_ROOT =
+  process.env.EXTENSIONS_ROOT ?? path.join(SESSIONS_ROOT, ".extensions");
+
+/**
  * Name of the per-session subdirectory whose contents are served over HTTP as
  * artifacts (images, generated HTML pages, reports). Agents write user-facing
  * outputs here and reference them by this relative path; the file API only

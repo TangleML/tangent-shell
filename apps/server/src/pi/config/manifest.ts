@@ -61,6 +61,23 @@ const storeRoot = safePath.refine((value) => !hasQmdSegment(value), {
   message: "must not contain a .qmd segment",
 });
 
+/** A global-extension id slug (matches the install registry's id rule). */
+const extensionId = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, {
+  message: "must be a slug matching ^[a-z0-9][a-z0-9-]*$",
+});
+
+/**
+ * Validator for a bundle's `globalExtensions` opt-in policy: `"all"`, a list of
+ * extension ids the session may extend, or `{ only: [...] }` the session may not
+ * override. Mirrors the shared {@link
+ * import("@tangent/shared/contracts.ts").BundleExtensionPolicy} type.
+ */
+const globalExtensionPolicySchema = z.union([
+  z.literal("all"),
+  z.array(extensionId),
+  z.object({ only: z.array(extensionId) }),
+]);
+
 /** Tunable knobs for a `pi-memory` {@link MemoryBinding}. */
 const piMemoryConfigSchema = z.object({
   exitSummary: z.boolean().optional(),
@@ -136,6 +153,7 @@ const manifestSchema = z.object({
   memory: z.array(safePath).optional(),
   memoryBinding: memoryBindingSchema.optional(),
   extensions: z.array(safePath).optional(),
+  globalExtensions: globalExtensionPolicySchema.optional(),
   software: z.record(z.string().min(1), z.array(z.string().min(1))).optional(),
   ui: z
     .object({

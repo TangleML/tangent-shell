@@ -4,6 +4,8 @@ import path from "node:path";
 
 import type {
   Attachment,
+  BundleExtensionPolicy,
+  ExtensionSelection,
   HostResourceInput,
   MemoryBinding,
   Session,
@@ -25,9 +27,14 @@ import {
 import { applyResourceInput } from "../../conversation/hostResources.ts";
 import { orchestratorConversationFor } from "../../conversation/participantRegistry.ts";
 import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
+import { isLockedPolicy } from "../../extensions/selection.ts";
 import { mountedFolderPaths, settleBinding } from "../../memory/binding.ts";
 import { removeSessionQmdState } from "../../memory/qmdState.ts";
-import { installBundle } from "../../pi/config/bundleLoader.ts";
+import type { ResolvedSessionConfig } from "../../pi/agentConfig.ts";
+import {
+  installBundle,
+  loadInstalledConfig,
+} from "../../pi/config/bundleLoader.ts";
 import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
 import type { MemoryManager } from "../../pi/memory.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
@@ -40,6 +47,7 @@ import { injectPageBridge } from "./pageBridge.ts";
 import type {
   CreateSessionInput,
   SessionParams,
+  SetSessionExtensionsInput,
   UpdateSessionInput,
 } from "./schemas.ts";
 import {
@@ -204,6 +212,31 @@ async function storeSessionMemory(
   if (binding) await deps.store.setSessionMemory(sessionId, binding);
 }
 
+/** Persists a session's memory binding and global-extension override at create. */
+async function applySessionOverrides(
+  deps: SessionCreateDeps,
+  sessionId: string,
+  rootPath: string,
+  config: ResolvedSessionConfig,
+  overrides: {
+    memory: MemoryBinding | undefined;
+    extensions: ExtensionSelection | undefined;
+  },
+): Promise<void> {
+  await storeSessionMemory(
+    deps,
+    sessionId,
+    rootPath,
+    overrides.memory ?? config.memory,
+  );
+  await applyBundleExtensionOverride(
+    deps.store,
+    sessionId,
+    config.globalExtensions,
+    overrides.extensions,
+  );
+}
+
 /**
  * Pre-seeds Prime's first message so the bundle's agent "speaks first" (e.g.
  * renders a welcome card). It replays via `chat:history` on join and renders any
@@ -246,18 +279,16 @@ async function createSessionFromBundle(
   resources: HostResourceInput[],
   env: Record<string, string> | undefined,
   memoryOverride: MemoryBinding | undefined,
+  extensionsOverride: ExtensionSelection | undefined,
   res: Response,
 ): Promise<void> {
   const { store, pi, triggerEngine } = deps;
   try {
     const { manifest, config } = await installBundle(zipBuffer, rootPath);
-    const meta: SessionConfigMeta = {
-      id: manifest.id,
-      name: manifest.name,
-      version: manifest.version,
-      icon: manifest.icon,
-    };
-    const withConfig = await store.attachConfig(sessionId, meta);
+    const withConfig = await store.attachConfig(
+      sessionId,
+      configMetaOf(manifest),
+    );
 
     const primaryConversationId = await orchestratorConversationFor(
       store,
@@ -271,12 +302,10 @@ async function createSessionFromBundle(
     );
 
     await seedResources(deps, sessionId, rootPath, resources, user);
-    await storeSessionMemory(
-      deps,
-      sessionId,
-      rootPath,
-      memoryOverride ?? config.memory,
-    );
+    await applySessionOverrides(deps, sessionId, rootPath, config, {
+      memory: memoryOverride,
+      extensions: extensionsOverride,
+    });
 
     // Armed only once the binding is stored: a firing spawns Prime, which
     // resolves memory exactly once.
@@ -292,7 +321,8 @@ async function createSessionFromBundle(
   } catch (err) {
     await store.deleteSession(sessionId);
     removeSessionQmdState(sessionId);
-    res.status(400).json({ error: (err as Error).message });
+    const status = err instanceof LockedExtensionsError ? 409 : 400;
+    res.status(status).json({ error: (err as Error).message });
   }
 }
 
@@ -343,8 +373,82 @@ export async function handleCreateSession(
     body.resources ?? [],
     body.env,
     body.memory,
+    body.extensions,
     res,
   );
+}
+
+/** The wire config metadata recorded for a session from its bundle manifest. */
+function configMetaOf(manifest: {
+  id: string;
+  name: string;
+  version: string;
+  icon?: string;
+}): SessionConfigMeta {
+  return {
+    id: manifest.id,
+    name: manifest.name,
+    version: manifest.version,
+    icon: manifest.icon,
+  };
+}
+
+/** Raised when a session tries to override a bundle that locks its extensions. */
+class LockedExtensionsError extends Error {}
+
+/**
+ * Persists a session's global-extension override at create time. A bundle that
+ * locks its policy (`{ only }`) rejects any override; otherwise the session's
+ * selection (when supplied) is stored as-is to overlay the bundle at spawn.
+ */
+async function applyBundleExtensionOverride(
+  store: SessionStore,
+  sessionId: string,
+  policy: BundleExtensionPolicy | undefined,
+  override: ExtensionSelection | undefined,
+): Promise<void> {
+  if (override === undefined) return;
+  if (isLockedPolicy(policy)) {
+    throw new LockedExtensionsError(
+      "bundle locks global extensions; the session cannot override them",
+    );
+  }
+  await store.setSessionExtensions(sessionId, override);
+}
+
+/** Whether a session's installed bundle locks its global-extension policy. */
+function bundleLocksExtensions(rootPath: string): boolean {
+  return isLockedPolicy(loadInstalledConfig(rootPath)?.globalExtensions);
+}
+
+/**
+ * Handles `PUT /api/sessions/:id/extensions`: replaces the session's
+ * global-extension selection (or resets it to inherit the bundle policy when
+ * `extensions` is `null`). Rejected with `409` when the session's installed
+ * bundle locks the policy. Takes effect on each agent's next spawn.
+ */
+export async function handleSetSessionExtensions(
+  store: SessionStore,
+  id: string,
+  input: SetSessionExtensionsInput,
+  res: Response,
+): Promise<void> {
+  const session = await store.getSession(id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const selection = input.extensions ?? undefined;
+  if (selection !== undefined && bundleLocksExtensions(session.rootPath)) {
+    res.status(409).json({
+      error: "This session's bundle locks global extensions",
+    });
+    return;
+  }
+
+  await store.setSessionExtensions(id, selection);
+  res.json({ extensions: selection ?? null });
 }
 
 /**
