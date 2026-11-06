@@ -21,6 +21,10 @@ export class TangentSessionListElement extends EmbeddedElement {
     return TAG;
   }
 
+  protected get paintsBackground(): boolean {
+    return false;
+  }
+
   set selectedId(value: string) {
     this.currentSelectedId = value ?? "";
     this.rerender();

@@ -23,6 +23,10 @@ export class TangentParticipantListElement extends EmbeddedElement {
     return TAG;
   }
 
+  protected get paintsBackground(): boolean {
+    return false;
+  }
+
   set sessionId(value: string) {
     this.currentSessionId = value ?? "";
     this.rerender();
