@@ -3,22 +3,24 @@ import {
   PI_AGENT,
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
-import { useEffect } from "react";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { type ReactNode, useEffect } from "react";
 
-import { ActiveTasksIndicator } from "@/features/chat/components/composer/ActiveTasksIndicator";
 import { AgentModelPicker } from "@/features/chat/components/composer/AgentModelPicker";
+import { AgentsIndicator } from "@/features/chat/components/composer/AgentsIndicator";
 import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
 import { ChatInput } from "@/features/chat/components/composer/ChatInput";
+import { ComposerFooter } from "@/features/chat/components/composer/ComposerFooter";
 import { ChatMessageList } from "@/features/chat/components/message/ChatMessageList";
 import { SubagentTabView } from "@/features/chat/components/tabs/SubagentTabView";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
+import { buildSubagents } from "@/features/chat/model/agents";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
 import { useSession } from "@/features/sessions/hooks/useSession";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
-import type { TangentRuntime } from "../types";
+import type { EmbedAgentPayload, TangentRuntime } from "../types";
 
 interface EmbeddedChatProps {
   sessionId: string;
@@ -31,6 +33,10 @@ interface EmbeddedChatProps {
   onOpenArtifact?: (url: string, title: string) => void;
   /** Fired when the user submits a prompt, so the host can react. */
   onSendPrompt?: (content: string) => void;
+  /** The host opens the sub-agent's thread, e.g. as a `<Chat agentId>` tab. */
+  onOpenAgent?: (agent: EmbedAgentPayload) => void;
+  /** A finished sub-agent was dismissed, so the host can close its tab. */
+  onRemoveAgent?: (id: string) => void;
 }
 
 function isPrimeAgent(agentId: string | undefined): boolean {
@@ -49,6 +55,8 @@ export function EmbeddedChat({
   autoFocus,
   onOpenArtifact,
   onSendPrompt,
+  onOpenAgent,
+  onRemoveAgent,
 }: EmbeddedChatProps) {
   const chat = useSessionChat(sessionId);
   const { data: session } = useSession(sessionId);
@@ -87,6 +95,32 @@ export function EmbeddedChat({
     }
   };
 
+  const busySubagents = chat.subagents
+    .filter((s) => chat.isConversationBusy(s.conversationId))
+    .map((s) => ({ id: s.id, name: s.name, conversationId: s.conversationId }));
+
+  const removeAgent = (id: string) => {
+    chat.dismissSubagent(id);
+    onRemoveAgent?.(id);
+  };
+
+  const renderAgentsPill = (selectedId?: string) => (
+    <AgentsIndicator
+      sessionId={sessionId}
+      agents={buildSubagents(chat.subagents)}
+      busySubagents={busySubagents}
+      selectedId={selectedId}
+      onOpenAgent={(agent) =>
+        onOpenAgent?.({
+          ...agent,
+          conversationId: chat.conversationForAgent(agent.id),
+        })
+      }
+      onRemoveAgent={(agent) => removeAgent(agent.id)}
+      onAbort={chat.abort}
+    />
+  );
+
   if (!targetingPrime && agentId) {
     return (
       <SubagentChat
@@ -100,6 +134,8 @@ export function EmbeddedChat({
         onOpenArtifact={onOpenArtifact}
         onSendPrompt={onSendPrompt}
         onTogglePinArtifact={togglePinArtifact}
+        onRemove={() => removeAgent(agentId)}
+        agentsPill={renderAgentsPill(agentId)}
       />
     );
   }
@@ -111,11 +147,6 @@ export function EmbeddedChat({
     chat.subagents,
     participants,
   );
-
-  const busySubagents = chat.subagents
-    .filter((s) => chat.isConversationBusy(s.conversationId))
-    .map((s) => ({ id: s.id, name: s.name, conversationId: s.conversationId }));
-  const armedTriggers = chat.triggers.filter((t) => t.enabled);
 
   return (
     <BlockStack fill grow align="stretch" inlineAlign="start">
@@ -135,24 +166,17 @@ export function EmbeddedChat({
         onTogglePinArtifact={togglePinArtifact}
         isMessageStreaming={chat.isMessageStreaming}
       />
-      <Box paddingInline="base" paddingBlock="sm">
-        <InlineStack align="space-between" gap="2">
-          <InlineStack>
-            <ActiveTasksIndicator
-              sessionId={sessionId}
-              busySubagents={busySubagents}
-              armedTriggers={armedTriggers}
-              onAbort={chat.abort}
-            />
-          </InlineStack>
+      <ComposerFooter
+        agentsPill={renderAgentsPill()}
+        modelPicker={
           <AgentModelPicker
             model={primeModel?.model}
             thinkingDepth={primeModel?.thinkingDepth}
             onChange={(selection) => chat.setAgentModel(PI_AGENT.id, selection)}
             disabled={!chat.connected || !rosterReady}
           />
-        </InlineStack>
-      </Box>
+        }
+      />
       {bundleId ? (
         <BundlePanelLauncher
           bundleId={bundleId}
@@ -194,6 +218,8 @@ interface SubagentChatProps {
   onOpenArtifact?: (url: string, title: string) => void;
   onSendPrompt?: (content: string) => void;
   onTogglePinArtifact: (path: string, title: string) => void;
+  onRemove: () => void;
+  agentsPill: ReactNode;
 }
 
 function SubagentChat({
@@ -207,6 +233,8 @@ function SubagentChat({
   onOpenArtifact,
   onSendPrompt,
   onTogglePinArtifact,
+  onRemove,
+  agentsPill,
 }: SubagentChatProps) {
   if (!rosterReady) {
     return <BlockStack fill grow align="stretch" />;
@@ -248,7 +276,7 @@ function SubagentChat({
       disabled={!chat.connected}
       isMessageStreaming={chat.isMessageStreaming}
       onAbort={() => chat.abort(conversationId)}
-      onRemove={() => chat.dismissSubagent(agentId)}
+      onRemove={onRemove}
       onSubmit={(content, { delivery, attachments }) => {
         chat.send(content, { conversationId, delivery, attachments });
         onSendPrompt?.(content);
@@ -261,6 +289,7 @@ function SubagentChat({
       onTogglePinArtifact={onTogglePinArtifact}
       mentionCandidates={mentionCandidates}
       autoFocus={autoFocus}
+      agentsPill={agentsPill}
     />
   );
 }

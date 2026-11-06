@@ -2,16 +2,22 @@ import type { SubagentStatus } from "@tangent/shared/contracts";
 
 import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
 import type { Agent } from "@/features/chat/model/agents";
-import { ListItem, type ListItemFlair } from "@/shared/ui/patterns/list-item";
+import {
+  ListItem,
+  type ListItemAction,
+  type ListItemFlair,
+} from "@/shared/ui/patterns/list-item";
 
 interface AgentCardProps {
   agent: Agent;
   /** Session the agent belongs to; keys its shared live status. */
   sessionId: string;
   /** Whether this agent's tab is the active one. */
-  selected: boolean;
+  selected?: boolean;
   /** Opens (or focuses) the agent's in-app tab. */
   onOpen: () => void;
+  /** Stops the agent's current run; shown as a hover-revealed action. */
+  onStop?: () => void;
   /**
    * Removes the agent from the list (e.g. dismissing a killed sub-agent).
    * When provided, a hover-revealed remove action is shown.
@@ -50,9 +56,28 @@ export function AgentCard({
   sessionId,
   selected,
   onOpen,
+  onStop,
   onRemove,
 }: AgentCardProps) {
   const { status, busy, label } = useAgentStatus(sessionId, agent.id);
+
+  const actions: ListItemAction[] = [];
+  if (onStop) {
+    actions.push({
+      icon: "CircleStop",
+      label: `Stop ${agent.name}`,
+      tone: "critical",
+      onClick: onStop,
+    });
+  }
+  if (onRemove) {
+    actions.push({
+      icon: "Trash2",
+      label: `Remove ${agent.name}`,
+      tone: "critical",
+      onClick: onRemove,
+    });
+  }
 
   return (
     <ListItem
@@ -63,18 +88,7 @@ export function AgentCard({
       tone={status === "error" ? "critical" : undefined}
       selected={selected}
       onOpen={onOpen}
-      actions={
-        onRemove
-          ? [
-              {
-                icon: "Trash2",
-                label: `Remove ${agent.name}`,
-                tone: "critical",
-                onClick: onRemove,
-              },
-            ]
-          : undefined
-      }
+      actions={actions}
     />
   );
 }
