@@ -245,7 +245,13 @@ await addResource(sessionId, {
 | `onOpenArtifact`     | `(url, title) => void` | The host decides how to open the resource.                |
 | `onSendPrompt`       | `(content) => void`    | Fired when the user submits a prompt.                     |
 | `onError`            | `(message) => void`    | Fired on a surfaced runtime error.                        |
+| `onOpenAgent`        | `(agent) => void`      | A sub-agent was chosen from Prime's agents pill.          |
+| `onRemoveAgent`      | `(id) => void`         | A finished sub-agent was dismissed from the pill.         |
 | `className`, `style` | —                      | Forwarded to the element; size it with `height`.          |
+
+Prime's composer shows an agents pill listing the session's spawned sub-agents
+with their live status. Wire `onOpenAgent` to place a `<Chat agentId>` (as you
+would for `<AgentList onOpen>`) and `onRemoveAgent` to close that tab.
 
 #### Autofocusing the composer
 
