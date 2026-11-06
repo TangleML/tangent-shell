@@ -1,14 +1,6 @@
 import type { RemoteEnvironmentInfo } from "@tangent/shared/contracts";
-import { Box } from "@tangent/ui-primitives/box";
-import { Icon } from "@tangent/ui-primitives/icon";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
-import { Text } from "@tangent/ui-primitives/typography";
 
-import { ListRow } from "@/shared/ui/patterns/list-row";
-import { Pill } from "@/shared/ui/patterns/pill";
-import { Truncating } from "@/shared/ui/patterns/truncating";
-
-import { PresenceDot } from "./PresenceDot";
+import { ListItem } from "@/shared/ui/patterns/list-item";
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -32,42 +24,15 @@ export function EnvironmentRow({
   environment: RemoteEnvironmentInfo;
 }) {
   return (
-    <ListRow
-      as="li"
-      density="cozy"
-      gap="2"
-      prefix={
-        <Box background="info-subtle" blockSize="full" paddingInline="sm">
-          <InlineStack fill>
-            <Icon name="Monitor" size="lg" tone="subdued" />
-          </InlineStack>
-        </Box>
-      }
-    >
-      <BlockStack align="stretch" grow>
-        <InlineStack gap="2" wrap="nowrap" align="space-between" grow>
-          <Truncating>
-            <Text
-              size="sm"
-              weight="medium"
-              truncate
-              title={environment.environmentId}
-            >
-              {environmentLabel(environment.environmentId)}
-            </Text>
-          </Truncating>
-          <InlineStack gap="1" wrap="nowrap">
-            <Pill tone="subdued">{plural(environment.toolCount, "tool")}</Pill>
-            <Pill tone="subdued">
-              {plural(environment.subagentCount, "agent")}
-            </Pill>
-            <PresenceDot presence="connected" />
-          </InlineStack>
-        </InlineStack>
-        <Text size="xs" tone="subdued" truncate>
-          {environmentDetail(environment)}
-        </Text>
-      </BlockStack>
-    </ListRow>
+    <ListItem
+      icon="Monitor"
+      title={environmentLabel(environment.environmentId)}
+      subtitle={[
+        environmentDetail(environment),
+        plural(environment.toolCount, "tool"),
+        plural(environment.subagentCount, "agent"),
+      ].join(" · ")}
+      flair={{ kind: "dot", label: "Connected", tone: "success" }}
+    />
   );
 }

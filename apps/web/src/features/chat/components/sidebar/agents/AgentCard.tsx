@@ -1,15 +1,8 @@
-import { Box } from "@tangent/ui-primitives/box";
-import { Icon } from "@tangent/ui-primitives/icon";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
-import { Text } from "@tangent/ui-primitives/typography";
+import type { SubagentStatus } from "@tangent/shared/contracts";
 
+import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
 import type { Agent } from "@/features/chat/model/agents";
-import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
-import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { ListRow } from "@/shared/ui/patterns/list-row";
-import { Truncating } from "@/shared/ui/patterns/truncating";
-
-import { AgentStatusIndicator, AgentStatusLabel } from "./AgentStatusIndicator";
+import { ListItem, type ListItemFlair } from "@/shared/ui/patterns/list-item";
 
 interface AgentCardProps {
   agent: Agent;
@@ -26,11 +19,31 @@ interface AgentCardProps {
   onRemove?: () => void;
 }
 
+// Keep in step with AgentStatusIndicator, which shows these states on the tab.
+function statusFlair(
+  status: SubagentStatus,
+  busy: boolean,
+  label: string,
+): ListItemFlair {
+  if (busy) return { kind: "dot", label, tone: "success", pulse: true };
+  switch (status) {
+    case "active":
+      return { kind: "dot", label, tone: "success" };
+    case "detached":
+      return { kind: "icon", icon: "Unplug", label };
+    case "completed":
+      return { kind: "icon", icon: "Check", label };
+    case "killed":
+      return { kind: "icon", icon: "Ban", label };
+    case "error":
+      return { kind: "icon", icon: "TriangleAlert", label, tone: "critical" };
+  }
+}
+
 /**
- * A condensed card representing one session agent (Prime or a sub-agent),
- * styled like {@link AssetCard}. The leading icon conveys the agent kind; the
- * trailing indicator reflects its live status. Clicking the card opens (or
- * focuses) the agent's thread tab.
+ * One session agent (Prime or a sub-agent) in the sidebar. The icon conveys the
+ * agent kind and the flair its live status. Clicking it opens (or focuses) the
+ * agent's thread tab.
  */
 export function AgentCard({
   agent,
@@ -39,57 +52,29 @@ export function AgentCard({
   onOpen,
   onRemove,
 }: AgentCardProps) {
+  const { status, busy, label } = useAgentStatus(sessionId, agent.id);
+
   return (
-    <ListRow
-      as="li"
-      density="cozy"
-      gap="2"
-      hoverable
+    <ListItem
+      icon={agent.kind === "prime" ? "Crown" : "Bot"}
+      title={agent.name}
+      subtitle={label}
+      flair={statusFlair(status, busy, label)}
+      tone={status === "error" ? "critical" : undefined}
       selected={selected}
-      onClick={onOpen}
-      prefix={
-        <Box background="success-subtle" blockSize="full" paddingInline="sm">
-          <InlineStack fill blockAlign="center" align="center">
-            <Icon
-              name={agent.kind === "prime" ? "Crown" : "Bot"}
-              size="lg"
-              tone="subdued"
-            />
-          </InlineStack>
-        </Box>
+      onOpen={onOpen}
+      actions={
+        onRemove
+          ? [
+              {
+                icon: "Trash2",
+                label: `Remove ${agent.name}`,
+                tone: "critical",
+                onClick: onRemove,
+              },
+            ]
+          : undefined
       }
-    >
-      <BlockStack gap="0" align="stretch" grow>
-        <InlineStack
-          gap="2"
-          wrap="nowrap"
-          blockAlign="center"
-          align="space-between"
-          grow
-        >
-          <Truncating>
-            <Text size="sm" weight="medium" truncate title={agent.name}>
-              {agent.name}
-            </Text>
-          </Truncating>
-          <AgentStatusIndicator sessionId={sessionId} agentId={agent.id} />
-          {onRemove ? (
-            <HoverReveal>
-              <IconButton
-                icon="Trash2"
-                size="xs"
-                tone="critical"
-                aria-label={`Remove ${agent.name}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRemove();
-                }}
-              />
-            </HoverReveal>
-          ) : null}
-        </InlineStack>
-        <AgentStatusLabel sessionId={sessionId} agentId={agent.id} />
-      </BlockStack>
-    </ListRow>
+    />
   );
 }
