@@ -1,5 +1,4 @@
 import { Icon } from "@tangent/ui-primitives/icon";
-import { Text } from "@tangent/ui-primitives/typography";
 
 import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
 
@@ -37,17 +36,4 @@ export function AgentStatusIndicator({ sessionId, agentId }: AgentStatusProps) {
     case "error":
       return <Icon name="TriangleAlert" size="xs" tone="critical" />;
   }
-}
-
-/**
- * The agent's current activity (or lifecycle) as a short, truncating line of
- * subdued text — the human-readable companion to {@link AgentStatusIndicator}.
- */
-export function AgentStatusLabel({ sessionId, agentId }: AgentStatusProps) {
-  const { label } = useAgentStatus(sessionId, agentId);
-  return (
-    <Text size="xs" tone="subdued" truncate>
-      {label}
-    </Text>
-  );
 }

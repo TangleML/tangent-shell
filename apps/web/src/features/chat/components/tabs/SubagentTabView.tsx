@@ -5,8 +5,8 @@ import type {
   SubagentStatus,
   ThinkingLevel,
 } from "@tangent/shared/contracts";
-import { Box } from "@tangent/ui-primitives/box";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import type { ReactNode } from "react";
 
 import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
@@ -16,6 +16,7 @@ import {
   type AgentModelPickerValue,
 } from "../composer/AgentModelPicker";
 import { ChatInput } from "../composer/ChatInput";
+import { ComposerFooter } from "../composer/ComposerFooter";
 import { ChatMessageList } from "../message/ChatMessageList";
 
 interface SubagentTabViewProps {
@@ -64,6 +65,8 @@ interface SubagentTabViewProps {
   mentionCandidates: MentionCandidate[];
   /** Focuses this tab's composer once it becomes usable. */
   autoFocus?: boolean;
+  /** The session's agents pill, shown left of the model picker as on Prime's composer. */
+  agentsPill: ReactNode;
 }
 
 /**
@@ -96,6 +99,7 @@ export function SubagentTabView({
   onTogglePinArtifact,
   mentionCandidates,
   autoFocus,
+  agentsPill,
 }: SubagentTabViewProps) {
   return (
     <BlockStack grow>
@@ -114,16 +118,17 @@ export function SubagentTabView({
         onTogglePinArtifact={onTogglePinArtifact}
         isMessageStreaming={isMessageStreaming}
       />
-      <Box paddingInline="base" paddingBlock="sm">
-        <InlineStack align="end">
+      <ComposerFooter
+        agentsPill={agentsPill}
+        modelPicker={
           <AgentModelPicker
             model={model}
             thinkingDepth={thinkingDepth}
             onChange={onSetModel}
             disabled={disabled}
           />
-        </InlineStack>
-      </Box>
+        }
+      />
       <ChatInput
         key={`${sessionId}:${agentId}`}
         sessionId={sessionId}

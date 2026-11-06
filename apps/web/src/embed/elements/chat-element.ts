@@ -7,15 +7,16 @@ import {
 } from "@/shared/lib/hostSlots";
 
 import { EmbeddedChat } from "../components/EmbeddedChat";
-import type { TangentRuntime } from "../types";
+import type { EmbedAgentPayload, TangentRuntime } from "../types";
 import { EmbeddedElement } from "./embeddedElement";
 
 const TAG = "tangent-chat";
 
 /**
  * Mounts the embedded chat surface. `sessionId`, `agentId`, `initialPrompt`,
- * and `autoFocus` are properties; `open-artifact` and `send-prompt` are emitted
- * as composed `CustomEvent`s for the npm wrapper to surface as `on*` props.
+ * and `autoFocus` are properties; `open-artifact`, `send-prompt`, `open-agent`,
+ * and `remove-agent` are emitted as composed `CustomEvent`s for the npm wrapper
+ * to surface as `on*` props.
  */
 export class TangentChatElement extends EmbeddedElement {
   private currentSessionId = "";
@@ -122,6 +123,9 @@ export class TangentChatElement extends EmbeddedElement {
           this.emit("open-artifact", { url, title }),
         onSendPrompt: (content: string) =>
           this.emit("send-prompt", { content }),
+        onOpenAgent: (agent: EmbedAgentPayload) =>
+          this.emit("open-agent", { ...agent }),
+        onRemoveAgent: (id: string) => this.emit("remove-agent", { id }),
       }),
     );
   }

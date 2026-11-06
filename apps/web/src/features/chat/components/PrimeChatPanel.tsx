@@ -4,21 +4,20 @@ import {
   type MemorySuggestionPayload,
   type MessageDelivery,
   PI_AGENT,
-  type SubagentInfo,
-  type Trigger,
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
-import type { Asset } from "@/features/chat/model/assets";
+import type { Agent } from "@/features/chat/model/agents";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
-import { ActiveTasksIndicator } from "./composer/ActiveTasksIndicator";
 import { AgentModelPicker } from "./composer/AgentModelPicker";
+import { AgentsIndicator } from "./composer/AgentsIndicator";
 import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
 import { ChatInput } from "./composer/ChatInput";
+import { ComposerFooter } from "./composer/ComposerFooter";
 import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
 import { ChatMessageList } from "./message/ChatMessageList";
 
@@ -47,14 +46,13 @@ interface PrimeChatPanelProps {
   confirmMemory: (suggestionId: string) => void;
   dismissMemory: (suggestionId: string) => void;
   busySubagents: { id: string; name: string; conversationId: string }[];
-  armedTriggers: Trigger[];
-  subagents: SubagentInfo[];
-  assets: Asset[];
+  /** The sub-agents spawned in this session, without Prime. */
+  spawnedAgents: Agent[];
   primeModel: AgentModelSelection | null;
   send: SendFn;
   abort: (conversationId: string) => void;
-  openAgent: (agent: { id: string; name: string }) => void;
-  openAsset: (asset: Asset) => void;
+  openAgent: (agent: Agent) => void;
+  removeAgent: (agent: Agent) => void;
   setAgentModel: (agentId: string, selection: AgentModelSelection) => void;
   openArtifactTab: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
@@ -77,14 +75,12 @@ export function PrimeChatPanel({
   confirmMemory,
   dismissMemory,
   busySubagents,
-  armedTriggers,
-  subagents,
-  assets,
+  spawnedAgents,
   primeModel,
   send,
   abort,
   openAgent,
-  openAsset,
+  removeAgent,
   setAgentModel,
   openArtifactTab,
   pinnedPaths,
@@ -129,13 +125,11 @@ export function PrimeChatPanel({
       <PrimeComposerFooter
         sessionId={sessionId}
         busySubagents={busySubagents}
-        armedTriggers={armedTriggers}
-        subagents={subagents}
-        assets={assets}
+        spawnedAgents={spawnedAgents}
         connected={connected}
         primeModel={primeModel}
         openAgent={openAgent}
-        openAsset={openAsset}
+        removeAgent={removeAgent}
         abort={abort}
         setAgentModel={setAgentModel}
       />
@@ -162,13 +156,11 @@ export function PrimeChatPanel({
 interface PrimeComposerFooterProps {
   sessionId: string;
   busySubagents: { id: string; name: string; conversationId: string }[];
-  armedTriggers: Trigger[];
-  subagents: SubagentInfo[];
-  assets: Asset[];
+  spawnedAgents: Agent[];
   connected: boolean;
   primeModel: AgentModelSelection | null;
-  openAgent: (agent: { id: string; name: string }) => void;
-  openAsset: (asset: Asset) => void;
+  openAgent: (agent: Agent) => void;
+  removeAgent: (agent: Agent) => void;
   abort: (conversationId: string) => void;
   setAgentModel: (agentId: string, selection: AgentModelSelection) => void;
 }
@@ -176,46 +168,34 @@ interface PrimeComposerFooterProps {
 function PrimeComposerFooter({
   sessionId,
   busySubagents,
-  armedTriggers,
-  subagents,
-  assets,
+  spawnedAgents,
   connected,
   primeModel,
   openAgent,
-  openAsset,
+  removeAgent,
   abort,
   setAgentModel,
 }: PrimeComposerFooterProps) {
   return (
-    <Box paddingInline="base" paddingBlock="sm">
-      <InlineStack align="space-between" blockAlign="center">
-        <InlineStack blockAlign="center">
-          <ActiveTasksIndicator
-            sessionId={sessionId}
-            busySubagents={busySubagents}
-            armedTriggers={armedTriggers}
-            onOpenAgent={(id) =>
-              openAgent({
-                id,
-                name: subagents.find((s) => s.id === id)?.name ?? id,
-              })
-            }
-            onAbort={abort}
-            onOpenTrigger={(id) => {
-              const asset = assets.find(
-                (a) => a.kind === "trigger" && a.id === id,
-              );
-              if (asset) openAsset(asset);
-            }}
-          />
-        </InlineStack>
+    <ComposerFooter
+      agentsPill={
+        <AgentsIndicator
+          sessionId={sessionId}
+          agents={spawnedAgents}
+          busySubagents={busySubagents}
+          onOpenAgent={openAgent}
+          onRemoveAgent={removeAgent}
+          onAbort={abort}
+        />
+      }
+      modelPicker={
         <AgentModelPicker
           model={primeModel?.model}
           thinkingDepth={primeModel?.thinkingDepth}
           onChange={(selection) => setAgentModel(PI_AGENT.id, selection)}
           disabled={!connected}
         />
-      </InlineStack>
-    </Box>
+      }
+    />
   );
 }

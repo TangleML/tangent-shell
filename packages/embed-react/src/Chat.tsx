@@ -2,7 +2,11 @@ import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTangentContext } from "./context";
-import type { HostSlotRecordLike, TangentChatElementLike } from "./types";
+import type {
+  EmbedAgent,
+  HostSlotRecordLike,
+  TangentChatElementLike,
+} from "./types";
 
 export interface ChatProps {
   /** The session to render. Obtain a new one from `useTangent().newSession`. */
@@ -23,6 +27,13 @@ export interface ChatProps {
   onSendPrompt?: (content: string) => void;
   /** Fired on a runtime error surfaced by the chat. */
   onError?: (message: string) => void;
+  /**
+   * A sub-agent was chosen from Prime's agents pill; the host decides what
+   * opening it means, typically placing a `<Chat agentId={agent.id}>`.
+   */
+  onOpenAgent?: (agent: EmbedAgent) => void;
+  /** A finished sub-agent was dismissed from Prime's agents pill. */
+  onRemoveAgent?: (id: string) => void;
   /** Disambiguates the provider when a page mounts more than one. */
   instance?: string;
   className?: string;
@@ -42,6 +53,8 @@ export function Chat({
   onOpenArtifact,
   onSendPrompt,
   onError,
+  onOpenAgent,
+  onRemoveAgent,
   instance,
   className,
   style,
@@ -100,15 +113,25 @@ export function Chat({
     const handleError = (event: Event) => {
       onError?.((event as CustomEvent<{ message: string }>).detail.message);
     };
+    const handleOpenAgent = (event: Event) => {
+      onOpenAgent?.((event as CustomEvent<EmbedAgent>).detail);
+    };
+    const handleRemoveAgent = (event: Event) => {
+      onRemoveAgent?.((event as CustomEvent<{ id: string }>).detail.id);
+    };
     element.addEventListener("open-artifact", handleArtifact);
     element.addEventListener("send-prompt", handleSend);
     element.addEventListener("error", handleError);
+    element.addEventListener("open-agent", handleOpenAgent);
+    element.addEventListener("remove-agent", handleRemoveAgent);
     return () => {
       element.removeEventListener("open-artifact", handleArtifact);
       element.removeEventListener("send-prompt", handleSend);
       element.removeEventListener("error", handleError);
+      element.removeEventListener("open-agent", handleOpenAgent);
+      element.removeEventListener("remove-agent", handleRemoveAgent);
     };
-  }, [onOpenArtifact, onSendPrompt, onError]);
+  }, [onOpenArtifact, onSendPrompt, onError, onOpenAgent, onRemoveAgent]);
 
   return (
     <tangent-chat

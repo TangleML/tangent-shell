@@ -36,14 +36,17 @@ export function buildAgents(subagents: SubagentInfo[]): Agent[] {
     status: "active",
   };
 
-  const subagentEntries: Agent[] = sortSubagents(subagents).map((subagent) => ({
+  return [prime, ...buildSubagents(subagents)];
+}
+
+/** The sub-agents Prime has spawned, as {@link Agent}s, without Prime. */
+export function buildSubagents(subagents: SubagentInfo[]): Agent[] {
+  return sortSubagents(subagents).map((subagent) => ({
     id: subagent.id,
     name: subagent.name,
     kind: "subagent",
     status: subagent.status,
   }));
-
-  return [prime, ...subagentEntries];
 }
 
 // The server ignores a dismissal for a sub-agent still running.
