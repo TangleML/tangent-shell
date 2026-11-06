@@ -16,9 +16,14 @@ import { PI_AGENT, sourceFromAuthor } from "@tangent/shared/contracts.ts";
 import type { Request, Response } from "express";
 import multer from "multer";
 
-import { resolveUserIdentity } from "../../auth/identity.ts";
+import {
+  resolveSessionCreator,
+  resolveUserIdentity,
+} from "../../auth/identity.ts";
 import {
   ARTIFACTS_DIRNAME,
+  SESSION_DELEGATE_EMAIL_HEADER,
+  SESSION_DELEGATORS,
   SESSIONS_ROOT,
   UPLOADS_DIRNAME,
 } from "../../config.ts";
@@ -323,10 +328,14 @@ export async function handleCreateSession(
   }
 
   // Resolve the creator's identity from their bearer token or Oktasso JWT
-  // cookie so every agent spawned for the session knows who it's helping.
+  // cookie so every agent spawned for the session knows who it's helping. A
+  // trusted delegator creates it for the person it names instead.
   const user =
-    resolveUserIdentity(req.headers.cookie, req.headers.authorization) ??
-    undefined;
+    resolveSessionCreator(
+      resolveUserIdentity(req.headers.cookie, req.headers.authorization),
+      req.headers,
+      { delegators: SESSION_DELEGATORS, header: SESSION_DELEGATE_EMAIL_HEADER },
+    ) ?? undefined;
   const session = await deps.store.createSession({
     name: body.name,
     user,

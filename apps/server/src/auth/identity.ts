@@ -1,3 +1,5 @@
+import type { IncomingHttpHeaders } from "node:http";
+
 import type { UserIdentity } from "@tangent/shared/contracts.ts";
 
 import { AUTH_JWT_TOKEN_COOKIE_NAME } from "../config.ts";
@@ -98,4 +100,36 @@ export function resolveUserIdentity(
   return identityFromToken(
     parseCookies(cookieHeader)[AUTH_JWT_TOKEN_COOKIE_NAME],
   );
+}
+
+/** Who may create a session for someone else, and where they name that person. */
+export interface SessionDelegation {
+  delegators: ReadonlySet<string>;
+  header: string;
+}
+
+const EMAIL_SHAPE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
+
+/**
+ * Resolves who a new session is created for. A caller listed in
+ * `delegation.delegators` may name another person in `delegation.header`; that
+ * header is trusted only because the delegator's egress proxy overwrites it.
+ * Anyone else, or a delegator naming nobody, creates the session for
+ * themselves. Only session creation honors this, so the delegator keeps its own
+ * identity everywhere else and never gains the owner's privileges.
+ */
+export function resolveSessionCreator(
+  caller: UserIdentity | null,
+  headers: IncomingHttpHeaders,
+  delegation: SessionDelegation,
+): UserIdentity | null {
+  if (!caller || !delegation.header) return caller;
+  if (!delegation.delegators.has(caller.email.toLowerCase())) return caller;
+
+  const named = headers[delegation.header];
+  if (typeof named !== "string") return caller;
+  const email = named.trim().toLowerCase();
+  if (!EMAIL_SHAPE.test(email)) return caller;
+
+  return { email, first_name: "", last_name: "" };
 }
