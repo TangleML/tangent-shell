@@ -16,6 +16,8 @@ import {
   PI_AGENT,
   type Session,
   SocketEvents,
+  type SubagentDismissedPayload,
+  type SubagentDismissPayload,
   type SubagentRosterPayload,
   type TriggerRosterPayload,
 } from "@tangent/shared/contracts.ts";
@@ -52,7 +54,9 @@ import {
   ensureSessionAgents,
   handleAgentSetModel,
   handleSessionStatusSubscribe,
+  isDismissible,
   replayAgentActivities,
+  subagentRoster,
   type UiCommandEmitter,
 } from "./sessionRoster.ts";
 
@@ -147,6 +151,15 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
     handleAgentSetModel(io, store, pi, payload),
   );
 
+  socket.on(
+    SocketEvents.SubagentDismiss,
+    (payload: SubagentDismissPayload) =>
+      void handleSubagentDismiss(deps, author, payload).catch(
+        (error: unknown) =>
+          console.error("[chat] sub-agent dismiss failed:", error),
+      ),
+  );
+
   wireMemoryAndArtifacts(socket, deps);
 }
 
@@ -227,7 +240,7 @@ async function handleChatJoin(
 
   const roster: SubagentRosterPayload = {
     sessionId: session.id,
-    subagents: connectors.list(session.id),
+    subagents: await subagentRoster(store, connectors, session.id),
     primaryConversationId: await orchestratorConversationFor(store, session.id),
   };
   socket.emit(SocketEvents.SubagentRoster, roster);
@@ -294,20 +307,67 @@ async function joinAuthorized(
   session: Session,
 ): Promise<Set<string>> {
   const agents = await deps.store.listAgents(session.id);
-  const memberships =
-    author.kind === "human"
-      ? await deps.participantService.membershipsOf(session.id, author.id)
-      : [];
-  const authorized = authorizedConversations(
-    author,
-    session,
-    agents,
-    memberships,
-  );
+  const authorized = await authorizedFor(deps, author, session, agents);
   for (const conversationId of authorized)
     await socket.join(roomForConversation(session.id, conversationId));
   return authorized;
 }
+
+/** {@link authorizedConversations} for this author, reading its Memberships. */
+async function authorizedFor(
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  session: Session,
+  agents: SessionAgent[],
+): Promise<Set<string>> {
+  const memberships =
+    author.kind === "human"
+      ? await deps.participantService.membershipsOf(session.id, author.id)
+      : [];
+  return authorizedConversations(author, session, agents, memberships);
+}
+
+/**
+ * Persists a finished sub-agent's dismissal and tells every client in the
+ * session to drop it. A running, unknown, or unauthorized target is ignored.
+ */
+async function handleSubagentDismiss(
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  payload: SubagentDismissPayload,
+): Promise<void> {
+  const { sessionId, agentId } = payload ?? EMPTY_DISMISS;
+  if (!sessionId || !agentId) return;
+  const session = await deps.store.getSession(sessionId);
+  if (!session) return;
+  const agent = await dismissTarget(deps, author, session, agentId);
+  if (!agent) return;
+
+  await deps.store.dismissAgent(session.id, agent.id);
+  const dismissed: SubagentDismissedPayload = {
+    sessionId: session.id,
+    agentId: agent.id,
+  };
+  deps.io
+    .to(roomFor(session.id))
+    .emit(SocketEvents.SubagentDismissed, dismissed);
+}
+
+/** The session's finished sub-agent `agentId`, if this author may see its thread. */
+async function dismissTarget(
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  session: Session,
+  agentId: string,
+): Promise<SessionAgent | undefined> {
+  const agents = await deps.store.listAgents(session.id);
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  if (!agent || !isDismissible(agent)) return undefined;
+  const authorized = await authorizedFor(deps, author, session, agents);
+  return authorized.has(agent.homeConversationId) ? agent : undefined;
+}
+
+const EMPTY_DISMISS: SubagentDismissPayload = { sessionId: "", agentId: "" };
 
 /**
  * The join-time history seed, scoped to the Conversations this socket is

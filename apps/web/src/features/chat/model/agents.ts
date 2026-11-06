@@ -1,4 +1,5 @@
 import {
+  isTerminalStatus,
   PI_AGENT,
   type SubagentInfo,
   type SubagentStatus,
@@ -43,6 +44,11 @@ export function buildAgents(subagents: SubagentInfo[]): Agent[] {
   }));
 
   return [prime, ...subagentEntries];
+}
+
+// The server ignores a dismissal for a sub-agent still running.
+export function isDismissible(agent: Agent): boolean {
+  return agent.kind === "subagent" && isTerminalStatus(agent.status);
 }
 
 // Active sub-agents float to the top so the live entries are easy to scan;

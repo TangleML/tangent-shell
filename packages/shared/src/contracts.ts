@@ -1742,7 +1742,10 @@ export interface AgentQueuePayload {
   runId?: RunId;
 }
 
-/** Full sub-agent roster for a session, emitted on join and on reset. */
+/**
+ * Full sub-agent roster for a session, emitted on join and on reset: the live
+ * sub-agents plus finished ones nobody has dismissed yet.
+ */
 export interface SubagentRosterPayload {
   sessionId: string;
   subagents: SubagentInfo[];
@@ -1758,6 +1761,22 @@ export interface SubagentRosterPayload {
 export interface SubagentUpdatePayload {
   sessionId: string;
   subagent: SubagentInfo;
+}
+
+/**
+ * Sent (client -> server) to remove a finished (`completed` / `killed` /
+ * `error`) sub-agent from the session's roster for everyone. The server ignores
+ * a sub-agent that is still running.
+ */
+export interface SubagentDismissPayload {
+  sessionId: string;
+  agentId: string;
+}
+
+/** Broadcast (server -> client) once a sub-agent was dismissed from the roster. */
+export interface SubagentDismissedPayload {
+  sessionId: string;
+  agentId: string;
 }
 
 /**
@@ -1941,6 +1960,8 @@ export const SocketEvents = {
   AgentQueue: "agent:queue",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
+  SubagentDismiss: "subagent:dismiss",
+  SubagentDismissed: "subagent:dismissed",
   ParticipantPresence: "participant:presence",
   EnvironmentUpdate: "environment:update",
   MemorySuggestion: "memory:suggestion",

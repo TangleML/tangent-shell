@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 
 import {
   type ChatAuthor,
@@ -9,11 +9,15 @@ import {
   humanAuthor,
   type Session,
   SocketEvents,
+  type SubagentDismissPayload,
+  type SubagentInfo,
+  type SubagentRosterPayload,
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 import type { Socket } from "socket.io";
 
 import type { PrimeSpawnOptions } from "../pi/piAgentManager.ts";
+import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
@@ -249,4 +253,193 @@ test("closing the last browser socket detaches presence without cancelling the s
   socket.emit("disconnect");
   assert.deepEqual(presence, ["connected", "detached"]);
   assert.equal(cancellations, 0);
+});
+
+/**
+ * A joinable session over a real in-memory store, with the connectors' live
+ * roster under the test's control. Sockets carry no identity, so each acts as
+ * {@link DEFAULT_USER}.
+ */
+async function rosterHarness(target: Session = session(undefined, "open")) {
+  const store = new InMemorySessionStore();
+  mock.method(store, "getSession", async (id: string) =>
+    id === target.id ? target : undefined,
+  );
+  await store.recordAgent(target.id, {
+    id: "prime",
+    role: "prime",
+    name: "Prime",
+  });
+  const live: SubagentInfo[] = [];
+  const broadcasts: { event: string; payload: unknown }[] = [];
+  const io = Object.assign(new EventEmitter(), {
+    to: () => ({
+      emit: (event: string, payload: unknown) =>
+        broadcasts.push({ event, payload }),
+    }),
+  });
+  registerChatHandlers(rosterDeps(io, store, live));
+
+  const connect = () => {
+    const socket = Object.assign(new EventEmitter(), {
+      handshake: { headers: {}, auth: {} },
+      join: async () => {},
+    });
+    io.emit("connection", socket);
+    return socket;
+  };
+
+  /** A fresh client's join, resolved with the sub-agent roster it is sent. */
+  const join = async (): Promise<SubagentInfo[]> => {
+    const socket = connect();
+    const roster = new Promise<SubagentRosterPayload>((resolve) =>
+      socket.once(SocketEvents.SubagentRoster, resolve),
+    );
+    socket.emit(SocketEvents.ChatJoin, { sessionId: target.id });
+    return (await roster).subagents;
+  };
+
+  const dismiss = async (agentId: string): Promise<void> => {
+    const payload: SubagentDismissPayload = { sessionId: target.id, agentId };
+    connect().emit(SocketEvents.SubagentDismiss, payload);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+
+  return { store, live, broadcasts, join, dismiss, sessionId: target.id };
+}
+
+/** Just enough of the chat deps for a join and a dismiss to run. */
+function rosterDeps(
+  io: EventEmitter,
+  store: InMemorySessionStore,
+  live: SubagentInfo[],
+): ChatHandlerDeps {
+  return {
+    io,
+    store,
+    presence: new PresenceTracker(),
+    pi: {
+      ensure: () => {},
+      listActivities: () => [],
+      getAgentSelection: () => undefined,
+    },
+    connectors: { revive: () => {}, list: () => live },
+    triggerEngine: { sync: () => {}, list: () => [] },
+    participantService: {
+      get: async () => undefined,
+      membershipsOf: async () => [],
+    },
+  } as unknown as ChatHandlerDeps;
+}
+
+/** Records sub-agent `id` in the harness store with the given status. */
+async function recordSubagent(
+  store: InMemorySessionStore,
+  sessionId: string,
+  id: string,
+  status: SubagentInfo["status"],
+): Promise<SessionAgent> {
+  return store.recordAgent(sessionId, {
+    id,
+    role: "subagent",
+    name: `Worker ${id}`,
+    status,
+    model: "anthropic/claude-test",
+  });
+}
+
+/** The live roster entry a connector holds for a recorded sub-agent. */
+function liveInfo(
+  agent: SessionAgent,
+  status: SubagentInfo["status"],
+): SubagentInfo {
+  return {
+    id: agent.id,
+    conversationId: agent.homeConversationId,
+    name: agent.name,
+    status,
+    connector: connectorFor("pi-stdio"),
+    createdAt: agent.createdAt,
+  };
+}
+
+test("a finished sub-agent stays in the join roster after its connector drops it", async () => {
+  const { store, live, join, sessionId } = await rosterHarness();
+  const worker = await recordSubagent(store, sessionId, "sub-1", "active");
+  live.push(liveInfo(worker, "active"));
+  assert.deepEqual(
+    (await join()).map((s) => [s.id, s.status]),
+    [["sub-1", "active"]],
+  );
+
+  await store.setAgentStatus(sessionId, "sub-1", "completed");
+  live.length = 0;
+
+  const [entry, ...rest] = await join();
+  assert.deepEqual(rest, []);
+  assert.equal(entry?.id, "sub-1");
+  assert.equal(entry?.status, "completed");
+  assert.equal(entry?.name, "Worker sub-1");
+  assert.equal(entry?.conversationId, worker.homeConversationId);
+  assert.equal(entry?.model, "anthropic/claude-test");
+});
+
+test("a sub-agent both live and persisted is listed once, as the live entry", async () => {
+  const { store, live, join, sessionId } = await rosterHarness();
+  const worker = await recordSubagent(store, sessionId, "sub-1", "completed");
+  live.push(liveInfo(worker, "completed"));
+
+  const roster = await join();
+  assert.equal(roster.length, 1);
+  assert.equal(roster[0], live[0]);
+});
+
+test("dismissing a finished sub-agent drops it from every later roster", async () => {
+  const { store, broadcasts, join, dismiss, sessionId } = await rosterHarness();
+  await recordSubagent(store, sessionId, "sub-1", "killed");
+  assert.equal((await join()).length, 1);
+
+  await dismiss("sub-1");
+
+  assert.deepEqual(broadcasts, [
+    {
+      event: SocketEvents.SubagentDismissed,
+      payload: { sessionId, agentId: "sub-1" },
+    },
+  ]);
+  assert.deepEqual(await join(), []);
+  const row = (await store.listAgents(sessionId)).find((a) => a.id === "sub-1");
+  assert.ok(row?.dismissedAt, "the row is kept, stamped dismissed");
+});
+
+test("dismissing a sub-agent that is still running is rejected", async () => {
+  const { store, live, broadcasts, join, dismiss, sessionId } =
+    await rosterHarness();
+  const worker = await recordSubagent(store, sessionId, "sub-1", "active");
+  live.push(liveInfo(worker, "active"));
+
+  await dismiss("sub-1");
+
+  assert.deepEqual(broadcasts, []);
+  const row = (await store.listAgents(sessionId)).find((a) => a.id === "sub-1");
+  assert.equal(row?.dismissedAt, undefined);
+  assert.deepEqual(
+    (await join()).map((s) => s.id),
+    ["sub-1"],
+  );
+});
+
+test("a human without access to the sub-agent's thread cannot dismiss it", async () => {
+  const { store, broadcasts, join, dismiss, sessionId } = await rosterHarness(
+    session(OWNER),
+  );
+  await recordSubagent(store, sessionId, "sub-1", "completed");
+
+  await dismiss("sub-1");
+
+  assert.deepEqual(broadcasts, []);
+  assert.deepEqual(
+    (await join()).map((s) => s.id),
+    ["sub-1"],
+  );
 });

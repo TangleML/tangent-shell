@@ -10,7 +10,7 @@ export interface AgentListProps {
   selectedId?: string;
   /** A card was clicked; the host decides what opening an agent means. */
   onOpen: (agent: EmbedAgent) => void;
-  /** A killed sub-agent was dismissed from the list. */
+  /** A finished sub-agent was dismissed from the list. */
   onRemove?: (id: string) => void;
   /** Disambiguates the provider when a page mounts more than one. */
   instance?: string;

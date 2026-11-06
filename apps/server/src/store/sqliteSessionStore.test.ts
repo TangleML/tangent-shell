@@ -382,6 +382,35 @@ test("a completed sub-agent stays completed, rather than collapsing to killed", 
   assert.equal(agents.find((a) => a.id === "sub-1")?.status, "completed");
 });
 
+test("a dismissal persists on the agent row and survives a re-record", async () => {
+  const store = newStore();
+  const session = await store.createSession({ name: "S" });
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    status: "completed",
+  });
+
+  await store.dismissAgent(session.id, "sub-1");
+  const dismissedAt = (await store.listAgents(session.id)).find(
+    (a) => a.id === "sub-1",
+  )?.dismissedAt;
+  assert.ok(dismissedAt);
+
+  await store.recordAgent(session.id, {
+    id: "sub-1",
+    role: "subagent",
+    name: "Worker",
+    model: "anthropic/claude-test",
+  });
+  const after = (await store.listAgents(session.id)).find(
+    (a) => a.id === "sub-1",
+  );
+  assert.equal(after?.dismissedAt, dismissedAt);
+  assert.equal(after?.status, "completed");
+});
+
 test("detachActiveSubagents marks live sub-agents detached and leaves the rest", async () => {
   const store = newStore();
   const session = await store.createSession({ name: "S" });
