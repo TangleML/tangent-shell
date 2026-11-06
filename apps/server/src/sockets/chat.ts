@@ -19,9 +19,10 @@ import {
   type SubagentRosterPayload,
   type TriggerRosterPayload,
 } from "@tangent/shared/contracts.ts";
-import type { Server, Socket } from "socket.io";
+import type { ExtendedError, Server, Socket } from "socket.io";
 
 import { resolveUserIdentity } from "../auth/identity.ts";
+import { AUTH_JWT_TOKEN_COOKIE_NAME } from "../config.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import {
@@ -110,10 +111,9 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
 
   // Resolved once per connection: the identity is the connection's, and the
   // client never gets a say in who its messages are attributed to.
-  const handshakeToken = socket.handshake.auth?.token;
   const author = resolveSocketAuthor(
     socket.handshake.headers.cookie,
-    typeof handshakeToken === "string" ? handshakeToken : undefined,
+    handshakeToken(socket),
   );
 
   // (sessionId\0participantId) pairs whose presence this socket is holding up,
@@ -191,6 +191,7 @@ function wireMemoryAndArtifacts(socket: Socket, deps: ChatHandlerDeps): void {
  * broadcast to the room, and delivered to whoever reacts to it.
  */
 export function registerChatHandlers(deps: ChatHandlerDeps): void {
+  deps.io.use(requireSignIn);
   deps.io.on("connection", (socket: Socket) => wireSocket(socket, deps));
 }
 
@@ -390,7 +391,8 @@ export async function mentionCandidates(
  * handshake's bearer token (sent cross-origin by the embed) or the connection's
  * own cookie — never from anything in the message payload. Falls back to
  * {@link DEFAULT_USER} when no JWT resolves, so both sides agree on the id and a
- * message still renders as your own.
+ * message still renders as your own. {@link requireSignIn} keeps that fallback
+ * to deployments without sign-in configured.
  */
 export function resolveSocketAuthor(
   cookieHeader: string | undefined,
@@ -399,6 +401,36 @@ export function resolveSocketAuthor(
   const authorization = authToken ? `Bearer ${authToken}` : undefined;
   return humanAuthor(
     resolveUserIdentity(cookieHeader, authorization) ?? DEFAULT_USER,
+  );
+}
+
+/** The handshake's login token, sent by clients whose cookie may not arrive. */
+function handshakeToken(socket: Socket): string | undefined {
+  const token: unknown = socket.handshake.auth.token;
+  return typeof token === "string" ? token : undefined;
+}
+
+/**
+ * Refuses a connection with no login when sign-in is configured, rather than
+ * chatting as {@link DEFAULT_USER}: that one shared identity would save everyone
+ * whose cookie got lost (e.g. dropped by a proxy on the websocket upgrade) as
+ * the same person. Such clients send the token in the handshake `auth` instead.
+ */
+export function requireSignIn(
+  socket: Socket,
+  next: (err?: ExtendedError) => void,
+): void {
+  if (!AUTH_JWT_TOKEN_COOKIE_NAME) return next();
+  const token = handshakeToken(socket);
+  const identity = resolveUserIdentity(
+    socket.handshake.headers.cookie,
+    token ? `Bearer ${token}` : undefined,
+  );
+  if (identity) return next();
+  next(
+    new Error(
+      "Not signed in: no login cookie or handshake auth token reached the server.",
+    ),
   );
 }
 

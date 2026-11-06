@@ -200,7 +200,7 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
 });
 
 test("closing the last browser socket detaches presence without cancelling the server agent", async () => {
-  const io = new EventEmitter();
+  const io = Object.assign(new EventEmitter(), { use: () => {} });
   const socket = Object.assign(new EventEmitter(), {
     handshake: { headers: {}, auth: {} },
     join: async () => {},
