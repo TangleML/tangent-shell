@@ -11,6 +11,7 @@ import { apiUrl } from "@/shared/lib/basePath";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 import { cn } from "@/shared/lib/utils";
 
+import { QuotableMessage } from "../quote/QuotableMessage";
 import { AgentThinking } from "./AgentThinking";
 import { MemoryMessage } from "./MemoryMessage";
 import { MessageAttachments } from "./MessageAttachments";
@@ -126,33 +127,35 @@ function ChatMessageContent({
         />
       }
     >
-      {isAgent ? (
-        <BlockStack gap="1">
-          {message.thinking ? (
-            <AgentThinking
-              thinking={message.thinking}
-              done={isThinkingDone(message, isStreaming)}
-            />
-          ) : null}
-          <Markdown
-            artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
-            bundleId={bundleId}
-            onSendPrompt={onSendPrompt}
-            onOpenArtifact={onOpenArtifact}
-            pinnedPaths={pinnedPaths}
-            onTogglePinArtifact={onTogglePinArtifact}
-            sessionId={sessionId}
-            messageId={message.id}
-            onCollapse={onCollapse}
-          >
+      <QuotableMessage messageId={message.id}>
+        {isAgent ? (
+          <BlockStack gap="1">
+            {message.thinking ? (
+              <AgentThinking
+                thinking={message.thinking}
+                done={isThinkingDone(message, isStreaming)}
+              />
+            ) : null}
+            <Markdown
+              artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
+              bundleId={bundleId}
+              onSendPrompt={onSendPrompt}
+              onOpenArtifact={onOpenArtifact}
+              pinnedPaths={pinnedPaths}
+              onTogglePinArtifact={onTogglePinArtifact}
+              sessionId={sessionId}
+              messageId={message.id}
+              onCollapse={onCollapse}
+            >
+              {message.content}
+            </Markdown>
+          </BlockStack>
+        ) : (
+          <Paragraph size="sm" wrap="pre-wrap">
             {message.content}
-          </Markdown>
-        </BlockStack>
-      ) : (
-        <Paragraph size="sm" wrap="pre-wrap">
-          {message.content}
-        </Paragraph>
-      )}
+          </Paragraph>
+        )}
+      </QuotableMessage>
       {attachments.length > 0 ? (
         <MessageAttachments sessionId={sessionId} attachments={attachments} />
       ) : null}
