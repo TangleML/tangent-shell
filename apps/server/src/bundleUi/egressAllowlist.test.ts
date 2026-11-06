@@ -139,6 +139,51 @@ for (const request of [
   });
 }
 
+test("allows saved-pipeline launch only for agents and preserves run attribution", async () => {
+  process.env.TANGLE_TOKEN = "SESSION=trusted";
+  const path = `/api/pipeline_runs/from_pipeline/${PIPELINE_ID}`;
+  const body = {
+    run_arguments: { date: "December 25" },
+    pipeline_run_annotations: { "tangleml.com/project/id/project-1": "true" },
+  };
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (_input: string | URL | Request, init?: RequestInit) => {
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.body, JSON.stringify(body));
+      assert.equal(
+        (init?.headers as Record<string, string>).cookie,
+        "SESSION=trusted",
+      );
+      return Response.json({ id: "run-1" });
+    },
+  );
+  await assert.rejects(
+    resolveEgress({ target: "tangle", path }, { method: "POST", body }),
+    EgressDeniedError,
+  );
+  for (const invalidPath of [
+    "/api/pipeline_runs/from_pipeline/not-a-uuid",
+    `${path}/extra`,
+  ]) {
+    await assert.rejects(
+      resolveAgentEgress(
+        { target: "tangle", path: invalidPath },
+        { method: "POST", body },
+      ),
+      EgressDeniedError,
+    );
+  }
+  assert.equal(fetchMock.mock.calls.length, 0);
+  const result = await resolveAgentEgress(
+    { target: "tangle", path },
+    { method: "POST", body },
+  );
+  assert.deepEqual(result.json, { id: "run-1" });
+  assert.equal(fetchMock.mock.calls.length, 1);
+});
+
 test("does not use caller credentials when server credentials are absent", async () => {
   mock.method(
     globalThis,

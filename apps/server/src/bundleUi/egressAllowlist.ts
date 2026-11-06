@@ -82,6 +82,11 @@ const TANGLE_PATH_RULES: ReadonlyArray<{
   { method: "PUT", test: /^\/api\/users\/me\/pipelines$/, agentOnly: true },
   { method: "GET", test: SAVED_PIPELINE_API_PATH, agentOnly: true },
   { method: "PUT", test: SAVED_PIPELINE_API_PATH, agentOnly: true },
+  {
+    method: "POST",
+    test: /^\/api\/pipeline_runs\/from_pipeline\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i,
+    agentOnly: true,
+  },
   // pipelineRuns
   { method: "GET", test: /^\/api\/pipeline_runs\/$/ },
   { method: "POST", test: /^\/api\/pipeline_runs\/$/ },
