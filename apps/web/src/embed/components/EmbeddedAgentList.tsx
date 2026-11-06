@@ -27,7 +27,7 @@ function toPayload(agent: Agent, conversationId: string): EmbedAgentPayload {
 /**
  * The embedded agent list: Prime plus the live sub-agent roster. Clicking a
  * card emits `onOpen` so the host can place a `<Chat agentId>`; dismissing a
- * killed sub-agent updates the shared session room and notifies the host.
+ * finished sub-agent updates the shared session room and notifies the host.
  */
 export function EmbeddedAgentList({
   sessionId,
