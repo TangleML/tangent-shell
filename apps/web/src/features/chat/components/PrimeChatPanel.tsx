@@ -21,6 +21,7 @@ import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
 import { ChatInput } from "./composer/ChatInput";
 import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
 import { ChatMessageList } from "./message/ChatMessageList";
+import { ConversationQuoting } from "./quote/ConversationQuoting";
 
 type SendFn = (
   content: string,
@@ -92,70 +93,72 @@ export function PrimeChatPanel({
   mentionCandidates,
 }: PrimeChatPanelProps) {
   return (
-    <BlockStack grow>
-      <ChatMessageList
-        sessionId={sessionId}
-        messages={messages}
-        currentAuthorId={currentAuthorId}
-        primaryConversationId={primaryConversationId}
-        activity={activity}
-        activityAuthorName={PI_AGENT.name}
-        activityAuthorRole="prime"
-        historyLoaded={historyLoaded}
-        bundleId={bundleId}
-        onSendPrompt={send}
-        onOpenArtifact={openArtifactTab}
-        pinnedPaths={pinnedPaths}
-        onTogglePinArtifact={togglePinArtifact}
-        isMessageStreaming={isMessageStreaming}
-      />
-      {memorySuggestions.length > 0 && (
-        <Box paddingInline="base" paddingBlock="sm">
-          <BlockStack gap="2">
-            {memorySuggestions.map((suggestion) => (
-              <MemorySuggestionCard
-                key={suggestion.suggestionId}
-                suggestion={suggestion}
-                onConfirm={confirmMemory}
-                onDismiss={dismissMemory}
-              />
-            ))}
-          </BlockStack>
-        </Box>
-      )}
-      {bundleId && (
-        <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
-      )}
-      <PrimeComposerFooter
-        sessionId={sessionId}
-        busySubagents={busySubagents}
-        armedTriggers={armedTriggers}
-        subagents={subagents}
-        assets={assets}
-        connected={connected}
-        primeModel={primeModel}
-        openAgent={openAgent}
-        openAsset={openAsset}
-        abort={abort}
-        setAgentModel={setAgentModel}
-      />
-      <ChatInput
-        key={`${sessionId}:${PI_AGENT.id}`}
-        sessionId={sessionId}
-        agentId={PI_AGENT.id}
-        disabled={!connected}
-        agentBusy={agentBusy}
-        mentionCandidates={mentionCandidates}
-        onAbort={() => abort(primaryConversationId)}
-        onSubmit={(content, { delivery, attachments }) =>
-          send(content, {
-            conversationId: primaryConversationId,
-            delivery,
-            attachments,
-          })
-        }
-      />
-    </BlockStack>
+    <ConversationQuoting>
+      <BlockStack grow>
+        <ChatMessageList
+          sessionId={sessionId}
+          messages={messages}
+          currentAuthorId={currentAuthorId}
+          primaryConversationId={primaryConversationId}
+          activity={activity}
+          activityAuthorName={PI_AGENT.name}
+          activityAuthorRole="prime"
+          historyLoaded={historyLoaded}
+          bundleId={bundleId}
+          onSendPrompt={send}
+          onOpenArtifact={openArtifactTab}
+          pinnedPaths={pinnedPaths}
+          onTogglePinArtifact={togglePinArtifact}
+          isMessageStreaming={isMessageStreaming}
+        />
+        {memorySuggestions.length > 0 && (
+          <Box paddingInline="base" paddingBlock="sm">
+            <BlockStack gap="2">
+              {memorySuggestions.map((suggestion) => (
+                <MemorySuggestionCard
+                  key={suggestion.suggestionId}
+                  suggestion={suggestion}
+                  onConfirm={confirmMemory}
+                  onDismiss={dismissMemory}
+                />
+              ))}
+            </BlockStack>
+          </Box>
+        )}
+        {bundleId && (
+          <BundlePanelLauncher bundleId={bundleId} onSendPrompt={send} />
+        )}
+        <PrimeComposerFooter
+          sessionId={sessionId}
+          busySubagents={busySubagents}
+          armedTriggers={armedTriggers}
+          subagents={subagents}
+          assets={assets}
+          connected={connected}
+          primeModel={primeModel}
+          openAgent={openAgent}
+          openAsset={openAsset}
+          abort={abort}
+          setAgentModel={setAgentModel}
+        />
+        <ChatInput
+          key={`${sessionId}:${PI_AGENT.id}`}
+          sessionId={sessionId}
+          agentId={PI_AGENT.id}
+          disabled={!connected}
+          agentBusy={agentBusy}
+          mentionCandidates={mentionCandidates}
+          onAbort={() => abort(primaryConversationId)}
+          onSubmit={(content, { delivery, attachments }) =>
+            send(content, {
+              conversationId: primaryConversationId,
+              delivery,
+              attachments,
+            })
+          }
+        />
+      </BlockStack>
+    </ConversationQuoting>
   );
 }
 
