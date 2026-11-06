@@ -108,16 +108,19 @@ function ChatMessageContent({
   return (
     <MessageLayout
       variant={variant}
+      side={isOwn ? "end" : undefined}
       avatar={
-        <MessageAvatar
-          kind={message.author.kind}
-          name={message.author.name}
-          agentRole={message.author.agentRole}
-        />
+        isOwn ? undefined : (
+          <MessageAvatar
+            kind={message.author.kind}
+            name={message.author.name}
+            agentRole={message.author.agentRole}
+          />
+        )
       }
       header={
         <MessageHeader
-          authorName={message.author.name}
+          authorName={isOwn ? "You" : message.author.name}
           roleLabel={roleLabel}
           createdAt={message.createdAt}
           content={message.content}
@@ -149,7 +152,11 @@ function ChatMessageContent({
           </Markdown>
         </BlockStack>
       ) : (
-        <Paragraph size="sm" wrap="pre-wrap">
+        <Paragraph
+          size="sm"
+          wrap="pre-wrap"
+          tone={isOwn ? "on-primary" : undefined}
+        >
           {message.content}
         </Paragraph>
       )}
