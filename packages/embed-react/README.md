@@ -294,7 +294,7 @@ the active row.
 ### `<AgentList>`
 
 Renders Prime and the live sub-agent roster for a session. Wire `onOpen` to
-place a `<Chat agentId={agent.id}>` (or any host chrome); dismissing a killed
+place a `<Chat agentId={agent.id}>` (or any host chrome); dismissing a finished
 sub-agent surfaces through `onRemove`.
 
 ```tsx
@@ -313,7 +313,7 @@ sub-agent surfaces through `onRemove`.
 | `sessionId`          | `string`          | The session whose agents to render.                       |
 | `onOpen`             | `(agent) => void` | A card was clicked. `agent.conversationId` is the thread. |
 | `selectedId`         | `string`          | Highlighted row (Prime or a sub-agent id).                |
-| `onRemove`           | `(id) => void`    | A killed sub-agent was dismissed from the list.           |
+| `onRemove`           | `(id) => void`    | A finished sub-agent was dismissed from the list.         |
 | `instance`           | `string`          | Disambiguate multiple providers.                          |
 | `className`, `style` | —                 | Forwarded; size it with `height`.                         |
 

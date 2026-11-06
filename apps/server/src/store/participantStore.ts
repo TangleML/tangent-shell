@@ -25,6 +25,7 @@ export interface AgentPayload {
   autoRelayToPrime?: boolean;
   purpose?: string;
   status: SubagentStatus;
+  dismissedAt?: string;
 }
 
 /**
@@ -72,6 +73,7 @@ function agentPayload(agent: SessionAgent): AgentPayload {
     autoRelayToPrime: agent.autoRelayToPrime,
     purpose: agent.purpose,
     status: agent.status,
+    dismissedAt: agent.dismissedAt,
   };
 }
 
@@ -129,6 +131,7 @@ export function sessionAgentFromParticipant(
     tools: payload.tools,
     systemPrompt: payload.systemPrompt,
     autoRelayToPrime: payload.autoRelayToPrime,
+    dismissedAt: payload.dismissedAt,
     connector: participant.connector,
     homeConversationId,
     createdAt: participant.createdAt,
