@@ -643,6 +643,22 @@ export class SqliteSessionStore implements SessionStore {
       .run();
   }
 
+  async dismissAgent(sessionId: string, agentId: string): Promise<void> {
+    this.db
+      .update(participants)
+      .set({
+        agentPayload: sql`json_set(${participants.agentPayload}, '$.dismissedAt', ${new Date().toISOString()})`,
+      })
+      .where(
+        and(
+          eq(participants.sessionId, sessionId),
+          eq(participants.id, agentId),
+          eq(participants.kind, "agent"),
+        ),
+      )
+      .run();
+  }
+
   async listAgents(sessionId: string): Promise<SessionAgent[]> {
     const rows = this.db
       .select()

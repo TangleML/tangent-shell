@@ -376,6 +376,15 @@ export class InMemorySessionStore implements SessionStore {
     });
   }
 
+  async dismissAgent(sessionId: string, agentId: string): Promise<void> {
+    const existing = await this.participants.get(sessionId, agentId);
+    if (existing?.kind !== "agent" || !existing.agent) return;
+    await this.participants.put({
+      ...existing,
+      agent: { ...existing.agent, dismissedAt: new Date().toISOString() },
+    });
+  }
+
   async listAgents(sessionId: string): Promise<SessionAgent[]> {
     const rows = await this.agentRowsFor(sessionId);
     return rows.map((row) =>

@@ -249,7 +249,8 @@ export const participants = sqliteTable(
     /**
      * JSON-encoded kind-specific payload. For an agent: `role`, `model`,
      * `thinkingDepth`, `template`, `tools`, `systemPrompt`, `autoRelayToPrime`,
-     * `purpose`, `status` — everything that was an agent-only column. A row
+     * `purpose`, `status` — everything that was an agent-only column — plus
+     * `dismissedAt` once a finished sub-agent is dismissed. A row
      * backfilled before C.1 may still carry a legacy `host` key, which is
      * ignored on read.
      */

@@ -2,9 +2,11 @@ import {
   type AgentActivityPayload,
   type AgentModelPayload,
   type AgentSetModelPayload,
+  isTerminalStatus,
   type Session,
   type SessionStatusSnapshotPayload,
   SocketEvents,
+  type SubagentInfo,
   type ThinkingLevel,
   type UiCommand,
   type UiCommandPayload,
@@ -18,7 +20,7 @@ import {
 } from "../conversation/participantRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
-import type { SessionStore } from "../store/sessionStore.ts";
+import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 import { roomFor, SESSIONS_LOBBY } from "./rooms.ts";
 
 /**
@@ -131,6 +133,54 @@ export async function ensureSessionAgents(
   });
   const persistedAgents = await store.listAgents(session.id);
   connectors.revive(session.id, persistedAgents);
+}
+
+/** A finished sub-agent that stays in the roster until a user dismisses it. */
+export function isDismissible(agent: SessionAgent): boolean {
+  return (
+    agent.role === "subagent" &&
+    isTerminalStatus(agent.status) &&
+    !agent.dismissedAt
+  );
+}
+
+/** The roster entry a persisted, no-longer-live sub-agent reads back as. */
+function finishedSubagentInfo(agent: SessionAgent): SubagentInfo {
+  const thinkingDepth = parseThinkingLevel(agent.thinkingDepth);
+  return {
+    id: agent.id,
+    conversationId: agent.homeConversationId,
+    name: agent.name,
+    status: agent.status,
+    connector: agent.connector,
+    ...(agent.template ? { template: agent.template } : {}),
+    ...(agent.model ? { model: agent.model } : {}),
+    ...(thinkingDepth ? { thinkingDepth } : {}),
+    createdAt: agent.createdAt,
+  };
+}
+
+/**
+ * Every live sub-agent plus the finished, undismissed ones connectors no longer
+ * hold, so a reload keeps them. A live entry wins over its persisted row.
+ */
+export async function subagentRoster(
+  store: SessionStore,
+  connectors: ConnectorRegistry,
+  sessionId: string,
+): Promise<SubagentInfo[]> {
+  const persisted = await store.listAgents(sessionId);
+  const dismissed = new Set(
+    persisted.filter((agent) => agent.dismissedAt).map((agent) => agent.id),
+  );
+  const live = connectors
+    .list(sessionId)
+    .filter((subagent) => !dismissed.has(subagent.id));
+  const liveIds = new Set(live.map((subagent) => subagent.id));
+  const finished = persisted
+    .filter((agent) => isDismissible(agent) && !liveIds.has(agent.id))
+    .map(finishedSubagentInfo);
+  return [...live, ...finished];
 }
 
 /**
