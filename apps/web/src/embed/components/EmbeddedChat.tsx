@@ -11,6 +11,7 @@ import { AgentModelPicker } from "@/features/chat/components/composer/AgentModel
 import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
 import { ChatInput } from "@/features/chat/components/composer/ChatInput";
 import { ChatMessageList } from "@/features/chat/components/message/ChatMessageList";
+import { ConversationQuoting } from "@/features/chat/components/quote/ConversationQuoting";
 import { SubagentTabView } from "@/features/chat/components/tabs/SubagentTabView";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
@@ -118,68 +119,72 @@ export function EmbeddedChat({
   const armedTriggers = chat.triggers.filter((t) => t.enabled);
 
   return (
-    <BlockStack fill grow align="stretch" inlineAlign="start">
-      <ChatMessageList
-        sessionId={sessionId}
-        messages={chat.messagesFor(primaryConversationId)}
-        currentAuthorId={chat.currentAuthorId}
-        primaryConversationId={primaryConversationId}
-        activity={chat.getActivity(primaryConversationId)}
-        activityAuthorName={PI_AGENT.name}
-        activityAuthorRole="prime"
-        historyLoaded={historyLoaded}
-        bundleId={bundleId}
-        onSendPrompt={chat.send}
-        onOpenArtifact={onOpenArtifact}
-        pinnedPaths={chat.pinnedPaths}
-        onTogglePinArtifact={togglePinArtifact}
-        isMessageStreaming={chat.isMessageStreaming}
-      />
-      <Box paddingInline="base" paddingBlock="sm">
-        <InlineStack align="space-between" gap="2">
-          <InlineStack>
-            <ActiveTasksIndicator
-              sessionId={sessionId}
-              busySubagents={busySubagents}
-              armedTriggers={armedTriggers}
-              onAbort={chat.abort}
+    <ConversationQuoting>
+      <BlockStack fill grow align="stretch" inlineAlign="start">
+        <ChatMessageList
+          sessionId={sessionId}
+          messages={chat.messagesFor(primaryConversationId)}
+          currentAuthorId={chat.currentAuthorId}
+          primaryConversationId={primaryConversationId}
+          activity={chat.getActivity(primaryConversationId)}
+          activityAuthorName={PI_AGENT.name}
+          activityAuthorRole="prime"
+          historyLoaded={historyLoaded}
+          bundleId={bundleId}
+          onSendPrompt={chat.send}
+          onOpenArtifact={onOpenArtifact}
+          pinnedPaths={chat.pinnedPaths}
+          onTogglePinArtifact={togglePinArtifact}
+          isMessageStreaming={chat.isMessageStreaming}
+        />
+        <Box paddingInline="base" paddingBlock="sm">
+          <InlineStack align="space-between" gap="2">
+            <InlineStack>
+              <ActiveTasksIndicator
+                sessionId={sessionId}
+                busySubagents={busySubagents}
+                armedTriggers={armedTriggers}
+                onAbort={chat.abort}
+              />
+            </InlineStack>
+            <AgentModelPicker
+              model={primeModel?.model}
+              thinkingDepth={primeModel?.thinkingDepth}
+              onChange={(selection) =>
+                chat.setAgentModel(PI_AGENT.id, selection)
+              }
+              disabled={!chat.connected || !rosterReady}
             />
           </InlineStack>
-          <AgentModelPicker
-            model={primeModel?.model}
-            thinkingDepth={primeModel?.thinkingDepth}
-            onChange={(selection) => chat.setAgentModel(PI_AGENT.id, selection)}
-            disabled={!chat.connected || !rosterReady}
+        </Box>
+        {bundleId ? (
+          <BundlePanelLauncher
+            bundleId={bundleId}
+            onSendPrompt={(text) =>
+              chat.send(text, { conversationId: primaryConversationId })
+            }
           />
-        </InlineStack>
-      </Box>
-      {bundleId ? (
-        <BundlePanelLauncher
-          bundleId={bundleId}
-          onSendPrompt={(text) =>
-            chat.send(text, { conversationId: primaryConversationId })
-          }
+        ) : null}
+        <ChatInput
+          key={`${sessionId}:${PI_AGENT.id}`}
+          sessionId={sessionId}
+          agentId={PI_AGENT.id}
+          disabled={!chat.connected || !rosterReady}
+          agentBusy={chat.agentBusy}
+          autoFocus={autoFocus}
+          mentionCandidates={mentionCandidates}
+          onAbort={() => chat.abort(primaryConversationId)}
+          onSubmit={(content, { delivery, attachments }) => {
+            chat.send(content, {
+              conversationId: primaryConversationId,
+              delivery,
+              attachments,
+            });
+            onSendPrompt?.(content);
+          }}
         />
-      ) : null}
-      <ChatInput
-        key={`${sessionId}:${PI_AGENT.id}`}
-        sessionId={sessionId}
-        agentId={PI_AGENT.id}
-        disabled={!chat.connected || !rosterReady}
-        agentBusy={chat.agentBusy}
-        autoFocus={autoFocus}
-        mentionCandidates={mentionCandidates}
-        onAbort={() => chat.abort(primaryConversationId)}
-        onSubmit={(content, { delivery, attachments }) => {
-          chat.send(content, {
-            conversationId: primaryConversationId,
-            delivery,
-            attachments,
-          });
-          onSendPrompt?.(content);
-        }}
-      />
-    </BlockStack>
+      </BlockStack>
+    </ConversationQuoting>
   );
 }
 
