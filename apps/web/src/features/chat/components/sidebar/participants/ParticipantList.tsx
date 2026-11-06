@@ -5,18 +5,13 @@ import type {
   RemoteEnvironmentInfo,
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
-import { Icon, type IconName } from "@tangent/ui-primitives/icon";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
-import { Text } from "@tangent/ui-primitives/typography";
+import type { IconName } from "@tangent/ui-primitives/icon";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
-import { IconButton } from "@/shared/ui/patterns/icon-button";
-import { ListRow } from "@/shared/ui/patterns/list-row";
-import { Pill } from "@/shared/ui/patterns/pill";
-import { Truncating } from "@/shared/ui/patterns/truncating";
+import { ListItem, type ListItemFlair } from "@/shared/ui/patterns/list-item";
 
 import { EnvironmentRow } from "./EnvironmentRow";
-import { PresenceDot } from "./PresenceDot";
 
 interface ParticipantListProps {
   participants: ParticipantWithMemberships[];
@@ -58,6 +53,26 @@ const PRESENCE_LABEL: Record<Presence, string> = {
   away: "Away",
   detached: "Detached",
 };
+
+const PRESENCE_FLAIR: Record<Presence, ListItemFlair> = {
+  connected: { kind: "dot", label: PRESENCE_LABEL.connected, tone: "success" },
+  away: { kind: "dot", label: PRESENCE_LABEL.away, tone: "warning" },
+  detached: { kind: "dot", label: PRESENCE_LABEL.detached },
+};
+
+// A row has one flair (presence), so role and mute state ride in the subtitle.
+function participantSubtitle(
+  participant: ParticipantWithMemberships,
+  muted: boolean,
+): string {
+  return [
+    isOrchestrator(participant) ? "Orchestrator" : null,
+    PRESENCE_LABEL[participant.presence],
+    muted ? "Muted" : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
+}
 
 /**
  * Orders the roster so the thread reads top-down: the orchestrator first (its
@@ -112,80 +127,32 @@ export function ParticipantList({
           const canMute = participant.kind === "agent" && Boolean(membership);
           const muted = membership?.muted ?? false;
           const isYou = participant.id === currentUserId;
+          const name = participant.displayName;
           return (
-            <ListRow
+            <ListItem
               key={participant.id}
-              as="li"
-              density="cozy"
-              gap="2"
-              prefix={
-                <Box
-                  background="info-subtle"
-                  blockSize="full"
-                  paddingInline="sm"
-                >
-                  <InlineStack fill blockAlign="center" align="center">
-                    <Icon
-                      name={iconFor(participant)}
-                      size="lg"
-                      tone="subdued"
-                    />
-                  </InlineStack>
-                </Box>
-              }
-            >
-              <BlockStack gap="0" align="stretch" grow>
-                <InlineStack
-                  gap="2"
-                  wrap="nowrap"
-                  blockAlign="center"
-                  align="space-between"
-                  grow
-                >
-                  <Truncating>
-                    <Text
-                      size="sm"
-                      weight="medium"
-                      truncate
-                      title={participant.displayName}
-                    >
-                      {participant.displayName}
-                      {isYou ? " (you)" : ""}
-                    </Text>
-                  </Truncating>
-                  <InlineStack gap="1" wrap="nowrap" blockAlign="center">
-                    {isOrchestrator(participant) ? (
-                      <Pill tone="info">Orchestrator</Pill>
-                    ) : null}
-                    {muted ? <Pill muted>Muted</Pill> : null}
-                    <PresenceDot presence={participant.presence} />
-                    {canMute ? (
-                      <IconButton
-                        icon={muted ? "BellOff" : "Bell"}
-                        size="xs"
-                        variant="ghost"
-                        disabled={isToggleMutePending}
-                        aria-label={
-                          muted
-                            ? `Unmute ${participant.displayName}`
-                            : `Mute ${participant.displayName}`
-                        }
-                        onClick={() =>
+              icon={iconFor(participant)}
+              title={isYou ? `${name} (you)` : name}
+              subtitle={participantSubtitle(participant, muted)}
+              flair={PRESENCE_FLAIR[participant.presence]}
+              actions={
+                canMute
+                  ? [
+                      {
+                        icon: muted ? "BellOff" : "Bell",
+                        label: muted ? `Unmute ${name}` : `Mute ${name}`,
+                        disabled: isToggleMutePending,
+                        onClick: () =>
                           onToggleMute(
                             participant.id,
                             activeConversationId,
                             !muted,
-                          )
-                        }
-                      />
-                    ) : null}
-                  </InlineStack>
-                </InlineStack>
-                <Text size="xs" tone="subdued" truncate>
-                  {PRESENCE_LABEL[participant.presence]}
-                </Text>
-              </BlockStack>
-            </ListRow>
+                          ),
+                      },
+                    ]
+                  : undefined
+              }
+            />
           );
         })}
         {environments.map((environment) => (

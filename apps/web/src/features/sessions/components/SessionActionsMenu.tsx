@@ -2,11 +2,6 @@ import type { Session } from "@tangent/shared/contracts";
 import { Button } from "@tangent/ui-primitives/button";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { BlockStack } from "@tangent/ui-primitives/layout";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@tangent/ui-primitives/popover";
 import { useState } from "react";
 
 import {
@@ -15,48 +10,41 @@ import {
 } from "@/features/sessions/components/sessionActionForms";
 import { useDeleteSession } from "@/features/sessions/hooks/useDeleteSession";
 import { useUpdateSession } from "@/features/sessions/hooks/useUpdateSession";
-import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 /** Which sub-view the actions popover currently shows. */
 type View = "menu" | "rename" | "delete";
 
 interface SessionActionsMenuProps {
   session: Session;
+  /** Closes the popover hosting this menu. */
+  onClose: () => void;
   /** Called after the session is deleted (e.g. to navigate away from it). */
   onDeleted?: (id: string) => void;
 }
 
 /**
- * Per-row actions for a session: rename, archive/unarchive, and delete. Rendered
- * as a single controlled popover that switches between a menu, an inline rename
- * form, and an inline delete confirmation — keeping all three in one anchored
- * surface without a separate dialog primitive.
+ * Per-row actions for a session: rename, archive/unarchive, and delete. Fills
+ * the row's actions popover, switching between a menu, an inline rename form,
+ * and an inline delete confirmation — keeping all three in one anchored surface
+ * without a separate dialog primitive. The popover unmounts it on close, so each
+ * open starts at the menu.
  */
 export function SessionActionsMenu({
   session,
+  onClose,
   onDeleted,
 }: SessionActionsMenuProps) {
-  const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
 
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
-
-  // Reset to the menu view whenever the popover (re)opens so a prior
-  // rename/delete view never lingers.
-  const handleOpenChange = (next: boolean) => {
-    setOpen(next);
-    if (next) setView("menu");
-  };
-
-  const close = () => setOpen(false);
 
   const toggleArchive = () => {
     updateSession.mutate({
       id: session.id,
       input: { archived: !session.archived },
     });
-    close();
+    onClose();
   };
 
   const toggleAccess = () => {
@@ -66,72 +54,63 @@ export function SessionActionsMenu({
         accessPolicy: session.accessPolicy === "open" ? "restricted" : "open",
       },
     });
-    close();
+    onClose();
   };
 
   const submitRename = (name: string) => {
     const trimmed = name.trim();
     if (!trimmed || trimmed === session.name) {
-      close();
+      onClose();
       return;
     }
     updateSession.mutate(
       { id: session.id, input: { name: trimmed } },
-      { onSuccess: close },
+      { onSuccess: onClose },
     );
   };
 
-  const confirmDelete = () => {
-    deleteSession.mutate(session.id, {
-      onSuccess: () => {
-        close();
-        onDeleted?.(session.id);
-      },
-    });
+  // Awaited rather than a mutate callback, which React Query skips if closing
+  // the popover unmounts this mid-request. A failure keeps the confirm open.
+  const confirmDelete = async () => {
+    try {
+      await deleteSession.mutateAsync(session.id);
+    } catch {
+      return;
+    }
+    onClose();
+    onDeleted?.(session.id);
   };
 
+  if (view === "rename") {
+    return (
+      <SessionRenameForm
+        initialName={session.name}
+        pending={updateSession.isPending}
+        onSubmit={submitRename}
+        onCancel={() => setView("menu")}
+      />
+    );
+  }
+
+  if (view === "delete") {
+    return (
+      <SessionDeleteConfirm
+        pending={deleteSession.isPending}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setView("menu")}
+      />
+    );
+  }
+
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>
-        <IconButton
-          icon="EllipsisVertical"
-          aria-label={`Actions for ${session.name}`}
-          onClick={(event) => event.stopPropagation()}
-        />
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-        onCloseAutoFocus={(event) => event.preventDefault()}
-      >
-        {view === "menu" ? (
-          <MenuView
-            archived={session.archived}
-            accessPolicy={session.accessPolicy}
-            onRename={() => setView("rename")}
-            onToggleArchive={toggleArchive}
-            onToggleAccess={toggleAccess}
-            onDelete={() => setView("delete")}
-          />
-        ) : null}
-        {view === "rename" ? (
-          <SessionRenameForm
-            initialName={session.name}
-            pending={updateSession.isPending}
-            onSubmit={submitRename}
-            onCancel={() => setView("menu")}
-          />
-        ) : null}
-        {view === "delete" ? (
-          <SessionDeleteConfirm
-            pending={deleteSession.isPending}
-            onConfirm={confirmDelete}
-            onCancel={() => setView("menu")}
-          />
-        ) : null}
-      </PopoverContent>
-    </Popover>
+    <MenuView
+      archived={session.archived}
+      accessPolicy={session.accessPolicy}
+      onRename={() => setView("rename")}
+      onToggleArchive={toggleArchive}
+      onToggleAccess={toggleAccess}
+      onDelete={() => setView("delete")}
+    />
   );
 }
 
