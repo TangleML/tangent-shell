@@ -9,7 +9,7 @@ import type {
   WorkflowWave,
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 import type { ReactNode } from "react";
 
@@ -22,11 +22,9 @@ import {
   reactorWaiting,
 } from "@/features/chat/model/workflow";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
-import { ListRow } from "@/shared/ui/patterns/list-row";
-import { Pill } from "@/shared/ui/patterns/pill";
+import { ListItem } from "@/shared/ui/patterns/list-item";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 import { Section } from "@/shared/ui/patterns/section";
-import { Truncating } from "@/shared/ui/patterns/truncating";
 
 interface WorkflowListProps {
   workflow: WorkflowView;
@@ -34,36 +32,6 @@ interface WorkflowListProps {
 }
 
 type NameFor = (id: string) => string;
-
-function Row({
-  title,
-  subtitle,
-  trailing,
-}: {
-  title: string;
-  subtitle?: string;
-  trailing?: ReactNode;
-}) {
-  return (
-    <ListRow as="li" density="cozy" gap="2">
-      <BlockStack gap="0" align="stretch" grow>
-        <InlineStack gap="2" wrap="nowrap" align="space-between" grow>
-          <Truncating>
-            <Text size="sm" weight="medium" truncate title={title}>
-              {title}
-            </Text>
-          </Truncating>
-          {trailing}
-        </InlineStack>
-        {subtitle ? (
-          <Text size="xs" tone="subdued" truncate>
-            {subtitle}
-          </Text>
-        ) : null}
-      </BlockStack>
-    </ListRow>
-  );
-}
 
 function WorkflowSection({
   title,
@@ -93,14 +61,15 @@ function WorkflowSection({
 
 function reactorRow(reactor: WorkflowReactor, nameFor: NameFor) {
   return (
-    <Row
+    <ListItem
       key={reactor.id}
+      icon="Hourglass"
       title={reactorLabel(reactor)}
       subtitle={reactorWaiting(reactor, nameFor)}
-      trailing={
-        <Pill tone={reactor.ready ? "success" : "info"}>
-          {reactor.ready ? "Ready" : "Waiting"}
-        </Pill>
+      flair={
+        reactor.ready
+          ? { kind: "pill", label: "Ready", tone: "success" }
+          : { kind: "pill", label: "Waiting", tone: "info" }
       }
     />
   );
@@ -111,14 +80,19 @@ function runRow(run: WorkflowRun, nameFor: NameFor) {
     ? `${run.ingress} \u00b7 ${run.externalId}`
     : run.ingress;
   return (
-    <Row
+    <ListItem
       key={run.id}
+      icon="Play"
       title={nameFor(run.participantId)}
       subtitle={subtitle}
-      trailing={
-        run.admissionQueueDepth > 0 ? (
-          <Pill tone="warning">{run.admissionQueueDepth} queued</Pill>
-        ) : null
+      flair={
+        run.admissionQueueDepth > 0
+          ? {
+              kind: "pill",
+              label: `${run.admissionQueueDepth} queued`,
+              tone: "warning",
+            }
+          : undefined
       }
     />
   );
@@ -126,12 +100,15 @@ function runRow(run: WorkflowRun, nameFor: NameFor) {
 
 function waveRow(wave: WorkflowWave, nameFor: NameFor) {
   return (
-    <Row
+    <ListItem
       key={wave.participantId}
+      icon="WavesHorizontal"
       title={nameFor(wave.participantId)}
       subtitle={`depth ${wave.depth} of ${wave.budget}`}
-      trailing={
-        wave.depth >= wave.budget ? <Pill tone="warning">At budget</Pill> : null
+      flair={
+        wave.depth >= wave.budget
+          ? { kind: "pill", label: "At budget", tone: "warning" }
+          : undefined
       }
     />
   );
@@ -140,8 +117,9 @@ function waveRow(wave: WorkflowWave, nameFor: NameFor) {
 function correlationRow(correlation: OutstandingCorrelation, nameFor: NameFor) {
   const askedOf = correlation.askedOf ? nameFor(correlation.askedOf) : "anyone";
   return (
-    <Row
+    <ListItem
       key={correlation.id}
+      icon="ArrowLeftRight"
       title={`${nameFor(correlation.askedBy)} \u2192 ${askedOf}`}
       subtitle={`expires ${formatInstant(correlation.expiresAt)}`}
     />
@@ -150,8 +128,9 @@ function correlationRow(correlation: OutstandingCorrelation, nameFor: NameFor) {
 
 function digestRow(digest: Resource) {
   return (
-    <Row
+    <ListItem
       key={digest.id}
+      icon="ScrollText"
       title={digest.name}
       subtitle={digestRange(digest) ?? digest.uri}
     />
@@ -164,11 +143,12 @@ function causeRow(cause: TerminationCause, index: number, nameFor: NameFor) {
       ? `${nameFor(cause.participantId)} \u00b7 wave ${cause.waveDepth}`
       : nameFor(cause.participantId);
   return (
-    <Row
+    <ListItem
       key={`${cause.kind}-${cause.participantId}-${index}`}
+      icon="TriangleAlert"
       title={causeLabel(cause)}
       subtitle={scope}
-      trailing={<Pill tone="critical">Cause</Pill>}
+      flair={{ kind: "pill", label: "Cause", tone: "critical" }}
     />
   );
 }
@@ -263,8 +243,9 @@ export function WorkflowList({ workflow, participants }: WorkflowListProps) {
           {omitted.length > 0 ? (
             <WorkflowSection title="Omitted" empty={false} emptyText="">
               {omitted.map((range) => (
-                <Row
+                <ListItem
                   key={`${range.fromSeq}-${range.toSeq}`}
+                  icon="EyeOff"
                   title="There was more here"
                   subtitle={`seq ${range.fromSeq}\u2013${range.toSeq}`}
                 />

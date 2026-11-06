@@ -32,6 +32,14 @@ export abstract class EmbeddedElement extends HTMLElement {
   /** The subtree to render inside `EmbedRoot`, or null to render nothing yet. */
   protected abstract renderContent(runtime: TangentRuntime): ReactNode;
 
+  /**
+   * Whether the element paints its own theme background. Lists sit inside the
+   * host's chrome (e.g. a sidebar panel), so they let its surface show through.
+   */
+  protected get paintsBackground(): boolean {
+    return true;
+  }
+
   connectedCallback(): void {
     if (!this.shadowRoot) {
       const shadow = this.attachShadow({ mode: "open" });
@@ -41,7 +49,9 @@ export abstract class EmbeddedElement extends HTMLElement {
       mountPoint.style.minHeight = "0";
       mountPoint.style.display = "flex";
       mountPoint.style.flexDirection = "column";
-      mountPoint.style.backgroundColor = "var(--background)";
+      if (this.paintsBackground) {
+        mountPoint.style.backgroundColor = "var(--background)";
+      }
       mountPoint.style.color = "var(--foreground)";
       shadow.append(mountPoint);
       this.mountPoint = mountPoint;
