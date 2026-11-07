@@ -381,7 +381,9 @@ test("an artifact is written under the session root and pinned", async () => {
   });
   await settled(() => h.uiCommands.length === 1);
 
-  const artifacts = await h.store.getArtifacts(session.id);
+  const artifacts = (await h.store.getArtifacts(session.id)).flatMap((a) =>
+    a.kind === "artifact" ? [a] : [],
+  );
   assert.deepEqual(
     artifacts.map((a) => [a.path, a.title]),
     [[path.join("a2a", "task-1", "forecast.txt"), "forecast"]],

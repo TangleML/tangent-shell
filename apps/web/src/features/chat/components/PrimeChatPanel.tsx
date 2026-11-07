@@ -11,7 +11,7 @@ import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
-import type { Asset } from "@/features/chat/model/assets";
+import type { Asset, TabAsset } from "@/features/chat/model/assets";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatMessage } from "@/features/chat/model/types";
 
@@ -54,7 +54,7 @@ interface PrimeChatPanelProps {
   send: SendFn;
   abort: (conversationId: string) => void;
   openAgent: (agent: { id: string; name: string }) => void;
-  openAsset: (asset: Asset) => void;
+  openAsset: (asset: TabAsset) => void;
   setAgentModel: (agentId: string, selection: AgentModelSelection) => void;
   openArtifactTab: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
@@ -168,7 +168,7 @@ interface PrimeComposerFooterProps {
   connected: boolean;
   primeModel: AgentModelSelection | null;
   openAgent: (agent: { id: string; name: string }) => void;
-  openAsset: (asset: Asset) => void;
+  openAsset: (asset: TabAsset) => void;
   abort: (conversationId: string) => void;
   setAgentModel: (agentId: string, selection: AgentModelSelection) => void;
 }
@@ -202,10 +202,8 @@ function PrimeComposerFooter({
             }
             onAbort={abort}
             onOpenTrigger={(id) => {
-              const asset = assets.find(
-                (a) => a.kind === "trigger" && a.id === id,
-              );
-              if (asset) openAsset(asset);
+              const asset = assets.find((a) => a.id === id);
+              if (asset?.kind === "trigger") openAsset(asset);
             }}
           />
         </InlineStack>

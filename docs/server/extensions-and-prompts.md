@@ -32,7 +32,7 @@ are thin clients over the server's `/internal/*` API:
 | Memory         | [extensions/memory.ts](../../server/src/pi/extensions/memory.ts)               | `read_memory`; `remember` / `suggest_memory`                                                             | all; Prime            |
 | Resources      | [extensions/resources.ts](../../server/src/pi/extensions/resources.ts)         | `read_resources`                                                                                         | all                   |
 | Triggers       | [extensions/triggers.ts](../../server/src/pi/extensions/triggers.ts)           | `create_trigger` / `list_triggers` / `enable_trigger` / `disable_trigger` / `delete_trigger`             | Prime only            |
-| Session        | [extensions/session.ts](../../server/src/pi/extensions/session.ts)             | `pin_artifact`; `rename_session`                                                                         | all; Prime            |
+| Session        | [extensions/session.ts](../../server/src/pi/extensions/session.ts)             | `pin_artifact` / `pin_link`; `rename_session`                                                            | all; Prime            |
 | Remote tools   | [extensions/remoteTools.ts](../../server/src/pi/extensions/remoteTools.ts)     | `list_remote_tools` / `call_remote_tool` / `list_environments`                                           | all                   |
 
 Each extension reads `TANGENT_AGENT_ROLE` and only registers the higher-privilege
@@ -49,7 +49,7 @@ registered it. That is why `agentConfig.ts` defines tool-name groups that are
 unioned into the allowlist:
 
 - `DEFAULT_TOOLS` = `read, write, edit, bash, grep, find, ls`.
-- `SHARED_AGENT_TOOLS` = `read_room, message_prime, pin_artifact,
+- `SHARED_AGENT_TOOLS` = `read_room, message_prime, pin_artifact, pin_link,
 list_remote_tools, call_remote_tool, list_environments` (granted to every
   agent, even though `message_prime` is only _registered_ for sub-agents and the
   remote-tools trio only functions when a host is connected — the allowlist must

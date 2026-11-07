@@ -197,7 +197,7 @@ export interface SessionStore {
    */
   nextSeq(sessionId: string, conversationId: string): Promise<number>;
 
-  /** Returns the session's pinned artifacts, oldest first. */
+  /** Returns the session's pinned artifacts and links, oldest first. */
   getArtifacts(sessionId: string): Promise<PinnedArtifact[]>;
   /**
    * Pins an artifact (deduped by `path`) and returns the updated list. Re-pinning
@@ -209,6 +209,16 @@ export interface SessionStore {
   ): Promise<PinnedArtifact[]>;
   /** Unpins an artifact by `path` and returns the updated list. */
   unpinArtifact(sessionId: string, path: string): Promise<PinnedArtifact[]>;
+  /**
+   * Pins an external link (deduped by its already-canonical `url`) and returns
+   * the updated list. Re-pinning a known `url` refreshes its title.
+   */
+  pinLink(
+    sessionId: string,
+    link: { url: string; title: string },
+  ): Promise<PinnedArtifact[]>;
+  /** Unpins a link by `url` and returns the updated list. */
+  unpinLink(sessionId: string, url: string): Promise<PinnedArtifact[]>;
 
   /**
    * Records (upserts) an agent in a session's roster, keyed by `(sessionId,

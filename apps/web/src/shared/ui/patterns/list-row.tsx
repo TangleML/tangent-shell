@@ -86,7 +86,21 @@ interface ListRowProps extends ListRowVariantProps {
    * the row's rounded corners.
    */
   prefix?: ReactNode;
+  /**
+   * Makes the whole row an external link that opens `href` in a new tab, via a
+   * real anchor stretched over the row. Buttons inside the row (e.g. hover
+   * actions) stay clickable above it. Use instead of `onClick`.
+   */
+  href?: string;
+  /** Accessible name for the row link; required with `href`. */
+  linkLabel?: string;
 }
+
+/** Lifts the row's own buttons above the stretched link so they stay clickable. */
+const LINK_ROW_CLASS = "relative [&_button]:relative [&_button]:z-10";
+
+const STRETCHED_LINK_CLASS =
+  "absolute inset-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50";
 
 export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
   function ListRow(
@@ -101,10 +115,12 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
       onClick,
       gap = "2",
       prefix,
+      href,
+      linkLabel,
     },
     ref,
   ) {
-    const isInteractive = hoverable || onClick != null;
+    const isInteractive = hoverable || onClick != null || href != null;
     const handleKeyDown: KeyboardEventHandler<HTMLElement> | undefined = onClick
       ? (event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -129,8 +145,18 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
             border,
           }),
           prefix != null && "overflow-hidden",
+          href != null && LINK_ROW_CLASS,
         )}
       >
+        {href != null ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={linkLabel}
+            className={STRETCHED_LINK_CLASS}
+          />
+        ) : null}
         <InlineStack gap={gap} wrap="nowrap" blockAlign="center">
           {prefix != null ? (
             <div className={cn(prefixBleedVariants({ density }))}>{prefix}</div>

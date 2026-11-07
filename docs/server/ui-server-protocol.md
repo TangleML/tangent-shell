@@ -113,6 +113,9 @@ Event names come from `SocketEvents` in
 - `memory:dismiss` `{ sessionId, suggestionId }` — decline a memory suggestion.
 - `artifact:pin` `{ sessionId, path, title }` — pin an artifact.
 - `artifact:unpin` `{ sessionId, path }` — unpin an artifact.
+- `link:pin` `{ sessionId, url, title }` — pin an external http(s) link. The
+  server validates and canonicalizes `url` and drops invalid payloads.
+- `link:unpin` `{ sessionId, url }` — unpin a link.
 - `terminal:data` — reserved/no-op stub for a future phase.
 
 ### Server -> Client
@@ -403,4 +406,6 @@ sequenceDiagram
 Artifact pinning works the same way: it can originate from the UI
 (`artifact:pin` socket event) or from an agent (the `pin_artifact` tool via
 `POST /internal/session/pin-artifact`), and both paths broadcast an
-`artifacts.update` `ui:command` to the room.
+`artifacts.update` `ui:command` to the room. Link pins mirror this with
+`link:pin` / `link:unpin` and the `pin_link` tool
+(`POST /internal/session/pin-link` / `unpin-link`).
