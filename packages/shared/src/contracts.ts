@@ -1656,6 +1656,32 @@ export interface UpdateSessionRequest {
 }
 
 /**
+ * Body for `POST /api/sessions/:id/bundle/reinstall`. `version` pins the
+ * expected stored version (the store keeps one per bundle id); omitted means
+ * whatever is stored.
+ */
+export interface ReinstallBundleRequest {
+  version?: string;
+}
+
+/** What a bundle reinstall did to the session's live agents. */
+export interface BundleReloadSummary {
+  /** The version the session ran before, when it had one. */
+  previousVersion?: string;
+  version: string;
+  primeRestarted: boolean;
+  /** Sub-agents respawned under the new bundle. */
+  respawned: { id: string; name: string }[];
+  /** Template sub-agents stopped because the new bundle dropped their template. */
+  stopped: { id: string; name: string; template?: string }[];
+}
+
+export interface ReinstallBundleResponse {
+  session: Session;
+  reload: BundleReloadSummary;
+}
+
+/**
  * Body for `PUT /api/sessions/:id/extensions`: replaces the session's
  * global-extension selection. `null` resets it to inherit the bundle policy.
  * Takes effect on each agent's next spawn.

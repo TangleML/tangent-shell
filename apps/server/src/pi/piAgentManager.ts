@@ -179,6 +179,21 @@ export interface SpawnedSubagent {
   autoRelayToPrime: boolean;
 }
 
+/** A sub-agent a bundle reload respawned, with the spawn details to re-persist. */
+export interface ReloadedSubagent {
+  info: SubagentInfo;
+  tools: string[];
+  systemPrompt: string;
+}
+
+/** What {@link PiAgentManager.reloadSession} did to a session's live agents. */
+export interface SessionReload {
+  primeRestarted: boolean;
+  respawned: ReloadedSubagent[];
+  /** Template sub-agents stopped because the new bundle dropped their template. */
+  stopped: { id: string; name: string; template?: string }[];
+}
+
 /** One message to deliver to one agent's stdin. */
 export interface SendToAgentOptions {
   sessionId: string;
@@ -227,6 +242,40 @@ function withModelSelection(
     model: selection.model ?? config.model,
     thinkingDepth: selection.thinkingDepth ?? config.thinkingDepth,
   };
+}
+
+/**
+ * The new bundle default with any user model/thinking override carried over: a
+ * field that differs from what the previous bundle resolved to was chosen by
+ * the user, so it survives; an untouched one follows the new bundle.
+ */
+function carryOverrides(
+  current: AgentConfig,
+  previousDefault: AgentConfig,
+  nextDefault: AgentConfig,
+): AgentConfig {
+  return withModelSelection(nextDefault, {
+    model: current.model !== previousDefault.model ? current.model : undefined,
+    thinkingDepth:
+      current.thinkingDepth !== previousDefault.thinkingDepth
+        ? current.thinkingDepth
+        : undefined,
+  });
+}
+
+/** A template sub-agent's config as a session config's templates resolve it. */
+function templateConfig(
+  agent: AgentProcess,
+  config: ResolvedSessionConfig | undefined,
+): AgentConfig {
+  return resolveSubagentConfig(
+    {
+      name: agent.name,
+      template: agent.template,
+      autoRelayToPrime: agent.autoRelayToPrime,
+    },
+    { templates: config?.templates, defaults: config?.subagentDefaults },
+  );
 }
 
 /** Effective provider/model/thinking for a spawn, with server-default fallback. */
@@ -1147,35 +1196,136 @@ export class PiAgentManager {
     const existing = session?.agents.get(agentId);
     if (!session || !existing) return undefined;
 
-    const descriptor: AgentDescriptor & { template?: string } = {
-      agentId: existing.agentId,
-      role: existing.role,
-      name: existing.name,
-      template: existing.template,
-      homeConversationId: existing.homeConversationId,
-    };
-    const nextConfig = withModelSelection(existing.config, selection);
+    const agent = this.replaceProcess(
+      sessionId,
+      session,
+      existing,
+      withModelSelection(existing.config, selection),
+    );
+    if (!agent) return undefined;
+    return { role: agent.role, info: toSubagentInfo(agent) };
+  }
 
+  /**
+   * Kills an agent's process and spawns its replacement under the same id and
+   * home Conversation with `nextConfig`. Any in-flight turn is settled as
+   * `cancelled`, never left half-relayed.
+   */
+  private replaceProcess(
+    sessionId: string,
+    session: SessionAgents,
+    existing: AgentProcess,
+    nextConfig: AgentConfig,
+  ): AgentProcess | undefined {
     // Quiet the outgoing process so its kill-triggered exit handler doesn't
     // emit a spurious in-flight error for the run we're intentionally cutting,
-    // and mark the kill intentional so the supervisor doesn't auto-respawn it
-    // (we immediately respawn it below with the new settings).
+    // and mark the kill intentional so the supervisor doesn't auto-respawn it.
     existing.busy = false;
     existing.currentMessageId = null;
     existing.aborted = true;
     existing.intentionalKill = true;
     existing.child.kill();
-    // The killed process will never emit `agent_end`, so settle here: the turn
-    // we cut was stopped, not finished.
-    this.runs.settleOpenFor(sessionId, agentId, "cancelled");
+    // The killed process will never emit `agent_end`, so settle here.
+    this.runs.settleOpenFor(sessionId, existing.agentId, "cancelled");
 
-    const agent = this.spawnAgent(sessionId, session, descriptor, nextConfig);
-    if (!agent) return undefined;
-    const info = toSubagentInfo(agent);
-    if (agent.role === "subagent") {
-      this.handlers.onSubagentUpdate(sessionId, info);
+    const agent = this.spawnAgent(
+      sessionId,
+      session,
+      {
+        agentId: existing.agentId,
+        role: existing.role,
+        name: existing.name,
+        template: existing.template,
+        homeConversationId: existing.homeConversationId,
+        autoRelayToPrime: existing.autoRelayToPrime,
+      },
+      nextConfig,
+    );
+    if (agent?.role === "subagent") {
+      this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     }
-    return { role: agent.role, info };
+    return agent;
+  }
+
+  /**
+   * Whether a bundle reload must be refused: an agent is mid-run, or Prime is
+   * still starting (its spawn would read the bundle mid-swap).
+   */
+  isBusy(sessionId: string): boolean {
+    return (
+      this.ensuring.has(sessionId) || this.computeStatus(sessionId) === "busy"
+    );
+  }
+
+  /**
+   * Applies a reinstalled bundle's config to a live session: every Pi agent is
+   * respawned so it reads the new prompts, rules, skills and tools (the global
+   * extension plan is recomputed per spawn). Prime keeps any user model
+   * override. A template sub-agent is re-resolved from the new templates, or
+   * stopped when its template is gone; an inline one keeps its own config.
+   * Agents on other connectors (ACP, A2A) are not this manager's and are left
+   * alone. A session with no live record just picks the config up on its next
+   * spawn, which re-reads the installed tree.
+   */
+  reloadSession(
+    sessionId: string,
+    config: ResolvedSessionConfig,
+  ): SessionReload {
+    const report: SessionReload = {
+      primeRestarted: false,
+      respawned: [],
+      stopped: [],
+    };
+    const session = this.sessions.get(sessionId);
+    if (!session) return report;
+
+    const previous = session.config;
+    session.config = config;
+    for (const agent of [...session.agents.values()]) {
+      if (agent.role === "prime") {
+        const next = carryOverrides(
+          agent.config,
+          previous?.prime ?? getPrimeAgentConfig(),
+          config.prime,
+        );
+        report.primeRestarted = Boolean(
+          this.replaceProcess(sessionId, session, agent, next),
+        );
+        continue;
+      }
+      this.reloadSubagent(sessionId, session, agent, previous, report);
+    }
+    return report;
+  }
+
+  private reloadSubagent(
+    sessionId: string,
+    session: SessionAgents,
+    agent: AgentProcess,
+    previous: ResolvedSessionConfig | undefined,
+    report: SessionReload,
+  ): void {
+    const template = agent.template;
+    if (template && !session.config?.templates.has(template)) {
+      this.killAgent(sessionId, agent.agentId);
+      report.stopped.push({ id: agent.agentId, name: agent.name, template });
+      return;
+    }
+
+    const next = template
+      ? carryOverrides(
+          agent.config,
+          templateConfig(agent, previous),
+          templateConfig(agent, session.config),
+        )
+      : agent.config;
+    const respawned = this.replaceProcess(sessionId, session, agent, next);
+    if (!respawned) return;
+    report.respawned.push({
+      info: toSubagentInfo(respawned),
+      tools: [...respawned.config.tools],
+      systemPrompt: respawned.config.appendSystemPrompt,
+    });
   }
 
   /**

@@ -5,6 +5,7 @@ import { Text } from "@tangent/ui-primitives/typography";
 import { SessionActivityCell } from "@/features/sessions/components/SessionActivityCell";
 import { SessionRowActions } from "@/features/sessions/components/SessionRowActions";
 import { SessionStatusIndicator } from "@/features/sessions/components/SessionStatusIndicator";
+import { useBundleUpdate } from "@/features/sessions/hooks/useBundleUpdate";
 import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { Pill } from "@/shared/ui/patterns/pill";
 import {
@@ -75,15 +76,7 @@ function SessionRow({ session, onOpen }: SessionRowProps) {
         <SessionActivityCell session={session} />
       </TableCell>
       <TableCell>
-        {session.config ? (
-          <Text size="sm" tone="subdued">
-            {session.config.name} v{session.config.version}
-          </Text>
-        ) : (
-          <Text size="sm" tone="subdued">
-            &mdash;
-          </Text>
-        )}
+        <SessionBundleCell session={session} />
       </TableCell>
       <TableCell>
         <HoverReveal>
@@ -91,5 +84,29 @@ function SessionRow({ session, onOpen }: SessionRowProps) {
         </HoverReveal>
       </TableCell>
     </TableRow>
+  );
+}
+
+function SessionBundleCell({ session }: { session: Session }) {
+  const bundleUpdate = useBundleUpdate(session);
+  if (!session.config) {
+    return (
+      <Text size="sm" tone="subdued">
+        &mdash;
+      </Text>
+    );
+  }
+
+  return (
+    <InlineStack gap="2">
+      <Text size="sm" tone="subdued">
+        {session.config.name} v{session.config.version}
+      </Text>
+      {bundleUpdate?.updateAvailable ? (
+        <Pill size="xs" tone="info">
+          v{bundleUpdate.storedVersion} available
+        </Pill>
+      ) : null}
+    </InlineStack>
   );
 }

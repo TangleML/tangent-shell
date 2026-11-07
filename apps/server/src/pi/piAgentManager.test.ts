@@ -23,6 +23,7 @@ import type { AgentRole } from "../memory/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import type { ResolvedSessionConfig } from "./agentConfig.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
 
@@ -874,4 +875,86 @@ test("a sub-agent never gets the recall tools, even when it asks for them", asyn
   assert.equal(loadsRecallExtension(spawns[1]), false);
   assert.equal(spawns[1].env?.TANGENT_SESSION_RECALL, "0");
   assert.doesNotMatch(appendedPrompt(spawns[1]), /## Related sessions/);
+});
+
+/** A bundle config with one Prime prompt and the given sub-agent templates. */
+function bundleConfig(
+  primePrompt: string,
+  templates: Record<string, string>,
+): ResolvedSessionConfig {
+  return {
+    prime: {
+      tools: ["read"],
+      appendSystemPrompt: primePrompt,
+      model: "proxy/bundle-model",
+    },
+    subagentDefaults: {},
+    templates: new Map(
+      Object.entries(templates).map(([name, systemPrompt]) => [
+        name,
+        { name, description: name, tools: ["read"], systemPrompt },
+      ]),
+    ),
+    skillPaths: [],
+    workflowPaths: [],
+    extensionPaths: [],
+  };
+}
+
+test("reloadSession respawns Prime and live sub-agents with the new bundle", async () => {
+  const h = makeManager();
+  const v1 = bundleConfig("prime v1", { scout: "scout v1", gone: "gone v1" });
+  await h.pi.ensure("s1", "/tmp/s1", { config: v1 });
+  const scout = h.pi.spawnSubagent("s1", { name: "Scout", template: "scout" });
+  const gone = h.pi.spawnSubagent("s1", { name: "Old", template: "gone" });
+  const inline = h.pi.spawnSubagent("s1", {
+    name: "Inline",
+    systemPrompt: "inline prompt",
+  });
+  h.pi.setAgentModel("s1", PRIME_AGENT_ID, { model: "proxy/user-pick" });
+  const before = h.spawns.length;
+
+  const reload = h.pi.reloadSession(
+    "s1",
+    bundleConfig("prime v2", { scout: "scout v2" }),
+  );
+
+  assert.equal(reload.primeRestarted, true);
+  assert.deepEqual(
+    reload.respawned.map((agent) => agent.info.id).sort(),
+    [scout.info.id, inline.info.id].sort(),
+  );
+  assert.deepEqual(reload.stopped, [
+    { id: gone.info.id, name: "Old", template: "gone" },
+  ]);
+  const fresh = h.spawns.slice(before);
+  assert.equal(fresh.length, 3, "Prime, the scout and the inline agent");
+  const byId = (id: string) => fresh.find((spawn) => spawn.agentId === id)!;
+  assert.match(appendedPrompt(byId(PRIME_AGENT_ID)), /prime v2/);
+  assert.match(appendedPrompt(byId(scout.info.id)), /scout v2/);
+  assert.match(appendedPrompt(byId(inline.info.id)), /inline prompt/);
+  assert.equal(
+    h.pi.getAgentSelection("s1", PRIME_AGENT_ID)?.model,
+    "proxy/user-pick",
+    "a user model override survives the reload",
+  );
+  assert.equal(h.pi.hasAgent("s1", gone.info.id), false);
+  assert.ok(
+    h.rosterUpdates.some((u) => u.id === gone.info.id && u.status === "killed"),
+  );
+});
+
+test("reloadSession cancels a run it cuts instead of leaving it open", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1", { config: bundleConfig("v1", {}) });
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "go" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+  assert.equal(h.pi.isBusy("s1"), true, "a mid-run session reads busy");
+
+  h.pi.reloadSession("s1", bundleConfig("v2", {}));
+  await flush();
+
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
+  assert.equal(h.pi.isBusy("s1"), false);
 });

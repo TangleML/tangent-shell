@@ -118,6 +118,16 @@ export class TriggerEngine {
     this.arm(sessionId, rootPath);
   }
 
+  /** Reconciles a reinstalled bundle's triggers, then re-arms and broadcasts. */
+  reseed(
+    sessionId: string,
+    rootPath: string,
+    bundleTriggers: BundleTrigger[] | undefined,
+  ): void {
+    this.triggers.reconcileBundle(sessionId, rootPath, bundleTriggers);
+    this.afterChange(sessionId, rootPath);
+  }
+
   /**
    * Loads (if needed) and arms a session's schedules. Idempotent — safe to call
    * on chat join to re-arm after a server restart.
