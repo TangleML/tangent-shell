@@ -114,7 +114,10 @@ Steps in detail:
    self-contained IIFE (`globalName: "__tgHandler"`) under
    `.tangent/triggers/<name>.js`. A missing/uncompilable handler fails the
    install rather than failing at fire time.
-5. **`ResolvedSessionConfig`** is assembled: `prime` (tools via
+5. **`writeInstallRecord`** writes `.tangent/.install.json`: the top-level
+   `.tangent/` entries, root files (`AGENTS.md`, context files) and seed memory
+   files this install owns. A reinstall reads it to know what it may replace.
+6. **`ResolvedSessionConfig`** is assembled: `prime` (tools via
    `resolvePrimeTools` — the manifest tools unioned with the shared and Prime-only
    groups, including the trigger tools, so a bundle never re-declares them; prompt
    via `composePrimePrompt`, which prepends the always-on `primeSystemPrompt.md` manual
@@ -141,6 +144,46 @@ Both create-session paths share `createSessionFromBundle`
 
 On any install error the just-created session is deleted so a failed upload
 leaves nothing half-provisioned.
+
+---
+
+## Reinstalling a bundle into a live session
+
+`POST /api/sessions/:id/bundle/reinstall` (optional body `{ version }`)
+re-installs the session's stored bundle into its existing root and restarts its
+agents, so an edited bundle reaches a running session without starting a new one
+([routes/sessions/bundleReinstall.ts](../../apps/server/src/routes/sessions/bundleReinstall.ts)).
+The store keeps one version per bundle id, so `version` only pins the expected
+stored version (any other answers `409`).
+
+- **Who:** the session owner (its creator; anyone when it has none because auth
+  is off) or an admin. Others get `403`.
+- **Busy policy:** refused with `409` while any Pi agent is mid-run or Prime is
+  still starting, checked before staging and again just before the swap. A
+  reinstall never waits on a run: the user stops it or retries.
+- **Stage, then swap** ([pi/config/bundleReinstall.ts](../../apps/server/src/pi/config/bundleReinstall.ts)):
+  `installBundle` runs into a scratch root `<root>/.tangent-staging-*` (trigger
+  compile included), so a bad bundle leaves the session untouched. The commit
+  then moves aside each entry the previous install owned (its install record, or
+  for older sessions every `.tangent/` entry but the runtime ones plus `AGENTS.md`
+  and the manifest's context files) and renames the staged one in; failures roll
+  back. `.tangent/` itself never moves.
+- **Preserved:** runtime `.tangent/` entries (`chats/`, `triggers.json`),
+  `MEMORY.md`, seed memory files (only missing seeds are added), `artifacts/`,
+  `uploads/`, mounts and every other workspace file.
+- **Re-resolved:** the session's `config` metadata (`attachConfig`), bundle
+  triggers (reconciled by name: refreshed in place keeping id, secret, enable
+  toggle and target; dropped ones removed; runtime triggers untouched).
+- **Agents:** `PiAgentManager.reloadSession` respawns Prime and every live Pi
+  sub-agent through the normal spawn path, so prompts and skill/workflow/extension
+  paths are recomputed. A user's model/thinking override is kept, and the
+  restarted Prime's next prompt carries the existing resume notice. Template sub-agents are re-resolved from the new templates
+  (and re-recorded for revive); one whose template was removed is stopped.
+  Inline sub-agents keep their own prompt and tools. ACP/A2A agents are not Pi
+  processes and are left alone.
+- **Note:** a non-waking system message in Prime's home Conversation ("Bundle X
+  updated to 1.0.0 → 2.0.0. Prime restarted…") tells the user and the restarted
+  Prime what happened; Prime recovers context via `read_memory` / `read_room`.
 
 ---
 
