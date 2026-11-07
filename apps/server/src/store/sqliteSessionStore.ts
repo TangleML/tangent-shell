@@ -431,47 +431,25 @@ export class SqliteSessionStore implements SessionStore {
     sessionId: string,
     artifact: { path: string; title: string },
   ): Promise<PinnedArtifact[]> {
-    // Re-pinning a known path refreshes its title in place (keeping its row id,
-    // hence its oldest-first position and original pinnedAt); a new path appends.
-    this.db
-      .insert(sessionAssets)
-      .values({
-        sessionId,
-        path: artifact.path,
-        title: artifact.title,
-        pinnedAt: new Date().toISOString(),
-      })
-      .onConflictDoUpdate({
-        target: [sessionAssets.sessionId, sessionAssets.path],
-        set: { title: artifact.title },
-      })
-      .run();
-    // Mirror the pin into the resource catalog so an artifact is citable
-    // content; the pin row stays authoritative for the asset list.
-    await this.resources?.catalog({
-      sessionId,
-      kind: "artifact",
-      name: artifact.title,
-      uri: artifact.path,
-    });
-    return this.readArtifacts(sessionId);
+    return this.pin(sessionId, "artifact", artifact.path, artifact.title);
   }
 
   async unpinArtifact(
     sessionId: string,
     artifactPath: string,
   ): Promise<PinnedArtifact[]> {
-    this.db
-      .delete(sessionAssets)
-      .where(
-        and(
-          eq(sessionAssets.sessionId, sessionId),
-          eq(sessionAssets.path, artifactPath),
-        ),
-      )
-      .run();
-    await this.resources?.remove(sessionId, artifactPath);
-    return this.readArtifacts(sessionId);
+    return this.unpin(sessionId, "artifact", artifactPath);
+  }
+
+  async pinLink(
+    sessionId: string,
+    link: { url: string; title: string },
+  ): Promise<PinnedArtifact[]> {
+    return this.pin(sessionId, "link", link.url, link.title);
+  }
+
+  async unpinLink(sessionId: string, url: string): Promise<PinnedArtifact[]> {
+    return this.unpin(sessionId, "link", url);
   }
 
   async recordAgent(
@@ -770,7 +748,62 @@ export class SqliteSessionStore implements SessionStore {
     return row.rootPath;
   }
 
-  /** Reads a session's pinned assets as wire {@link PinnedArtifact}s, oldest first. */
+  /**
+   * Upserts a pin row keyed by `(session, target)`. Re-pinning a known target
+   * refreshes its title in place (keeping its row id, hence its oldest-first
+   * position and original pinnedAt); a new target appends. The pin is mirrored
+   * into the resource catalog so it is citable content; the pin row stays
+   * authoritative for the asset list.
+   */
+  private async pin(
+    sessionId: string,
+    kind: PinnedArtifact["kind"],
+    target: string,
+    title: string,
+  ): Promise<PinnedArtifact[]> {
+    this.db
+      .insert(sessionAssets)
+      .values({
+        sessionId,
+        kind,
+        path: target,
+        title,
+        pinnedAt: new Date().toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: [sessionAssets.sessionId, sessionAssets.path],
+        set: { kind, title },
+      })
+      .run();
+    await this.resources?.catalog({
+      sessionId,
+      kind,
+      name: title,
+      uri: target,
+    });
+    return this.readArtifacts(sessionId);
+  }
+
+  private async unpin(
+    sessionId: string,
+    kind: PinnedArtifact["kind"],
+    target: string,
+  ): Promise<PinnedArtifact[]> {
+    const result = this.db
+      .delete(sessionAssets)
+      .where(
+        and(
+          eq(sessionAssets.sessionId, sessionId),
+          eq(sessionAssets.kind, kind),
+          eq(sessionAssets.path, target),
+        ),
+      )
+      .run();
+    if (result.changes > 0) await this.resources?.remove(sessionId, target);
+    return this.readArtifacts(sessionId);
+  }
+
+  /** Reads a session's pins as wire {@link PinnedArtifact}s, oldest first. */
   private readArtifacts(sessionId: string): PinnedArtifact[] {
     const rows = this.db
       .select()
@@ -778,10 +811,20 @@ export class SqliteSessionStore implements SessionStore {
       .where(eq(sessionAssets.sessionId, sessionId))
       .orderBy(asc(sessionAssets.id))
       .all();
-    return rows.map((row) => ({
-      path: row.path,
-      title: row.title,
-      pinnedAt: row.pinnedAt,
-    }));
+    return rows.map((row) =>
+      row.kind === "link"
+        ? {
+            kind: "link",
+            url: row.path,
+            title: row.title,
+            pinnedAt: row.pinnedAt,
+          }
+        : {
+            kind: "artifact",
+            path: row.path,
+            title: row.title,
+            pinnedAt: row.pinnedAt,
+          },
+    );
   }
 }

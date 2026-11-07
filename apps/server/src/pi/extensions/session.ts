@@ -94,6 +94,42 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "pin_link",
+    label: "Pin Link",
+    description:
+      "Pin an external web link (a PR, issue, doc, dashboard, build, or any " +
+      "other http(s) page) so it stays quickly accessible in the session's UI " +
+      "sidebar. The user opens it directly in a new browser tab. Use this " +
+      "whenever the user asks to pin or save a URL as a session resource; do " +
+      "NOT write a wrapper file and pin that with `pin_artifact`. Only " +
+      "absolute http(s) URLs without credentials are accepted. Re-pinning the " +
+      "same URL just updates its title.",
+    promptSnippet: "Pin this external link (PR, doc, dashboard) to the UI",
+    parameters: Type.Object({
+      url: Type.String({
+        description:
+          "Absolute http(s) URL, e.g. `https://github.com/org/repo/pull/123`.",
+      }),
+      title: Type.Optional(
+        Type.String({
+          description:
+            "Short, human-readable label shown in the UI, e.g. `PR #123: Fix " +
+            "login`. Defaults to the URL's host.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      await callApi("POST", "pin-link", {
+        sessionId: SESSION_ID,
+        url: params.url,
+        title: params.title,
+      });
+      const label = params.title?.trim() || params.url;
+      return textResult(`Pinned link "${label}" to the UI.`);
+    },
+  });
+
   // Renaming the session is a Prime-only concern; sub-agents get nothing.
   if (ROLE !== "prime") return;
 

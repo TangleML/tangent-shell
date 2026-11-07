@@ -2,7 +2,8 @@ import { Box } from "@tangent/ui-primitives/box";
 
 import { AssetList } from "@/features/chat/components/sidebar/assets/AssetList";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
-import { type Asset, buildAssets } from "@/features/chat/model/assets";
+import { buildAssets, type TabAsset } from "@/features/chat/model/assets";
+import { linkUrlOf } from "@/features/chat/model/pins";
 import { ScrollRegion } from "@/shared/ui/patterns/scroll-region";
 
 import type { EmbedAssetPayload } from "../types";
@@ -14,7 +15,7 @@ interface EmbeddedAssetListProps {
   onUnpin: (path: string) => void;
 }
 
-function toPayload(asset: Asset): EmbedAssetPayload {
+function toPayload(asset: TabAsset): EmbedAssetPayload {
   if (asset.kind === "trigger") {
     return {
       kind: "trigger",
@@ -34,9 +35,11 @@ function toPayload(asset: Asset): EmbedAssetPayload {
 }
 
 /**
- * The embedded asset list: pinned pages/files and triggers. Opening a row
- * emits `onOpen` so the host can place an artifact viewer (or ignore a
- * trigger); unpin goes through the shared session room and notifies the host.
+ * The embedded asset list: pinned pages/files/links and triggers. Opening a
+ * page/file/trigger row emits `onOpen` so the host can place an artifact viewer
+ * (or ignore a trigger); a link row opens its URL in a new tab by itself. Unpin
+ * goes through the shared session room; an artifact unpin notifies the host so
+ * it can close a matching viewer (links have none).
  */
 export function EmbeddedAssetList({
   sessionId,
@@ -59,9 +62,9 @@ export function EmbeddedAssetList({
           assets={assets}
           selectedId={selectedId ?? null}
           onOpen={(asset) => onOpen(toPayload(asset))}
-          onUnpin={(path) => {
-            chat.unpinArtifact(path);
-            onUnpin(path);
+          onUnpin={(key) => {
+            chat.unpin(key);
+            if (!linkUrlOf(key)) onUnpin(key);
           }}
         />
       </Box>

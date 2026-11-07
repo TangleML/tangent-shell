@@ -16,6 +16,8 @@ import {
   type ChatMessagePayload,
   type ConversationHistoryPayload,
   type ConversationSubscribePayload,
+  type LinkPinPayload,
+  type LinkUnpinPayload,
   type MemoryConfirmPayload,
   type MemoryDismissPayload,
   type MemorySuggestionPayload,
@@ -178,6 +180,20 @@ class SessionChatRoom {
     if (!socket) return;
     const payload: ArtifactUnpinPayload = { sessionId: this.sessionId, path };
     socket.emit(SocketEvents.ArtifactUnpin, payload);
+  }
+
+  pinLink(url: string, title: string): void {
+    const socket = this.socket;
+    if (!socket) return;
+    const payload: LinkPinPayload = { sessionId: this.sessionId, url, title };
+    socket.emit(SocketEvents.LinkPin, payload);
+  }
+
+  unpinLink(url: string): void {
+    const socket = this.socket;
+    if (!socket) return;
+    const payload: LinkUnpinPayload = { sessionId: this.sessionId, url };
+    socket.emit(SocketEvents.LinkUnpin, payload);
   }
 
   dismissSubagent(id: string): void {

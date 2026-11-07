@@ -7,6 +7,7 @@ import {
 } from "@tangent/shared/contracts";
 import { useSyncExternalStore } from "react";
 
+import { linkUrlOf, pinKey } from "@/features/chat/model/pins";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 
 import {
@@ -49,7 +50,27 @@ export function useSessionChat(sessionId: string) {
     () => (sessionId ? peekSessionChat(sessionId) : EMPTY_SESSION_CHAT),
     () => EMPTY_SESSION_CHAT,
   );
-  const pinnedPaths = new Set(snapshot.artifacts.map((a) => a.path));
+  const pinnedPaths = new Set(snapshot.artifacts.map(pinKey));
+
+  // Pin keys are artifact paths or link URLs (see `pinKey`), so one toggle and
+  // one unpin serve both chips/links in chat and the sidebar list.
+  function unpin(key: string): void {
+    const room = peekSessionChatRoom(sessionId);
+    const url = linkUrlOf(key);
+    if (url) room?.unpinLink(url);
+    else room?.unpinArtifact(key);
+  }
+
+  function togglePin(key: string, title: string): void {
+    if (pinnedPaths.has(key)) {
+      unpin(key);
+      return;
+    }
+    const room = peekSessionChatRoom(sessionId);
+    const url = linkUrlOf(key);
+    if (url) room?.pinLink(url, title);
+    else room?.pinArtifact(key, title);
+  }
 
   function messagesFor(conversationId: string): ChatMessage[] {
     return snapshot.messagesByConversation.get(conversationId) ?? NO_MESSAGES;
@@ -79,10 +100,8 @@ export function useSessionChat(sessionId: string) {
     triggers: snapshot.triggers,
     artifacts: snapshot.artifacts,
     pinnedPaths,
-    pinArtifact: (path: string, title: string) =>
-      peekSessionChatRoom(sessionId)?.pinArtifact(path, title),
-    unpinArtifact: (path: string) =>
-      peekSessionChatRoom(sessionId)?.unpinArtifact(path),
+    togglePin,
+    unpin,
     connected: snapshot.connected,
     historyLoaded: snapshot.historyLoaded,
     rosterReady: snapshot.rosterReady,

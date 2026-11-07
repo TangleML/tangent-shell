@@ -105,7 +105,8 @@ export type EmbedResourceKind =
   | "attachment"
   | "artifact"
   | "host"
-  | "mount";
+  | "mount"
+  | "link";
 
 /**
  * A catalogued piece of content in a session, as returned to the host. The

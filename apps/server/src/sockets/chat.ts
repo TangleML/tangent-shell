@@ -11,6 +11,8 @@ import {
   type ConversationSubscribePayload,
   DEFAULT_USER,
   humanAuthor,
+  type LinkPinPayload,
+  type LinkUnpinPayload,
   type MemoryConfirmPayload,
   type MemoryDismissPayload,
   PI_AGENT,
@@ -37,6 +39,8 @@ import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 import {
   handleArtifactPin,
   handleArtifactUnpin,
+  handleLinkPin,
+  handleLinkUnpin,
   replayArtifacts,
 } from "./chatArtifacts.ts";
 import {
@@ -168,6 +172,14 @@ function wireMemoryAndArtifacts(socket: Socket, deps: ChatHandlerDeps): void {
 
   socket.on(SocketEvents.ArtifactUnpin, (payload: ArtifactUnpinPayload) =>
     handleArtifactUnpin(store, emitUiCommand, payload),
+  );
+
+  socket.on(SocketEvents.LinkPin, (payload: LinkPinPayload) =>
+    handleLinkPin(store, emitUiCommand, payload),
+  );
+
+  socket.on(SocketEvents.LinkUnpin, (payload: LinkUnpinPayload) =>
+    handleLinkUnpin(store, emitUiCommand, payload),
   );
 
   // Subscribe to the sessions lobby: join the shared room (so future status

@@ -58,6 +58,11 @@ function mergeConnector(
   return agent.connector ?? prior?.connector ?? connectorFor("pi-stdio");
 }
 
+/** A pin's dedupe key: an artifact's path or a link's URL. */
+function pinTarget(pin: PinnedArtifact): string {
+  return pin.kind === "link" ? pin.url : pin.path;
+}
+
 /**
  * Builds the next stored agent. Mirrors the SQLite store's upsert semantics:
  * an omitted (undefined) field leaves the prior value untouched, so a partial
@@ -272,36 +277,75 @@ export class InMemorySessionStore implements SessionStore {
     sessionId: string,
     artifact: { path: string; title: string },
   ): Promise<PinnedArtifact[]> {
-    const existing = this.artifacts.get(sessionId) ?? [];
-    // Re-pinning a known path refreshes its title in place (preserving order);
-    // a new path appends to the end so the list reads oldest-first.
-    const prior = existing.find((a) => a.path === artifact.path);
-    const next: PinnedArtifact = {
+    return this.pin(sessionId, {
+      kind: "artifact",
       path: artifact.path,
       title: artifact.title,
-      pinnedAt: prior?.pinnedAt ?? new Date().toISOString(),
-    };
-    const updated = prior
-      ? existing.map((a) => (a.path === artifact.path ? next : a))
-      : [...existing, next];
-    this.artifacts.set(sessionId, updated);
-    await this.resources?.catalog({
-      sessionId,
-      kind: "artifact",
-      name: artifact.title,
-      uri: artifact.path,
+      pinnedAt: new Date().toISOString(),
     });
-    return updated;
   }
 
   async unpinArtifact(
     sessionId: string,
     path: string,
   ): Promise<PinnedArtifact[]> {
+    return this.unpin(sessionId, "artifact", path);
+  }
+
+  async pinLink(
+    sessionId: string,
+    link: { url: string; title: string },
+  ): Promise<PinnedArtifact[]> {
+    return this.pin(sessionId, {
+      kind: "link",
+      url: link.url,
+      title: link.title,
+      pinnedAt: new Date().toISOString(),
+    });
+  }
+
+  async unpinLink(sessionId: string, url: string): Promise<PinnedArtifact[]> {
+    return this.unpin(sessionId, "link", url);
+  }
+
+  /**
+   * Re-pinning a known target refreshes its title in place (preserving order
+   * and pinnedAt); a new target appends so the list reads oldest-first.
+   */
+  private async pin(
+    sessionId: string,
+    pin: PinnedArtifact,
+  ): Promise<PinnedArtifact[]> {
     const existing = this.artifacts.get(sessionId) ?? [];
-    const updated = existing.filter((a) => a.path !== path);
+    const target = pinTarget(pin);
+    const prior = existing.find((a) => pinTarget(a) === target);
+    const next = { ...pin, pinnedAt: prior?.pinnedAt ?? pin.pinnedAt };
+    const updated = prior
+      ? existing.map((a) => (a === prior ? next : a))
+      : [...existing, next];
     this.artifacts.set(sessionId, updated);
-    await this.resources?.remove(sessionId, path);
+    await this.resources?.catalog({
+      sessionId,
+      kind: pin.kind,
+      name: pin.title,
+      uri: target,
+    });
+    return updated;
+  }
+
+  private async unpin(
+    sessionId: string,
+    kind: PinnedArtifact["kind"],
+    target: string,
+  ): Promise<PinnedArtifact[]> {
+    const existing = this.artifacts.get(sessionId) ?? [];
+    const updated = existing.filter(
+      (a) => a.kind !== kind || pinTarget(a) !== target,
+    );
+    this.artifacts.set(sessionId, updated);
+    if (updated.length < existing.length) {
+      await this.resources?.remove(sessionId, target);
+    }
     return updated;
   }
 

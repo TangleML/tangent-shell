@@ -9,6 +9,7 @@ export const RESOURCE_ICON: Record<ResourceKind, IconName> = {
   memory: "Brain",
   host: "Link",
   mount: "FolderSymlink",
+  link: "Link",
 };
 
 /** Human-readable label for a resource's kind, shown as its subtitle. */
@@ -26,6 +27,8 @@ export function resourceKindLabel(kind: ResourceKind): string {
       return "Host";
     case "mount":
       return "Shared folder";
+    case "link":
+      return "Link";
   }
 }
 

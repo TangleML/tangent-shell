@@ -12,7 +12,8 @@ import { isViewableArtifact, resolveUrl } from "@/shared/lib/markdown/artifact";
  *
  * `page` and `file` are both pinned artifacts: `page` is browser-viewable
  * (HTML, PDF, image, text) and opens in a sandboxed iframe tab, while `file`
- * is any other artifact (opened/downloaded in a new browser tab).
+ * is any other artifact (opened/downloaded in a new browser tab). A `link` is a
+ * pinned external URL; it never opens a tab, its card navigates directly.
  */
 export type Asset =
   | {
@@ -36,12 +37,24 @@ export type Asset =
       path: string;
     }
   | {
+      kind: "link";
+      /** Stable identity: the canonical URL (also used to unpin). */
+      id: string;
+      title: string;
+      url: string;
+      /** The URL's host, shown as the card's subtitle. */
+      host: string;
+    }
+  | {
       kind: "trigger";
       /** Stable identity: the trigger id. */
       id: string;
       title: string;
       trigger: Trigger;
     };
+
+/** An asset that opens in its own in-app tab (everything but a `link`). */
+export type TabAsset = Exclude<Asset, { kind: "link" }>;
 
 /** Discriminant union of every asset kind, including reserved future kinds. */
 export type AssetKind = Asset["kind"] | "app";
@@ -50,6 +63,7 @@ export type AssetKind = Asset["kind"] | "app";
 export const ASSET_ICON: Record<AssetKind, IconName> = {
   page: "FileText",
   file: "Paperclip",
+  link: "Link",
   trigger: "Zap",
   app: "AppWindow",
 };
@@ -70,6 +84,8 @@ export function assetSubtitle(asset: Asset): string {
       return "Page";
     case "file":
       return "File";
+    case "link":
+      return asset.host;
     case "trigger":
       return triggerSubtitle(asset.trigger);
   }
@@ -82,9 +98,9 @@ interface BuildAssetsArgs {
 }
 
 /**
- * Projects the session's pinned artifacts and triggers into a single, uniform
- * list of {@link Asset}s. Artifacts come first (most recently pinned ordering
- * is preserved from the server), then triggers. No server state is added here;
+ * Projects the session's pinned artifacts, links, and triggers into a single,
+ * uniform list of {@link Asset}s. Pins come first (most recently pinned
+ * ordering is preserved from the server), then triggers. No server state is added here;
  * this is a pure view-model derivation.
  */
 export function buildAssets({
@@ -95,6 +111,15 @@ export function buildAssets({
   const base = apiUrl(`/api/sessions/${sessionId}/files`);
 
   const artifactAssets: Asset[] = artifacts.map((artifact) => {
+    if (artifact.kind === "link") {
+      return {
+        kind: "link",
+        id: artifact.url,
+        title: artifact.title,
+        url: artifact.url,
+        host: new URL(artifact.url).host,
+      };
+    }
     const url = resolveUrl(artifact.path, base) ?? artifact.path;
     return {
       kind: isViewableArtifact(artifact.path) ? "page" : "file",

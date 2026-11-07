@@ -711,3 +711,21 @@ test("pinning an artifact mirrors it into the resource catalog", async () => {
   await store.unpinArtifact(session.id, "artifacts/report.html");
   assert.equal((await resources.listForSession(session.id)).length, 0);
 });
+
+test("a pin row written before session_assets.kind existed reads as an artifact", async () => {
+  const db = openDb(":memory:");
+  const store = new SqliteSessionStore(db);
+  const session = await store.createSession({ name: "S" });
+  db.run(
+    sql`INSERT INTO session_assets (session_id, path, title, pinned_at) VALUES (${session.id}, 'artifacts/old.html', 'Old', '2026-01-01T00:00:00.000Z')`,
+  );
+
+  assert.deepEqual(await store.getArtifacts(session.id), [
+    {
+      kind: "artifact",
+      path: "artifacts/old.html",
+      title: "Old",
+      pinnedAt: "2026-01-01T00:00:00.000Z",
+    },
+  ]);
+});
