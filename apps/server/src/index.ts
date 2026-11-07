@@ -2,7 +2,7 @@ import "./loadEnv.ts";
 
 import { createServer } from "node:http";
 
-import { SocketEvents } from "@tangent/shared/contracts.ts";
+import { SocketEvents, SYSTEM_AUTHOR } from "@tangent/shared/contracts.ts";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
@@ -450,6 +450,15 @@ app.use(
       context: contextEngine,
     },
     remoteGateway,
+    async (sessionId, conversationId, content) => {
+      await conversations.post({
+        sessionId,
+        conversationId,
+        author: SYSTEM_AUTHOR,
+        content,
+        provokes: false,
+      });
+    },
   ),
 );
 app.use(

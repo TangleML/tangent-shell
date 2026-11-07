@@ -12,6 +12,10 @@ import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SharedFolderStore } from "../../store/sharedFolderStore.ts";
 import {
+  registerBundleRoutes,
+  type SystemNotePoster,
+} from "./bundleReinstall.ts";
+import {
   type EnvironmentLister,
   registerEnvironmentRoutes,
 } from "./environments.ts";
@@ -149,6 +153,7 @@ export function createSessionsRouter(
   emitResourcesUpdated: (sessionId: string) => void,
   workflow: WorkflowRouteDeps,
   environments: EnvironmentLister,
+  postSystemNote: SystemNotePoster,
 ): Router {
   const router = Router();
 
@@ -167,6 +172,13 @@ export function createSessionsRouter(
   registerSessionCollectionRoutes(router, createDeps);
   registerSessionItemRoutes(router, store, pi, triggerEngine);
   registerSessionActivityRoutes(router, store);
+  registerBundleRoutes(router, {
+    store,
+    pi,
+    triggerEngine,
+    agentBundleStore,
+    postSystemNote,
+  });
   registerTriggerRoutes(router, store, triggers, triggerEngine);
   registerParticipantRoutes(router, store, participants);
   registerEnvironmentRoutes(router, store, environments);

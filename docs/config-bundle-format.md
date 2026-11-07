@@ -256,3 +256,12 @@ Agents have two live, mutable memory stores in addition to any seed files:
 - **`version`** is the bundle author's own semver for their preset and has no
   bearing on `schemaVersion`. The marketplace may use it to dedupe or order
   multiple revisions of the same `id`.
+- **Updating live sessions.** A session keeps the copy it was created from.
+  After you upload a new `version`, its owner can apply it from the session
+  actions menu ("Update bundle"), which calls
+  `POST /api/sessions/:id/bundle/reinstall`. Bundle files (prompts, rules,
+  skills, agents, tools, triggers, `contextFiles`) are replaced; the session's
+  chats, `MEMORY.md`, already-seeded `memory/` files, artifacts and workspace
+  files are kept, and Prime plus its sub-agents restart. Declared triggers are
+  matched by `name`, so keep names stable to preserve callback URLs. See
+  [server/configuration-bundles.md](./server/configuration-bundles.md#reinstalling-a-bundle-into-a-live-session).
