@@ -257,7 +257,9 @@ would for `<AgentList onOpen>`) and `onRemoveAgent` to close that tab.
 #### Referencing things with `#`
 
 Typing `#` in the composer lists the session's pinned files plus any
-`references` you pass, grouped by kind. Picking one inserts a readable token
+`references` you pass, grouped by kind. Each kind shows a few items in the
+order you give them (so list the most recent first), and typing narrows the
+list, closest name matches first; a group with more says how many. Picking one inserts a readable token
 such as `#Churn-model`; on send it becomes the markdown link `[label](href)`, so
 the agent receives an address it can act on. Give each reference an `href` your
 agent understands (for example `pipeline://id/abc`) and register an anchor
