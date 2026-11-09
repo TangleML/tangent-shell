@@ -1,5 +1,4 @@
 import { BlockStack } from "@tangent/ui-primitives/layout";
-import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 
 import {
@@ -20,6 +19,7 @@ import { MessageHeader } from "./MessageHeader";
 import { MessageLayout } from "./MessageLayout";
 import { originLabelFor } from "./messageOrigin";
 import { roleLabelFor } from "./messageRole";
+import { MessageText } from "./MessageText";
 import { ReportMessage } from "./ReportMessage";
 import { ThinkingOnlyMessage } from "./ThinkingOnlyMessage";
 
@@ -152,13 +152,13 @@ function ChatMessageContent({
           </Markdown>
         </BlockStack>
       ) : (
-        <Paragraph
-          size="sm"
-          wrap="pre-wrap"
+        <MessageText
+          content={message.content}
+          sessionId={sessionId}
+          messageId={message.id}
           tone={isOwn ? "on-primary" : undefined}
-        >
-          {message.content}
-        </Paragraph>
+          onOpenArtifact={onOpenArtifact}
+        />
       )}
       {attachments.length > 0 ? (
         <MessageAttachments sessionId={sessionId} attachments={attachments} />
