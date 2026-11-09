@@ -8,6 +8,7 @@ import { uploadFiles } from "@/features/sessions/api/sessionsApi";
 import {
   isMarkdownArtifact,
   isPdfArtifact,
+  isTextArtifact,
 } from "@/shared/lib/markdown/artifact";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 
@@ -16,6 +17,7 @@ import { ArtifactMarkdownContent } from "./ArtifactMarkdownContent";
 import { ArtifactReviewOverlay } from "./ArtifactReviewOverlay";
 import { IframeArtifactBody } from "./IframeArtifactBody";
 import { PdfArtifactBody } from "./PdfArtifactBody";
+import { TextArtifactBody } from "./TextArtifactBody";
 
 interface ArtifactTabViewProps {
   /** Session that owns the artifact; review screenshots upload into it. */
@@ -36,9 +38,10 @@ interface FrozenArtifact {
 
 /**
  * Viewer for an opened "page" artifact. The body is routed by artifact type to
- * a dedicated renderer: Markdown ({@link ArtifactMarkdownContent}), PDF
- * ({@link PdfArtifactBody}, an un-sandboxed `<object>`), or everything else
- * ({@link IframeArtifactBody}, a sandboxed iframe).
+ * a dedicated renderer: Markdown ({@link ArtifactMarkdownContent}), plain text
+ * ({@link TextArtifactBody}), PDF ({@link PdfArtifactBody}, an un-sandboxed
+ * `<object>`), or everything else ({@link IframeArtifactBody}, a sandboxed
+ * iframe).
  *
  * A "Review" action captures the current tab, crops the shot to the viewer's
  * box, and hands it to {@link ArtifactReviewOverlay} so the user can select a
@@ -64,6 +67,8 @@ export function ArtifactTabView({
     switch (true) {
       case isMarkdownArtifact(url):
         return <ArtifactMarkdownContent sessionId={sessionId} url={url} />;
+      case isTextArtifact(url):
+        return <TextArtifactBody url={url} />;
       case isPdfArtifact(url):
         return <PdfArtifactBody url={url} title={title} />;
       default:
