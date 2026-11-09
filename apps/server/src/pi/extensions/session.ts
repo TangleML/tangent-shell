@@ -63,13 +63,15 @@ export default function (pi: ExtensionAPI) {
     name: "pin_artifact",
     label: "Pin Artifact",
     description:
-      "Pin an artifact so it stays quickly accessible in the session's UI " +
-      "sidebar. Use this after writing a user-facing file into the session's " +
-      "`artifacts/` folder (e.g. a report, chart, or page) so the user can " +
-      "reopen it without scrolling the chat. Pass the artifact's path relative " +
-      "to your workspace root (e.g. `artifacts/report.html`). Re-pinning the " +
-      "same path just updates its title.",
-    promptSnippet: "Pin this artifact to the UI for quick access",
+      "Pin a finished deliverable so it shows in the project's reports and " +
+      "the chat's files. Pin only polished work the user asked for and " +
+      "could share as is, such as a report, page, deck or summary. Don't pin " +
+      "evidence, exports, source dumps, notes, plans or drafts: every file " +
+      "in `artifacts/` is already listed for the user without a pin. Pass " +
+      "the artifact's path relative to your workspace root (e.g. " +
+      "`artifacts/report.html`). Re-pinning the same path just updates its " +
+      "title.",
+    promptSnippet: "Pin a finished deliverable to the project's reports",
     parameters: Type.Object({
       path: Type.String({
         description:
