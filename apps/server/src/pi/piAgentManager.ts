@@ -97,6 +97,11 @@ const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
 
+const RESUME_NOTICE =
+  "[Tangent: your process was restarted, so this session's earlier messages are " +
+  "not in your context. Before you respond, recover them with `read_memory` and " +
+  '`read_room`, as described under "Resuming a session".]';
+
 /** Shared arguments passed to each per-event-type handler in the dispatch table. */
 interface EventContext {
   sessionId: string;
@@ -739,6 +744,7 @@ function buildAgentProcess(
     intentionalKill: false,
     restartCount: supervision?.restartCount ?? 0,
     lastRestartAt: supervision?.lastRestartAt ?? null,
+    resumeNoticePending: false,
   };
 }
 
@@ -781,6 +787,8 @@ export class PiAgentManager {
   /** Prime spawns awaiting memory resolution, so concurrent {@link ensure}
    * calls share one; cleared by {@link dispose} to cancel a pending spawn. */
   private readonly ensuring = new Map<string, Promise<void>>();
+  private hasTranscript: (sessionId: string) => Promise<boolean> = async () =>
+    false;
 
   constructor(
     handlers: ConversationEventSink,
@@ -894,13 +902,13 @@ export class PiAgentManager {
     const pending = this.ensuring.get(sessionId);
     if (pending) return pending;
 
-    const run: Promise<void> = this.resolveSessionMemory(
-      sessionId,
-      rootPath,
-    ).then((memory) => {
+    const run: Promise<void> = Promise.all([
+      this.resolveSessionMemory(sessionId, rootPath),
+      this.transcriptExists(sessionId),
+    ]).then(([memory, hadTranscript]) => {
       if (this.ensuring.get(sessionId) !== run) return;
       this.ensuring.delete(sessionId);
-      this.spawnPrime(sessionId, rootPath, memory, options);
+      this.spawnPrime(sessionId, rootPath, memory, options, hadTranscript);
     });
     this.ensuring.set(sessionId, run);
     return run;
@@ -912,6 +920,7 @@ export class PiAgentManager {
     rootPath: string,
     memory: ResolvedMemory,
     options: PrimeSpawnOptions,
+    hadTranscript: boolean,
   ): void {
     const existing = this.sessions.get(sessionId);
     if (existing?.agents.has(PRIME_AGENT_ID)) return;
@@ -931,6 +940,7 @@ export class PiAgentManager {
       options.env,
       memory,
     );
+    noteTranscript(session, hadTranscript);
 
     // Prepare memory before the first spawn so the preamble reflects any
     // bundle-seeded session memory and the current global store.
@@ -1207,10 +1217,15 @@ export class PiAgentManager {
     delivery: MessageDelivery,
   ): void {
     const wasBusy = agent.busy;
+    const message = agent.resumeNoticePending
+      ? `${RESUME_NOTICE}\n\n${text}`
+      : text;
+    agent.resumeNoticePending = false;
+    if (agent.role === "prime") this.markTranscript(sessionId);
     const command: Record<string, unknown> = {
       id: randomUUID(),
       type: "prompt",
-      message: text,
+      message,
       ...(wasBusy
         ? { streamingBehavior: busyStreamingBehavior(delivery) }
         : {}),
@@ -1222,7 +1237,7 @@ export class PiAgentManager {
         role: agent.role,
         wasBusy,
         delivery,
-        textLength: text.length,
+        textLength: message.length,
       }),
     );
 
@@ -1442,6 +1457,8 @@ export class PiAgentManager {
     if (!child) return undefined;
 
     const agent = buildAgentProcess(descriptor, config, child, supervision);
+    agent.resumeNoticePending =
+      descriptor.role === "prime" && session.hasTranscript === true;
     session.agents.set(descriptor.agentId, agent);
 
     this.wireChildStreams(sessionId, agent);
@@ -1899,4 +1916,30 @@ export class PiAgentManager {
     }
     this.notifyStatus(sessionId);
   }
+
+  /** Supplies the lookup that tells a respawned Prime from a fresh session's. */
+  useTranscript(hasTranscript: (sessionId: string) => Promise<boolean>): void {
+    this.hasTranscript = hasTranscript;
+  }
+
+  /** Whether the session already has messages; false if the lookup fails. */
+  private async transcriptExists(sessionId: string): Promise<boolean> {
+    try {
+      return await this.hasTranscript(sessionId);
+    } catch (err) {
+      console.warn(`[pi:${sessionId}] failed to read the transcript:`, err);
+      return false;
+    }
+  }
+
+  /** Records that the session has messages a later Prime process won't hold. */
+  private markTranscript(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (session) session.hasTranscript = true;
+  }
+}
+
+/** Marks the session as having messages when its transcript lookup found some. */
+function noteTranscript(session: SessionAgents, hadTranscript: boolean): void {
+  if (hadTranscript) session.hasTranscript = true;
 }

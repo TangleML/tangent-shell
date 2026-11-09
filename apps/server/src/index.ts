@@ -293,6 +293,9 @@ const pi = new PiAgentManager(
   runs,
   hostResourcePreamble,
 );
+pi.useTranscript(
+  async (sessionId) => (await store.getMessages(sessionId)).length > 0,
+);
 
 // Hosts sub-agents inside a connected remote environment over the `/remote-env`
 // namespace. Remote sub-agents share the same event sink as local ones, so what

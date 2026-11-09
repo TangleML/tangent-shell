@@ -190,6 +190,8 @@ export interface AgentProcess {
   restartCount: number;
   /** Epoch ms of the last supervised respawn, or `null` if never respawned. */
   lastRestartAt: number | null;
+  /** Whether this Prime's next prompt carries the restart notice. */
+  resumeNoticePending: boolean;
 }
 
 export interface SessionAgents {
@@ -221,6 +223,8 @@ export interface SessionAgents {
    * the same preamble, dispatcher tools, and spawn extras.
    */
   resolvedMemory?: ResolvedMemory;
+  /** Whether the session has messages from before its current Prime process. */
+  hasTranscript?: boolean;
 }
 
 /** A single delta payload nested inside a `message_update` event. */
