@@ -25,9 +25,17 @@ import {
 import { applyResourceInput } from "../../conversation/hostResources.ts";
 import { orchestratorConversationFor } from "../../conversation/participantRegistry.ts";
 import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
-import { mountedFolderPaths, settleBinding } from "../../memory/binding.ts";
+import {
+  countLeaves,
+  mountedFolderPaths,
+  settleBinding,
+} from "../../memory/binding.ts";
+import type { BundleKbRegistry } from "../../memory/bundleKbRegistry.ts";
 import { removeSessionQmdState } from "../../memory/qmdState.ts";
-import { installBundle } from "../../pi/config/bundleLoader.ts";
+import {
+  installBundle,
+  type InstalledBundle,
+} from "../../pi/config/bundleLoader.ts";
 import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
 import type { MemoryManager } from "../../pi/memory.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
@@ -152,6 +160,8 @@ export interface SessionCreateDeps {
   hostPreamble: HostResourcePreamble;
   /** Notifies a session's room that its resource catalog changed. */
   emitResourcesUpdated: (sessionId: string) => void;
+  /** Bundle knowledge bases, seeded when a session first binds one. */
+  bundleKb?: BundleKbRegistry;
 }
 
 /**
@@ -196,12 +206,35 @@ async function storeSessionMemory(
   sessionId: string,
   rootPath: string,
   requested: MemoryBinding | undefined,
-): Promise<void> {
+): Promise<MemoryBinding | undefined> {
   const mounts = mountedFolderPaths(
     await deps.resources.listForSession(sessionId),
   );
   const binding = settleBinding(requested, sessionId, rootPath, mounts);
   if (binding) await deps.store.setSessionMemory(sessionId, binding);
+  return binding;
+}
+
+/**
+ * Creates the bundle's knowledge base from its seed memory files the first time
+ * a session binds it; later sessions find it already there. A failure leaves
+ * the store to be created empty at spawn rather than failing the session.
+ */
+function seedBundleKb(
+  deps: SessionCreateDeps,
+  binding: MemoryBinding | undefined,
+  installed: InstalledBundle,
+): void {
+  if (!deps.bundleKb || !binding) return;
+  if (countLeaves(binding, "bundle-kb") === 0) return;
+  try {
+    deps.bundleKb.get(installed.manifest.id).seedIfNew(installed.memorySeeds);
+  } catch (err) {
+    console.error(
+      `[memory] failed to seed bundle store ${installed.manifest.id}:`,
+      err,
+    );
+  }
 }
 
 /**
@@ -250,7 +283,8 @@ async function createSessionFromBundle(
 ): Promise<void> {
   const { store, pi, triggerEngine } = deps;
   try {
-    const { manifest, config } = await installBundle(zipBuffer, rootPath);
+    const installed = await installBundle(zipBuffer, rootPath);
+    const { manifest, config } = installed;
     const meta: SessionConfigMeta = {
       id: manifest.id,
       name: manifest.name,
@@ -271,12 +305,13 @@ async function createSessionFromBundle(
     );
 
     await seedResources(deps, sessionId, rootPath, resources, user);
-    await storeSessionMemory(
+    const binding = await storeSessionMemory(
       deps,
       sessionId,
       rootPath,
       memoryOverride ?? config.memory,
     );
+    seedBundleKb(deps, binding, installed);
 
     // Armed only once the binding is stored: a firing spawns Prime, which
     // resolves memory exactly once.

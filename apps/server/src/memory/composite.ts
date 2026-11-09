@@ -3,6 +3,7 @@ import type {
   MemoryBackend,
   MemoryContext,
   MemoryExecuteResult,
+  MemorySourceInfo,
   MemorySpawnExtras,
   MemoryToolSpec,
 } from "./types.ts";
@@ -27,7 +28,8 @@ function mergeExtras(
 
 /**
  * Unions several {@link MemoryBackend} children into one: it inits each child,
- * concatenates their preambles, merges their tools and spawn extras, and routes
+ * concatenates their preambles and index entries, merges their tools and spawn
+ * extras, and routes
  * an `execute` to the first child that recognizes the tool name. A session's
  * resolved memory is a CompositeMemory of the always-on SimpleMD store plus (in
  * a later phase) a mounted shared folder's backend.
@@ -49,6 +51,10 @@ export class CompositeMemory implements MemoryBackend {
       .map((child) => child.preamble(ctx, role).trim())
       .filter(Boolean)
       .join("\n\n");
+  }
+
+  describe(ctx: MemoryContext, role: AgentRole): MemorySourceInfo[] {
+    return this.children.flatMap((child) => child.describe(ctx, role));
   }
 
   tools(role: AgentRole): MemoryToolSpec[] {
@@ -76,14 +82,14 @@ export class CompositeMemory implements MemoryBackend {
     };
   }
 
-  execute(
+  async execute(
     name: string,
     params: Record<string, unknown>,
     ctx: MemoryContext,
     role: AgentRole,
-  ): MemoryExecuteResult | undefined {
+  ): Promise<MemoryExecuteResult | undefined> {
     for (const child of this.children) {
-      const result = child.execute(name, params, ctx, role);
+      const result = await child.execute(name, params, ctx, role);
       if (result) return result;
     }
     return undefined;

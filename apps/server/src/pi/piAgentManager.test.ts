@@ -108,6 +108,14 @@ function stubResolver(
     return {
       init: () => {},
       preamble: (role: AgentRole) => `## Memory\n\n(empty for ${role})`,
+      sources: () => [
+        {
+          title: "Session memory",
+          scope: "session",
+          holds: "Facts for this session.",
+          digest: { entries: 0, chars: 0, mode: "empty" },
+        },
+      ],
       spawnPlan: (role: AgentRole) => current(role),
     };
   };
@@ -370,6 +378,47 @@ test("the appended system prompt is passed as a file, not an inline arg", async 
 
   pi.dispose("s1");
   assert.equal(existsSync(source), false, "dispose cleans up the prompt file");
+});
+
+test("every spawn dumps its launch details into the session and logs the path", async (t) => {
+  const log = t.mock.method(console, "log", () => {});
+  await withTempRoot(async (root) => {
+    const memory = stubResolver(() =>
+      memoryPlan({ env: { PI_MEMORY_DIR: "/mem", MEMORY_API_KEY: "s3cret" } }),
+    );
+    const { pi, spawns } = makeManager({ memory });
+    await pi.ensure("s1", root, { env: { SAFE_VAR: "visible" } });
+
+    const file = path.join(
+      root,
+      ".tangent",
+      "debug",
+      `pi-launch-${PRIME_AGENT_ID}.md`,
+    );
+    assert.ok(existsSync(file), "the dump lands under .tangent/debug/");
+    const dump = readFileSync(file, "utf8");
+    assert.ok(
+      dump.includes(appendedPrompt(spawns[0])),
+      "the dump holds the appended prompt verbatim",
+    );
+    assert.match(dump, /\| Memory \| \d+ \|/);
+    assert.match(dump, /SAFE_VAR=visible/);
+    assert.match(dump, /PI_MEMORY_DIR=\/mem/);
+    assert.match(dump, /MEMORY_API_KEY=\*\*\*/);
+    assert.doesNotMatch(dump, /s3cret/);
+    assert.match(dump, /--append-system-prompt/);
+    assert.match(
+      dump,
+      /\| Session memory \| session \| empty, 0 entries, 0 chars \|/,
+    );
+    assert.ok(
+      log.mock.calls.some((call) =>
+        String(call.arguments[0]).endsWith(`launch details: ${file}`),
+      ),
+      "the dump path is logged",
+    );
+    pi.dispose("s1");
+  });
 });
 
 /** Feeds one Pi stdout event into an agent's reader. */

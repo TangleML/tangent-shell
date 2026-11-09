@@ -11,6 +11,7 @@ import {
 import { build } from "esbuild";
 import { unzipSync } from "fflate";
 
+import type { KbSeedFile } from "../../memory/bundleKbStore.ts";
 import {
   buildTemplatesFromDir,
   composePrimePrompt,
@@ -31,6 +32,8 @@ export const TANGENT_DIRNAME = ".tangent";
 export interface InstalledBundle {
   manifest: BundleManifest;
   config: ResolvedSessionConfig;
+  /** The bundle's seed memory files, for a new bundle knowledge base. */
+  memorySeeds: KbSeedFile[];
 }
 
 /** Decoded ZIP entries, keyed by their POSIX-relative path. */
@@ -146,6 +149,29 @@ async function writeBundleTree(
   }
 }
 
+/** The bundle-relative paths of its seed memory files. */
+function bundleMemoryFiles(
+  entries: ZipEntries,
+  manifest: BundleManifest,
+): string[] {
+  return listOrDiscover(entries, manifest.memory, BUNDLE_DIRS.memory, (rel) =>
+    rel.endsWith(".md"),
+  );
+}
+
+/** The seed memory files as named, text files, flattened to their basename. */
+function memorySeedsOf(
+  entries: ZipEntries,
+  manifest: BundleManifest,
+): KbSeedFile[] {
+  return bundleMemoryFiles(entries, manifest).flatMap((rel) => {
+    const data = entries[rel];
+    return data
+      ? [{ name: path.basename(rel), content: decoder.decode(data) }]
+      : [];
+  });
+}
+
 /**
  * Copies the rules file and seed memory/context files to the workspace root,
  * where Pi auto-discovers `AGENTS.md` and memory from its `cwd`. Memory/context
@@ -161,12 +187,7 @@ async function copyRootFiles(
     await writeEntry(rootPath, RULES_FILENAME, entries[rulesRel]);
   }
 
-  const memoryFiles = listOrDiscover(
-    entries,
-    manifest.memory,
-    BUNDLE_DIRS.memory,
-    (rel) => rel.endsWith(".md"),
-  );
+  const memoryFiles = bundleMemoryFiles(entries, manifest);
   for (const rel of [...memoryFiles, ...(manifest.contextFiles ?? [])]) {
     const data = entries[rel];
     if (!data) throw new Error(`bundle: missing file "${rel}"`);
@@ -330,7 +351,7 @@ export async function installBundle(
   await compileTriggerHandlers(entries, manifest, installRoot);
   const config = resolveSessionConfig(entries, manifest, rootPath);
 
-  return { manifest, config };
+  return { manifest, config, memorySeeds: memorySeedsOf(entries, manifest) };
 }
 
 /**

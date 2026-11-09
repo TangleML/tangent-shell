@@ -106,7 +106,7 @@ async function handleCall(
     session.rootPath,
     body.agentId,
   );
-  const result = memory.execute(body.name, body.params, role);
+  const result = await memory.execute(body.name, body.params, role);
   if (!result) {
     res.status(400).json({ error: `Unknown memory tool "${body.name}"` });
     return;

@@ -316,6 +316,12 @@ export const PI_AGENT: ChatAuthor = {
 export type MemoryScope = "session" | "global";
 
 /**
+ * The store a "remembered" highlight reports a write to: a {@link MemoryScope}
+ * or `bundle`, the knowledge base shared by every session of one bundle.
+ */
+export type MemoryHighlightScope = MemoryScope | "bundle";
+
+/**
  * Tunable knobs for a {@link MemoryBinding} of kind `"pi-memory"`, mapped onto
  * the pi-memory extension's env. Omitted fields default to "max memory power"
  * (every hook and qmd update on). The memory adapter is session configuration,
@@ -344,10 +350,14 @@ export interface PiMemoryConfig {
  * POSIX path for the store's directory. Omit it to keep the store local to the
  * session; point it at a mounted shared folder (e.g. `"<mountName>/pi-memory"`)
  * to share that store across every session that mounts the folder.
+ *
+ * `bundle-kb` is the server-managed knowledge base shared by every session of
+ * the bundle the session was created from, keyed by the bundle manifest id.
  */
 export type MemoryBinding =
   | { kind: "simple-md"; root?: string }
   | { kind: "pi-memory"; root?: string; config?: PiMemoryConfig }
+  | { kind: "bundle-kb" }
   | { kind: "composite"; children: MemoryBinding[] };
 
 /**
@@ -1432,7 +1442,7 @@ export interface ChatMessage {
    * Present on server-emitted "remembered" highlights. Drives the distinct
    * memory bubble (icon + tonal background) and records which store changed.
    */
-  memory?: { scope: MemoryScope };
+  memory?: { scope: MemoryHighlightScope };
   /** The {@link Run} that produced this Message, when one is attributable. */
   runId?: RunId;
   /** Whether this Message is the last of its Run. */

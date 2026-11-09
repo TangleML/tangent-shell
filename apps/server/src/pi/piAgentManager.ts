@@ -47,6 +47,12 @@ import {
 } from "./agentConfig.ts";
 import { loadInstalledConfig } from "./config/bundleLoader.ts";
 import type { HostResourcePreamble } from "./hostResourcePreamble.ts";
+import {
+  type LaunchDebugInput,
+  type LaunchPromptPart,
+  type LaunchResourceGroup,
+  writeLaunchDebug,
+} from "./launchDebug.ts";
 import { sessionRecallPreamble } from "./sessionRecallPreamble.ts";
 import {
   type AgentDescriptor,
@@ -697,6 +703,143 @@ function logSpawn(
       appendPromptFile,
       appendPromptBytes,
     }),
+  );
+}
+
+/** The argv and env one Pi child is launched with. */
+interface PiLaunch {
+  args: string[];
+  env: NodeJS.ProcessEnv;
+}
+
+/** Everything one spawn resolves before launching its Pi child. */
+interface SpawnSpec {
+  grant: SpawnGrant;
+  descriptor: AgentDescriptor & { template?: string };
+  session: SessionAgents;
+  config: AgentConfig;
+  supervision: { restartCount: number } | undefined;
+  extras: SpawnExtras;
+  memoryPlan: MemorySpawnPlan | undefined;
+  promptParts: LaunchPromptPart[];
+  promptText: string;
+  promptFile: string | null;
+}
+
+/** Materializes the appended prompt and builds the child's argv and env. */
+function buildLaunch(spec: SpawnSpec): PiLaunch {
+  const { grant, descriptor, session, memoryPlan } = spec;
+  const appendPromptSource = materializeAppendPrompt(
+    grant.sessionId,
+    descriptor.agentId,
+    spec.promptText,
+  );
+  return {
+    args: buildPiArgs(
+      spec.config,
+      spec.extras,
+      appendPromptSource,
+      memoryPlan,
+      grant,
+    ),
+    env: spawnEnv(
+      grant,
+      descriptor,
+      { rootPath: session.rootPath },
+      session.env,
+      memoryPlan?.env,
+    ),
+  };
+}
+
+/** The identity and model fields of an agent's {@link LaunchDebugInput}. */
+function launchBasics({
+  grant,
+  descriptor,
+  session,
+  config,
+  supervision,
+}: SpawnSpec): Pick<
+  LaunchDebugInput,
+  | "sessionId"
+  | "agentId"
+  | "name"
+  | "role"
+  | "template"
+  | "restartCount"
+  | "cwd"
+  | "bin"
+  | "model"
+> {
+  return {
+    sessionId: grant.sessionId,
+    agentId: descriptor.agentId,
+    name: descriptor.name,
+    role: descriptor.role,
+    template: descriptor.template,
+    restartCount: supervision?.restartCount ?? 0,
+    cwd: session.rootPath,
+    bin: PI_BIN,
+    model: resolveModelArgs(config),
+  };
+}
+
+function launchTools({ config, grant, memoryPlan }: SpawnSpec): string[] {
+  return spawnToolList(config, memoryPlan ?? EMPTY_MEMORY_PLAN, grant.recall);
+}
+
+/** The denied tools and memory sources of an agent's {@link LaunchDebugInput}. */
+function launchMemory({
+  descriptor,
+  session,
+  memoryPlan,
+}: SpawnSpec): Pick<LaunchDebugInput, "deniedTools" | "memorySources"> {
+  return {
+    deniedTools: memoryPlan?.deniedTools ?? [],
+    memorySources: session.resolvedMemory?.sources(descriptor.role) ?? [],
+  };
+}
+
+/** The spawn's resource paths, grouped by where they come from. */
+function launchResources({
+  extras,
+  memoryPlan,
+  grant,
+}: SpawnSpec): LaunchResourceGroup[] {
+  return [
+    { label: "Built-in extensions", paths: BUILTIN_EXTENSIONS },
+    { label: "Bundle skills", paths: extras.skillPaths },
+    { label: "Bundle workflows", paths: extras.workflowPaths },
+    { label: "Bundle extensions", paths: extras.extensionPaths },
+    { label: "Memory extensions", paths: memoryPlan?.extensionPaths ?? [] },
+    {
+      label: "Session recall",
+      paths: grant.recall ? [SESSION_RECALL_EXTENSION] : [],
+    },
+  ];
+}
+
+/** Writes the spawn's launch details and always logs where they landed. */
+function logLaunchDebug(spec: SpawnSpec, launch: PiLaunch): void {
+  const file = writeLaunchDebug({
+    ...launchBasics(spec),
+    ...launchMemory(spec),
+    tools: launchTools(spec),
+    args: launch.args,
+    env: launch.env,
+    baseEnv: process.env,
+    resources: launchResources(spec),
+    promptParts: [
+      { label: "Base prompt", text: spec.config.appendSystemPrompt },
+      ...spec.promptParts,
+    ],
+    promptText: spec.promptText,
+    promptFile: spec.promptFile,
+  });
+  if (!file) return;
+  const { sessionId } = spec.grant;
+  console.log(
+    `[pi:${sessionId}:${spec.descriptor.agentId}] launch details: ${file}`,
   );
 }
 
@@ -1406,12 +1549,21 @@ export class PiAgentManager {
     grant: SpawnGrant,
     session: SessionAgents,
     role: AgentDescriptor["role"],
-  ): string[] {
+  ): LaunchPromptPart[] {
     return [
-      buildUserPreamble(session.user),
-      session.resolvedMemory?.preamble(role) ?? "",
-      this.hostResources?.get(grant.sessionId) ?? "",
-      grant.recall ? sessionRecallPreamble() : "",
+      { label: "Current user", text: buildUserPreamble(session.user) },
+      {
+        label: "Memory",
+        text: session.resolvedMemory?.preamble(role) ?? "",
+      },
+      {
+        label: "Host resources",
+        text: this.hostResources?.get(grant.sessionId) ?? "",
+      },
+      {
+        label: "Session recall",
+        text: grant.recall ? sessionRecallPreamble() : "",
+      },
     ];
   }
 
@@ -1435,32 +1587,47 @@ export class PiAgentManager {
    * manager and crashes the server. Async spawn failures stay with the process's
    * own `error` handler ({@link wireChildStreams}).
    */
+  private spawnSpec(
+    grant: SpawnGrant,
+    session: SessionAgents,
+    descriptor: AgentDescriptor & { template?: string },
+    config: AgentConfig,
+    supervision: { restartCount: number } | undefined,
+  ): SpawnSpec {
+    const promptParts = this.spawnPreambles(grant, session, descriptor.role);
+    const promptText = appendPreambles(
+      config,
+      promptParts.map((part) => part.text),
+    );
+    return {
+      grant,
+      descriptor,
+      session,
+      config,
+      supervision,
+      extras: spawnExtras(session.config),
+      memoryPlan: session.resolvedMemory?.spawnPlan(descriptor.role),
+      promptParts,
+      promptText,
+      promptFile: promptText
+        ? promptFilePath(grant.sessionId, descriptor.agentId)
+        : null,
+    };
+  }
+
   private trySpawnChild(
     grant: SpawnGrant,
     descriptor: AgentDescriptor,
     session: SessionAgents,
-    config: AgentConfig,
-    extras: SpawnExtras,
-    appendPromptSource: string | undefined,
+    launch: PiLaunch,
   ): ChildProcessWithoutNullStreams | null {
     const { sessionId } = grant;
-    const memoryPlan = session.resolvedMemory?.spawnPlan(descriptor.role);
     try {
-      return this.spawnProcess(
-        PI_BIN,
-        buildPiArgs(config, extras, appendPromptSource, memoryPlan, grant),
-        {
-          cwd: session.rootPath,
-          env: spawnEnv(
-            grant,
-            descriptor,
-            { rootPath: session.rootPath },
-            session.env,
-            memoryPlan?.env,
-          ),
-          stdio: ["pipe", "pipe", "pipe"],
-        },
-      ) as ChildProcessWithoutNullStreams;
+      return this.spawnProcess(PI_BIN, launch.args, {
+        cwd: session.rootPath,
+        env: launch.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      }) as ChildProcessWithoutNullStreams;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
@@ -1485,36 +1652,28 @@ export class PiAgentManager {
     config: AgentConfig,
     supervision?: { restartCount: number; lastRestartAt: number | null },
   ): AgentProcess | undefined {
-    const extras = spawnExtras(session.config);
     const grant = this.spawnGrant(sessionId, descriptor.role);
-    const appendText = appendPreambles(
+    const spec = this.spawnSpec(
+      grant,
+      session,
+      descriptor,
       config,
-      this.spawnPreambles(grant, session, descriptor.role),
+      supervision,
     );
-    const appendPromptSource = materializeAppendPrompt(
-      sessionId,
-      descriptor.agentId,
-      appendText,
-    );
+    const launch = buildLaunch(spec);
     logSpawn(
       grant,
       descriptor,
       session.rootPath,
       config,
-      extras,
-      appendText ? promptFilePath(sessionId, descriptor.agentId) : null,
-      Buffer.byteLength(appendText),
-      session.resolvedMemory?.spawnPlan(descriptor.role),
+      spec.extras,
+      spec.promptFile,
+      Buffer.byteLength(spec.promptText),
+      spec.memoryPlan,
     );
+    logLaunchDebug(spec, launch);
 
-    const child = this.trySpawnChild(
-      grant,
-      descriptor,
-      session,
-      config,
-      extras,
-      appendPromptSource,
-    );
+    const child = this.trySpawnChild(grant, descriptor, session, launch);
     if (!child) return undefined;
 
     const agent = buildAgentProcess(descriptor, config, child, supervision);

@@ -1,4 +1,7 @@
-import type { MemoryScope } from "@tangent/shared/contracts.ts";
+import type {
+  MemoryHighlightScope,
+  MemoryScope,
+} from "@tangent/shared/contracts.ts";
 
 export type {
   MemoryBinding,
@@ -32,7 +35,7 @@ export interface MemoryToolSpec {
  * logic stays pure and the socket/chat wiring lives in the route.
  */
 export type MemoryEffect =
-  | { kind: "remembered"; scope: MemoryScope; text: string }
+  | { kind: "remembered"; scope: MemoryHighlightScope; text: string }
   | {
       kind: "suggested";
       scope: MemoryScope;
@@ -61,6 +64,39 @@ export interface MemorySpawnExtras {
   allowlistTools?: string[];
 }
 
+/** Who a memory source is shared with, as the index tells agents. */
+export type MemorySourceScope =
+  | "session"
+  | "global"
+  | "project"
+  | "bundle"
+  | "unavailable";
+
+/** How an agent reaches a source: through named tools or a workspace file. */
+export type MemoryAccess = { tools: string[] } | { file: string };
+
+/** How a source's content was rendered into the preamble. */
+export interface MemoryDigestStats {
+  entries: number;
+  chars: number;
+  mode: "empty" | "inline" | "contents";
+}
+
+/**
+ * One entry of the memory index: what a source holds and how to read or write
+ * it. The index is the only place agents are told how to use their memory, so
+ * every backend describes itself, tailored to `role`.
+ */
+export interface MemorySourceInfo {
+  title: string;
+  scope: MemorySourceScope;
+  holds: string;
+  read?: MemoryAccess;
+  write?: MemoryAccess;
+  notes?: string[];
+  digest?: MemoryDigestStats;
+}
+
 /**
  * A pluggable memory store. Leaves (SimpleMD, pi-memory) implement it directly;
  * {@link import("./composite.ts").CompositeMemory} unions several. The server
@@ -72,8 +108,11 @@ export interface MemoryBackend {
   readonly kind: string;
   /** Idempotent preparation before the first spawn (e.g. seed files). */
   init(ctx: MemoryContext): void;
-  /** Standing context appended to a `role` agent's system prompt; keep it small. */
+  /** The source's content for a `role` agent's system prompt (no usage
+   * guidance: that lives in {@link describe}); keep it small. */
   preamble(ctx: MemoryContext, role: AgentRole): string;
+  /** The index entries for this backend's sources, tailored to `role`. */
+  describe(ctx: MemoryContext, role: AgentRole): MemorySourceInfo[];
   /** Dispatcher-backed tools this backend exposes to `role`. */
   tools(role: AgentRole): MemoryToolSpec[];
   /** Spawn-time extras (env / extensions / allowlist) for `role`. */
@@ -88,5 +127,5 @@ export interface MemoryBackend {
     params: Record<string, unknown>,
     ctx: MemoryContext,
     role: AgentRole,
-  ): MemoryExecuteResult | undefined;
+  ): Promise<MemoryExecuteResult | undefined>;
 }

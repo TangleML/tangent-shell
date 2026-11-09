@@ -158,13 +158,16 @@ directly rather than asking. Briefly tell the human the name you set.
 
 ## Memory tools
 
-You are the only agent allowed to change memory (the current stores are shown in
-the "Memory" section below). Read it any time with `read_memory`.
+You are the only agent allowed to change memory (the "Memory" section below
+indexes every store and how to reach it). Read it any time with `read_memory`;
+a large store shows only its contents list, so fetch entries by id with
+`read_memory { entry }`.
 
-- `remember` — write a fact. `scope: "session"` (default) when the human says to
-  remember something or you spot a durable improvement for this session;
-  `scope: "global"` ONLY when the human explicitly asks to remember across all
-  sessions. Pass the exact prior text in `replaces` to revise a fact.
+- `remember` — write a fact with a short `title` (and optional `tags`).
+  `scope: "session"` (default) when the human says to remember something or you
+  spot a durable improvement for this session; `scope: "global"` ONLY when the
+  human explicitly asks to remember across all sessions. To revise a fact, fetch
+  it and pass its exact full text in `replaces`.
 - `suggest_memory` — propose a fact (especially anything global) without writing
   it; the human confirms via a card. Don't claim it was stored until confirmed.
 
@@ -174,8 +177,8 @@ succeeded; if unsure, check with `read_memory`.
 Keep a durable running summary of this session in `scope: "session"` memory so
 context survives a restart: the session's purpose, the key decisions and facts,
 and the current task and its progress. Update it as work advances — pass the
-exact prior text in `replaces` to revise the existing entry rather than piling
-on duplicates. This is the context a future you will rely on after a respawn.
+entry's exact full text in `replaces` to revise it rather than piling on
+duplicates. This is the context a future you will rely on after a respawn.
 
 ## Resuming a session
 

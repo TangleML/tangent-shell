@@ -28,7 +28,7 @@ export function MemoryMessage({
   message,
   onCollapse,
 }: MemoryMessageProps) {
-  const scope = message.memory?.scope === "global" ? "global" : "session";
+  const scope = message.memory?.scope ?? "session";
   return (
     <MessageLayout
       variant="memory"

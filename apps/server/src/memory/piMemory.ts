@@ -10,6 +10,7 @@ import type {
   AgentRole,
   MemoryBackend,
   MemoryContext,
+  MemorySourceInfo,
   MemorySpawnExtras,
   MemoryToolSpec,
 } from "./types.ts";
@@ -148,30 +149,49 @@ export class PiMemory implements MemoryBackend {
     }
   }
 
-  preamble(ctx: MemoryContext, role: AgentRole): string {
-    if (this.blockedByStrayConfig(ctx)) return "";
-    const lookup = this.searchDisabled ? "`memory_read`" : "`memory_search`";
-    const lines = [
-      "## Project memory (pi-memory)",
-      "",
-      "This session is bound to a persistent project memory store. Durable",
-      "facts, decisions, and context are recalled for you at the start of a turn.",
-      `Consult ${lookup} before claiming you don't know something about this`,
-      "project.",
+  /** pi-memory injects its own context each turn, so no preamble content. */
+  preamble(): string {
+    return "";
+  }
+
+  describe(ctx: MemoryContext, role: AgentRole): MemorySourceInfo[] {
+    if (this.blockedByStrayConfig(ctx)) return [];
+    const lookup = this.searchDisabled ? "memory_read" : "memory_search";
+    const read = this.searchDisabled
+      ? ["memory_read"]
+      : ["memory_search", "memory_read"];
+    const notes = [
+      `Consult \`${lookup}\` before claiming you don't know something about this project.`,
       ...this.locationLines(ctx),
     ];
     if (role === "prime") {
-      lines.push(
-        "You curate the store with the `memory_*` tools (and `scratchpad`):",
-        "record durable learnings with `memory_write`.",
-      );
-    } else {
-      lines.push(
-        "The store is read-only for you: report durable learnings to Prime",
-        "instead of trying to write them.",
+      notes.push(
+        "Record durable learnings with `memory_write`; `scratchpad` holds working context.",
       );
     }
-    return lines.join("\n");
+    return [
+      {
+        title: "Project memory (pi-memory)",
+        scope: "project",
+        holds:
+          "Durable facts, decisions, and context for this project; the " +
+          "relevant parts are recalled into your context at the start of each turn.",
+        read: { tools: read },
+        ...(role === "prime"
+          ? {
+              write: {
+                tools: [
+                  "memory_write",
+                  "memory_forget",
+                  "memory_restore",
+                  "scratchpad",
+                ],
+              },
+            }
+          : {}),
+        notes,
+      },
+    ];
   }
 
   /** Where the store lives, reconciling the workspace path with the canonical
@@ -183,8 +203,8 @@ export class PiMemory implements MemoryBackend {
     if (workspacePath === this.dir) return [where];
     return [
       where,
-      `pi-memory tools report them by their canonical path \`${this.dir}/\`;`,
-      "both paths name the same files.",
+      `pi-memory tools report them by their canonical path \`${this.dir}/\`; ` +
+        "both paths name the same files.",
     ];
   }
 
@@ -213,7 +233,7 @@ export class PiMemory implements MemoryBackend {
   }
 
   /** pi-memory tools are not dispatcher-backed; nothing to execute server-side. */
-  execute(): undefined {
+  async execute(): Promise<undefined> {
     return undefined;
   }
 }

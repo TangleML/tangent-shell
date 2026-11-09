@@ -2,6 +2,7 @@ import { type Request, type Response, Router } from "express";
 
 import type { ParticipantService } from "../../conversation/participantService.ts";
 import type { ResourceCatalog } from "../../conversation/resourceCatalog.ts";
+import type { BundleKbRegistry } from "../../memory/bundleKbRegistry.ts";
 import { getValidated, validate } from "../../middleware/validate.ts";
 import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
 import type { MemoryManager } from "../../pi/memory.ts";
@@ -149,6 +150,7 @@ export function createSessionsRouter(
   emitResourcesUpdated: (sessionId: string) => void,
   workflow: WorkflowRouteDeps,
   environments: EnvironmentLister,
+  bundleKb?: BundleKbRegistry,
 ): Router {
   const router = Router();
 
@@ -162,6 +164,7 @@ export function createSessionsRouter(
     sharedFolders,
     hostPreamble,
     emitResourcesUpdated,
+    bundleKb,
   };
 
   registerSessionCollectionRoutes(router, createDeps);
