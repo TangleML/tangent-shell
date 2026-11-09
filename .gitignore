@@ -33,6 +33,9 @@ ui-dist
 # Server-owned qmd indexes for pi-memory stores
 .qmd-state
 
+# Server-managed bundle knowledge bases, one per bundle manifest id
+.bundle-memory
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

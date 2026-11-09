@@ -2,7 +2,7 @@ import {
   MEMORY_AUTHOR,
   type MemoryConfirmPayload,
   type MemoryDismissPayload,
-  type MemoryScope,
+  type MemoryHighlightScope,
   type MemorySuggestionPayload,
   SocketEvents,
 } from "@tangent/shared/contracts.ts";
@@ -26,7 +26,7 @@ import { roomFor } from "./rooms.ts";
  */
 export type MemoryRememberedHandler = (
   sessionId: string,
-  scope: MemoryScope,
+  scope: MemoryHighlightScope,
   text: string,
 ) => Promise<void>;
 
