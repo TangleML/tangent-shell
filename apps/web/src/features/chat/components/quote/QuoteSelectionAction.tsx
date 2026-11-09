@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   type QuotedSelection,
-  type QuoteRect,
   resolveQuotedSelection,
 } from "@/features/chat/model/quoting";
 
+import { FloatingQuoteSurface } from "./FloatingQuoteSurface";
+
 const GAP = 8;
-const ACTION_HEIGHT = 28;
-const ACTION_WIDTH = 92;
+const ACTION_HEIGHT = 30;
+const ACTION_WIDTH = 96;
 
 interface PlacedQuote {
   messageId: string;
@@ -36,14 +37,18 @@ function dismissKey(quote: Pick<PlacedQuote, "messageId" | "text">): string {
   return `${quote.messageId}\u0000${quote.text}`;
 }
 
-// Sits above the selection when there is room, otherwise below it, always
-// clamped into the viewport.
-function place(rect: QuoteRect, view: Window): { top: number; left: number } {
+// Sits just above the first selected line when there is room, otherwise below
+// the whole selection, always clamped into the viewport.
+function place(
+  quote: QuotedSelection,
+  view: Window,
+): { top: number; left: number } {
+  const { firstLine, rect } = quote;
   const left = Math.min(
-    Math.max(rect.left, GAP),
+    Math.max(firstLine.left, GAP),
     Math.max(view.innerWidth - ACTION_WIDTH - GAP, GAP),
   );
-  const above = rect.top - GAP - ACTION_HEIGHT;
+  const above = firstLine.top - GAP - ACTION_HEIGHT;
   const below = Math.min(
     rect.bottom + GAP,
     Math.max(view.innerHeight - ACTION_HEIGHT - GAP, GAP),
@@ -55,7 +60,7 @@ function placed(quote: QuotedSelection, view: Window): PlacedQuote {
   return {
     messageId: quote.messageId,
     text: quote.text,
-    ...place(quote.rect, view),
+    ...place(quote, view),
   };
 }
 
@@ -156,17 +161,10 @@ export function QuoteSelectionAction({
     <>
       <span ref={anchorRef} hidden />
       {quote ? (
-        <div
-          style={{
-            position: "fixed",
-            top: quote.top,
-            left: quote.left,
-            zIndex: 50,
-          }}
-        >
+        <FloatingQuoteSurface top={quote.top} left={quote.left}>
           <Button
             size="xs"
-            variant="outline"
+            variant="ghost"
             onMouseDown={(event) => event.preventDefault()}
             onClick={handleQuote}
             aria-label="Quote selected text in the composer (Alt+Q)"
@@ -174,7 +172,7 @@ export function QuoteSelectionAction({
             <Icon name="Quote" size="xs" />
             Quote
           </Button>
-        </div>
+        </FloatingQuoteSurface>
       ) : null}
     </>
   );

@@ -41,6 +41,7 @@ export interface QuoteRangeLike {
   setEnd(node: unknown, offset: number): void;
   compareBoundaryPoints(how: number, other: QuoteRangeLike): number;
   getBoundingClientRect(): QuoteRect;
+  getClientRects(): ArrayLike<QuoteRect>;
   toString(): string;
 }
 
@@ -62,6 +63,8 @@ export interface QuotedSelection {
   /** Verbatim selected text, snapshotted before any toolbar interaction. */
   text: string;
   rect: QuoteRect;
+  /** The first selected line, where the action is anchored. */
+  firstLine: QuoteRect;
 }
 
 const ELEMENT_NODE = 1;
@@ -108,7 +111,18 @@ export function resolveQuotedSelection(
   const text = quoted.toString();
   if (text.trim().length === 0) return null;
 
-  return { messageId, text, rect: quoted.getBoundingClientRect() };
+  const rect = quoted.getBoundingClientRect();
+  return { messageId, text, rect, firstLine: firstLineOf(quoted) ?? rect };
+}
+
+// Element boundaries contribute zero-width rects, so skip to the first real
+// line box.
+function firstLineOf(range: QuoteRangeLike): QuoteRect | null {
+  const rects = range.getClientRects();
+  for (let i = 0; i < rects.length; i++) {
+    if (rects[i].width > 0 && rects[i].height > 0) return rects[i];
+  }
+  return null;
 }
 
 /**
