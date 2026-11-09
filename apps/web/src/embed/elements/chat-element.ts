@@ -19,8 +19,8 @@ const TAG = "tangent-chat";
 /**
  * Mounts the embedded chat surface. `sessionId`, `agentId`, `initialPrompt`,
  * `autoFocus`, and `references` are properties; `open-artifact`, `send-prompt`, `open-agent`,
- * and `remove-agent` are emitted as composed `CustomEvent`s for the npm wrapper
- * to surface as `on*` props.
+ * `remove-agent`, and `resources-change` are emitted as composed `CustomEvent`s
+ * for the npm wrapper to surface as `on*` props.
  */
 export class TangentChatElement extends EmbeddedElement {
   private currentSessionId = "";
@@ -139,6 +139,7 @@ export class TangentChatElement extends EmbeddedElement {
         onOpenAgent: (agent: EmbedAgentPayload) =>
           this.emit("open-agent", { ...agent }),
         onRemoveAgent: (id: string) => this.emit("remove-agent", { id }),
+        onResourcesChange: () => this.emit("resources-change", {}),
         references: this.currentReferences,
       }),
     );

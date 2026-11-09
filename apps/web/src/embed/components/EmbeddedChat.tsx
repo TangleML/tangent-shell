@@ -4,7 +4,7 @@ import {
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
 import { AgentModelPicker } from "@/features/chat/components/composer/AgentModelPicker";
 import { AgentsIndicator } from "@/features/chat/components/composer/AgentsIndicator";
@@ -49,6 +49,8 @@ interface EmbeddedChatProps {
   onOpenAgent?: (agent: EmbedAgentPayload) => void;
   /** A finished sub-agent was dismissed, so the host can close its tab. */
   onRemoveAgent?: (id: string) => void;
+  /** The session's files, pins or host entries may have changed. */
+  onResourcesChange?: () => void;
   /** The host's pipelines, documents and runs the composer's `#` can reference. */
   references?: EmbedReferencePayload[];
 }
@@ -77,13 +79,26 @@ export function EmbeddedChat({
   onSendPrompt,
   onOpenAgent,
   onRemoveAgent,
+  onResourcesChange,
   references: hostReferences = [],
 }: EmbeddedChatProps) {
   const chat = useSessionChat(sessionId);
   const { data: session } = useSession(sessionId);
   const { data: participants = [] } = useSessionParticipants(sessionId);
   const bundleId = session?.config?.id;
-  const { historyLoaded, primaryConversationId, rosterReady } = chat;
+  const {
+    historyLoaded,
+    primaryConversationId,
+    rosterReady,
+    resourcesVersion,
+  } = chat;
+  const [mountedResourcesVersion] = useState(resourcesVersion);
+  const announceResourcesChange = useEffectEvent(() => onResourcesChange?.());
+
+  useEffect(() => {
+    if (resourcesVersion !== mountedResourcesVersion) announceResourcesChange();
+  }, [resourcesVersion, mountedResourcesVersion]);
+
   const targetingPrime = isPrimeAgent(agentId);
   const references: ChatReference[] = [
     ...hostReferences,
