@@ -19,9 +19,8 @@ import {
 } from "@/features/chat/model/mentions";
 import {
   type ChatReference,
-  filterReferences,
+  groupReferences,
   type PickedReferences,
-  REFERENCE_GROUPS,
   referenceToken,
 } from "@/features/chat/model/references";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
@@ -72,18 +71,23 @@ function suggestionsFor(
     );
   }
   if (!references) return [];
-  return filterReferences(references.candidates, query).map((reference) => {
-    const group = REFERENCE_GROUPS.find(({ kind }) => kind === reference.kind);
-    const token = referenceToken(reference, references.picked);
-    return {
-      key: `${reference.kind}:${reference.href}`,
-      label: reference.label,
-      token,
-      icon: group?.icon,
-      group: group?.title,
-      detail: reference.detail,
-      onAccept: () => references.onPick(token, reference),
-    };
+  return groupReferences(references.candidates, query).flatMap((group) => {
+    const shown = group.references.length;
+    const groupDetail =
+      group.total > shown ? `${shown} of ${group.total}` : undefined;
+    return group.references.map((reference) => {
+      const token = referenceToken(reference, references.picked);
+      return {
+        key: `${reference.kind}:${reference.href}`,
+        label: reference.label,
+        token,
+        icon: group.icon,
+        group: group.title,
+        groupDetail,
+        detail: reference.detail,
+        onAccept: () => references.onPick(token, reference),
+      };
+    });
   });
 }
 

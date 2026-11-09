@@ -29,7 +29,16 @@ export const REFERENCE_GROUPS: readonly {
   { kind: "file", title: "Files", icon: "Paperclip" },
 ];
 
-const PER_GROUP_LIMIT = 4;
+export interface ReferenceGroup {
+  kind: ChatReferenceKind;
+  title: string;
+  icon: IconName;
+  references: ChatReference[];
+  total: number;
+}
+
+const BROWSE_LIMIT = 3;
+const SEARCH_LIMIT = 6;
 const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
 const TOKEN = /(^|\s)#([^\s#@]+)/g;
 const LINK = /\[((?:\\.|[^\]\\])*)\]\((<[^>\n]*>|[^\s)]+)\)/g;
@@ -38,37 +47,68 @@ function normalize(value: string): string {
   return value.toLowerCase().replace(/[\s_-]/g, "");
 }
 
-/** The session's pinned artifacts, addressed by their workspace path. */
+/**
+ * The session's pinned artifacts, most recently pinned first, addressed by
+ * their workspace path. Every pin lives under `artifacts/`, so the detail
+ * leaves that out.
+ */
 export function artifactReferences(
   artifacts: PinnedArtifact[],
 ): ChatReference[] {
-  return artifacts.map((artifact) => ({
-    kind: "file",
-    label: artifact.title,
-    href: artifact.path,
-    detail: artifact.path,
-  }));
+  return [...artifacts]
+    .sort((a, b) => b.pinnedAt.localeCompare(a.pinnedAt))
+    .map((artifact) => ({
+      kind: "file",
+      label: artifact.title,
+      href: artifact.path,
+      detail: artifact.path.replace(/^(\.\/)?artifacts\//, ""),
+    }));
+}
+
+/** 0 when the label starts with the query, 1 when a word in it does, else 2. */
+function rank(reference: ChatReference, query: string): number {
+  const label = reference.label.toLowerCase();
+  if (normalize(label).startsWith(normalize(query))) return 0;
+  return label.split(/[\s_\-/.]+/).some((word) => word.startsWith(query))
+    ? 1
+    : 2;
 }
 
 /**
- * References whose label or detail holds the query, a few per kind in group
- * order, so a broad query still shows every kind it matched.
+ * The references the query matches, by kind. Each kind keeps the order it was
+ * given (most recent first) behind the closest name matches, and shows only a
+ * few: three while browsing, six once something is typed. `total` says how
+ * many more there are to narrow down to.
  */
-export function filterReferences(
+export function groupReferences(
   references: ChatReference[],
   query: string,
-): ChatReference[] {
-  const q = normalize(query);
+): ReferenceGroup[] {
+  const q = query.trim().toLowerCase();
   const matches = references.filter(
     (reference) =>
-      normalize(reference.label).includes(q) ||
-      normalize(reference.detail ?? "").includes(q),
+      normalize(reference.label).includes(normalize(q)) ||
+      normalize(reference.detail ?? "").includes(normalize(q)),
   );
-  return REFERENCE_GROUPS.flatMap(({ kind }) =>
-    matches
-      .filter((reference) => reference.kind === kind)
-      .slice(0, PER_GROUP_LIMIT),
-  );
+  const ranked = q
+    ? matches
+        .map((reference, order) => ({
+          reference,
+          order,
+          score: rank(reference, q),
+        }))
+        .sort((a, b) => a.score - b.score || a.order - b.order)
+        .map(({ reference }) => reference)
+    : matches;
+  const limit = q ? SEARCH_LIMIT : BROWSE_LIMIT;
+
+  return REFERENCE_GROUPS.flatMap((group) => {
+    const ofKind = ranked.filter((reference) => reference.kind === group.kind);
+    if (ofKind.length === 0) return [];
+    return [
+      { ...group, references: ofKind.slice(0, limit), total: ofKind.length },
+    ];
+  });
 }
 
 // Brackets and trailing punctuation are dropped so the token survives being

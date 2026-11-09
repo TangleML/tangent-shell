@@ -17,6 +17,7 @@ export interface ComposerSuggestion {
   token: string;
   icon?: IconName;
   group?: string;
+  groupDetail?: string;
   detail?: string;
   onAccept?: () => void;
 }
