@@ -459,6 +459,7 @@ app.use(
       context: contextEngine,
     },
     remoteGateway,
+    emitUiCommand,
     bundleKb,
   ),
 );
