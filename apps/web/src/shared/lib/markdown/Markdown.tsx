@@ -24,10 +24,12 @@ import {
   isAbsoluteUrl,
   isArtifactsLink,
   isViewableArtifact,
+  protocolOf,
   resolveUrl,
 } from "@/shared/lib/markdown/artifact";
 import { cn } from "@/shared/lib/utils";
 
+import { ArtifactChip } from "./ArtifactChip";
 import { CodeBlock } from "./CodeBlock";
 
 /**
@@ -188,13 +190,6 @@ function parsePromptHref(href: string | undefined): string | undefined {
   }
 }
 
-/** Extracts the scheme from a `proto://…` href (lowercased), else undefined. */
-function protocolOf(href: string | undefined): string | undefined {
-  if (typeof href !== "string") return undefined;
-  const match = href.match(/^([a-z][a-z0-9+.-]*):\/\//i);
-  return match ? match[1].toLowerCase() : undefined;
-}
-
 /** Flattens a link's markdown children into a plain-text label. */
 function anchorText(children: ReactNode): string {
   if (typeof children === "string") return children;
@@ -228,83 +223,6 @@ function artifactLabel(children: ReactNode, url: string): string {
   } catch {
     return filename;
   }
-}
-
-/**
- * Artifact chip — a recognizable, padded pill-style reference for artifact
- * output. The main action opens the artifact in an in-app tab (`onOpen`) or
- * links to it for download. When `onTogglePin` is set, an adjacent pin toggle
- * lets the user keep the artifact in the sidebar's quick-access list. Raw
- * `<span>`/`<a>`/`<button>`, so scoped classes are fine.
- */
-const ARTIFACT_CHIP_CLASS =
-  "inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 align-middle text-xs font-medium text-foreground";
-const ARTIFACT_ACTION_CLASS =
-  "inline-flex min-w-0 items-center gap-1 text-foreground no-underline transition hover:opacity-70";
-const ARTIFACT_PIN_CLASS =
-  "inline-flex shrink-0 items-center transition hover:opacity-70";
-
-interface ArtifactChipProps {
-  href?: string;
-  title?: string;
-  children?: ReactNode;
-  onOpen?: () => void;
-  pinned?: boolean;
-  onTogglePin?: () => void;
-}
-
-function ArtifactChip({
-  href,
-  title,
-  children,
-  onOpen,
-  pinned,
-  onTogglePin,
-}: ArtifactChipProps) {
-  const action = onOpen ? (
-    <button
-      type="button"
-      title={title}
-      onClick={onOpen}
-      className={ARTIFACT_ACTION_CLASS}
-    >
-      <Icon name="FileText" size="xs" tone="subdued" />
-      <span className="truncate">{children}</span>
-    </button>
-  ) : (
-    <a
-      href={href}
-      title={title}
-      target="_blank"
-      rel="noreferrer"
-      className={ARTIFACT_ACTION_CLASS}
-    >
-      <Icon name="Paperclip" size="xs" tone="subdued" />
-      <span className="truncate">{children}</span>
-    </a>
-  );
-
-  return (
-    <span className={ARTIFACT_CHIP_CLASS}>
-      {action}
-      {onTogglePin ? (
-        <button
-          type="button"
-          title={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
-          aria-label={pinned ? "Unpin artifact" : "Pin artifact"}
-          aria-pressed={pinned}
-          onClick={onTogglePin}
-          className={ARTIFACT_PIN_CLASS}
-        >
-          <Icon
-            name={pinned ? "PinOff" : "Pin"}
-            size="xs"
-            tone={pinned ? "accent" : "subdued"}
-          />
-        </button>
-      ) : null}
-    </span>
-  );
 }
 
 /**

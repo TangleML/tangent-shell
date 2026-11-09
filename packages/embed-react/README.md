@@ -247,11 +247,36 @@ await addResource(sessionId, {
 | `onError`            | `(message) => void`    | Fired on a surfaced runtime error.                        |
 | `onOpenAgent`        | `(agent) => void`      | A sub-agent was chosen from Prime's agents pill.          |
 | `onRemoveAgent`      | `(id) => void`         | A finished sub-agent was dismissed from the pill.         |
+| `references`         | `EmbedReference[]`     | What the composer's `#` picker can reference. See below.  |
 | `className`, `style` | —                      | Forwarded to the element; size it with `height`.          |
 
 Prime's composer shows an agents pill listing the session's spawned sub-agents
 with their live status. Wire `onOpenAgent` to place a `<Chat agentId>` (as you
 would for `<AgentList onOpen>`) and `onRemoveAgent` to close that tab.
+
+#### Referencing things with `#`
+
+Typing `#` in the composer lists the session's pinned files plus any
+`references` you pass, grouped by kind. Picking one inserts a readable token
+such as `#Churn-model`; on send it becomes the markdown link `[label](href)`, so
+the agent receives an address it can act on. Give each reference an `href` your
+agent understands (for example `pipeline://id/abc`) and register an anchor
+protocol for its scheme so the link shows as a chip in the transcript.
+
+```tsx
+<Chat
+  sessionId={sessionId}
+  references={[
+    { kind: "pipeline", label: "Churn model", href: "pipeline://id/abc" },
+    {
+      kind: "run",
+      label: "Churn model",
+      href: "run://id/r-7",
+      detail: "Succeeded",
+    },
+  ]}
+/>
+```
 
 #### Autofocusing the composer
 
