@@ -25,16 +25,20 @@ export function parseCommand(
   return command ? { command, args: (match[2] ?? "").trim() } : null;
 }
 
-/** Commands whose name starts with the query, then those that contain it. */
+/**
+ * Commands matching the query: the one it names exactly, so `/run` isn't
+ * taken for `/runs`, then those starting with it, then those containing it.
+ */
 export function filterCommands(
   commands: readonly ChatCommand[],
   query: string,
 ): ChatCommand[] {
   const q = query.toLowerCase();
-  return [
-    ...commands.filter(({ name }) => name.startsWith(q)),
-    ...commands.filter(({ name }) => !name.startsWith(q) && name.includes(q)),
-  ];
+  const rank = ({ name }: ChatCommand) =>
+    name === q ? 0 : name.startsWith(q) ? 1 : 2;
+  return commands
+    .filter(({ name }) => name.includes(q))
+    .sort((a, b) => rank(a) - rank(b));
 }
 
 export function commandRun(command: ChatCommand, args: string): ChatCommandRun {
