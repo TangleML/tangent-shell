@@ -805,3 +805,77 @@ test("memoryCaller hands live agents Prime's resolution and their own role", asy
   pi.dispose("s1");
   assert.equal(pi.memoryCaller("s1", PRIME_AGENT_ID), undefined);
 });
+
+/** The prompt messages a fake Pi child received on stdin, in order. */
+function promptsOf(child: FakeChild): string[] {
+  return child.writes
+    .map((line) => JSON.parse(line) as { type?: string; message?: string })
+    .filter((command) => command.type === "prompt")
+    .map((command) => command.message ?? "");
+}
+
+const RESTART_NOTICE_PREFIX = "[Tangent: your process was restarted";
+
+test("a fresh session's Prime gets no restart notice", async () => {
+  const { pi, spawns } = makeManager();
+  pi.useTranscript(async () => false);
+  await pi.ensure("s1", "/tmp/s1");
+
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+
+  assert.deepEqual(promptsOf(spawns[0].child), ["hello"]);
+});
+
+test("a Prime spawned onto an existing transcript is told once to recover", async () => {
+  const { pi, spawns } = makeManager();
+  pi.useTranscript(async () => true);
+  await pi.ensure("s1", "/tmp/s1");
+
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "first" });
+  runTurn(spawns[0].child, "done");
+  await flush();
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "second" });
+
+  const [first, second] = promptsOf(spawns[0].child);
+  assert.ok(first.startsWith(RESTART_NOTICE_PREFIX));
+  assert.ok(first.endsWith("\n\nfirst"));
+  assert.equal(second, "second");
+});
+
+test("a crashed Prime's replacement is told to recover", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+
+  spawns[0].child.crash();
+  mock.timers.tick(1_000);
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  const [prompt] = promptsOf(spawns[1].child);
+  assert.ok(prompt.startsWith(RESTART_NOTICE_PREFIX));
+});
+
+test("a model change that respawns Prime mid-session tells it to recover", async () => {
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+
+  pi.setAgentModel("s1", PRIME_AGENT_ID, { thinkingDepth: "high" });
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  const [prompt] = promptsOf(spawns[1].child);
+  assert.ok(prompt.startsWith(RESTART_NOTICE_PREFIX));
+});
+
+test("a failing transcript lookup spawns Prime without the notice", async () => {
+  const { pi, spawns } = makeManager();
+  pi.useTranscript(async () => {
+    throw new Error("store unavailable");
+  });
+  await pi.ensure("s1", "/tmp/s1");
+
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+
+  assert.deepEqual(promptsOf(spawns[0].child), ["hello"]);
+});
