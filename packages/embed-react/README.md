@@ -254,6 +254,13 @@ Prime's composer shows an agents pill listing the session's spawned sub-agents
 with their live status. Wire `onOpenAgent` to place a `<Chat agentId>` (as you
 would for `<AgentList onOpen>`) and `onRemoveAgent` to close that tab.
 
+#### Adding your own pill beside the agents pill
+
+Register a component as `uiComponents["composer-pill"]` on `<TangentProvider>`
+to place it beside the agents and files pills above every chat box. It renders
+with `kind: "composer"` and `props: { sessionId, agentId }`, so it can show the
+host's own state for that session, such as the runs it started.
+
 #### Referencing things with `#`
 
 Typing `#` in the composer lists the session's pinned files plus any
