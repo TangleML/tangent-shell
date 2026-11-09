@@ -7,14 +7,18 @@ import {
 } from "@/shared/lib/hostSlots";
 
 import { EmbeddedChat } from "../components/EmbeddedChat";
-import type { EmbedAgentPayload, TangentRuntime } from "../types";
+import type {
+  EmbedAgentPayload,
+  EmbedReferencePayload,
+  TangentRuntime,
+} from "../types";
 import { EmbeddedElement } from "./embeddedElement";
 
 const TAG = "tangent-chat";
 
 /**
  * Mounts the embedded chat surface. `sessionId`, `agentId`, `initialPrompt`,
- * and `autoFocus` are properties; `open-artifact`, `send-prompt`, `open-agent`,
+ * `autoFocus`, and `references` are properties; `open-artifact`, `send-prompt`, `open-agent`,
  * and `remove-agent` are emitted as composed `CustomEvent`s for the npm wrapper
  * to surface as `on*` props.
  */
@@ -23,6 +27,7 @@ export class TangentChatElement extends EmbeddedElement {
   private currentAgentId = "";
   private queuedInitialPrompt: string | undefined;
   private shouldAutoFocus = false;
+  private currentReferences: EmbedReferencePayload[] = [];
   private readonly hostSlots = createHostSlotRegistry();
   private hostExtUnsubscribe: (() => void) | null = null;
 
@@ -88,6 +93,14 @@ export class TangentChatElement extends EmbeddedElement {
     return this.shouldAutoFocus;
   }
 
+  set references(value: EmbedReferencePayload[] | undefined) {
+    this.currentReferences = value ?? [];
+    this.rerender();
+  }
+  get references(): EmbedReferencePayload[] {
+    return this.currentReferences;
+  }
+
   attributeChangedCallback(name: string, _prev: string, next: string): void {
     if (name === "session-id") this.sessionId = next ?? "";
     if (name === "agent-id") this.agentId = next ?? "";
@@ -126,6 +139,7 @@ export class TangentChatElement extends EmbeddedElement {
         onOpenAgent: (agent: EmbedAgentPayload) =>
           this.emit("open-agent", { ...agent }),
         onRemoveAgent: (id: string) => this.emit("remove-agent", { id }),
+        references: this.currentReferences,
       }),
     );
   }

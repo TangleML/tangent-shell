@@ -15,6 +15,7 @@ import { useSessionResources } from "@/features/chat/hooks/useSessionResources";
 import { type Agent, buildSubagents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
+import { artifactReferences } from "@/features/chat/model/references";
 import { useSession } from "@/features/sessions/hooks/useSession";
 import { apiUrl } from "@/shared/lib/basePath";
 import { isViewableArtifact, resolveUrl } from "@/shared/lib/markdown/artifact";
@@ -109,6 +110,7 @@ export function useSessionChatModel(sessionId: string) {
   // Who a composer can @mention: Prime, the sub-agent roster, and invited
   // humans. The server re-resolves names to ids at write time.
   const mentionCandidates = buildMentionCandidates(subagents, participants);
+  const references = artifactReferences(artifacts);
 
   const removeAgent = (agent: Agent) => {
     dismissSubagent(agent.id);
@@ -175,6 +177,7 @@ export function useSessionChatModel(sessionId: string) {
     openArtifactTab,
     togglePinArtifact,
     mentionCandidates,
+    references,
     spawnedAgents,
     busySubagents,
     openAgent,
@@ -228,6 +231,7 @@ export function useSessionChatModel(sessionId: string) {
     pinnedPaths,
     togglePinArtifact,
     mentionCandidates,
+    references,
   };
 
   return {

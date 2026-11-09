@@ -15,6 +15,7 @@ export type {
   EmbedAgent,
   EmbedAsset,
   EmbedMuteToggle,
+  EmbedReference,
   EmbedResource,
   EmbedResourceKind,
   EmbedResourceRow,

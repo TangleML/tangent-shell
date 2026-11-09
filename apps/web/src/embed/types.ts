@@ -66,6 +66,18 @@ export interface EmbedAgentPayload {
   conversationId: string;
 }
 
+/**
+ * Something the host lets the composer's `#` picker reference. A pick is sent
+ * as a markdown link to `href`, which the host renders through its anchor
+ * protocol for that scheme.
+ */
+export interface EmbedReferencePayload {
+  kind: "pipeline" | "document" | "run";
+  label: string;
+  href: string;
+  detail?: string;
+}
+
 /** Serializable asset row handed to the host via `open-asset`. */
 export type EmbedAssetPayload =
   | {

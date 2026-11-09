@@ -86,3 +86,10 @@ export function isPdfArtifact(url: string): boolean {
   const path = url.split(/[?#]/, 1)[0];
   return path.split(".").pop()?.toLowerCase() === "pdf";
 }
+
+/** Extracts the scheme from a `proto://…` href (lowercased), else undefined. */
+export function protocolOf(href: string | undefined): string | undefined {
+  if (typeof href !== "string") return undefined;
+  const match = href.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  return match ? match[1].toLowerCase() : undefined;
+}

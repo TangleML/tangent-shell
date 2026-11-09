@@ -9,6 +9,7 @@ import { BlockStack } from "@tangent/ui-primitives/layout";
 import type { ReactNode } from "react";
 
 import type { MentionCandidate } from "@/features/chat/model/mentions";
+import type { ChatReference } from "@/features/chat/model/references";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import {
@@ -63,6 +64,7 @@ interface SubagentTabViewProps {
   onTogglePinArtifact: (path: string, title: string) => void;
   /** People/agents the `@mention` picker can address in this sub-agent's composer. */
   mentionCandidates: MentionCandidate[];
+  references: ChatReference[];
   /** Focuses this tab's composer once it becomes usable. */
   autoFocus?: boolean;
   /** The session's agents pill, shown left of the model picker as on Prime's composer. */
@@ -98,6 +100,7 @@ export function SubagentTabView({
   pinnedPaths,
   onTogglePinArtifact,
   mentionCandidates,
+  references,
   autoFocus,
   agentsPill,
 }: SubagentTabViewProps) {
@@ -138,6 +141,7 @@ export function SubagentTabView({
         agentStatus={status}
         autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
+        references={references}
         onRemove={onRemove}
         onAbort={onAbort}
         onSubmit={onSubmit}

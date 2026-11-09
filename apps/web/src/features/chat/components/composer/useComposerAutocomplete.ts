@@ -1,43 +1,63 @@
+import type { IconName } from "@tangent/ui-primitives/icon";
 import { type KeyboardEvent, type RefObject, useState } from "react";
 
 import {
   type ActiveMention,
-  applyMention,
-  filterMentionCandidates,
+  applyToken,
+  type ComposerTrigger,
   findActiveMention,
-  type MentionCandidate,
 } from "@/features/chat/model/mentions";
 
-interface UseMentionAutocompleteArgs {
-  candidates: MentionCandidate[];
+const TRIGGERS: readonly ComposerTrigger[] = ["@", "#"];
+
+/** One row of a composer picker, and the token choosing it inserts. */
+export interface ComposerSuggestion {
+  key: string;
+  label: string;
+  token: string;
+  icon?: IconName;
+  group?: string;
+  detail?: string;
+  onAccept?: () => void;
+}
+
+interface UseComposerAutocompleteArgs {
   value: string;
   onValueChange: (value: string) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  suggest: (trigger: ComposerTrigger, query: string) => ComposerSuggestion[];
+}
+
+function activeAt(value: string, caret: number): ActiveMention | null {
+  let nearest: ActiveMention | null = null;
+  for (const trigger of TRIGGERS) {
+    const active = findActiveMention(value, caret, trigger);
+    if (active && (!nearest || active.start > nearest.start)) nearest = active;
+  }
+  return nearest;
 }
 
 /**
- * Drives the composer's `@mention` picker: it tracks the mention the caret is
- * inside, filters candidates, and owns the keyboard interaction (arrow to move,
- * Enter/Tab to accept, Escape to dismiss). The picker only ever inserts a name
- * token; the server resolves it to a stable id at write time.
+ * Drives the composer's pickers: `@` to address someone, `#` to reference
+ * something. It tracks the trigger the caret is inside, asks for suggestions,
+ * and owns the keyboard interaction (arrow to move, Enter/Tab to accept,
+ * Escape to dismiss). A choice only ever inserts a readable token; mentions
+ * resolve on the server, references when the message is sent.
  */
-export function useMentionAutocomplete({
-  candidates,
+export function useComposerAutocomplete({
   value,
   onValueChange,
   textareaRef,
-}: UseMentionAutocompleteArgs) {
+  suggest,
+}: UseComposerAutocompleteArgs) {
   const [active, setActive] = useState<ActiveMention | null>(null);
   const [highlight, setHighlight] = useState(0);
 
-  const matches = active
-    ? filterMentionCandidates(candidates, active.query)
-    : [];
+  const matches = active ? suggest(active.trigger, active.query) : [];
   const open = active != null && matches.length > 0;
 
   function sync(target: HTMLTextAreaElement) {
-    const next = findActiveMention(target.value, target.selectionStart ?? 0);
-    setActive(next);
+    setActive(activeAt(target.value, target.selectionStart ?? 0));
     setHighlight(0);
   }
 
@@ -45,15 +65,16 @@ export function useMentionAutocomplete({
     setActive(null);
   }
 
-  function accept(candidate: MentionCandidate) {
+  function accept(suggestion: ComposerSuggestion) {
     const el = textareaRef.current;
     if (!active || !el) return;
-    const result = applyMention(
+    const result = applyToken(
       value,
       el.selectionStart ?? value.length,
       active,
-      candidate,
+      suggestion.token,
     );
+    suggestion.onAccept?.();
     onValueChange(result.value);
     setActive(null);
     // Restore the caret after the controlled re-render lands the new text.

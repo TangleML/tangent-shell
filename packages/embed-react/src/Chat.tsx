@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTangentContext } from "./context";
 import type {
   EmbedAgent,
+  EmbedReference,
   HostSlotRecordLike,
   TangentChatElementLike,
 } from "./types";
@@ -34,6 +35,11 @@ export interface ChatProps {
   onOpenAgent?: (agent: EmbedAgent) => void;
   /** A finished sub-agent was dismissed from Prime's agents pill. */
   onRemoveAgent?: (id: string) => void;
+  /**
+   * What the composer's `#` picker can reference, alongside the session's own
+   * files. Each pick is sent as `[label](href)`.
+   */
+  references?: EmbedReference[];
   /** Disambiguates the provider when a page mounts more than one. */
   instance?: string;
   className?: string;
@@ -55,6 +61,7 @@ export function Chat({
   onError,
   onOpenAgent,
   onRemoveAgent,
+  references,
   instance,
   className,
   style,
@@ -91,6 +98,11 @@ export function Chat({
     const element = ref.current as TangentChatElementLike | null;
     if (element) element.agentId = agentId ?? "";
   }, [agentId]);
+
+  useEffect(() => {
+    const element = ref.current as TangentChatElementLike | null;
+    if (element) element.references = references ?? [];
+  }, [references]);
 
   useEffect(() => {
     const element = ref.current as TangentChatElementLike | null;

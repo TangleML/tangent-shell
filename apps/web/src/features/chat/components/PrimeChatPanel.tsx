@@ -11,6 +11,7 @@ import { BlockStack } from "@tangent/ui-primitives/layout";
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
 import type { Agent } from "@/features/chat/model/agents";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
+import type { ChatReference } from "@/features/chat/model/references";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { AgentModelPicker } from "./composer/AgentModelPicker";
@@ -58,6 +59,7 @@ interface PrimeChatPanelProps {
   pinnedPaths: Set<string>;
   togglePinArtifact: (path: string, title: string) => void;
   mentionCandidates: MentionCandidate[];
+  references: ChatReference[];
 }
 
 export function PrimeChatPanel({
@@ -86,6 +88,7 @@ export function PrimeChatPanel({
   pinnedPaths,
   togglePinArtifact,
   mentionCandidates,
+  references,
 }: PrimeChatPanelProps) {
   return (
     <BlockStack grow>
@@ -140,6 +143,7 @@ export function PrimeChatPanel({
         disabled={!connected}
         agentBusy={agentBusy}
         mentionCandidates={mentionCandidates}
+        references={references}
         onAbort={() => abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) =>
           send(content, {
