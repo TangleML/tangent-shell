@@ -8,7 +8,7 @@ import {
   findActiveMention,
 } from "@/features/chat/model/mentions";
 
-const TRIGGERS: readonly ComposerTrigger[] = ["@", "#"];
+const TRIGGERS: readonly ComposerTrigger[] = ["@", "#", "/"];
 
 /** One row of a composer picker, and the token choosing it inserts. */
 export interface ComposerSuggestion {
@@ -40,10 +40,11 @@ function activeAt(value: string, caret: number): ActiveMention | null {
 
 /**
  * Drives the composer's pickers: `@` to address someone, `#` to reference
- * something. It tracks the trigger the caret is inside, asks for suggestions,
- * and owns the keyboard interaction (arrow to move, Enter/Tab to accept,
- * Escape to dismiss). A choice only ever inserts a readable token; mentions
- * resolve on the server, references when the message is sent.
+ * something, `/` to run a command. It tracks the trigger the caret is inside,
+ * asks for suggestions, and owns the keyboard interaction (arrow to move,
+ * Enter/Tab to accept, Escape to dismiss). A choice only ever inserts a
+ * readable token; mentions resolve on the server, references when the message
+ * is sent, and a command when it's run.
  */
 export function useComposerAutocomplete({
   value,

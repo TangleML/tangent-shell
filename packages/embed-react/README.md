@@ -249,6 +249,7 @@ await addResource(sessionId, {
 | `onRemoveAgent`      | `(id) => void`         | A finished sub-agent was dismissed from the pill.         |
 | `onResourcesChange`  | `() => void`           | The session's resources may have changed. See below.      |
 | `references`         | `EmbedReference[]`     | What the composer's `#` picker can reference. See below.  |
+| `commands`           | `EmbedCommand[]`       | The slash commands Prime's composer offers. See below.    |
 | `className`, `style` | —                      | Forwarded to the element; size it with `height`.          |
 
 Prime's composer shows an agents pill listing the session's spawned sub-agents
@@ -291,6 +292,36 @@ protocol for its scheme so the link shows as a chip in the transcript.
       label: "Churn model",
       href: "run://id/r-7",
       detail: "Succeeded",
+    },
+  ]}
+/>
+```
+
+#### Slash commands
+
+Typing `/` at the start of Prime's composer lists the `commands` you pass.
+Sending `/name` followed by anything else calls that command's `run` with the
+rest of the text, instead of sending a message to the agent. The markdown
+`run` returns is posted in the chat as the command's result for everyone, and
+the agent doesn't start; it's sent the result along with the next message it
+gets. Throw from `run` to keep the draft and show your message under it. Links
+in the result show as chips, the same as in a message.
+
+```tsx
+<Chat
+  sessionId={sessionId}
+  commands={[
+    {
+      name: "pipelines",
+      description: "Project pipelines",
+      run: async () =>
+        pipelines.map((p) => `- [${p.name}](pipeline://id/${p.id})`).join("\n"),
+    },
+    {
+      name: "run",
+      description: "Start pipelines by id",
+      argumentHint: "<ids>",
+      run: async (args) => startRuns(args.split(",")),
     },
   ]}
 />

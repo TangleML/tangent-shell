@@ -4,6 +4,7 @@ import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
   type ChatAuthor,
+  type ChatCommandRun,
   type ChatJoinPayload,
   type ChatMessage,
   type ChatMessagePayload,
@@ -548,6 +549,19 @@ export async function handleChatMessage(
     env,
   });
 
+  const command = commandOf(payload);
+  if (command) {
+    await conversations.post({
+      sessionId: session.id,
+      conversationId,
+      author,
+      content: payload.content,
+      command,
+      provokes: false,
+    });
+    return;
+  }
+
   await conversations.post({
     sessionId: session.id,
     conversationId,
@@ -560,4 +574,17 @@ export async function handleChatMessage(
     attachments: payload.attachments,
     delivery: payload.delivery ?? "auto",
   });
+}
+
+/** The slash command a payload carries the result of, when it names one. */
+const trimmed = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
+
+function commandOf({
+  command,
+}: ChatMessagePayload): ChatCommandRun | undefined {
+  const name = trimmed(command?.name);
+  if (!name) return undefined;
+  const args = trimmed(command?.args);
+  return args ? { name, args } : { name };
 }

@@ -1,6 +1,7 @@
 import {
   type AgentActivity,
   type Attachment,
+  type ChatCommandRun,
   type ChatMessage,
   humanAuthor,
   type MessageDelivery,
@@ -106,6 +107,16 @@ export function useSessionChat(sessionId: string) {
         attachments?: Attachment[];
       },
     ) => peekSessionChatRoom(sessionId)?.send(content, options),
+    postCommandResult: (
+      content: string,
+      command: ChatCommandRun,
+      conversationId?: string,
+    ) =>
+      peekSessionChatRoom(sessionId)?.postCommandResult(
+        content,
+        command,
+        conversationId,
+      ),
     abort: (conversationId: string) =>
       peekSessionChatRoom(sessionId)?.abort(conversationId),
     getAgentModel,

@@ -9,6 +9,7 @@ import {
 import { EmbeddedChat } from "../components/EmbeddedChat";
 import type {
   EmbedAgentPayload,
+  EmbedCommandPayload,
   EmbedReferencePayload,
   TangentRuntime,
 } from "../types";
@@ -18,9 +19,10 @@ const TAG = "tangent-chat";
 
 /**
  * Mounts the embedded chat surface. `sessionId`, `agentId`, `initialPrompt`,
- * `autoFocus`, and `references` are properties; `open-artifact`, `send-prompt`, `open-agent`,
- * `remove-agent`, and `resources-change` are emitted as composed `CustomEvent`s
- * for the npm wrapper to surface as `on*` props.
+ * `autoFocus`, `references`, and `commands` are properties; `open-artifact`,
+ * `send-prompt`, `open-agent`, `remove-agent`, and `resources-change` are
+ * emitted as composed `CustomEvent`s for the npm wrapper to surface as `on*`
+ * props.
  */
 export class TangentChatElement extends EmbeddedElement {
   private currentSessionId = "";
@@ -28,6 +30,7 @@ export class TangentChatElement extends EmbeddedElement {
   private queuedInitialPrompt: string | undefined;
   private shouldAutoFocus = false;
   private currentReferences: EmbedReferencePayload[] = [];
+  private currentCommands: EmbedCommandPayload[] = [];
   private readonly hostSlots = createHostSlotRegistry();
   private hostExtUnsubscribe: (() => void) | null = null;
 
@@ -101,6 +104,14 @@ export class TangentChatElement extends EmbeddedElement {
     return this.currentReferences;
   }
 
+  set commands(value: EmbedCommandPayload[] | undefined) {
+    this.currentCommands = value ?? [];
+    this.rerender();
+  }
+  get commands(): EmbedCommandPayload[] {
+    return this.currentCommands;
+  }
+
   attributeChangedCallback(name: string, _prev: string, next: string): void {
     if (name === "session-id") this.sessionId = next ?? "";
     if (name === "agent-id") this.agentId = next ?? "";
@@ -141,6 +152,7 @@ export class TangentChatElement extends EmbeddedElement {
         onRemoveAgent: (id: string) => this.emit("remove-agent", { id }),
         onResourcesChange: () => this.emit("resources-change", {}),
         references: this.currentReferences,
+        commands: this.currentCommands,
       }),
     );
   }

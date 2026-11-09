@@ -78,6 +78,14 @@ export interface EmbedReferencePayload {
   detail?: string;
 }
 
+/** A slash command the host offers; `run` returns the markdown to post. */
+export interface EmbedCommandPayload {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  run: (args: string) => Promise<string> | string;
+}
+
 /** Serializable asset row handed to the host via `open-asset`. */
 export type EmbedAssetPayload =
   | {

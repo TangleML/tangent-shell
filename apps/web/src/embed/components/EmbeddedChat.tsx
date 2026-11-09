@@ -18,6 +18,7 @@ import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
 import { buildSubagents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
+import { commandRun } from "@/features/chat/model/commands";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
 import {
   artifactReferences,
@@ -30,6 +31,7 @@ import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
 import type {
   EmbedAgentPayload,
+  EmbedCommandPayload,
   EmbedReferencePayload,
   TangentRuntime,
 } from "../types";
@@ -53,6 +55,8 @@ interface EmbeddedChatProps {
   onResourcesChange?: () => void;
   /** The host's pipelines, documents and runs the composer's `#` can reference. */
   references?: EmbedReferencePayload[];
+  /** The host's slash commands, offered by Prime's composer. */
+  commands?: EmbedCommandPayload[];
 }
 
 /**
@@ -81,6 +85,7 @@ export function EmbeddedChat({
   onRemoveAgent,
   onResourcesChange,
   references: hostReferences = [],
+  commands,
 }: EmbeddedChatProps) {
   const chat = useSessionChat(sessionId);
   const { data: session } = useSession(sessionId);
@@ -265,6 +270,15 @@ export function EmbeddedChat({
         autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
         references={references}
+        commands={commands}
+        onRunCommand={async (command, args) => {
+          const result = await command.run(args);
+          chat.postCommandResult(
+            result,
+            commandRun(command, args),
+            primaryConversationId,
+          );
+        }}
         onAbort={() => chat.abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) => {
           chat.send(content, {

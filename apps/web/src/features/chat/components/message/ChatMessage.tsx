@@ -11,6 +11,7 @@ import { Markdown } from "@/shared/lib/markdown/Markdown";
 import { cn } from "@/shared/lib/utils";
 
 import { AgentThinking } from "./AgentThinking";
+import { CommandResultMessage } from "./CommandResultMessage";
 import { MemoryMessage } from "./MemoryMessage";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageAvatar } from "./MessageAvatar";
@@ -63,6 +64,18 @@ function ChatMessageContent({
       <MemoryMessage
         sessionId={sessionId}
         message={message}
+        onCollapse={onCollapse}
+      />
+    );
+
+  if (message.command)
+    return (
+      <CommandResultMessage
+        sessionId={sessionId}
+        message={message}
+        command={message.command}
+        isOwn={isOwn}
+        onOpenArtifact={onOpenArtifact}
         onCollapse={onCollapse}
       />
     );
