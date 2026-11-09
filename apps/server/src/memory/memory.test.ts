@@ -32,6 +32,8 @@ const { PiMemory } = await import("./piMemory.ts");
 const { SharedMarkdownMemory } = await import("./sharedMarkdown.ts");
 const { SimpleMdMemory } = await import("./simpleMd.ts");
 const { MemoryResolver } = await import("./resolver.ts");
+const { BundleKbRegistry } = await import("./bundleKbRegistry.ts");
+const { BundleKnowledgeMemory } = await import("./bundleKnowledge.ts");
 const { settleBinding } = await import("./binding.ts");
 const { removeSessionQmdState } = await import("./qmdState.ts");
 const { nestedRoots } = await import("./paths.ts");
@@ -67,15 +69,24 @@ function fakeLeaf(
     kind: over.kind,
     init: over.init ?? (() => {}),
     preamble: over.preamble ?? (() => ""),
+    describe: over.describe ?? (() => []),
     tools: over.tools ?? (() => []),
     spawn: over.spawn,
-    execute: over.execute ?? (() => undefined),
+    execute: over.execute ?? (async () => undefined),
   };
 }
 
-/** The heading of a loaded project store's preamble (shared note or pi-memory). */
-const LOADED_STORE = /^## Project memory( \(pi-memory\))?$/m;
-const DROPPED_NOTICE = /^## Project memory unavailable$/m;
+/** The index entry of a loaded project store (shared note or pi-memory). */
+const LOADED_STORE = /^- \*\*Project (?:note|memory \(pi-memory\))\*\*/m;
+const DROPPED_NOTICE = /^- \*\*`[^`]+`\*\* \(unavailable\)/m;
+
+/** The index entry flagging `label` as dropped. */
+function droppedEntry(label: string): RegExp {
+  return new RegExp(
+    `^- \\*\\*\`${label.replace("/", "\\/")}\`\\*\\* \\(unavailable\\)`,
+    "m",
+  );
+}
 
 /** Asserts a preamble loads no project store and flags the binding as dropped. */
 function assertDroppedOnly(preamble: string): void {
@@ -83,22 +94,25 @@ function assertDroppedOnly(preamble: string): void {
   assert.match(preamble, DROPPED_NOTICE);
 }
 
-test("CompositeMemory concatenates preambles and routes execute to the owner", () => {
+test("CompositeMemory concatenates preambles and routes execute to the owner", async () => {
   const a = fakeLeaf({
     kind: "a",
     preamble: () => "A-pre",
-    execute: (name) => (name === "ta" ? { text: "from-a" } : undefined),
+    execute: async (name) => (name === "ta" ? { text: "from-a" } : undefined),
   });
   const b = fakeLeaf({
     kind: "b",
     preamble: () => "B-pre",
-    execute: (name) => (name === "tb" ? { text: "from-b" } : undefined),
+    execute: async (name) => (name === "tb" ? { text: "from-b" } : undefined),
   });
   const composite = new CompositeMemory([a, b]);
 
   assert.equal(composite.preamble(CTX, "prime"), "A-pre\n\nB-pre");
-  assert.equal(composite.execute("tb", {}, CTX, "prime")?.text, "from-b");
-  assert.equal(composite.execute("unknown", {}, CTX, "prime"), undefined);
+  assert.equal(
+    (await composite.execute("tb", {}, CTX, "prime"))?.text,
+    "from-b",
+  );
+  assert.equal(await composite.execute("unknown", {}, CTX, "prime"), undefined);
 });
 
 test("CompositeMemory merges spawn extras and dedupes allowlist tools", () => {
@@ -194,46 +208,70 @@ test("PiMemory scopes the qmd index to each store directory", () => {
   assert.notEqual(a.env?.QMD_CONFIG_DIR, b.env?.QMD_CONFIG_DIR);
 });
 
-test("PiMemory preamble only offers sub-agents the tools they have", () => {
+test("PiMemory describes only the tools each role has, and injects no preamble", () => {
   const pi = new PiMemory(PM);
-  assert.match(pi.preamble(CTX, "prime"), /memory_write/);
-  assert.doesNotMatch(pi.preamble(CTX, "subagent"), /memory_write|scratchpad/);
-  assert.match(pi.preamble(CTX, "subagent"), /memory_search/);
+  const text = (role: "prime" | "subagent", leaf = pi) =>
+    JSON.stringify(leaf.describe(CTX, role));
+  assert.equal(pi.preamble(), "");
+  assert.match(text("prime"), /memory_write/);
+  assert.doesNotMatch(text("subagent"), /memory_write|scratchpad/);
+  assert.match(text("subagent"), /memory_search/);
 
   const noSearch = new PiMemory(PM, { search: false });
-  assert.doesNotMatch(noSearch.preamble(CTX, "prime"), /memory_search/);
+  assert.doesNotMatch(text("prime", noSearch), /memory_search/);
 });
 
-test("SimpleMd rejects writes from sub-agents", () => {
+test("SimpleMd rejects writes from sub-agents", async () => {
   const simpleMd = new SimpleMdMemory();
   for (const name of ["remember", "suggest_memory"]) {
-    const result = simpleMd.execute(name, { text: "x" }, CTX, "subagent");
+    const result = await simpleMd.execute(name, { text: "x" }, CTX, "subagent");
     assert.equal(result?.error, true, `${name} is rejected for sub-agents`);
     assert.equal(result?.effects, undefined);
   }
-  const read = simpleMd.execute("read_memory", {}, CTX, "subagent");
+  const read = await simpleMd.execute("read_memory", {}, CTX, "subagent");
   assert.equal(read?.error, undefined, "sub-agents can still read");
 });
 
-test("SimpleMd validates remember and suggest params", () => {
+test("SimpleMd validates remember and suggest params", async () => {
   const simpleMd = new SimpleMdMemory();
   const ctx = { sessionId: "s1", rootPath: sessionRoot("validate") };
 
-  const blank = simpleMd.execute("remember", { text: "   " }, ctx, "prime");
+  const blank = await simpleMd.execute(
+    "remember",
+    { title: "Fact", text: "   " },
+    ctx,
+    "prime",
+  );
   assert.equal(blank?.error, true, "blank text is rejected");
-  const badScope = simpleMd.execute(
+  const untitled = await simpleMd.execute(
+    "remember",
+    { text: "fact" },
+    ctx,
+    "prime",
+  );
+  assert.equal(untitled?.error, true, "a fact without a title is rejected");
+  const badScope = await simpleMd.execute(
     "suggest_memory",
-    { text: "fact", scope: "everywhere" },
+    { title: "Fact", text: "fact", scope: "everywhere" },
     ctx,
     "prime",
   );
   assert.equal(badScope?.error, true, "an unknown scope is rejected");
   assert.equal(simpleMd.readSession(ctx.rootPath), "", "nothing was written");
 
-  const ok = simpleMd.execute("remember", { text: " fact " }, ctx, "prime");
+  const ok = await simpleMd.execute(
+    "remember",
+    { title: " Fact ", text: " fact ", tags: ["build tools"] },
+    ctx,
+    "prime",
+  );
   assert.equal(ok?.error, undefined);
   assert.deepEqual(ok?.effects, [
-    { kind: "remembered", scope: "session", text: "fact" },
+    {
+      kind: "remembered",
+      scope: "session",
+      text: "### Fact\nfact\n\n#build-tools",
+    },
   ]);
 });
 
@@ -257,10 +295,17 @@ test("the binding schema allows at most one pi-memory leaf", () => {
   assert.equal(memoryBindingSchema.safeParse(one).success, true);
 });
 
-/** A SessionStore stub whose only live method is getSessionMemory. */
-function sessionStoreWith(binding: MemoryBinding | undefined): SessionStore {
+/** A SessionStore stub whose only live methods are getSessionMemory and getSession. */
+function sessionStoreWith(
+  binding: MemoryBinding | undefined,
+  bundleId?: string,
+): SessionStore {
   return {
     getSessionMemory: async () => binding,
+    getSession: async () =>
+      bundleId
+        ? { config: { id: bundleId, name: bundleId, version: "1" } }
+        : {},
   } as unknown as SessionStore;
 }
 
@@ -334,20 +379,25 @@ test("a session-local pi-memory store names only its workspace path", async () =
   assert.doesNotMatch(preamble, /canonical path/);
 });
 
-test("the shared note preamble tells a missing note from a written one", () => {
+test("the shared note tells a missing note from a written one", () => {
   const dir = path.join(SHARED, "notes");
   mkdirSync(dir, { recursive: true });
   const note = new SharedMarkdownMemory(dir, "project/NOTES");
 
-  const missing = note.preamble();
-  assert.match(missing, /No project memory note exists yet/);
-  assert.match(missing, /create `project\/NOTES\/MEMORY\.md`/);
-  assert.doesNotMatch(missing, /This project has a memory note/);
+  assert.match(
+    note.preamble(),
+    /`project\/NOTES\/MEMORY\.md`\n\n\(not created yet\)/,
+  );
+  const [missing] = note.describe(CTX, "prime");
+  assert.deepEqual(missing.write, { file: "project/NOTES/MEMORY.md" });
+  assert.match(missing.notes?.join(" ") ?? "", /doesn't exist yet/);
+  assert.equal(note.describe(CTX, "subagent")[0].write, undefined);
 
   writeFileSync(path.join(dir, "MEMORY.md"), "Use pnpm.\n");
-  const written = note.preamble();
-  assert.match(written, /memory note at `project\/NOTES\/MEMORY\.md`/);
-  assert.match(written, /Use pnpm\./);
+  assert.match(note.preamble(), /Use pnpm\./);
+  const [written] = note.describe(CTX, "prime");
+  assert.deepEqual(written.notes, []);
+  assert.deepEqual(written.digest, { entries: 1, chars: 9, mode: "inline" });
 });
 
 test("resolve leaves out a pi-memory store whose folder is gone", async (t) => {
@@ -430,13 +480,17 @@ test("settleBinding treats a dangling mount symlink as missing", (t) => {
 });
 
 test("SimpleMd only tells Prime how to write memory", () => {
-  const simpleMd = new SimpleMdMemory();
-  const ctx = { sessionId: "s1", rootPath: sessionRoot("simple-preamble") };
+  const resolver = new MemoryResolver(new SimpleMdMemory());
+  const resolved = resolver.resolveDefault(
+    "s1",
+    sessionRoot("simple-preamble"),
+  );
 
-  assert.match(simpleMd.preamble(ctx, "prime"), /`remember`/);
-  const sub = simpleMd.preamble(ctx, "subagent");
+  assert.match(resolved.preamble("prime"), /Write: `remember`/);
+  const sub = resolved.preamble("subagent");
   assert.doesNotMatch(sub, /remember|suggest_memory/);
   assert.match(sub, /read-only for you/);
+  assert.match(sub, /### Session memory\n\n\(empty\)/);
 });
 
 test("resolve defaults a rootless pi-memory binding to a session-local dir", async () => {
@@ -866,14 +920,19 @@ test("a simple-md root naming an absent mount is dropped, not created", async (t
   assert.equal(existsSync(path.join(root, "proj")), false);
 });
 
-test("an oversized shared note is truncated with a pointer to the file", () => {
+test("an oversized shared note shows its sections with line ranges", () => {
   const dir = path.join(SHARED, "big-note");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "MEMORY.md"), `${"x".repeat(5000)}TAIL\n`);
+  writeFileSync(
+    path.join(dir, "MEMORY.md"),
+    `## Setup\n\n${"x".repeat(5000)}\n\n## Release TAIL\n\nship it\n`,
+  );
 
   const preamble = new SharedMarkdownMemory(dir, "proj").preamble();
-  assert.doesNotMatch(preamble, /TAIL/);
-  assert.match(preamble, /truncated; read the full note at `proj\/MEMORY\.md`/);
+  assert.doesNotMatch(preamble, /xxxx/);
+  assert.match(preamble, /^- `[0-9a-f]{6}` L1-3 Setup$/m);
+  assert.match(preamble, /^- `[0-9a-f]{6}` L5-7 Release TAIL$/m);
+  assert.match(preamble, /line range from `proj\/MEMORY\.md`/);
 });
 
 test("a store whose mount was removed surfaces the unavailable notice", async (t) => {
@@ -889,7 +948,7 @@ test("a store whose mount was removed surfaces the unavailable notice", async (t
   assert.equal(resolved.spawnPlan("prime").extensionPaths.length, 0);
   const preamble = resolved.preamble("prime");
   assertDroppedOnly(preamble);
-  assert.match(preamble, /- `proj\/mem`/);
+  assert.match(preamble, droppedEntry("proj/mem"));
 });
 
 test("a dropped composite child is flagged beside its surviving siblings", async (t) => {
@@ -904,9 +963,175 @@ test("a dropped composite child is flagged beside its surviving siblings", async
 
   assert.equal(resolved.spawnPlan("prime").extensionPaths.length, 1);
   const preamble = resolved.preamble("prime");
-  assert.match(preamble, /## Project memory \(pi-memory\)/);
+  assert.match(preamble, LOADED_STORE);
   assert.match(preamble, DROPPED_NOTICE);
-  assert.match(preamble, /- `gone`/);
+  assert.match(preamble, droppedEntry("gone"));
+});
+
+const BUNDLES = mkdtempSync(path.join(tmpdir(), "mem-bundles-"));
+after(() => rmSync(BUNDLES, { recursive: true, force: true }));
+
+/** Resolves `binding` for a session created from bundle `bundleId`, if any. */
+function resolveForBundle(
+  binding: MemoryBinding,
+  bundleId: string | undefined,
+  root = SESS,
+) {
+  const resolver = new MemoryResolver(
+    new SimpleMdMemory(),
+    sessionStoreWith(binding, bundleId),
+    async () => [],
+    new BundleKbRegistry({ root: BUNDLES }),
+  );
+  return resolver.resolve("s1", root);
+}
+
+test("a bundle-kb leaf resolves into its bundle's store, writes Prime-only", async () => {
+  const resolved = await resolveForBundle({ kind: "bundle-kb" }, "research");
+
+  const prime = resolved.spawnPlan("prime");
+  assert.ok(prime.allowlistTools.includes("kb_write"));
+  assert.ok(prime.allowlistTools.includes("kb_search"));
+  const sub = resolved.spawnPlan("subagent");
+  assert.ok(sub.allowlistTools.includes("kb_read"));
+  assert.ok(sub.deniedTools.includes("kb_write"));
+  assert.ok(sub.deniedTools.includes("kb_forget"));
+
+  resolved.init();
+  const write = await resolved.execute(
+    "kb_write",
+    { title: "Fact", content: "fact" },
+    "prime",
+  );
+  assert.deepEqual(write?.effects, [
+    { kind: "remembered", scope: "bundle", text: "fact" },
+  ]);
+  assert.match(
+    readFileSync(path.join(BUNDLES, "research", "MEMORY.md"), "utf8"),
+    /fact/,
+  );
+  const preamble = resolved.preamble("prime");
+  assert.match(preamble, /^- \*\*Bundle knowledge base\*\*/m);
+  assert.match(
+    preamble,
+    /### Bundle knowledge base: MEMORY\.md\n\n<!-- .* -->\n### Fact\nfact/,
+  );
+});
+
+test("a bundle-kb leaf without a bundle is dropped with a notice", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const resolved = await resolveForBundle({ kind: "bundle-kb" }, undefined);
+
+  assert.equal(
+    resolved.spawnPlan("prime").allowlistTools.includes("kb_write"),
+    false,
+  );
+  const preamble = resolved.preamble("prime");
+  assert.match(preamble, DROPPED_NOTICE);
+  assert.match(preamble, droppedEntry("bundle knowledge base"));
+});
+
+test("pi-memory and bundle-kb coexist in one composite", async () => {
+  const resolved = await resolveForBundle(
+    {
+      kind: "composite",
+      children: [{ kind: "pi-memory" }, { kind: "bundle-kb" }],
+    },
+    "combo",
+    sessionRoot("pi-and-kb"),
+  );
+
+  const plan = resolved.spawnPlan("prime");
+  assert.equal(plan.extensionPaths.length, 1);
+  assert.ok(plan.allowlistTools.includes("memory_write"));
+  assert.ok(plan.allowlistTools.includes("kb_write"));
+  const preamble = resolved.preamble("prime");
+  assert.match(preamble, /^- \*\*Project memory \(pi-memory\)\*\*/m);
+  assert.match(preamble, /^- \*\*Bundle knowledge base\*\*/m);
+  assert.doesNotMatch(preamble, DROPPED_NOTICE);
+});
+
+test("the binding schema allows at most one bundle-kb leaf", () => {
+  const two: MemoryBinding = {
+    kind: "composite",
+    children: [{ kind: "bundle-kb" }, { kind: "bundle-kb" }],
+  };
+  assert.equal(memoryBindingSchema.safeParse(two).success, false);
+  assert.equal(
+    memoryBindingSchema.safeParse({
+      kind: "composite",
+      children: [{ kind: "pi-memory" }, { kind: "bundle-kb" }],
+    }).success,
+    true,
+  );
+});
+
+test("settleBinding keeps a bundle-kb leaf", () => {
+  const binding: MemoryBinding = { kind: "bundle-kb" };
+  assert.deepEqual(settleBinding(binding, "s1", SESS, []), binding);
+});
+
+/** Every tool a backend's index entries name for `role`. */
+function describedTools(backend: MemoryBackend, role: "prime" | "subagent") {
+  return backend
+    .describe(CTX, role)
+    .flatMap((source) => [source.read, source.write])
+    .flatMap((access) => (access && "tools" in access ? access.tools : []));
+}
+
+test("every leaf's index names only tools that leaf grants the role", () => {
+  const registry = new BundleKbRegistry({ root: BUNDLES });
+  const leaves: MemoryBackend[] = [
+    new SimpleMdMemory(),
+    new PiMemory(PM),
+    new PiMemory(PM, { search: false }),
+    new BundleKnowledgeMemory(registry.get("guard"), registry),
+  ];
+  for (const leaf of leaves) {
+    for (const role of ["prime", "subagent"] as const) {
+      const granted = new Set([
+        ...leaf.tools(role).map((tool) => tool.name),
+        ...(leaf.spawn?.(CTX, role).allowlistTools ?? []),
+      ]);
+      for (const tool of describedTools(leaf, role)) {
+        assert.ok(granted.has(tool), `${leaf.kind} names ${tool} for ${role}`);
+      }
+    }
+  }
+});
+
+test("the resolved index keeps every source of a mixed composite", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const root = sessionRoot("index-mixed");
+  mkdirSync(path.join(root, "notes"));
+  const resolved = await resolveForBundle(
+    {
+      kind: "composite",
+      children: [
+        { kind: "pi-memory" },
+        { kind: "simple-md", root: "notes" },
+        { kind: "simple-md", root: "gone" },
+        { kind: "bundle-kb" },
+      ],
+    },
+    "mixed",
+    root,
+  );
+
+  assert.deepEqual(
+    resolved.sources("prime").map((source) => source.title),
+    [
+      "Global memory",
+      "Session memory",
+      "Project memory (pi-memory)",
+      "Project note",
+      "Bundle knowledge base",
+      "`gone`",
+    ],
+  );
+  const [, , pi] = resolved.sources("subagent");
+  assert.deepEqual(pi.read, { tools: ["memory_search", "memory_read"] });
+  assert.equal(pi.write, undefined);
 });
 
 test("a rootless simple-md binding adds no notice", async () => {

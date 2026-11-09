@@ -10,11 +10,16 @@ import path from "node:path";
 
 import { stringify as stringifyYaml } from "yaml";
 
-import { QMD_STATE_ROOT, SESSIONS_ROOT, SHARED_ROOT } from "../config.ts";
+import {
+  BUNDLE_MEMORY_ROOT,
+  QMD_STATE_ROOT,
+  SESSIONS_ROOT,
+  SHARED_ROOT,
+} from "../config.ts";
 import { canonicalPath, isStrictlyInside } from "./paths.ts";
 
 /** The one collection name pi-memory searches (`qmd ... -c pi-memory`). */
-const COLLECTION = "pi-memory";
+export const QMD_COLLECTION = "pi-memory";
 
 /** Mirrors the path contexts pi-memory registers when it creates the collection. */
 const CONTEXTS = {
@@ -26,15 +31,16 @@ const LOCAL_CONFIG_NAMES = ["index.yaml", "index.yml"];
 
 /**
  * Where a store's qmd state lives under {@link QMD_STATE_ROOT}, keyed by the
- * store's canonical path relative to the shared-folder or sessions root. Every
- * session resolving to the same store gets the same index; keys stay stable if
- * either root moves.
+ * store's canonical path relative to the shared-folder, sessions, or bundle
+ * memory root. Every session resolving to the same store gets the same index;
+ * keys stay stable if any root moves.
  */
 export function qmdStateDir(store: string): string {
   const canonical = canonicalPath(store);
   const scopes: [string, string][] = [
     ["shared", canonicalPath(SHARED_ROOT)],
     ["sessions", canonicalPath(SESSIONS_ROOT)],
+    ["bundles", canonicalPath(BUNDLE_MEMORY_ROOT)],
   ];
   for (const [scope, root] of scopes) {
     if (isStrictlyInside(canonical, root)) {
@@ -56,7 +62,7 @@ export function writeQmdConfig(stateDir: string, store: string): void {
   mkdirSync(stateDir, { recursive: true });
   const config = {
     collections: {
-      [COLLECTION]: {
+      [QMD_COLLECTION]: {
         path: store,
         pattern: "**/*.md",
         context: CONTEXTS,

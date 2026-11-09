@@ -5,14 +5,17 @@ import type { MemoryBinding } from "@tangent/shared/contracts.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import {
   checkPiMemoryStore,
-  countPiMemoryLeaves,
+  countLeaves,
   DEFAULT_PI_MEMORY_DIR,
   type PiMemoryBinding,
   resolveRoot,
   storeAvailable,
 } from "./binding.ts";
+import type { BundleKbRegistry } from "./bundleKbRegistry.ts";
+import { BundleKnowledgeMemory } from "./bundleKnowledge.ts";
 import { CompositeMemory } from "./composite.ts";
 import { DroppedMemoryNotice } from "./droppedNotice.ts";
+import { onlyGrantedTools, renderMemoryIndex } from "./memoryIndex.ts";
 import { PiMemory } from "./piMemory.ts";
 import { SharedMarkdownMemory } from "./sharedMarkdown.ts";
 import type { SimpleMdMemory } from "./simpleMd.ts";
@@ -21,6 +24,7 @@ import type {
   MemoryBackend,
   MemoryContext,
   MemoryExecuteResult,
+  MemorySourceInfo,
   MemorySpawnExtras,
 } from "./types.ts";
 
@@ -72,9 +76,23 @@ export class ResolvedMemory {
     this.root.init(this.ctx);
   }
 
-  /** The standing-context memory preamble appended to a `role` agent's prompt. */
+  /** The index entries a `role` agent gets, limited to the tools it is granted. */
+  sources(role: AgentRole): MemorySourceInfo[] {
+    const granted = new Set(this.spawnPlan(role).allowlistTools);
+    return onlyGrantedTools(this.root.describe(this.ctx, role), granted);
+  }
+
+  /**
+   * The standing-context memory preamble appended to a `role` agent's prompt:
+   * the index of every source, then each source's content.
+   */
   preamble(role: AgentRole): string {
-    return this.root.preamble(this.ctx, role);
+    const sources = this.sources(role);
+    const content = this.root.preamble(this.ctx, role).trim();
+    if (sources.length === 0 && !content) return "";
+    return [renderMemoryIndex(sources, role), content]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   private extras(role: AgentRole): Required<MemorySpawnExtras> {
@@ -118,7 +136,7 @@ export class ResolvedMemory {
     name: string,
     params: Record<string, unknown>,
     role: AgentRole,
-  ): MemoryExecuteResult | undefined {
+  ): Promise<MemoryExecuteResult | undefined> {
     return this.root.execute(name, params, this.ctx, role);
   }
 }
@@ -126,11 +144,24 @@ export class ResolvedMemory {
 /** Receives the root of each binding leaf left out at spawn. */
 type OnDrop = (label: string) => void;
 
+/** What every leaf of one session's binding is built against. */
+interface BuildEnv {
+  /** The absolute session root a leaf's `root` is relative to. */
+  base: string;
+  mountedFolders: readonly string[];
+  onDrop: OnDrop;
+  /** The session's bundle knowledge base, when it has a bundle and one is wired. */
+  bundleKb?: MemoryBackend;
+}
+
 type SimpleMdBinding = Extract<MemoryBinding, { kind: "simple-md" }>;
+
+const BUNDLE_KB_LABEL = "bundle knowledge base";
 
 /** The root a dropped leaf is reported under to agents. */
 function leafLabel(binding: MemoryBinding): string {
   if (binding.kind === "composite") return "memory binding";
+  if (binding.kind === "bundle-kb") return BUNDLE_KB_LABEL;
   if (binding.kind === "pi-memory") {
     return binding.root ?? DEFAULT_PI_MEMORY_DIR;
   }
@@ -143,14 +174,12 @@ function leafLabel(binding: MemoryBinding): string {
  */
 function buildPiMemory(
   binding: PiMemoryBinding,
-  base: string,
-  mountedFolders: readonly string[],
-  onDrop: OnDrop,
+  env: BuildEnv,
 ): MemoryBackend | undefined {
-  const store = checkPiMemoryStore(binding, base, mountedFolders);
+  const store = checkPiMemoryStore(binding, env.base, env.mountedFolders);
   if ("reason" in store) {
     console.warn(`[memory] leaving pi-memory out: ${store.reason}`);
-    onDrop(leafLabel(binding));
+    env.onDrop(leafLabel(binding));
     return undefined;
   }
   return new PiMemory(store.dir, binding.config, store.label);
@@ -163,65 +192,79 @@ function buildPiMemory(
  */
 function buildSharedMarkdown(
   binding: SimpleMdBinding,
-  base: string,
-  mountedFolders: readonly string[],
-  onDrop: OnDrop,
+  env: BuildEnv,
 ): MemoryBackend | undefined {
   if (!binding.root) return undefined;
-  if (!storeAvailable(base, binding.root)) {
+  if (!storeAvailable(env.base, binding.root)) {
     console.warn(
       `[memory] leaving the simple-md note out: root "${binding.root}" is not an existing folder`,
     );
-    onDrop(binding.root);
+    env.onDrop(binding.root);
     return undefined;
   }
   return new SharedMarkdownMemory(
-    resolveRoot(base, binding.root, mountedFolders),
+    resolveRoot(env.base, binding.root, env.mountedFolders),
     binding.root,
   );
+}
+
+/** The `bundle-kb` leaf, or `undefined` for a session with no bundle store. */
+function buildBundleKb(env: BuildEnv): MemoryBackend | undefined {
+  if (env.bundleKb) return env.bundleKb;
+  console.warn(
+    `[memory] leaving the bundle knowledge base out: the session has no bundle store`,
+  );
+  env.onDrop(BUNDLE_KB_LABEL);
+  return undefined;
 }
 
 /**
  * Builds a {@link MemoryBackend} from a session's {@link MemoryBinding},
  * resolving each directory-backed leaf's `root` relative to the absolute session
- * root `base`. A `root` pointing into a mounted shared folder shares the store;
- * omitting it keeps the store session-local. Returns `undefined` when the
+ * root `env.base`. A `root` pointing into a mounted shared folder shares the
+ * store; omitting it keeps the store session-local. Returns `undefined` when the
  * binding adds no backend (an empty composite, a rootless `simple-md` leaf, or
- * an unavailable store); each unavailable leaf is reported to `onDrop`.
+ * an unavailable store); each unavailable leaf is reported to `env.onDrop`.
  */
 function buildSessionBackend(
   binding: MemoryBinding,
-  base: string,
-  mountedFolders: readonly string[],
-  onDrop: OnDrop,
+  env: BuildEnv,
 ): MemoryBackend | undefined {
-  if (binding.kind === "simple-md") {
-    return buildSharedMarkdown(binding, base, mountedFolders, onDrop);
-  }
-  if (binding.kind === "pi-memory") {
-    return buildPiMemory(binding, base, mountedFolders, onDrop);
-  }
+  if (binding.kind === "simple-md") return buildSharedMarkdown(binding, env);
+  if (binding.kind === "pi-memory") return buildPiMemory(binding, env);
+  if (binding.kind === "bundle-kb") return buildBundleKb(env);
   const children = binding.children
-    .map((child) => buildLeafSafely(child, base, mountedFolders, onDrop))
+    .map((child) => buildLeafSafely(child, env))
     .filter((child): child is MemoryBackend => child !== undefined);
   if (children.length === 0) return undefined;
   if (children.length === 1) return children[0];
   return new CompositeMemory(children);
 }
 
+/** The leaf over `bundleId`'s store, or `undefined` for an invalid id. */
+function buildBundleKnowledge(
+  registry: BundleKbRegistry,
+  bundleId: string,
+): MemoryBackend | undefined {
+  try {
+    return new BundleKnowledgeMemory(registry.get(bundleId), registry);
+  } catch (err) {
+    console.warn(`[memory] no bundle knowledge base for ${bundleId}:`, err);
+    return undefined;
+  }
+}
+
 /** {@link buildSessionBackend} for one composite child, so an invalid child is
  * dropped without taking its siblings with it. */
 function buildLeafSafely(
   binding: MemoryBinding,
-  base: string,
-  mountedFolders: readonly string[],
-  onDrop: OnDrop,
+  env: BuildEnv,
 ): MemoryBackend | undefined {
   try {
-    return buildSessionBackend(binding, base, mountedFolders, onDrop);
+    return buildSessionBackend(binding, env);
   } catch (err) {
     console.warn(`[memory] ignoring invalid memory binding leaf:`, err);
-    onDrop(leafLabel(binding));
+    env.onDrop(leafLabel(binding));
     return undefined;
   }
 }
@@ -237,20 +280,25 @@ export class MemoryResolver {
   private readonly simpleMd: SimpleMdMemory;
   private readonly sessions?: SessionStore;
   private readonly mountedFolders?: MountedFolders;
+  private readonly bundleKb?: BundleKbRegistry;
 
   /**
    * @param mountedFolders the backing directories of the shared folders a
    * session has mounted; a binding may only resolve into these (or the session
    * root). Without it no shared folder is reachable.
+   * @param bundleKb the bundle knowledge bases a `bundle-kb` leaf resolves
+   * into; without it that leaf is dropped.
    */
   constructor(
     simpleMd: SimpleMdMemory,
     sessions?: SessionStore,
     mountedFolders?: MountedFolders,
+    bundleKb?: BundleKbRegistry,
   ) {
     this.simpleMd = simpleMd;
     this.sessions = sessions;
     this.mountedFolders = mountedFolders;
+    this.bundleKb = bundleKb;
   }
 
   /** SimpleMD-only resolution (session + global); no async store lookups. */
@@ -269,7 +317,31 @@ export class MemoryResolver {
     if (!binding) return this.resolveDefault(sessionId, rootPath);
 
     const mounts = (await this.mountedFolders?.(sessionId)) ?? [];
-    return this.resolveBinding(binding, { sessionId, rootPath }, mounts);
+    const bundleKb = await this.bundleKbFor(binding, sessionId);
+    return this.resolveBinding(
+      binding,
+      { sessionId, rootPath },
+      mounts,
+      bundleKb,
+    );
+  }
+
+  /** The session's bundle knowledge base, looked up only when the binding asks for it. */
+  private async bundleKbFor(
+    binding: MemoryBinding,
+    sessionId: string,
+  ): Promise<MemoryBackend | undefined> {
+    if (!this.bundleKb || countLeaves(binding, "bundle-kb") === 0) {
+      return undefined;
+    }
+    const bundleId = await this.bundleIdOf(sessionId);
+    return bundleId ? buildBundleKnowledge(this.bundleKb, bundleId) : undefined;
+  }
+
+  /** The manifest id of the bundle the session was created from, if any. */
+  private async bundleIdOf(sessionId: string): Promise<string | undefined> {
+    const session = await this.sessions?.getSession(sessionId);
+    return session?.config?.id;
   }
 
   /** SimpleMD composed with what the binding builds and a notice for what it drops. */
@@ -277,10 +349,16 @@ export class MemoryResolver {
     binding: MemoryBinding,
     ctx: MemoryContext,
     mountedFolders: readonly string[],
+    bundleKb: MemoryBackend | undefined,
   ): ResolvedMemory {
     const dropped: string[] = [];
-    const backend = this.safeBuild(binding, ctx, mountedFolders, (label) => {
-      dropped.push(label);
+    const backend = this.safeBuild(binding, {
+      base: path.resolve(ctx.rootPath),
+      mountedFolders,
+      onDrop: (label) => {
+        dropped.push(label);
+      },
+      bundleKb,
     });
     const children: MemoryBackend[] = [
       this.simpleMd,
@@ -296,26 +374,19 @@ export class MemoryResolver {
    * pi-memory leaf (a stored binding that predates the schema's limit) or when
    * no leaf survives a bad `root`, a missing folder, or a missing pi-memory
    * package; a composite drops only its failing children. Every leaf left out
-   * is reported to `onDrop`.
+   * is reported to `env.onDrop`.
    */
   private safeBuild(
     binding: MemoryBinding,
-    ctx: MemoryContext,
-    mountedFolders: readonly string[],
-    onDrop: OnDrop,
+    env: BuildEnv,
   ): MemoryBackend | undefined {
-    if (countPiMemoryLeaves(binding) > 1) {
+    if (countLeaves(binding, "pi-memory") > 1) {
       console.warn(
         `[memory] ignoring memory binding with more than one pi-memory store`,
       );
-      onDrop(leafLabel(binding));
+      env.onDrop(leafLabel(binding));
       return undefined;
     }
-    return buildLeafSafely(
-      binding,
-      path.resolve(ctx.rootPath),
-      mountedFolders,
-      onDrop,
-    );
+    return buildLeafSafely(binding, env);
   }
 }

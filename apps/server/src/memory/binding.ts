@@ -85,12 +85,13 @@ export function storeAvailable(base: string, rel: string): boolean {
   }
 }
 
-/** Number of `pi-memory` leaves anywhere in a binding tree. */
-export function countPiMemoryLeaves(binding: MemoryBinding): number {
-  if (binding.kind === "pi-memory") return 1;
-  if (binding.kind === "simple-md") return 0;
+type LeafKind = Exclude<MemoryBinding["kind"], "composite">;
+
+/** Number of `kind` leaves anywhere in a binding tree. */
+export function countLeaves(binding: MemoryBinding, kind: LeafKind): number {
+  if (binding.kind !== "composite") return binding.kind === kind ? 1 : 0;
   return binding.children.reduce(
-    (count, child) => count + countPiMemoryLeaves(child),
+    (count, child) => count + countLeaves(child, kind),
     0,
   );
 }
@@ -143,6 +144,7 @@ function settleNode(
   if (binding.kind === "simple-md") {
     return settleSharedNote(binding, base, sessionId);
   }
+  if (binding.kind === "bundle-kb") return binding;
   if (binding.kind === "pi-memory") {
     const store = checkPiMemoryStore(binding, base, mountedFolders);
     if (!("reason" in store)) return binding;

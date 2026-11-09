@@ -191,6 +191,7 @@ export interface PiMemoryConfig {
 export type MemoryBinding =
   | { kind: "simple-md"; root?: string }
   | { kind: "pi-memory"; root?: string; config?: PiMemoryConfig }
+  | { kind: "bundle-kb" }
   | { kind: "composite"; children: MemoryBinding[] };
 
 /** Host-driven theme inputs forwarded to `<tangent-provider>`. */

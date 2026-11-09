@@ -3,18 +3,33 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { MemoryScope } from "@tangent/shared/contracts.ts";
-import { z } from "zod";
 
 import {
   GLOBAL_MEMORY_DIR,
   GLOBAL_MEMORY_FILENAME,
   SESSION_MEMORY_FILENAME,
 } from "../config.ts";
+import {
+  type Digest,
+  type EntrySource,
+  fetchEntries,
+  renderDigest,
+  renderWholeStore,
+  SESSION_INLINE_MAX_CHARS,
+  titledEntry,
+} from "./memoryDigest.ts";
+import {
+  readMemoryParamsSchema,
+  rememberParamsSchema,
+  suggestParamsSchema,
+} from "./simpleMdParams.ts";
+import { invalidParams, rejected } from "./toolResults.ts";
 import type {
   AgentRole,
   MemoryBackend,
   MemoryContext,
   MemoryExecuteResult,
+  MemorySourceInfo,
   MemoryToolSpec,
 } from "./types.ts";
 
@@ -70,35 +85,13 @@ const READ_MEMORY_TOOL: MemoryToolSpec = { name: "read_memory" };
 const REMEMBER_TOOL: MemoryToolSpec = { name: "remember" };
 const SUGGEST_MEMORY_TOOL: MemoryToolSpec = { name: "suggest_memory" };
 
-const scopeSchema = z.enum(["session", "global"]);
-const factTextSchema = z.string().trim().min(1, "text must not be empty");
+/** The `# Global memory` / `# Session memory` line a store file starts with. */
+const STORE_HEADER = /^\s*# (?:Global|Session) memory[ \t]*(?:\n|$)/;
 
-const rememberParamsSchema = z.object({
-  text: factTextSchema,
-  scope: scopeSchema.optional(),
-  replaces: z.string().optional(),
-});
-
-const suggestParamsSchema = z.object({
-  text: factTextSchema,
-  scope: scopeSchema.optional(),
-});
+const SCOPES: readonly MemoryScope[] = ["global", "session"];
 
 /** Tools that change memory (or propose a change); Prime-only. */
 const WRITE_TOOLS = new Set([REMEMBER_TOOL.name, SUGGEST_MEMORY_TOOL.name]);
-
-/** An agent-facing rejection: no effects, surfaced by the route as a 400. */
-function rejected(text: string): MemoryExecuteResult {
-  return { text, error: true };
-}
-
-/** Formats a params validation failure for the calling agent. */
-function invalidParams(name: string, error: z.ZodError): MemoryExecuteResult {
-  const issues = error.issues
-    .map((issue) => `${issue.path.join(".") || "params"}: ${issue.message}`)
-    .join("; ");
-  return rejected(`Invalid ${name} call: ${issues}`);
-}
 
 /**
  * The built-in SimpleMD memory backend: a single global store (from
@@ -174,49 +167,90 @@ export class SimpleMdMemory implements MemoryBackend {
     return readOr(this.sessionFile(rootPath));
   }
 
-  /**
-   * Builds the per-session "## Memory" preamble appended to a `role` agent's
-   * system prompt, embedding the current global and session memory so memory is
-   * available from the first turn of every session. Only Prime is told how to
-   * write: sub-agents don't have the write tools.
-   */
-  buildPreamble(rootPath: string, role: AgentRole = "prime"): string {
-    const global = this.readGlobal().trim();
-    const session = this.readSession(rootPath).trim();
-    const isPrime = role === "prime";
+  /** A store's entries, without the header line its file starts with. */
+  private entrySource(rootPath: string, scope: MemoryScope): EntrySource {
+    const raw =
+      scope === "global" ? this.readGlobal() : this.readSession(rootPath);
+    return {
+      label: `${scope === "global" ? "Global" : "Session"} memory`,
+      content: raw.replace(STORE_HEADER, ""),
+      format: "headings",
+      options: {
+        fetchHint: `Fetch entries with \`read_memory { scope: "${scope}", entry: "<id>" }\` (comma-separate several).`,
+        order: "newest",
+        overflowHint: `read them all with \`read_memory { scope: "${scope}" }\``,
+        inlineMaxChars: SESSION_INLINE_MAX_CHARS,
+      },
+    };
+  }
 
-    const lines = [
-      "## Memory",
+  private digest(rootPath: string, scope: MemoryScope): Digest {
+    const source = this.entrySource(rootPath, scope);
+    return renderDigest(source.content, source.format, source.options);
+  }
+
+  /**
+   * The global and session memory digests appended to every agent's system
+   * prompt, so memory is available from the first turn of every session. How
+   * to read and write them is in {@link describe}.
+   */
+  buildPreamble(rootPath: string): string {
+    return [
+      "### Global memory",
       "",
-      "You have two memory stores. Treat them as authoritative standing context",
-      "and consult them before acting.",
-      ...(isPrime
-        ? [
-            "Modify them only via the memory tools (`remember`, `suggest_memory`);",
-            "never claim to have stored something you did not actually write.",
-          ]
-        : [
-            "They are read-only for you: report durable learnings to Prime",
-            "instead of trying to store them.",
-          ]),
+      this.digest(rootPath, "global").text || "(empty)",
       "",
-      "### Global memory (applies to every session)",
+      "### Session memory",
       "",
-      global ? global : "(empty)",
-      "",
-      "### Session memory (this session only)",
-      "",
-      session ||
-        (isPrime
-          ? "(empty — create it with `remember` when useful)"
-          : "(empty)"),
-    ];
-    return lines.join("\n");
+      this.digest(rootPath, "session").text || "(empty)",
+    ].join("\n");
   }
 
   /** {@link MemoryBackend.preamble}. */
-  preamble(ctx: MemoryContext, role: AgentRole): string {
-    return this.buildPreamble(ctx.rootPath, role);
+  preamble(ctx: MemoryContext): string {
+    return this.buildPreamble(ctx.rootPath);
+  }
+
+  /** {@link MemoryBackend.describe}: only Prime is told how to write. */
+  describe(ctx: MemoryContext, role: AgentRole): MemorySourceInfo[] {
+    const isPrime = role === "prime";
+    const read = { tools: [READ_MEMORY_TOOL.name] };
+    const session = this.digest(ctx.rootPath, "session");
+    const sessionNotes = [
+      ...(session.stats.mode === "empty"
+        ? ["Empty: create it with `remember` when useful."]
+        : []),
+      "Give each fact a short `title` (and `tags`). To revise one, fetch it " +
+        "with `read_memory { entry }` and pass its full text as `replaces`.",
+    ];
+    return [
+      {
+        title: "Global memory",
+        scope: "global",
+        holds: "Preferences and facts that apply to every session.",
+        read,
+        ...(isPrime
+          ? {
+              write: { tools: [SUGGEST_MEMORY_TOOL.name, REMEMBER_TOOL.name] },
+              notes: [
+                "Propose global facts with `suggest_memory`; write them with " +
+                  '`remember` (scope "global") only when the user explicitly asks.',
+              ],
+            }
+          : {}),
+        digest: this.digest(ctx.rootPath, "global").stats,
+      },
+      {
+        title: "Session memory",
+        scope: "session",
+        holds: "Facts and working agreements for this session only.",
+        read,
+        ...(isPrime
+          ? { write: { tools: [REMEMBER_TOOL.name] }, notes: sessionNotes }
+          : {}),
+        digest: session.stats,
+      },
+    ];
   }
 
   /** {@link MemoryBackend.tools}: read for everyone, writes for Prime only. */
@@ -228,28 +262,41 @@ export class SimpleMdMemory implements MemoryBackend {
   }
 
   /** {@link MemoryBackend.execute}: dispatches one SimpleMD dispatcher tool. */
-  execute(
+  async execute(
     name: string,
     params: Record<string, unknown>,
     ctx: MemoryContext,
     role: AgentRole,
-  ): MemoryExecuteResult | undefined {
+  ): Promise<MemoryExecuteResult | undefined> {
     if (WRITE_TOOLS.has(name) && role !== "prime") {
       return rejected(
         `${name} is Prime-only; ask Prime to store durable facts for you.`,
       );
     }
-    if (name === "read_memory") return this.executeRead(ctx);
+    if (name === "read_memory") return this.executeRead(params, ctx);
     if (name === "remember") return this.executeRemember(params, ctx);
     if (name === "suggest_memory") return this.executeSuggest(params, ctx);
     return undefined;
   }
 
-  private executeRead(ctx: MemoryContext): MemoryExecuteResult {
-    const session = this.readSession(ctx.rootPath).trim() || "(empty)";
-    const global = this.readGlobal().trim() || "(empty)";
+  private executeRead(
+    params: Record<string, unknown>,
+    ctx: MemoryContext,
+  ): MemoryExecuteResult {
+    const parsed = readMemoryParamsSchema.safeParse(params);
+    if (!parsed.success) return invalidParams("read_memory", parsed.error);
+    const { scope, entry } = parsed.data;
+    const sources = (scope ? [scope] : SCOPES).map((each) =>
+      this.entrySource(ctx.rootPath, each),
+    );
+    if (entry) return fetchEntries(sources, entry);
     return {
-      text: `## Global memory\n\n${global}\n\n## Session memory\n\n${session}`,
+      text: sources
+        .map(
+          (source) =>
+            `## ${source.label}\n\n${renderWholeStore(source.content, source.format, source.options)}`,
+        )
+        .join("\n\n"),
     };
   }
 
@@ -259,8 +306,13 @@ export class SimpleMdMemory implements MemoryBackend {
   ): MemoryExecuteResult {
     const parsed = rememberParamsSchema.safeParse(params);
     if (!parsed.success) return invalidParams("remember", parsed.error);
-    const { text, scope = "session", replaces } = parsed.data;
-    const result = this.write(ctx.rootPath, scope, text, replaces);
+    const { title, text, tags, scope = "session", replaces } = parsed.data;
+    const result = this.write(
+      ctx.rootPath,
+      scope,
+      titledEntry(title, text, tags),
+      replaces,
+    );
     return {
       text:
         `Stored to ${result.scope} memory. The user has been shown a ` +
@@ -277,8 +329,12 @@ export class SimpleMdMemory implements MemoryBackend {
   ): MemoryExecuteResult {
     const parsed = suggestParamsSchema.safeParse(params);
     if (!parsed.success) return invalidParams("suggest_memory", parsed.error);
-    const { text, scope = "global" } = parsed.data;
-    const suggestion = this.addSuggestion(ctx.sessionId, scope, text);
+    const { title, text, scope = "global" } = parsed.data;
+    const suggestion = this.addSuggestion(
+      ctx.sessionId,
+      scope,
+      titledEntry(title, text),
+    );
     return {
       text:
         "Suggestion shown to the user. Awaiting their confirmation before " +

@@ -1,25 +1,18 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { type Digest, renderDigest } from "./memoryDigest.ts";
 import { canonicalPath, isStrictlyInside } from "./paths.ts";
-import type { MemoryBackend, MemoryToolSpec } from "./types.ts";
+import type {
+  AgentRole,
+  MemoryBackend,
+  MemoryContext,
+  MemorySourceInfo,
+  MemoryToolSpec,
+} from "./types.ts";
 
 /** Filename of the project memory note within the binding's directory. */
 const SHARED_MEMORY_FILENAME = "MEMORY.md";
-
-/** Most of the note injected into a system prompt; every mounting session can
- * grow it, and it rides along on every spawn. */
-const MAX_NOTE_CHARS = 4000;
-
-/** The note as injected: the whole of it, or its head plus where to read the rest. */
-function capNote(content: string, editPath: string): string {
-  if (content.length <= MAX_NOTE_CHARS) return content;
-  return [
-    content.slice(0, MAX_NOTE_CHARS).trimEnd(),
-    "",
-    `… (truncated; read the full note at \`${editPath}\`)`,
-  ].join("\n");
-}
 
 /**
  * A `simple-md` binding with a `root`: a single `MEMORY.md` under that directory,
@@ -48,10 +41,16 @@ export class SharedMarkdownMemory implements MemoryBackend {
     return path.join(this.dir, SHARED_MEMORY_FILENAME);
   }
 
+  private get editPath(): string {
+    return `${this.label}/${SHARED_MEMORY_FILENAME}`;
+  }
+
   init(): void {
     // Nothing to seed: the file is authored by agents with their file tools.
   }
 
+  /** The note's raw text (line ranges must match the file), `undefined` when
+   * it doesn't exist, or `""` when it can't be read safely. */
   private readNote(): string | undefined {
     const file = this.file();
     if (!existsSync(file)) return undefined;
@@ -62,40 +61,57 @@ export class SharedMarkdownMemory implements MemoryBackend {
       return "";
     }
     try {
-      return readFileSync(file, "utf8").trim();
+      return readFileSync(file, "utf8");
     } catch {
       return "";
     }
   }
 
+  private digest(content: string): Digest {
+    return renderDigest(content, "headings", {
+      fetchHint: `Read a section's line range from \`${this.editPath}\` with your file tools.`,
+      order: "file",
+      showLines: true,
+      overflowHint: `read \`${this.editPath}\` with your file tools`,
+    });
+  }
+
   preamble(): string {
-    const editPath = `${this.label}/${SHARED_MEMORY_FILENAME}`;
     const content = this.readNote();
-    if (content === undefined) {
-      return [
-        "## Project memory",
-        "",
-        "No project memory note exists yet. When there is something durable to",
-        `record, create \`${editPath}\` with your file tools; it then becomes`,
-        "authoritative standing context for this project.",
-      ].join("\n");
-    }
+    const body =
+      content === undefined
+        ? "(not created yet)"
+        : this.digest(content).text || "(the note is empty)";
+    return [`### Project note \`${this.editPath}\``, "", body].join("\n");
+  }
+
+  describe(_ctx: MemoryContext, role: AgentRole): MemorySourceInfo[] {
+    const isPrime = role === "prime";
+    const content = this.readNote();
+    const missingNote =
+      "It doesn't exist yet: when there is something durable to record, " +
+      "create it with your file tools; it then becomes standing context for this project.";
     return [
-      "## Project memory",
-      "",
-      `This project has a memory note at \`${editPath}\`. Treat it as`,
-      "authoritative standing context and keep it current by editing that file",
-      "with your file tools.",
-      "",
-      content ? capNote(content, editPath) : "(the note is empty)",
-    ].join("\n");
+      {
+        title: "Project note",
+        scope: "project",
+        holds: `Standing context for this project, kept in \`${this.editPath}\`.`,
+        read: { file: this.editPath },
+        ...(isPrime ? { write: { file: this.editPath } } : {}),
+        notes: content === undefined && isPrime ? [missingNote] : [],
+        digest:
+          content === undefined
+            ? { entries: 0, chars: 0, mode: "empty" }
+            : this.digest(content).stats,
+      },
+    ];
   }
 
   tools(): MemoryToolSpec[] {
     return [];
   }
 
-  execute(): undefined {
+  async execute(): Promise<undefined> {
     return undefined;
   }
 }

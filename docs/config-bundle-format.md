@@ -98,7 +98,41 @@ no absolute paths).
 Sub-agent templates under `agents/` use the existing frontmatter format
 (`name`, `description`, `tools`, then a markdown body), identical to the
 server's bundled templates such as
-[`server/src/pi/agents/worker.md`](../server/src/pi/agents/worker.md).
+[`apps/server/src/pi/agents/worker.md`](../apps/server/src/pi/agents/worker.md).
+
+### `memoryBinding` (optional)
+
+The default memory binding for sessions created from this bundle — how the
+agent's pluggable memory store is wired. A `CreateSessionRequest.memory`
+overrides it. This is distinct from the `memory` list above, which only names
+seed markdown files copied into the workspace.
+
+- `kind: simple-md` — a single agent-writable `MEMORY.md`. `root` (optional) is a
+  session-root-relative store directory.
+- `kind: pi-memory` — the `pi-memory` store. `root` (optional) plus a `config`
+  map (`exitSummary`, `snapshot`, `qmdUpdate`, `search`, `exitSummaryModel`).
+- `kind: bundle-kb` — the bundle knowledge base: one server-managed store per
+  bundle `id`, shared by every session created from the bundle and searchable
+  with qmd through the `kb_search` / `kb_read` / `kb_write` / `kb_forget` tools.
+  On first use it is seeded from the bundle's `memory/*.md` files; it is kept
+  when the bundle is deleted. Takes no other fields.
+- `kind: composite` — a `children` array combining multiple bindings, with at
+  most one `pi-memory` and one `bundle-kb` leaf. For example, project memory
+  plus the bundle knowledge base:
+
+  ```yaml
+  memoryBinding:
+    kind: composite
+    children:
+      - kind: pi-memory
+      - kind: bundle-kb
+  ```
+
+### `ui` (optional)
+
+Sandboxed UI components the bundle ships (input panels and custom message
+components). The `ui:` block, its element vocabulary, host bridge, and authoring
+rules are specified separately under [`bundle-ui/`](bundle-ui/README.md).
 
 ### `triggers` (optional)
 

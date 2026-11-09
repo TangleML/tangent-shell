@@ -5,7 +5,7 @@ import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
-import { countPiMemoryLeaves } from "../../memory/binding.ts";
+import { countLeaves } from "../../memory/binding.ts";
 
 /** Pi thinking-depth levels, as a zod enum for manifest validation. */
 const thinkingLevel = z.enum(THINKING_LEVELS);
@@ -78,6 +78,7 @@ const memoryBindingNodeSchema: z.ZodType<MemoryBinding> = z.lazy(() =>
       root: storeRoot.optional(),
       config: piMemoryConfigSchema.optional(),
     }),
+    z.object({ kind: z.literal("bundle-kb") }),
     z.object({
       kind: z.literal("composite"),
       children: z.array(memoryBindingNodeSchema),
@@ -89,13 +90,17 @@ const memoryBindingNodeSchema: z.ZodType<MemoryBinding> = z.lazy(() =>
  * Validator for a {@link MemoryBinding}, shared by the bundle manifest and the
  * create-session route. `root` is a session-root-relative store directory. One
  * Pi process loads the pi-memory extension once, bound to one `PI_MEMORY_DIR`,
- * so a binding may hold at most one `pi-memory` leaf.
+ * so a binding may hold at most one `pi-memory` leaf. A session belongs to one
+ * bundle, so it may hold at most one `bundle-kb` leaf too.
  */
 export const memoryBindingSchema: z.ZodType<MemoryBinding> =
-  memoryBindingNodeSchema.refine(
-    (binding) => countPiMemoryLeaves(binding) <= 1,
-    { message: "a memory binding may contain at most one pi-memory store" },
-  );
+  memoryBindingNodeSchema
+    .refine((binding) => countLeaves(binding, "pi-memory") <= 1, {
+      message: "a memory binding may contain at most one pi-memory store",
+    })
+    .refine((binding) => countLeaves(binding, "bundle-kb") <= 1, {
+      message: "a memory binding may contain at most one bundle-kb store",
+    });
 
 /**
  * zod schema mirroring {@link BundleManifest}. Used in place of the prior
