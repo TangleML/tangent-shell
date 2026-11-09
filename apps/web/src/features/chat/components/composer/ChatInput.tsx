@@ -3,6 +3,7 @@ import type {
   MessageDelivery,
   SubagentStatus,
 } from "@tangent/shared/contracts";
+import { Text } from "@tangent/ui-primitives/typography";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -10,6 +11,7 @@ import {
   readDraft,
   writeDraft,
 } from "@/features/chat/model/chatDraft";
+import { type ChatCommand, parseCommand } from "@/features/chat/model/commands";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
 import {
   type ChatReference,
@@ -66,10 +68,18 @@ interface ChatInputProps {
   mentionCandidates?: MentionCandidate[];
   /** Pipelines, runs, files, ... the `#` picker can reference. */
   references?: ChatReference[];
+  /** What the `/` picker offers. A draft naming one runs it instead of sending. */
+  commands?: readonly ChatCommand[];
+  /** Runs a command and posts its result; a rejection keeps the draft. */
+  onRunCommand?: (command: ChatCommand, args: string) => Promise<void>;
   onSubmit: (
     content: string,
     options: { delivery: MessageDelivery; attachments?: Attachment[] },
   ) => void;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function ChatInput({
@@ -83,6 +93,8 @@ export function ChatInput({
   autoFocus,
   mentionCandidates,
   references,
+  commands,
+  onRunCommand,
   onSubmit,
 }: ChatInputProps) {
   // Drafts persist per session+agent so the unsent text survives navigation and
@@ -94,6 +106,8 @@ export function ChatInput({
     () => new Map(),
   );
   const [uploading, setUploading] = useState(false);
+  const [runningCommand, setRunningCommand] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
   // Follow-ups composed while the agent is busy wait here until the run ends
   // (auto-drained) or the user sends one immediately. They never become chat
   // bubbles until actually sent, so the transcript stays clean.
@@ -102,12 +116,35 @@ export function ChatInput({
   // flush the queue exactly once when the agent stops.
   const wasBusyRef = useRef(agentBusy);
 
-  const busy = disabled || uploading;
+  const busy = disabled || uploading || runningCommand;
   const canSubmit = !busy && (value.trim().length > 0 || files.length > 0);
 
   function handleValueChange(next: string) {
     setValue(next);
     writeDraft(sessionId, agentId, next);
+    setCommandError(null);
+  }
+
+  // A command runs whether or not the agent is busy, since it doesn't involve
+  // the agent. Returns false when the draft isn't one, so it sends as usual.
+  async function runDraftCommand(): Promise<boolean> {
+    const parsed =
+      commands && onRunCommand ? parseCommand(value, commands) : null;
+    if (!parsed || busy) return Boolean(parsed);
+    setRunningCommand(true);
+    try {
+      await onRunCommand?.(parsed.command, parsed.args);
+      setValue("");
+      clearDraft(sessionId, agentId);
+      setPicked(new Map());
+    } catch (error) {
+      setCommandError(
+        `/${parsed.command.name} didn't run: ${describeError(error)}`,
+      );
+    } finally {
+      setRunningCommand(false);
+    }
+    return true;
   }
 
   function addFiles(added: File[]) {
@@ -152,6 +189,7 @@ export function ChatInput({
   async function handleSubmit(delivery: MessageDelivery) {
     const trimmed = value.trim();
     if (busy || (!trimmed && files.length === 0)) return;
+    if (await runDraftCommand()) return;
 
     const attachments = await uploadStagedFiles();
     if (attachments === null) return;
@@ -165,6 +203,7 @@ export function ChatInput({
   async function enqueueFollowUp() {
     const trimmed = value.trim();
     if (busy || (!trimmed && files.length === 0)) return;
+    if (await runDraftCommand()) return;
 
     const attachments = await uploadStagedFiles();
     if (attachments === null) return;
@@ -247,7 +286,13 @@ export function ChatInput({
           onPick: pickReference,
         }
       }
+      commands={onRunCommand ? commands : undefined}
     >
+      {commandError ? (
+        <Text size="xs" tone="critical" role="alert">
+          {commandError}
+        </Text>
+      ) : null}
       <StagedFiles files={files} uploading={uploading} onRemove={removeFile} />
       <QueuedFollowUps
         items={queue}

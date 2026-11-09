@@ -278,6 +278,7 @@ export interface TangentChatElementLike extends HTMLElement {
   /** Focuses the composer once it accepts input (`auto-focus` as an attribute). */
   autoFocus: boolean;
   references?: EmbedReference[];
+  commands?: EmbedCommand[];
   /** Current host-slot records to project as light-DOM children. */
   getHostSlots?: () => HostSlotRecordLike[];
   /** Subscribes to host-slot changes; returns an unsubscribe. */
@@ -334,6 +335,22 @@ export interface EmbedReference {
   href: string;
   /** Secondary text in the picker, e.g. a run's status. */
   detail?: string;
+}
+
+/** A slash command the chat box offers, e.g. `/runs`. */
+export interface EmbedCommand {
+  /** Typed after the slash; lowercase, no spaces. */
+  name: string;
+  /** Shown beside the name in the picker. Keep it short. */
+  description: string;
+  /** What to type after the name, e.g. `<pipeline ids>`. */
+  argumentHint?: string;
+  /**
+   * Runs the command with what followed its name. The markdown it returns is
+   * posted in the chat for everyone, and the agent is sent it with the next
+   * message. Throw to keep the draft and show the error instead.
+   */
+  run: (args: string) => Promise<string> | string;
 }
 
 export interface EmbedAgent {

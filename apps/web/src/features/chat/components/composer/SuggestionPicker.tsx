@@ -21,7 +21,7 @@ function startsGroup(suggestions: ComposerSuggestion[], index: number) {
 }
 
 /**
- * The composer's `@` / `#` autocomplete popup, floated above the input.
+ * The composer's `@` / `#` / `/` autocomplete popup, floated above the input.
  * Selection is keyboard-first (the composer owns arrow/Enter); clicking a row
  * inserts it. A long list scrolls, following the highlighted row.
  */

@@ -14,6 +14,7 @@ export type {
   ColorScheme,
   EmbedAgent,
   EmbedAsset,
+  EmbedCommand,
   EmbedMuteToggle,
   EmbedReference,
   EmbedResource,

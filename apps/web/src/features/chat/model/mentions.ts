@@ -10,8 +10,11 @@ export interface MentionCandidate {
   name: string;
 }
 
-/** The characters that open a composer picker: `@` to address, `#` to reference. */
-export type ComposerTrigger = "@" | "#";
+/**
+ * The characters that open a composer picker: `@` to address, `#` to
+ * reference, `/` to run a command.
+ */
+export type ComposerTrigger = "@" | "#" | "/";
 
 /** An in-progress `@mention` or `#reference` the caret is sitting in. */
 export interface ActiveMention {
@@ -51,7 +54,7 @@ function normalize(value: string): string {
  * The mention the caret is currently inside, or null. A mention opens at a
  * trigger that starts the text or follows whitespace, and runs until the caret
  * with no whitespace or second trigger in between — for `@`, the same grammar
- * the server resolves.
+ * the server resolves. A command's `/` only counts at the start of the text.
  */
 export function findActiveMention(
   value: string,
@@ -60,6 +63,7 @@ export function findActiveMention(
 ): ActiveMention | null {
   const at = value.lastIndexOf(trigger, caret - 1);
   if (at < 0) return null;
+  if (trigger === "/" && value.slice(0, at).trim() !== "") return null;
   if (at > 0 && !/\s/.test(value[at - 1])) return null;
   const query = value.slice(at + 1, caret);
   if (/\s/.test(query) || query.includes(trigger)) return null;

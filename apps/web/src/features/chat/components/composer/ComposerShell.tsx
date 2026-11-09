@@ -12,6 +12,10 @@ import {
 } from "react";
 
 import {
+  type ChatCommand,
+  filterCommands,
+} from "@/features/chat/model/commands";
+import {
   type ComposerTrigger,
   filterMentionCandidates,
   type MentionCandidate,
@@ -60,7 +64,19 @@ function suggestionsFor(
   query: string,
   mentionCandidates: MentionCandidate[],
   references: ComposerReferences | undefined,
+  commands: readonly ChatCommand[],
 ): ComposerSuggestion[] {
+  if (trigger === "/") {
+    return filterCommands(commands, query).map((command) => ({
+      key: `command:${command.name}`,
+      label: command.argumentHint
+        ? `/${command.name} ${command.argumentHint}`
+        : `/${command.name}`,
+      token: `/${command.name}`,
+      icon: "SquareSlash",
+      detail: command.description,
+    }));
+  }
   if (trigger === "@") {
     return filterMentionCandidates(mentionCandidates, query).map(
       (candidate) => ({
@@ -110,6 +126,8 @@ interface ComposerShellProps {
   mentionCandidates?: MentionCandidate[];
   /** What the `#` picker can reference; omitted disables it. */
   references?: ComposerReferences;
+  /** What the `/` picker can run; omitted disables it. */
+  commands?: readonly ChatCommand[];
   children?: ReactNode;
 }
 
@@ -125,6 +143,7 @@ export function ComposerShell({
   autoFocus,
   mentionCandidates = [],
   references,
+  commands = [],
   children,
 }: ComposerShellProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -135,7 +154,7 @@ export function ComposerShell({
     onValueChange,
     textareaRef,
     suggest: (trigger, query) =>
-      suggestionsFor(trigger, query, mentionCandidates, references),
+      suggestionsFor(trigger, query, mentionCandidates, references, commands),
   });
 
   useEffect(() => {
