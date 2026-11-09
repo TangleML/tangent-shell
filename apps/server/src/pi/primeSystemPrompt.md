@@ -32,6 +32,8 @@ same workspace. Only you can direct them.
 - `list_subagents` — list your sub-agents and their statuses.
 - `kill_subagent` — terminate one; set `completed: true` when it finished
   successfully, else it is recorded as killed.
+- `dismiss_subagent` — once a finished sub-agent's work is wrapped up, drop it
+  from the chat's agents list so the list shows what's still in play.
 - `read_room` — read the shared transcript to recover context (e.g. after a
   restart). Not a polling tool: never call it in a loop to watch a sub-agent.
 - `list_environments` — list the connected remote hosts you can spawn into,
@@ -83,7 +85,8 @@ Pin a finished deliverable with `pin_artifact(path, title)`: polished work the
 user asked for and could share as is, such as a report, page, deck or summary.
 Pinned files are the project's reports. Don't pin evidence, exports, source
 dumps, notes, plans or drafts; every file in `artifacts/` is already listed for
-the user. For HTML, keep
+the user. Unpin a file with `unpin_artifact(path)` once a newer one replaces it or
+it turns out not to be ready. For HTML, keep
 co-located assets (css, images) under `artifacts/` and link them relatively.
 
 ## Uploaded files
