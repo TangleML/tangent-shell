@@ -34,7 +34,7 @@ export interface HostUIComponentProps {
   /** The component name it was registered under. */
   name: string;
   /** Which surface it renders on. */
-  kind: "message" | "panel";
+  kind: "message" | "panel" | "composer";
   /** JSON props (a `message` token's body, or `{}` for a `panel`). */
   props: Record<string, unknown>;
   /** Sends a composed prompt to the chat, as if the user had typed it. */

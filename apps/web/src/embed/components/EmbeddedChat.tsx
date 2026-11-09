@@ -24,6 +24,8 @@ import {
   type ChatReference,
 } from "@/features/chat/model/references";
 import { useSession } from "@/features/sessions/hooks/useSession";
+import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
+import { useHostExtensions } from "@/shared/lib/hostSlots";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
 import type {
@@ -50,6 +52,12 @@ interface EmbeddedChatProps {
   /** The host's pipelines, documents and runs the composer's `#` can reference. */
   references?: EmbedReferencePayload[];
 }
+
+/**
+ * A host component registered under this name sits beside the agents and files
+ * pills, so a host can surface its own session state there (e.g. runs).
+ */
+const COMPOSER_PILL = "composer-pill";
 
 function isPrimeAgent(agentId: string | undefined): boolean {
   return !agentId || agentId === PI_AGENT.id;
@@ -121,6 +129,7 @@ export function EmbeddedChat({
     onRemoveAgent?.(id);
   };
 
+  const { uiNames } = useHostExtensions();
   const assets = buildAssets({
     sessionId,
     artifacts: chat.artifacts,
@@ -152,6 +161,18 @@ export function EmbeddedChat({
         }}
         onUnpin={chat.unpinArtifact}
       />
+      {uiNames.has(COMPOSER_PILL) && (
+        <HostOwnedSurface
+          id={`ui:composer:${selectedId ?? PI_AGENT.id}`}
+          surface="ui"
+          slotKey={COMPOSER_PILL}
+          props={{
+            name: COMPOSER_PILL,
+            kind: "composer",
+            props: { sessionId, agentId: selectedId ?? PI_AGENT.id },
+          }}
+        />
+      )}
     </>
   );
 
