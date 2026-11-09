@@ -447,6 +447,7 @@ app.use(
       context: contextEngine,
     },
     remoteGateway,
+    emitUiCommand,
   ),
 );
 app.use(
