@@ -19,7 +19,9 @@ export function ComposerFooter({
   return (
     <Box paddingInline="base" paddingBlock="sm">
       <InlineStack align="space-between" gap="2" wrap="nowrap">
-        <InlineStack>{agentsPill}</InlineStack>
+        <InlineStack gap="1.5" wrap="nowrap">
+          {agentsPill}
+        </InlineStack>
         {modelPicker}
       </InlineStack>
     </Box>

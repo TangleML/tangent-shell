@@ -17,8 +17,9 @@ interface AssetRowActionHandlers {
 }
 
 /**
- * Hover actions for an asset card: unpin for artifacts, or enable/disable,
- * copy callback URL, and delete for triggers.
+ * Hover actions for an asset card: remove (unpin) for artifacts, or
+ * enable/disable, copy callback URL, and delete for triggers. Removing only
+ * takes an artifact off the list; the file stays in the workspace.
  */
 export function assetRowActions(
   asset: Asset,
@@ -27,9 +28,8 @@ export function assetRowActions(
   if (asset.kind !== "trigger") {
     return [
       {
-        icon: "PinOff",
-        label: "Unpin artifact",
-        tone: "critical",
+        icon: "X",
+        label: `Remove ${asset.title}`,
         onClick: () => handlers.onUnpin(asset.path),
       },
     ];
