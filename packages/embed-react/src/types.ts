@@ -325,7 +325,8 @@ export interface TangentParticipantListElementLike extends HTMLElement {
 /**
  * Something the composer's `#` picker can reference. A pick is sent as the
  * markdown link `[label](href)`, so use an `href` the agent can act on and
- * register an anchor protocol for its scheme to show it as a chip.
+ * register an anchor protocol for its scheme to show it as a chip. The picker
+ * keeps the order given within each kind, so list the most recent first.
  */
 export interface EmbedReference {
   kind: "pipeline" | "document" | "run";
