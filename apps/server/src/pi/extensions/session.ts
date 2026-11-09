@@ -96,8 +96,58 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "unpin_artifact",
+    label: "Unpin Artifact",
+    description:
+      "Unpin a file you pinned, taking it out of the project's reports and " +
+      "the chat's files, as the unpin button does. Use it when a pinned file " +
+      "was replaced by a newer one or turned out not to be ready to share. " +
+      "The file itself stays in the workspace and is still listed for the " +
+      "user. Pass the same path you pinned, relative to your workspace root.",
+    promptSnippet: "Take a pinned file out of the project's reports",
+    parameters: Type.Object({
+      path: Type.String({
+        description:
+          "Path of the pinned file relative to your workspace root, e.g. " +
+          "`artifacts/report.html`.",
+      }),
+    }),
+    async execute(_toolCallId, params) {
+      await callApi("POST", "unpin-artifact", {
+        sessionId: SESSION_ID,
+        path: params.path,
+      });
+      return textResult(`Unpinned "${params.path}".`);
+    },
+  });
+
   // Renaming the session is a Prime-only concern; sub-agents get nothing.
   if (ROLE !== "prime") return;
+
+  pi.registerTool({
+    name: "dismiss_subagent",
+    label: "Dismiss Sub-agent",
+    description:
+      "Dismiss a finished sub-agent from the chat's agents list, as the " +
+      "agents pill's remove button does, so finished work stops crowding " +
+      "it. It only works on a sub-agent that has completed, failed or been " +
+      "stopped; a running one is refused. Its thread is kept; it just leaves " +
+      "the list for everyone in the chat.",
+    promptSnippet: "Remove a finished sub-agent from the agents list",
+    parameters: Type.Object({
+      agentId: Type.String({
+        description: "Id of the finished sub-agent to dismiss.",
+      }),
+    }),
+    async execute(_toolCallId, params) {
+      await callApi("POST", "dismiss-subagent", {
+        sessionId: SESSION_ID,
+        agentId: params.agentId,
+      });
+      return textResult(`Dismissed sub-agent ${params.agentId}.`);
+    },
+  });
 
   pi.registerTool({
     name: "rename_session",

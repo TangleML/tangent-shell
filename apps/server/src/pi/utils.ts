@@ -305,6 +305,9 @@ const TOOL_FORMATTERS: Record<string, ArgFormatter> = {
   delete_trigger: (a) =>
     labelWith("Deleting trigger", str(a.name) ?? str(a.id), ""),
   rename_session: (a) => labelWith("Renaming session", str(a.name), ""),
+  unpin_artifact: (a) => labelWith("Unpinning", str(a.path), ""),
+  dismiss_subagent: (a) =>
+    labelWith("Dismissing sub-agent", str(a.agentId), ""),
 };
 
 /**
