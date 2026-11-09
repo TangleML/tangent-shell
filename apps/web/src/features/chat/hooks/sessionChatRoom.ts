@@ -12,6 +12,7 @@ import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
   type Attachment,
+  type ChatCommandRun,
   type ChatMessage,
   type ChatMessagePayload,
   type ConversationHistoryPayload,
@@ -129,6 +130,23 @@ class SessionChatRoom {
         options?.conversationId ?? this.snapshot.primaryConversationId,
       delivery: options?.delivery ?? "auto",
       ...(hasAttachments ? { attachments } : {}),
+    };
+    socket.emit(SocketEvents.ChatMessage, payload);
+  }
+
+  /** Posts a slash command's result for everyone; it doesn't start the agent. */
+  postCommandResult(
+    content: string,
+    command: ChatCommandRun,
+    conversationId?: string,
+  ): void {
+    const socket = this.socket;
+    if (!socket) throw new Error("The chat isn't connected.");
+    const payload: ChatMessagePayload = {
+      sessionId: this.sessionId,
+      content: content.trim() || `Ran /${command.name}.`,
+      conversationId: conversationId ?? this.snapshot.primaryConversationId,
+      command,
     };
     socket.emit(SocketEvents.ChatMessage, payload);
   }

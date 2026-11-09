@@ -1433,6 +1433,12 @@ export interface ChatMessage {
    * memory bubble (icon + tonal background) and records which store changed.
    */
   memory?: { scope: MemoryScope };
+  /**
+   * Present when the Message is a slash command's result rather than a turn.
+   * It wakes no one; the Conversation's agent reads it with the next Message
+   * it is sent.
+   */
+  command?: ChatCommandRun;
   /** The {@link Run} that produced this Message, when one is attributable. */
   runId?: RunId;
   /** Whether this Message is the last of its Run. */
@@ -1614,6 +1620,14 @@ export interface ConversationHistoryPayload {
  */
 export type MessageDelivery = "auto" | "steer" | "followUp";
 
+/** A slash command as typed in the chat box, e.g. `/run a,b`. */
+export interface ChatCommandRun {
+  /** The command's name, without the slash. */
+  name: string;
+  /** What followed the name, trimmed. Absent when nothing did. */
+  args?: string;
+}
+
 /**
  * Payload sent by the client to post a new chat message. Carries no author: the
  * server resolves the sender from the socket's own identity, so a client cannot
@@ -1631,6 +1645,8 @@ export interface ChatMessagePayload {
   delivery?: MessageDelivery;
   /** Files the human attached, already uploaded into the session workspace. */
   attachments?: Attachment[];
+  /** Posts `content` as this slash command's result instead of as a turn. */
+  command?: ChatCommandRun;
 }
 
 /** Streamed terminal output from a Pi worker. Reserved/stub for Phase 2. */

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTangentContext } from "./context";
 import type {
   EmbedAgent,
+  EmbedCommand,
   EmbedReference,
   HostSlotRecordLike,
   TangentChatElementLike,
@@ -45,6 +46,11 @@ export interface ChatProps {
    * files. Each pick is sent as `[label](href)`.
    */
   references?: EmbedReference[];
+  /**
+   * The slash commands Prime's composer offers. Running one posts its result
+   * in the chat without starting the agent.
+   */
+  commands?: EmbedCommand[];
   /** Disambiguates the provider when a page mounts more than one. */
   instance?: string;
   className?: string;
@@ -68,6 +74,7 @@ export function Chat({
   onRemoveAgent,
   onResourcesChange,
   references,
+  commands,
   instance,
   className,
   style,
@@ -109,6 +116,11 @@ export function Chat({
     const element = ref.current as TangentChatElementLike | null;
     if (element) element.references = references ?? [];
   }, [references]);
+
+  useEffect(() => {
+    const element = ref.current as TangentChatElementLike | null;
+    if (element) element.commands = commands ?? [];
+  }, [commands]);
 
   useEffect(() => {
     const element = ref.current as TangentChatElementLike | null;

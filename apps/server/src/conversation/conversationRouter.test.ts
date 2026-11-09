@@ -375,3 +375,56 @@ test("posting a reply that names a correlation resolves it", async () => {
     "the reply cleared the outstanding correlation",
   );
 });
+
+const ADA: ChatAuthor = { id: "ada@x", kind: "human", name: "Ada" };
+
+test("a slash command's result is shown to the room but wakes no one", async () => {
+  const h = makeRouter();
+  await withWorker(h.sessions);
+
+  const { message, woke } = await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: ADA,
+    content: "- Train",
+    command: { name: "pipelines" },
+    provokes: false,
+  });
+
+  assert.deepEqual(message.command, { name: "pipelines" });
+  assert.deepEqual(woke, []);
+  assert.equal(h.delivered.length, 0);
+  assert.equal(h.emitted.length, 1);
+});
+
+test("the conversation's agent is sent command results with its next message, once", async () => {
+  const h = makeRouter();
+  await withWorker(h.sessions);
+  const post = (content: string) =>
+    h.router.post({
+      sessionId: "s1",
+      conversationId: "sub-1",
+      author: ADA,
+      content,
+      mentions: ["sub-1"],
+    });
+
+  await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: ADA,
+    content: "- Train",
+    command: { name: "run", args: "p-1" },
+    provokes: false,
+  });
+  await post("which one failed?");
+  await post("and now?");
+
+  assert.deepEqual(
+    h.delivered.map(({ text }) => text),
+    [
+      "Command results shown in the chat since your last turn:\n\n/run p-1, run by Ada:\n- Train\n\n---\n\nwhich one failed?",
+      "and now?",
+    ],
+  );
+});

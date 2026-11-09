@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   type Attachment,
   type ChatAuthor,
+  type ChatCommandRun,
   type ChatMessage,
   type MemoryScope,
   type MessageDelivery,
@@ -55,6 +56,8 @@ export interface PostInput {
   /** The structured cause this Message is the system notice of, when one. */
   cause?: TerminationCause;
   memory?: { scope: MemoryScope };
+  /** Marks this Message as the result of a slash command the author ran. */
+  command?: ChatCommandRun;
   /**
    * The Conversation the author wrote this from, when it is not this one. Set
    * only by {@link ConversationRouter.postToConversation}, and what makes the
@@ -102,6 +105,7 @@ function whatIsThere(input: PostInput): Partial<ChatMessage> {
   if (input.thinking) fields.thinking = input.thinking;
   if (input.attachments?.length) fields.attachments = input.attachments;
   if (input.memory) fields.memory = input.memory;
+  if (input.command) fields.command = input.command;
   return fields;
 }
 
@@ -155,6 +159,29 @@ function withAttachments(content: string, attachments?: Attachment[]): string {
   const intro =
     "The user attached the following files (paths are relative to your workspace):";
   return content ? `${content}\n\n${intro}\n${list}` : `${intro}\n${list}`;
+}
+
+function commandLine({ name, args }: ChatCommandRun): string {
+  return args ? `/${name} ${args}` : `/${name}`;
+}
+
+/**
+ * Puts the slash command results shown in the chat since the agent's last
+ * turn ahead of what it's sent, so it knows what everyone has seen.
+ */
+export function withCommandResults(
+  text: string,
+  results: ChatMessage[],
+): string {
+  const shown = results.flatMap((result) =>
+    result.command
+      ? [
+          `${commandLine(result.command)}, run by ${result.author.name}:\n${result.content}`,
+        ]
+      : [],
+  );
+  if (shown.length === 0) return text;
+  return `Command results shown in the chat since your last turn:\n\n${shown.join("\n\n")}\n\n---\n\n${text}`;
 }
 
 /** How a recipient woken from someone else's Conversation is told whose it was. */
@@ -246,6 +273,12 @@ export class ConversationRouter {
   private readonly correlations?: CorrelationEngine;
   private readonly engine: FanOutEngine;
   private connectors?: ConnectorRegistry;
+  /**
+   * Slash command results waiting for their Conversation's agent, which gets
+   * them with the next Message it is sent. Held in memory: after a restart
+   * they're still in the transcript, but the agent isn't sent them.
+   */
+  private readonly heldCommandResults = new Map<string, ChatMessage[]>();
 
   constructor(
     io: Server,
@@ -328,6 +361,7 @@ export class ConversationRouter {
     this.correlations?.resolve(message);
     this.broadcast(message, input.broadcast);
     if (input.provokes === false) {
+      if (message.command) this.holdCommandResult(message);
       return { message, woke: [], refused: [] };
     }
 
@@ -342,9 +376,29 @@ export class ConversationRouter {
       message,
       ingress: input.ingress,
       delivery: input.delivery,
-      project: (msg, recipient) => deliveryText(msg, recipient, owner),
+      project: (msg, recipient) => {
+        const text = deliveryText(msg, recipient, owner);
+        return recipient.participantId === owner
+          ? withCommandResults(text, this.takeCommandResults(msg))
+          : text;
+      },
     });
     return { message, ...outcome };
+  }
+
+  private holdCommandResult(result: ChatMessage): void {
+    const key = `${result.sessionId}\0${result.conversationId}`;
+    this.heldCommandResults.set(key, [
+      ...(this.heldCommandResults.get(key) ?? []),
+      result,
+    ]);
+  }
+
+  private takeCommandResults(message: ChatMessage): ChatMessage[] {
+    const key = `${message.sessionId}\0${message.conversationId}`;
+    const held = this.heldCommandResults.get(key) ?? [];
+    this.heldCommandResults.delete(key);
+    return held;
   }
 
   /**
