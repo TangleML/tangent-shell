@@ -42,8 +42,9 @@ export const PRIME_ORCHESTRATION_TOOLS = [
  * `message_prime` is only registered by the orchestrator extension for
  * sub-agents (Prime never gets the tool), but it is granted in the allowlist for
  * all agents since Pi's `--tools` filter would otherwise strip the extension's
- * tool from sub-agents. `pin_artifact` is registered by the session extension
- * for every agent, so it must be in the allowlist or Pi would filter it out.
+ * tool from sub-agents. `pin_artifact` and `unpin_artifact` are registered by
+ * the session extension for every agent, so they must be in the allowlist or Pi
+ * would filter them out.
  * `list_remote_tools` / `call_remote_tool` / `list_environments` are registered
  * by the remote-tools extension for every agent, so all must be granted or Pi
  * would strip them.
@@ -58,6 +59,7 @@ export const SHARED_AGENT_TOOLS = [
   "read_room",
   "message_prime",
   "pin_artifact",
+  "unpin_artifact",
   "list_remote_tools",
   "call_remote_tool",
   "list_environments",
@@ -79,7 +81,10 @@ export const PRIME_TRIGGER_TOOLS = [
  * Prime may use. Like the other extension tools, these must be in Prime's
  * allowlist or Pi would filter them out.
  */
-export const PRIME_SESSION_TOOLS = ["rename_session"] as const;
+export const PRIME_SESSION_TOOLS = [
+  "rename_session",
+  "dismiss_subagent",
+] as const;
 
 /**
  * Per-agent configuration. Drives the tool allowlist and appended system prompt
