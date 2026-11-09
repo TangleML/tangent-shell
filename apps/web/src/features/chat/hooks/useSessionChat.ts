@@ -78,6 +78,7 @@ export function useSessionChat(sessionId: string) {
     conversationForAgent,
     triggers: snapshot.triggers,
     artifacts: snapshot.artifacts,
+    resourcesVersion: snapshot.resourcesVersion,
     pinnedPaths,
     pinArtifact: (path: string, title: string) =>
       peekSessionChatRoom(sessionId)?.pinArtifact(path, title),

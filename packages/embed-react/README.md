@@ -247,12 +247,21 @@ await addResource(sessionId, {
 | `onError`            | `(message) => void`    | Fired on a surfaced runtime error.                        |
 | `onOpenAgent`        | `(agent) => void`      | A sub-agent was chosen from Prime's agents pill.          |
 | `onRemoveAgent`      | `(id) => void`         | A finished sub-agent was dismissed from the pill.         |
+| `onResourcesChange`  | `() => void`           | The session's resources may have changed. See below.      |
 | `references`         | `EmbedReference[]`     | What the composer's `#` picker can reference. See below.  |
 | `className`, `style` | —                      | Forwarded to the element; size it with `height`.          |
 
 Prime's composer shows an agents pill listing the session's spawned sub-agents
 with their live status. Wire `onOpenAgent` to place a `<Chat agentId>` (as you
 would for `<AgentList onOpen>`) and `onRemoveAgent` to close that tab.
+
+#### Keeping the host's own views current
+
+`onResourcesChange` fires when the session's resources may have changed: a file
+was pinned or unpinned (by an agent or a person), a host entry or memory was
+added or removed, or an agent finished a turn, which is when the files it wrote
+show up. Refetch anything you built from `listResources` or the session's files
+when it fires.
 
 #### Adding your own pill beside the agents pill
 

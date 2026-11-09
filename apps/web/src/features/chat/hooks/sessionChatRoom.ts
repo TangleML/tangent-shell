@@ -262,6 +262,17 @@ class SessionChatRoom {
     });
   }
 
+  /** Refetches the catalog here and, through `resourcesVersion`, tells a host. */
+  private resourcesChanged(): void {
+    void queryClient.invalidateQueries({
+      queryKey: SessionQueryKeys.Resources(this.sessionId),
+    });
+    this.patch((prev) => ({
+      ...prev,
+      resourcesVersion: prev.resourcesVersion + 1,
+    }));
+  }
+
   private trackRunActivity(
     conversationId: string,
     activity: AgentActivity | null,
@@ -293,10 +304,11 @@ class SessionChatRoom {
       this.resetLiveMaps();
       this.statuses.clear();
       this.publish(PI_AGENT.id);
-      this.patch({
+      this.patch((prev) => ({
         ...emptySessionChat(),
         connected: true,
-      });
+        resourcesVersion: prev.resourcesVersion,
+      }));
       socket.emit(SocketEvents.ChatJoin, { sessionId });
     });
 
@@ -344,9 +356,7 @@ class SessionChatRoom {
         ),
       }));
       if (message.attachments?.length || message.memory) {
-        void queryClient.invalidateQueries({
-          queryKey: SessionQueryKeys.Resources(sessionId),
-        });
+        this.resourcesChanged();
       }
       this.invalidateWorkflow();
     });
@@ -436,6 +446,8 @@ class SessionChatRoom {
       this.streaming.delete(agentId);
       this.publish(agentId);
       this.invalidateWorkflow();
+      // A file an agent writes isn't announced, so a finished turn may have added some.
+      this.resourcesChanged();
     });
 
     socket.on(
@@ -600,9 +612,7 @@ class SessionChatRoom {
     });
 
     socket.on(SocketEvents.ResourcesUpdated, () => {
-      void queryClient.invalidateQueries({
-        queryKey: SessionQueryKeys.Resources(sessionId),
-      });
+      this.resourcesChanged();
       this.invalidateWorkflow();
     });
 
@@ -640,9 +650,7 @@ class SessionChatRoom {
         return;
       }
       this.patch({ artifacts: command.artifacts });
-      void queryClient.invalidateQueries({
-        queryKey: SessionQueryKeys.Resources(sessionId),
-      });
+      this.resourcesChanged();
     });
   }
 }

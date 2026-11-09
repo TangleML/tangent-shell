@@ -36,6 +36,11 @@ export interface ChatProps {
   /** A finished sub-agent was dismissed from Prime's agents pill. */
   onRemoveAgent?: (id: string) => void;
   /**
+   * The session's resources may have changed: a pin, a host entry, memory, or
+   * the files an agent wrote during a turn. Refetch what was built from them.
+   */
+  onResourcesChange?: () => void;
+  /**
    * What the composer's `#` picker can reference, alongside the session's own
    * files. Each pick is sent as `[label](href)`.
    */
@@ -61,6 +66,7 @@ export function Chat({
   onError,
   onOpenAgent,
   onRemoveAgent,
+  onResourcesChange,
   references,
   instance,
   className,
@@ -131,19 +137,29 @@ export function Chat({
     const handleRemoveAgent = (event: Event) => {
       onRemoveAgent?.((event as CustomEvent<{ id: string }>).detail.id);
     };
+    const handleResourcesChange = () => onResourcesChange?.();
     element.addEventListener("open-artifact", handleArtifact);
     element.addEventListener("send-prompt", handleSend);
     element.addEventListener("error", handleError);
     element.addEventListener("open-agent", handleOpenAgent);
     element.addEventListener("remove-agent", handleRemoveAgent);
+    element.addEventListener("resources-change", handleResourcesChange);
     return () => {
       element.removeEventListener("open-artifact", handleArtifact);
       element.removeEventListener("send-prompt", handleSend);
       element.removeEventListener("error", handleError);
       element.removeEventListener("open-agent", handleOpenAgent);
       element.removeEventListener("remove-agent", handleRemoveAgent);
+      element.removeEventListener("resources-change", handleResourcesChange);
     };
-  }, [onOpenArtifact, onSendPrompt, onError, onOpenAgent, onRemoveAgent]);
+  }, [
+    onOpenArtifact,
+    onSendPrompt,
+    onError,
+    onOpenAgent,
+    onRemoveAgent,
+    onResourcesChange,
+  ]);
 
   return (
     <tangent-chat
