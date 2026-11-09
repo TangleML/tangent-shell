@@ -77,6 +77,19 @@ export function isMarkdownArtifact(url: string): boolean {
   return path.split(".").pop()?.toLowerCase() === "md";
 }
 
+const TEXT_ARTIFACT_EXTENSIONS = new Set(["txt", "log", "csv", "json"]);
+
+/**
+ * True when an artifact URL points at plain text. These are fetched and shown
+ * in the app's own colors, since a text file in a frame takes the browser's
+ * dark-mode text but none of a background to read it on.
+ */
+export function isTextArtifact(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0];
+  const ext = path.split(".").pop()?.toLowerCase();
+  return ext != null && TEXT_ARTIFACT_EXTENSIONS.has(ext);
+}
+
 /**
  * True when an artifact URL points at a PDF document. These are rendered via an
  * un-sandboxed `<object>`: Chrome renders PDFs with a plugin that sandboxed
