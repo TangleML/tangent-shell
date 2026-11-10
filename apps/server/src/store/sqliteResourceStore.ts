@@ -99,11 +99,21 @@ export class SqliteResourceStore implements ResourceStore {
     return this.catalog(input);
   }
 
-  async remove(sessionId: string, uri: string): Promise<void> {
+  async remove(
+    sessionId: string,
+    uri: string,
+    kind?: ResourceKind,
+  ): Promise<void> {
     // References cascade on the resource FK, so deleting the row is enough.
     this.db
       .delete(resources)
-      .where(and(eq(resources.sessionId, sessionId), eq(resources.uri, uri)))
+      .where(
+        and(
+          eq(resources.sessionId, sessionId),
+          eq(resources.uri, uri),
+          kind ? eq(resources.kind, kind) : undefined,
+        ),
+      )
       .run();
   }
 

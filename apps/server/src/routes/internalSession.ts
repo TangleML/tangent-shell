@@ -1,4 +1,8 @@
-import { normalizePinnableUrl } from "@tangent/shared/pinnableUrl.ts";
+import {
+  isUrlLike,
+  linkPinTitle,
+  normalizePinnableUrl,
+} from "@tangent/shared/pins.ts";
 import { type Request, type Response, Router } from "express";
 import { z, type ZodType } from "zod";
 
@@ -18,7 +22,13 @@ export type RenameInput = z.infer<typeof renameSchema>;
 /** Pin-artifact body: a workspace-relative `path` with an optional `title`. */
 export const pinArtifactSchema = z.object({
   sessionId: z.string(),
-  path: z.string().trim().min(1),
+  path: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((path) => !isUrlLike(path), {
+      message: "path must be workspace-relative; pin URLs with pin_link",
+    }),
   title: z.string().optional(),
 });
 export type PinArtifactInput = z.infer<typeof pinArtifactSchema>;
@@ -140,7 +150,7 @@ async function handlePinLink(
 
   const artifacts = await store.pinLink(session.id, {
     url: body.url,
-    title: fallbackTitle(body.title, new URL(body.url).host),
+    title: linkPinTitle(body.url, body.title),
   });
   emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
   res.json({ artifacts });

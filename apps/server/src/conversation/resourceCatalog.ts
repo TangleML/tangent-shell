@@ -2,6 +2,7 @@ import type {
   CatalogInput,
   Resource,
   ResourceGrant,
+  ResourceKind,
   ResourceStore,
 } from "../store/resourceStore.ts";
 
@@ -49,8 +50,12 @@ export class ResourceCatalog {
   }
 
   /** Drops a catalogued resource by `(sessionId, uri)`, cascading references. */
-  async remove(sessionId: string, uri: string): Promise<void> {
-    await this.store.remove(sessionId, uri);
+  async remove(
+    sessionId: string,
+    uri: string,
+    kind?: ResourceKind,
+  ): Promise<void> {
+    await this.store.remove(sessionId, uri, kind);
   }
 
   /** Grants one Participant sight of one referenced resource in a Conversation. */

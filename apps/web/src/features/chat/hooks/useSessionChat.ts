@@ -4,10 +4,11 @@ import {
   type ChatMessage,
   humanAuthor,
   type MessageDelivery,
+  type PinnedArtifact,
 } from "@tangent/shared/contracts";
+import { normalizePinnableUrl, pinKey } from "@tangent/shared/pins";
 import { useSyncExternalStore } from "react";
 
-import { linkUrlOf, pinKey } from "@/features/chat/model/pins";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 
 import {
@@ -53,12 +54,15 @@ export function useSessionChat(sessionId: string) {
   const pinnedPaths = new Set(snapshot.artifacts.map(pinKey));
 
   // Pin keys are artifact paths or link URLs (see `pinKey`), so one toggle and
-  // one unpin serve both chips/links in chat and the sidebar list.
-  function unpin(key: string): void {
+  // one unpin serve both chips/links in chat and the sidebar list. Unpin goes by
+  // the stored pin's kind: a legacy artifact pin may have a URL as its path.
+  function unpin(key: string): PinnedArtifact["kind"] | undefined {
+    const pin = snapshot.artifacts.find((a) => pinKey(a) === key);
+    if (!pin) return undefined;
     const room = peekSessionChatRoom(sessionId);
-    const url = linkUrlOf(key);
-    if (url) room?.unpinLink(url);
-    else room?.unpinArtifact(key);
+    if (pin.kind === "link") room?.unpinLink(pin.url);
+    else room?.unpinArtifact(pin.path);
+    return pin.kind;
   }
 
   function togglePin(key: string, title: string): void {
@@ -67,7 +71,7 @@ export function useSessionChat(sessionId: string) {
       return;
     }
     const room = peekSessionChatRoom(sessionId);
-    const url = linkUrlOf(key);
+    const url = normalizePinnableUrl(key);
     if (url) room?.pinLink(url, title);
     else room?.pinArtifact(key, title);
   }

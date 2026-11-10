@@ -164,3 +164,50 @@ test("unpin-link removes only the link; artifact pins keep their shape", async (
     ["artifact"],
   );
 });
+
+test("pin-artifact rejects a URL path and points to pin_link", async () => {
+  const { store, session, post } = await serve();
+
+  const res = await post("pin-artifact", {
+    path: "https://example.com/pr/1",
+    title: "PR",
+  });
+
+  assert.equal(res.status, 400);
+  assert.match(JSON.stringify(res.json), /pin_link/);
+  assert.deepEqual(await store.getArtifacts(session.id), []);
+});
+
+test("unpin-artifact still removes a legacy artifact pin whose path is a URL", async () => {
+  const { store, session, post } = await serve();
+  await store.pinArtifact(session.id, {
+    path: "https://example.com/pr/1",
+    title: "PR",
+  });
+
+  const res = await post("unpin-artifact", {
+    path: "https://example.com/pr/1",
+  });
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(await store.getArtifacts(session.id), []);
+});
+
+test("a link pin neither relabels nor deletes a host resource at the same URL", async () => {
+  const { resources, session, post } = await serve();
+  const uri = "https://example.com/orders";
+  await resources.catalog({
+    sessionId: session.id,
+    kind: "host",
+    name: "Orders",
+    uri,
+  });
+
+  await post("pin-link", { url: uri, title: "Orders dashboard" });
+  await post("unpin-link", { url: uri });
+
+  assert.deepEqual(
+    (await resources.listForSession(session.id)).map((r) => [r.kind, r.name]),
+    [["host", "Orders"]],
+  );
+});

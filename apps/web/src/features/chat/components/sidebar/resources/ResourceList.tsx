@@ -1,5 +1,5 @@
 import type { Resource } from "@tangent/shared/contracts";
-import { normalizePinnableUrl } from "@tangent/shared/pinnableUrl";
+import { normalizePinnableUrl } from "@tangent/shared/pins";
 import { Box } from "@tangent/ui-primitives/box";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
@@ -68,9 +68,10 @@ export function ResourceList({ resources, onOpen }: ResourceListProps) {
               gap="2"
               hoverable={Boolean(openable)}
               onClick={openable ? () => onOpen?.(resource) : undefined}
-              href={href}
-              linkLabel={
-                href ? `${resource.name} (opens in a new tab)` : undefined
+              link={
+                href
+                  ? { href, label: `${resource.name} (opens in a new tab)` }
+                  : undefined
               }
               prefix={
                 <Box

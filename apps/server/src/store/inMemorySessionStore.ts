@@ -14,6 +14,7 @@ import {
   type SessionConfigMeta,
   type UpdateSessionRequest,
 } from "@tangent/shared/contracts.ts";
+import { pinKey } from "@tangent/shared/pins.ts";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
 import { InMemoryParticipantStore } from "./inMemoryParticipantStore.ts";
@@ -24,6 +25,7 @@ import {
   presenceForStatus,
   sessionAgentFromParticipant,
 } from "./participantStore.ts";
+import { catalogPin, uncatalogPin } from "./pinCatalog.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
   applySessionUpdate,
@@ -56,11 +58,6 @@ function mergeConnector(
   prior: SessionAgent | undefined,
 ): ConnectorDescriptor {
   return agent.connector ?? prior?.connector ?? connectorFor("pi-stdio");
-}
-
-/** A pin's dedupe key: an artifact's path or a link's URL. */
-function pinTarget(pin: PinnedArtifact): string {
-  return pin.kind === "link" ? pin.url : pin.path;
 }
 
 /**
@@ -317,18 +314,17 @@ export class InMemorySessionStore implements SessionStore {
     pin: PinnedArtifact,
   ): Promise<PinnedArtifact[]> {
     const existing = this.artifacts.get(sessionId) ?? [];
-    const target = pinTarget(pin);
-    const prior = existing.find((a) => pinTarget(a) === target);
+    const target = pinKey(pin);
+    const prior = existing.find((a) => pinKey(a) === target);
     const next = { ...pin, pinnedAt: prior?.pinnedAt ?? pin.pinnedAt };
     const updated = prior
       ? existing.map((a) => (a === prior ? next : a))
       : [...existing, next];
     this.artifacts.set(sessionId, updated);
-    await this.resources?.catalog({
-      sessionId,
+    await catalogPin(this.resources, sessionId, {
       kind: pin.kind,
-      name: pin.title,
-      uri: target,
+      target,
+      title: pin.title,
     });
     return updated;
   }
@@ -340,11 +336,11 @@ export class InMemorySessionStore implements SessionStore {
   ): Promise<PinnedArtifact[]> {
     const existing = this.artifacts.get(sessionId) ?? [];
     const updated = existing.filter(
-      (a) => a.kind !== kind || pinTarget(a) !== target,
+      (a) => a.kind !== kind || pinKey(a) !== target,
     );
     this.artifacts.set(sessionId, updated);
     if (updated.length < existing.length) {
-      await this.resources?.remove(sessionId, target);
+      await uncatalogPin(this.resources, sessionId, { kind, target });
     }
     return updated;
   }

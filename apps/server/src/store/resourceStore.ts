@@ -62,9 +62,9 @@ export interface ResourceStore {
   catalogIfAbsent(input: CatalogInput): Promise<Resource>;
   /**
    * Removes a resource by `(sessionId, uri)`, cascading its references. A no-op
-   * when nothing is catalogued there.
+   * when nothing is catalogued there, or when `kind` is given and differs.
    */
-  remove(sessionId: string, uri: string): Promise<void>;
+  remove(sessionId: string, uri: string, kind?: ResourceKind): Promise<void>;
   /** Upserts a reference by `(conversationId, resourceId)`. */
   reference(ref: ResourceReference): Promise<void>;
   /**

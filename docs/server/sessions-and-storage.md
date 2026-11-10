@@ -239,7 +239,7 @@ the same `/files/` API as inline artifact chips.
 External links (PRs, docs, dashboards) pin the same way via the `pin_link` tool
 or the `link:pin` socket event, as `{ kind: "link", url, title, pinnedAt }`.
 Only absolute http(s) URLs without credentials, up to 2048 characters, are
-accepted (`normalizePinnableUrl` in `@tangent/shared/pinnableUrl`); the
+accepted (`normalizePinnableUrl` in `@tangent/shared/pins`); the
 canonical URL is the dedupe key, stored in `session_assets.path` with
 `kind = 'link'`, and mirrored into the resource catalog as a `link` resource.
 The UI opens a link pin directly in a new tab rather than in a viewer. See

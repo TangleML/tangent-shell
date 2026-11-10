@@ -6,7 +6,11 @@ import {
   SocketEvents,
   type UiCommandPayload,
 } from "@tangent/shared/contracts.ts";
-import { normalizePinnableUrl } from "@tangent/shared/pinnableUrl.ts";
+import {
+  isUrlLike,
+  linkPinTitle,
+  normalizePinnableUrl,
+} from "@tangent/shared/pins.ts";
 import type { Socket } from "socket.io";
 
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -54,7 +58,7 @@ export async function handleArtifactPin(
   payload: ArtifactPinPayload,
 ): Promise<void> {
   const ref = readArtifactRef(payload);
-  if (!ref) return;
+  if (!ref || isUrlLike(ref.path)) return;
   const session = await store.getSession(ref.sessionId);
   if (!session) return;
 
@@ -105,9 +109,10 @@ export async function handleLinkPin(
   const session = await store.getSession(ref.sessionId);
   if (!session) return;
 
-  const title =
-    (typeof payload.title === "string" && payload.title.trim()) ||
-    new URL(ref.url).host;
+  const title = linkPinTitle(
+    ref.url,
+    typeof payload.title === "string" ? payload.title : undefined,
+  );
   const artifacts = await store.pinLink(session.id, { url: ref.url, title });
   emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
 }

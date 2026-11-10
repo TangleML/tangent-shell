@@ -1,3 +1,5 @@
+import type { PinnedArtifact } from "./contracts.ts";
+
 /** Longest URL a link pin accepts; generous for real links, bounded for storage. */
 export const MAX_PINNABLE_URL_LENGTH = 2048;
 
@@ -8,6 +10,7 @@ const PINNABLE_PROTOCOLS = new Set(["http:", "https:"]);
 interface ParsedUrl {
   href: string;
   protocol: string;
+  host: string;
   hostname: string;
   username: string;
   password: string;
@@ -34,4 +37,21 @@ export function normalizePinnableUrl(raw: string): string | null {
   if (url.username || url.password) return null;
   if (url.href.length > MAX_PINNABLE_URL_LENGTH) return null;
   return url.href;
+}
+
+/** True for a scheme-qualified or protocol-relative reference, never a workspace path. */
+export function isUrlLike(value: string): boolean {
+  return (
+    /^[a-z][a-z0-9+.-]*:/i.test(value.trim()) || value.trim().startsWith("//")
+  );
+}
+
+/** A pin's dedupe key: an artifact's workspace path or a link's canonical URL. */
+export function pinKey(pin: PinnedArtifact): string {
+  return pin.kind === "link" ? pin.url : pin.path;
+}
+
+/** A link pin's title: the given one, else the URL's host. */
+export function linkPinTitle(url: string, title?: string): string {
+  return title?.trim() || new URL(url).host;
 }

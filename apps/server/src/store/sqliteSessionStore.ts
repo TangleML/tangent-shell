@@ -39,6 +39,7 @@ import {
   presenceForStatus,
   sessionAgentFromParticipant,
 } from "./participantStore.ts";
+import { catalogPin, uncatalogPin } from "./pinCatalog.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
   applySessionUpdate,
@@ -748,13 +749,7 @@ export class SqliteSessionStore implements SessionStore {
     return row.rootPath;
   }
 
-  /**
-   * Upserts a pin row keyed by `(session, target)`. Re-pinning a known target
-   * refreshes its title in place (keeping its row id, hence its oldest-first
-   * position and original pinnedAt); a new target appends. The pin is mirrored
-   * into the resource catalog so it is citable content; the pin row stays
-   * authoritative for the asset list.
-   */
+  /** Re-pinning keeps the row id, so its oldest-first position and pinnedAt. */
   private async pin(
     sessionId: string,
     kind: PinnedArtifact["kind"],
@@ -775,12 +770,7 @@ export class SqliteSessionStore implements SessionStore {
         set: { kind, title },
       })
       .run();
-    await this.resources?.catalog({
-      sessionId,
-      kind,
-      name: title,
-      uri: target,
-    });
+    await catalogPin(this.resources, sessionId, { kind, target, title });
     return this.readArtifacts(sessionId);
   }
 
@@ -799,7 +789,9 @@ export class SqliteSessionStore implements SessionStore {
         ),
       )
       .run();
-    if (result.changes > 0) await this.resources?.remove(sessionId, target);
+    if (result.changes > 0) {
+      await uncatalogPin(this.resources, sessionId, { kind, target });
+    }
     return this.readArtifacts(sessionId);
   }
 

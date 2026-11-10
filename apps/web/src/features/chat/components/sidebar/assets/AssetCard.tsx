@@ -24,8 +24,7 @@ interface AssetCardProps {
  * A rich, condensed card representing one session asset (page, file, trigger,
  * and — in future — app). The leading icon conveys the asset type; the title
  * and subtitle describe it; hover-revealed actions handle inline management.
- * Clicking the card opens the asset in its own tab, except a pinned `link`,
- * which is a real anchor opening its URL in a new browser tab.
+ * Clicking the card opens the asset in its own tab; a `link` opens its URL.
  */
 export function AssetCard({
   asset,
@@ -33,7 +32,10 @@ export function AssetCard({
   onOpen,
   actions,
 }: AssetCardProps) {
-  const href = asset.kind === "link" ? asset.url : undefined;
+  const link =
+    asset.kind === "link"
+      ? { href: asset.url, label: `${asset.title} (opens in a new tab)` }
+      : undefined;
   return (
     <ListRow
       as="li"
@@ -41,9 +43,8 @@ export function AssetCard({
       gap="2"
       hoverable
       selected={selected}
-      onClick={href ? undefined : onOpen}
-      href={href}
-      linkLabel={href ? `${asset.title} (opens in a new tab)` : undefined}
+      onClick={onOpen}
+      link={link}
       prefix={
         <Box background="info-subtle" blockSize="full" paddingInline="sm">
           <InlineStack fill blockAlign="center" align="center">

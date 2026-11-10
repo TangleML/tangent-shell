@@ -1,7 +1,7 @@
 // local primitive — renders agent markdown output, styling the raw markdown
 // HTML elements (h1/ul/a/img/code/table/...). These are not Tangle UI
 // primitives, so the scoped classNames here are an allowed escape hatch.
-import { normalizePinnableUrl } from "@tangent/shared/pinnableUrl";
+import { linkPinTitle, normalizePinnableUrl } from "@tangent/shared/pins";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Link } from "@tangent/ui-primitives/link";
@@ -308,11 +308,6 @@ function ArtifactChip({
   );
 }
 
-/**
- * External http(s) link with a pin toggle revealed on hover/focus, so the user
- * can keep it in the sidebar as a link pin. Stays visible once pinned. Raw
- * `<span>`/`<button>`, so scoped classes are fine.
- */
 const LINK_PIN_GROUP_CLASS = "group/pin";
 const LINK_PIN_CLASS =
   "ms-0.5 inline-flex items-center align-middle opacity-0 transition-opacity group-hover/pin:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 motion-reduce:transition-none";
@@ -326,6 +321,7 @@ interface PinnableLinkProps {
   onTogglePin: () => void;
 }
 
+/** An external link whose pin toggle shows on hover/focus, and stays once pinned. */
 function PinnableLink({
   href,
   title,
@@ -656,7 +652,7 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
   // Keyed on the authored href, so a rewritten artifacts-link is never pinnable.
   const linkUrl = typeof href === "string" ? normalizePinnableUrl(href) : null;
   if (linkUrl && onTogglePinArtifact) {
-    const label = anchorText(children).trim() || new URL(linkUrl).host;
+    const label = linkPinTitle(linkUrl, anchorText(children));
     return (
       <PinnableLink
         href={linkUrl}

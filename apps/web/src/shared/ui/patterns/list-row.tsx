@@ -87,13 +87,10 @@ interface ListRowProps extends ListRowVariantProps {
    */
   prefix?: ReactNode;
   /**
-   * Makes the whole row an external link that opens `href` in a new tab, via a
-   * real anchor stretched over the row. Buttons inside the row (e.g. hover
-   * actions) stay clickable above it. Use instead of `onClick`.
+   * Makes the whole row an external link opening in a new tab, via an anchor
+   * stretched over the row; the row's own buttons stay clickable above it.
    */
-  href?: string;
-  /** Accessible name for the row link; required with `href`. */
-  linkLabel?: string;
+  link?: { href: string; label: string };
 }
 
 /** Lifts the row's own buttons above the stretched link so they stay clickable. */
@@ -115,12 +112,11 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
       onClick,
       gap = "2",
       prefix,
-      href,
-      linkLabel,
+      link,
     },
     ref,
   ) {
-    const isInteractive = hoverable || onClick != null || href != null;
+    const isInteractive = hoverable || onClick != null || link != null;
     const handleKeyDown: KeyboardEventHandler<HTMLElement> | undefined = onClick
       ? (event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -145,15 +141,15 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
             border,
           }),
           prefix != null && "overflow-hidden",
-          href != null && LINK_ROW_CLASS,
+          link != null && LINK_ROW_CLASS,
         )}
       >
-        {href != null ? (
+        {link != null ? (
           <a
-            href={href}
+            href={link.href}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={linkLabel}
+            aria-label={link.label}
             className={STRETCHED_LINK_CLASS}
           />
         ) : null}
