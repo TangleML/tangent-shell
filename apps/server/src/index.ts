@@ -232,11 +232,13 @@ const conversations = new ConversationRouter(
 );
 // The one settle listener: release a wake held behind the Run, and — when it
 // settled `failed` — surface a `run-error` cause in its home Conversation so a
-// supervisor can react. A boot-stale row is settled by `failStaleRuns` writing
-// the store directly, not through `settle`, so it never reaches here.
+// supervisor can react, and mark the session failed for list views. A
+// boot-stale row is settled by `failStaleRuns` writing the store directly, not
+// through `settle`, so it never reaches here.
 runs.useOnSettled((run) => {
   admission.release(run);
   if (run.status === "failed") {
+    pi.markRunFailed(run.sessionId);
     conversations.announceCause(run.sessionId, {
       kind: "run-error",
       participantId: run.participantId,

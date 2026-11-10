@@ -16,6 +16,7 @@ import { afterEach, mock, test } from "node:test";
 import {
   capabilitiesForRole,
   connectorFor,
+  type SessionStatusPayload,
 } from "@tangent/shared/contracts.ts";
 
 import type { MemoryResolver, MemorySpawnPlan } from "../memory/resolver.ts";
@@ -126,12 +127,14 @@ function makeManager(options?: {
   spawns: SpawnRecord[];
   rosterUpdates: { id: string; status: string }[];
   events: RelayedEvent[];
+  statuses: SessionStatusPayload[];
   runs: RunRegistry;
   runStore: InMemoryRunStore;
 } {
   const spawns: SpawnRecord[] = [];
   const rosterUpdates: { id: string; status: string }[] = [];
   const events: RelayedEvent[] = [];
+  const statuses: SessionStatusPayload[] = [];
 
   const fakeSpawn = ((
     _command: string,
@@ -152,7 +155,7 @@ function makeManager(options?: {
     onSubagentUpdate: (_sessionId, subagent) =>
       rosterUpdates.push({ id: subagent.id, status: subagent.status }),
     onAgentMessage: () => {},
-    onSessionStatus: () => {},
+    onSessionStatus: (payload) => statuses.push(payload),
   };
 
   const memory = options?.memory ?? stubResolver();
@@ -160,7 +163,7 @@ function makeManager(options?: {
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
   const pi = new PiAgentManager(handlers, memory, runs, undefined, fakeSpawn);
-  return { pi, spawns, rosterUpdates, events, runs, runStore };
+  return { pi, spawns, rosterUpdates, events, statuses, runs, runStore };
 }
 
 /** A persisted roster row with sane defaults, overridable per field. */
@@ -804,4 +807,35 @@ test("memoryCaller hands live agents Prime's resolution and their own role", asy
 
   pi.dispose("s1");
   assert.equal(pi.memoryCaller("s1", PRIME_AGENT_ID), undefined);
+});
+
+test("a failed run marks its session failed for the lobby until another run starts", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.markRunFailed("s1");
+
+  assert.deepEqual(h.pi.getStatuses(), [
+    { sessionId: "s1", status: "active", failed: true },
+  ]);
+  assert.deepEqual(h.statuses.at(-1), {
+    sessionId: "s1",
+    status: "active",
+    failed: true,
+  });
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
+  assert.deepEqual(h.statuses.at(-1), { sessionId: "s1", status: "busy" });
+});
+
+test("a session with no agent running still reports that its last run failed", () => {
+  const h = makeManager();
+
+  h.pi.markRunFailed("s2");
+
+  assert.deepEqual(h.pi.getStatuses(), [
+    { sessionId: "s2", status: "idle", failed: true },
+  ]);
 });
