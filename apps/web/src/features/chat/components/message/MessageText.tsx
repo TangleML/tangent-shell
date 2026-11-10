@@ -2,15 +2,9 @@ import { Paragraph } from "@tangent/ui-primitives/typography";
 
 import { splitReferenceLinks } from "@/features/chat/model/references";
 import { apiUrl } from "@/shared/lib/basePath";
-import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
-import { useHostExtensions } from "@/shared/lib/hostSlots";
-import {
-  isAbsoluteUrl,
-  isViewableArtifact,
-  protocolOf,
-  resolveUrl,
-} from "@/shared/lib/markdown/artifact";
-import { ArtifactChip } from "@/shared/lib/markdown/ArtifactChip";
+import { useHostAnchorProtocol } from "@/shared/lib/hostSlots";
+import { isAbsoluteUrl } from "@/shared/lib/markdown/artifact";
+import { ReferenceAnchor } from "@/shared/lib/markdown/ReferenceAnchor";
 
 interface MessageTextProps {
   content: string;
@@ -32,15 +26,7 @@ export function MessageText({
   tone,
   onOpenArtifact,
 }: MessageTextProps) {
-  const { registry, anchorProtocols } = useHostExtensions();
-
-  function hostProtocolOf(href: string): string | undefined {
-    const protocol = protocolOf(href);
-    return registry && protocol && anchorProtocols.has(protocol)
-      ? protocol
-      : undefined;
-  }
-
+  const hostProtocolOf = useHostAnchorProtocol();
   const segments = splitReferenceLinks(
     content,
     (href) => hostProtocolOf(href) !== undefined || !isAbsoluteUrl(href),
@@ -48,44 +34,22 @@ export function MessageText({
 
   return (
     <Paragraph size="sm" wrap="pre-wrap" tone={tone}>
-      {segments.map((segment) => {
-        if (segment.kind === "text") return segment.text;
-
-        const { href, label, offset } = segment;
-        const protocol = hostProtocolOf(href);
-        if (protocol) {
-          return (
-            <HostOwnedSurface
-              key={offset}
-              id={`anchor:${messageId}:${offset}`}
-              surface="anchor"
-              slotKey={protocol}
-              props={{
-                href,
-                protocol,
-                path: href.slice(protocol.length + "://".length),
-                label,
-              }}
-            />
-          );
-        }
-
-        const url =
-          resolveUrl(href, apiUrl(`/api/sessions/${sessionId}/files`)) ?? href;
-        return (
-          <ArtifactChip
-            key={offset}
-            href={url}
-            onOpen={
-              onOpenArtifact && isViewableArtifact(href)
-                ? () => onOpenArtifact(url, label)
-                : undefined
-            }
+      {segments.map((segment) =>
+        segment.kind === "text" ? (
+          segment.text
+        ) : (
+          <ReferenceAnchor
+            key={segment.offset}
+            href={segment.href}
+            messageId={messageId}
+            offset={segment.offset}
+            artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
+            onOpenArtifact={onOpenArtifact}
           >
-            {label}
-          </ArtifactChip>
-        );
-      })}
+            {segment.label}
+          </ReferenceAnchor>
+        ),
+      )}
     </Paragraph>
   );
 }

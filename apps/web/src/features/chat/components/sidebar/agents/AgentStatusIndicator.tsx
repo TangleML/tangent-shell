@@ -1,8 +1,8 @@
 import { Icon } from "@tangent/ui-primitives/icon";
 
 import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
-
-import { StatusDot } from "../StatusDot";
+import { agentStatusVisual } from "@/features/chat/model/agents";
+import { StatusDot } from "@/shared/ui/patterns/status-dot";
 
 interface AgentStatusProps {
   /** Session the agent belongs to; with `agentId` keys the shared live status. */
@@ -19,21 +19,8 @@ interface AgentStatusProps {
  */
 export function AgentStatusIndicator({ sessionId, agentId }: AgentStatusProps) {
   const { status, busy } = useAgentStatus(sessionId, agentId);
+  const visual = agentStatusVisual(status, busy);
 
-  if (busy) {
-    return <StatusDot variant="busy" />;
-  }
-
-  switch (status) {
-    case "active":
-      return <StatusDot variant="active" />;
-    case "detached":
-      return <Icon name="Unplug" size="xs" tone="subdued" />;
-    case "completed":
-      return <Icon name="Check" size="xs" tone="subdued" />;
-    case "killed":
-      return <Icon name="Ban" size="xs" tone="subdued" />;
-    case "error":
-      return <Icon name="TriangleAlert" size="xs" tone="critical" />;
-  }
+  if (visual.kind === "dot") return <StatusDot variant={visual.variant} />;
+  return <Icon name={visual.icon} size="xs" tone={visual.tone ?? "subdued"} />;
 }

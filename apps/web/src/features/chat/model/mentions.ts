@@ -4,6 +4,8 @@ import type {
 } from "@tangent/shared/contracts";
 import { PI_AGENT } from "@tangent/shared/contracts";
 
+import { normalize } from "./matching";
+
 /** Someone a composer can address with `@`. Ids stay stable; names are shown. */
 export interface MentionCandidate {
   id: string;
@@ -43,11 +45,6 @@ export function buildMentionCandidates(
     ...subagents.map((s) => ({ id: s.id, name: s.name })),
     ...humans,
   ];
-}
-
-/** Matches the server's mention normalization (drop case, spaces, `_`, `-`). */
-function normalize(value: string): string {
-  return value.toLowerCase().replace(/[\s_-]/g, "");
 }
 
 /**

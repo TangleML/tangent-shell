@@ -1,6 +1,6 @@
 import type { Session } from "@tangent/shared/contracts";
 import { BlockStack } from "@tangent/ui-primitives/layout";
-import { type Ref, useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useRef } from "react";
 
 import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
 import { SessionActionsMenu } from "@/features/sessions/components/SessionActionsMenu";
@@ -69,8 +69,7 @@ function SessionListItem({
   onDeleted,
 }: SessionListItemProps) {
   const status = useSessionStatus(session.id);
-  const { label } = SESSION_STATUS_DISPLAY[status];
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { variant, label } = SESSION_STATUS_DISPLAY[status];
 
   return (
     <ListItem
@@ -85,24 +84,17 @@ function SessionListItem({
       }
       title={session.name}
       subtitle={label}
-      flair={{
-        kind: "dot",
-        label,
-        tone: status === "idle" ? "subdued" : "success",
-        pulse: status === "busy",
-      }}
+      flair={{ kind: "dot", variant }}
       selected={selected}
       onOpen={() => onSelect(session.id)}
       menu={
         onDeleted
           ? {
               label: `Actions for ${session.name}`,
-              open: menuOpen,
-              onOpenChange: setMenuOpen,
-              content: (
+              content: (close) => (
                 <SessionActionsMenu
                   session={session}
-                  onClose={() => setMenuOpen(false)}
+                  onClose={close}
                   onDeleted={onDeleted}
                 />
               ),

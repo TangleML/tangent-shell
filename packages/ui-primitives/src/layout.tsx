@@ -1,6 +1,7 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import {
   type AriaAttributes,
+  type AriaRole,
   forwardRef,
   type PropsWithChildren,
   type Ref,
@@ -47,6 +48,9 @@ interface BlockStackProps
    * @default 'div'
    */
   as?: StackElement;
+  id?: string;
+  /** ARIA role, e.g. `listbox` for a list of options. */
+  role?: AriaRole;
   /** Fill the container and center content */
   fill?: boolean;
   /**

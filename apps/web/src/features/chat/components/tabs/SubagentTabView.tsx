@@ -67,8 +67,8 @@ interface SubagentTabViewProps {
   references: ChatReference[];
   /** Focuses this tab's composer once it becomes usable. */
   autoFocus?: boolean;
-  /** The session's agents pill, shown left of the model picker as on Prime's composer. */
-  agentsPill: ReactNode;
+  /** The session's pills, shown left of the model picker as on Prime's composer. */
+  pills: ReactNode;
 }
 
 /**
@@ -102,7 +102,7 @@ export function SubagentTabView({
   mentionCandidates,
   references,
   autoFocus,
-  agentsPill,
+  pills,
 }: SubagentTabViewProps) {
   return (
     <BlockStack grow>
@@ -122,7 +122,7 @@ export function SubagentTabView({
         isMessageStreaming={isMessageStreaming}
       />
       <ComposerFooter
-        agentsPill={agentsPill}
+        pills={pills}
         modelPicker={
           <AgentModelPicker
             model={model}

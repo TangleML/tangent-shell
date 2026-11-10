@@ -55,9 +55,17 @@ const PRESENCE_LABEL: Record<Presence, string> = {
 };
 
 const PRESENCE_FLAIR: Record<Presence, ListItemFlair> = {
-  connected: { kind: "dot", label: PRESENCE_LABEL.connected, tone: "success" },
-  away: { kind: "dot", label: PRESENCE_LABEL.away, tone: "warning" },
-  detached: { kind: "dot", label: PRESENCE_LABEL.detached },
+  connected: {
+    kind: "dot",
+    variant: "active",
+    label: PRESENCE_LABEL.connected,
+  },
+  away: { kind: "dot", variant: "away", label: PRESENCE_LABEL.away },
+  detached: {
+    kind: "dot",
+    variant: "disconnected",
+    label: PRESENCE_LABEL.detached,
+  },
 };
 
 // A row has one flair (presence), so role and mute state ride in the subtitle.

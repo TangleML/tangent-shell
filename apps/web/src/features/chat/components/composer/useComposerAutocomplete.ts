@@ -1,5 +1,5 @@
 import type { IconName } from "@tangent/ui-primitives/icon";
-import { type KeyboardEvent, type RefObject, useState } from "react";
+import { type KeyboardEvent, type RefObject, useId, useState } from "react";
 
 import {
   type ActiveMention,
@@ -54,9 +54,14 @@ export function useComposerAutocomplete({
 }: UseComposerAutocompleteArgs) {
   const [active, setActive] = useState<ActiveMention | null>(null);
   const [highlight, setHighlight] = useState(0);
+  const listboxId = useId();
 
   const matches = active ? suggest(active.trigger, active.query) : [];
   const open = active != null && matches.length > 0;
+  const optionId = (index: number) => `${listboxId}-${index}`;
+  // Focus stays in the input, so it names the option the arrows are on.
+  const activeOptionId =
+    open && highlight < matches.length ? optionId(highlight) : undefined;
 
   function sync(target: HTMLTextAreaElement) {
     setActive(activeAt(target.value, target.selectionStart ?? 0));
@@ -114,5 +119,15 @@ export function useComposerAutocomplete({
     return false;
   }
 
-  return { open, matches, highlight, sync, accept, handleKeyDown };
+  return {
+    open,
+    matches,
+    highlight,
+    listboxId,
+    optionId,
+    activeOptionId,
+    sync,
+    accept,
+    handleKeyDown,
+  };
 }

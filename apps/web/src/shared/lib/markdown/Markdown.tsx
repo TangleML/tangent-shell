@@ -21,16 +21,14 @@ import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
 import { useHostExtensions } from "@/shared/lib/hostSlots";
 import {
   artifactPath,
-  isAbsoluteUrl,
   isArtifactsLink,
-  isViewableArtifact,
   protocolOf,
   resolveUrl,
 } from "@/shared/lib/markdown/artifact";
 import { cn } from "@/shared/lib/utils";
 
-import { ArtifactChip } from "./ArtifactChip";
 import { CodeBlock } from "./CodeBlock";
+import { ReferenceAnchor } from "./ReferenceAnchor";
 
 /**
  * Matches a bundle-UI message token's language class, e.g.
@@ -190,14 +188,6 @@ function parsePromptHref(href: string | undefined): string | undefined {
   }
 }
 
-/** Flattens a link's markdown children into a plain-text label. */
-function anchorText(children: ReactNode): string {
-  if (typeof children === "string") return children;
-  if (typeof children === "number") return String(children);
-  if (Array.isArray(children)) return children.map(anchorText).join("");
-  return "";
-}
-
 /**
  * URL sanitizer for `react-markdown`. The default transform drops unknown
  * protocols (keeping only http/https/mailto/etc.), which would blank our
@@ -211,18 +201,6 @@ function makeUrlTransform(anchorProtocols: ReadonlySet<string>) {
     if (proto && anchorProtocols.has(proto)) return url;
     return defaultUrlTransform(url);
   };
-}
-
-/** Derives a short tab title from the link text, falling back to the filename. */
-function artifactLabel(children: ReactNode, url: string): string {
-  if (typeof children === "string" && children.trim()) return children.trim();
-  const path = url.split(/[?#]/, 1)[0];
-  const filename = path.split("/").pop() ?? url;
-  try {
-    return decodeURIComponent(filename);
-  } catch {
-    return filename;
-  }
 }
 
 /**
@@ -460,7 +438,6 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
     sessionId,
     messageId,
   } = useMarkdownOptions();
-  const { registry, anchorProtocols } = useHostExtensions();
 
   if (typeof href === "string" && href.startsWith(PROMPT_SCHEME)) {
     const promptText = parsePromptHref(href);
@@ -473,46 +450,6 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
     );
   }
 
-  const protocol = protocolOf(href);
-  if (registry && protocol && anchorProtocols.has(protocol) && href) {
-    const path = href.slice(protocol.length + "://".length);
-    const id = `anchor:${messageId ?? ""}:${node?.position?.start.offset ?? 0}`;
-    return (
-      <HostOwnedSurface
-        id={id}
-        surface="anchor"
-        slotKey={protocol}
-        props={{ href, protocol, path, label: anchorText(children) }}
-      />
-    );
-  }
-
-  const isArtifact =
-    artifactBaseUrl != null && typeof href === "string" && !isAbsoluteUrl(href);
-
-  if (isArtifact) {
-    const resolved = resolveUrl(href, artifactBaseUrl) ?? href;
-    const openable = onOpenArtifact != null && isViewableArtifact(href);
-    // The workspace-relative path is the stable identity used for pinning.
-    const path = artifactPath(href);
-    const label = artifactLabel(children, resolved);
-    return (
-      <ArtifactChip
-        href={resolved}
-        title={title}
-        onOpen={openable ? () => onOpenArtifact(resolved, label) : undefined}
-        pinned={pinnedPaths?.has(path)}
-        onTogglePin={
-          onTogglePinArtifact
-            ? () => onTogglePinArtifact(path, label)
-            : undefined
-        }
-      >
-        {children}
-      </ArtifactChip>
-    );
-  }
-
   const safetyBase =
     artifactBaseUrl ??
     (sessionId ? apiUrl(`/api/sessions/${sessionId}/files`) : undefined);
@@ -520,11 +457,33 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
     safetyBase != null && typeof href === "string" && isArtifactsLink(href)
       ? (resolveUrl(href, safetyBase) ?? href)
       : href;
-
-  return (
+  const link = (
     <Link href={fixedHref} title={title} variant="primary" size={size} external>
       {children}
     </Link>
+  );
+  if (typeof href !== "string") return link;
+
+  // The workspace-relative path is the stable identity used for pinning.
+  const path = artifactPath(href);
+  return (
+    <ReferenceAnchor
+      href={href}
+      messageId={messageId ?? ""}
+      offset={node?.position?.start.offset ?? 0}
+      artifactBaseUrl={artifactBaseUrl}
+      title={title}
+      onOpenArtifact={onOpenArtifact}
+      pinned={pinnedPaths?.has(path)}
+      onTogglePin={
+        onTogglePinArtifact
+          ? (label) => onTogglePinArtifact(path, label)
+          : undefined
+      }
+      fallback={link}
+    >
+      {children}
+    </ReferenceAnchor>
   );
 }
 

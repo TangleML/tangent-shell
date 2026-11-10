@@ -1,15 +1,23 @@
 import { Icon, type IconName } from "@tangent/ui-primitives/icon";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@tangent/ui-primitives/popover";
 import { Text } from "@tangent/ui-primitives/typography";
-import { type ReactNode, type Ref, useId } from "react";
+import { type ReactNode, type Ref, useId, useState } from "react";
 
 import { cn } from "@/shared/lib/utils";
+import { HoverReveal } from "@/shared/ui/patterns/hover-reveal";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
+import { ROW_TINT } from "@/shared/ui/patterns/list-row";
 import { Pill } from "@/shared/ui/patterns/pill";
+import {
+  StatusDot,
+  type StatusDotVariant,
+} from "@/shared/ui/patterns/status-dot";
+import { Truncating } from "@/shared/ui/patterns/truncating";
 
 /**
  * ListItem — Layer 3 semantic primitive.
@@ -21,18 +29,16 @@ import { Pill } from "@/shared/ui/patterns/pill";
  * The row's slots take data instead of markup, so call sites can't restyle it.
  */
 
-/** `label` is announced to screen readers; only the pill shows it. */
+/**
+ * A dot's or icon's `label` is announced to screen readers; leave it out when
+ * the subtitle already says it. Only the pill shows its label.
+ */
 export type ListItemFlair =
-  | {
-      kind: "dot";
-      label: string;
-      tone?: "subdued" | "success" | "warning" | "critical";
-      pulse?: boolean;
-    }
+  | { kind: "dot"; variant: StatusDotVariant; label?: string }
   | {
       kind: "icon";
       icon: IconName;
-      label: string;
+      label?: string;
       tone?: "subdued" | "success" | "warning" | "critical";
     }
   | {
@@ -53,9 +59,8 @@ export interface ListItemAction {
 export interface ListItemMenu {
   /** Accessible name for the "more" button. */
   label: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  content: ReactNode;
+  /** Renders in the menu's popover; `close` dismisses it. */
+  content: (close: () => void) => ReactNode;
 }
 
 interface ListItemProps {
@@ -66,7 +71,7 @@ interface ListItemProps {
   subtitle?: string;
   flair?: ListItemFlair;
   actions?: ListItemAction[];
-  /** A "more" button after the actions; `content` renders in its popover. */
+  /** A "more" button after the actions. */
   menu?: ListItemMenu;
   /** Tints the icon tile when the item needs attention. */
   tone?: "default" | "critical";
@@ -85,34 +90,13 @@ const TILE_TONE = {
   critical: "bg-destructive/10 text-destructive",
 } as const;
 
-const DOT_TONE = {
-  subdued: "bg-muted-foreground",
-  success: "bg-success",
-  warning: "bg-warning",
-  critical: "bg-destructive",
-} as const;
-
 function FlairContent({ flair }: { flair: ListItemFlair }) {
   switch (flair.kind) {
     case "dot":
-      return (
-        <>
-          <span
-            className={cn(
-              "size-2 rounded-full",
-              DOT_TONE[flair.tone ?? "subdued"],
-              flair.pulse && "animate-pulse motion-reduce:animate-none",
-            )}
-          />
-          <span className="sr-only">{flair.label}</span>
-        </>
-      );
+      return <StatusDot variant={flair.variant} />;
     case "icon":
       return (
-        <>
-          <Icon name={flair.icon} size="sm" tone={flair.tone ?? "subdued"} />
-          <span className="sr-only">{flair.label}</span>
-        </>
+        <Icon name={flair.icon} size="sm" tone={flair.tone ?? "subdued"} />
       );
     case "pill":
       return (
@@ -121,6 +105,14 @@ function FlairContent({ flair }: { flair: ListItemFlair }) {
         </Pill>
       );
   }
+}
+
+/** Screen-reader text for a flair the row doesn't otherwise show. */
+function flairDescription(
+  flair: ListItemFlair | undefined,
+): string | undefined {
+  if (!flair || flair.kind === "pill") return undefined;
+  return flair.label;
 }
 
 export function ListItem({
@@ -138,17 +130,17 @@ export function ListItem({
   onOpen,
 }: ListItemProps) {
   const flairId = useId();
+  const [menuOpen, setMenuOpen] = useState(false);
   const openable = onOpen !== undefined && !disabled;
   const hasActions = actions.length > 0 || menu !== undefined;
-  // Focus moves into the portaled popover, so pin the actions while it's open.
-  const menuOpen = menu?.open ?? false;
   // With no open button to focus first, hidden actions could never take keyboard focus.
   const inlineActions = hasActions && !openable;
-  // Translucent rather than `bg-muted`, so selection reads on whatever surface
-  // the list sits on, including a host page showing through an embed.
+  // Focus moves into the portaled popover, so pin the actions while it's open.
+  const pinActions = menuOpen || inlineActions;
+  const description = flairDescription(flair);
   const rowBackground = selected
-    ? "bg-foreground/10"
-    : openable && "hover:bg-foreground/5";
+    ? ROW_TINT.selected
+    : openable && ROW_TINT.hover;
 
   const body = (
     <>
@@ -168,30 +160,57 @@ export function ListItem({
           />
         )}
       </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <Text
-          size="sm"
-          weight="medium"
-          tone={placeholder ? "subdued" : undefined}
-          truncate
-          title={title}
-        >
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text size="xs" tone="subdued" truncate title={subtitle}>
-            {subtitle}
+      <Truncating as="span">
+        <BlockStack as="span" align="stretch">
+          <Text
+            size="sm"
+            weight="medium"
+            tone={placeholder ? "subdued" : undefined}
+            truncate
+            title={title}
+          >
+            {title}
           </Text>
-        ) : null}
-      </span>
+          {subtitle ? (
+            <Text size="xs" tone="subdued" truncate title={subtitle}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </BlockStack>
+      </Truncating>
     </>
+  );
+
+  const actionButtons = (
+    <InlineStack gap="1" wrap="nowrap">
+      {actions.map((action) => (
+        <IconButton
+          key={action.label}
+          icon={action.icon}
+          tone={action.tone}
+          disabled={action.disabled}
+          aria-label={action.label}
+          onClick={action.onClick}
+        />
+      ))}
+      {menu ? (
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
+            <IconButton icon="EllipsisVertical" aria-label={menu.label} />
+          </PopoverTrigger>
+          <PopoverContent align="end">
+            {menu.content(() => setMenuOpen(false))}
+          </PopoverContent>
+        </Popover>
+      ) : null}
+    </InlineStack>
   );
 
   return (
     <li
       ref={ref}
       className={cn(
-        "group/item relative grid w-full grid-cols-[minmax(0,1fr)_auto] rounded-md transition-colors motion-reduce:transition-none",
+        "group relative grid w-full grid-cols-[minmax(0,1fr)_auto] rounded-md transition-colors motion-reduce:transition-none",
         rowBackground,
       )}
     >
@@ -200,7 +219,7 @@ export function ListItem({
           type="button"
           disabled={disabled}
           aria-current={selected || undefined}
-          aria-describedby={flair ? flairId : undefined}
+          aria-describedby={description ? flairId : undefined}
           onClick={onOpen}
           className="flex min-w-0 cursor-pointer items-center gap-3 p-2 text-start outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring/50 focus-visible:after:ring-inset disabled:cursor-default disabled:opacity-50"
         >
@@ -220,35 +239,10 @@ export function ListItem({
           )}
         >
           {hasActions ? (
-            <div
-              className={cn(
-                "pointer-events-auto items-center justify-end gap-1 [grid-area:1/1]",
-                menuOpen || inlineActions
-                  ? "flex"
-                  : "hidden group-focus-within/item:flex group-hover/item:flex pointer-coarse:flex",
-              )}
-            >
-              {actions.map((action) => (
-                <IconButton
-                  key={action.label}
-                  icon={action.icon}
-                  tone={action.tone}
-                  disabled={action.disabled}
-                  aria-label={action.label}
-                  onClick={action.onClick}
-                />
-              ))}
-              {menu ? (
-                <Popover open={menu.open} onOpenChange={menu.onOpenChange}>
-                  <PopoverTrigger asChild>
-                    <IconButton
-                      icon="EllipsisVertical"
-                      aria-label={menu.label}
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent align="end">{menu.content}</PopoverContent>
-                </Popover>
-              ) : null}
+            <div className="pointer-events-auto flex items-center justify-self-end [grid-area:1/1]">
+              <HoverReveal mode="collapse" revealed={pinActions}>
+                {actionButtons}
+              </HoverReveal>
             </div>
           ) : null}
           {flair ? (
@@ -260,10 +254,13 @@ export function ListItem({
                   !inlineActions &&
                   (menuOpen
                     ? "pointer-fine:opacity-0"
-                    : "group-hover/item:opacity-0 pointer-fine:group-focus-within/item:opacity-0"),
+                    : "group-hover:opacity-0 pointer-fine:group-focus-within:opacity-0"),
               )}
             >
               <FlairContent flair={flair} />
+              {description ? (
+                <span className="sr-only">{description}</span>
+              ) : null}
             </div>
           ) : null}
         </div>

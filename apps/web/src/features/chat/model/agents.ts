@@ -4,6 +4,7 @@ import {
   type SubagentInfo,
   type SubagentStatus,
 } from "@tangent/shared/contracts";
+import type { IconName } from "@tangent/ui-primitives/icon";
 
 /**
  * A session agent surfaced in the sidebar as a card and openable in its own
@@ -47,6 +48,31 @@ export function buildSubagents(subagents: SubagentInfo[]): Agent[] {
     kind: "subagent",
     status: subagent.status,
   }));
+}
+
+/** How an agent's live status shows: a dot while it can work, else an icon. */
+export type AgentStatusVisual =
+  | { kind: "dot"; variant: "busy" | "active" }
+  | { kind: "icon"; icon: IconName; tone?: "critical" };
+
+/** One mapping for every place an agent's status shows, so they agree. */
+export function agentStatusVisual(
+  status: SubagentStatus,
+  busy: boolean,
+): AgentStatusVisual {
+  if (busy) return { kind: "dot", variant: "busy" };
+  switch (status) {
+    case "active":
+      return { kind: "dot", variant: "active" };
+    case "detached":
+      return { kind: "icon", icon: "Unplug" };
+    case "completed":
+      return { kind: "icon", icon: "Check" };
+    case "killed":
+      return { kind: "icon", icon: "Ban" };
+    case "error":
+      return { kind: "icon", icon: "TriangleAlert", tone: "critical" };
+  }
 }
 
 // The server ignores a dismissal for a sub-agent still running.
