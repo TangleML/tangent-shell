@@ -360,11 +360,24 @@ export class ConversationRouter {
     this.correlations?.openFromMessage(message);
     this.correlations?.resolve(message);
     this.broadcast(message, input.broadcast);
-    if (input.provokes === false) {
-      if (message.command) this.holdCommandResult(message);
+    // A command's result is read with the next Message, so it wakes no one.
+    if (message.command) {
+      this.holdCommandResults(message, [message]);
       return { message, woke: [], refused: [] };
     }
+    if (input.provokes === false) return { message, woke: [], refused: [] };
+    return { message, ...(await this.wake(message, input)) };
+  }
 
+  /**
+   * Fans a Message out to whoever reacts to it. The Conversation's agent is
+   * also handed the command results held for it, which keep waiting when it
+   * isn't woken.
+   */
+  private async wake(
+    message: ChatMessage,
+    input: PostInput,
+  ): Promise<FanOutResult> {
     // The subject of this Conversation reads it plain; everyone else woken from
     // it gets provenance framing. Resolve the owner once for the whole fan-out.
     const owner = await participantForConversation(
@@ -372,6 +385,7 @@ export class ConversationRouter {
       message.sessionId,
       message.conversationId,
     );
+    const results = this.takeCommandResults(message);
     const outcome = await this.engine.fanOut({
       message,
       ingress: input.ingress,
@@ -379,23 +393,35 @@ export class ConversationRouter {
       project: (msg, recipient) => {
         const text = deliveryText(msg, recipient, owner);
         return recipient.participantId === owner
-          ? withCommandResults(text, this.takeCommandResults(msg))
+          ? withCommandResults(text, results)
           : text;
       },
     });
-    return { message, ...outcome };
+    if (!outcome.woke.includes(owner)) {
+      this.holdCommandResults(message, results);
+    }
+    return outcome;
   }
 
-  private holdCommandResult(result: ChatMessage): void {
-    const key = `${result.sessionId}\0${result.conversationId}`;
-    this.heldCommandResults.set(key, [
-      ...(this.heldCommandResults.get(key) ?? []),
-      result,
-    ]);
+  /** Holds command results for the Conversation's agent, oldest first. */
+  private holdCommandResults(
+    { sessionId, conversationId }: ChatMessage,
+    results: ChatMessage[],
+  ): void {
+    if (results.length === 0) return;
+    const key = `${sessionId}\0${conversationId}`;
+    const held = this.heldCommandResults.get(key) ?? [];
+    this.heldCommandResults.set(
+      key,
+      [...held, ...results].sort((a, b) => a.seq - b.seq),
+    );
   }
 
-  private takeCommandResults(message: ChatMessage): ChatMessage[] {
-    const key = `${message.sessionId}\0${message.conversationId}`;
+  private takeCommandResults({
+    sessionId,
+    conversationId,
+  }: ChatMessage): ChatMessage[] {
+    const key = `${sessionId}\0${conversationId}`;
     const held = this.heldCommandResults.get(key) ?? [];
     this.heldCommandResults.delete(key);
     return held;

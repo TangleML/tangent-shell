@@ -1936,7 +1936,10 @@ export interface UiCommandPayload {
 export interface SessionStatusPayload {
   sessionId: string;
   status: SessionRunStatus;
-  /** Set while the session's latest run failed and no other has started. */
+  /**
+   * Set when a run failed in the session's latest stretch of work, until it
+   * next starts working from a standstill.
+   */
   failed?: boolean;
   /**
    * When the session last stopped working (ISO 8601), while it isn't working

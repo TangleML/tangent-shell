@@ -24,6 +24,7 @@ import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
+import { subagentRoster } from "../sockets/sessionRoster.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 
 /** Spawn a sub-agent; `sessionId` and `name` identify and label it. */
@@ -335,13 +336,19 @@ function handleKill(
   res.json({ ok: true });
 }
 
-/** Lists the sub-agents registered for a session across every connector. */
-function handleList(
+/**
+ * Lists a session's sub-agents as the chat's agents pill does: the live ones
+ * across every connector plus finished ones nobody has dismissed yet.
+ */
+async function handleList(
+  store: SessionStore,
   connectors: ConnectorRegistry,
   query: ListQuery,
   res: Response,
-): void {
-  res.json({ subagents: connectors.list(query.sessionId) });
+): Promise<void> {
+  res.json({
+    subagents: await subagentRoster(store, connectors, query.sessionId),
+  });
 }
 
 /** Clamps a requested room limit to the allowed range, or the default. */
@@ -447,6 +454,7 @@ export function createInternalAgentsRouter(
 
   router.get("/list", validate({ query: listQuerySchema }), (req, res) =>
     handleList(
+      store,
       connectors,
       getValidated<unknown, unknown, ListQuery>(req).query,
       res,

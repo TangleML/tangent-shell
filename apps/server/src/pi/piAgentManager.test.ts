@@ -163,6 +163,7 @@ function makeManager(options?: {
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
   const pi = new PiAgentManager(handlers, memory, runs, undefined, fakeSpawn);
+  runs.useOnSettled((run) => pi.recordSettled(run));
   return { pi, spawns, rosterUpdates, events, statuses, runs, runStore };
 }
 
@@ -894,11 +895,61 @@ function ended(status: SessionStatusPayload | undefined) {
   return rest;
 }
 
-test("a failed run marks its session failed for the lobby until another run starts", async () => {
+/** Drives a Pi turn whose last model call failed. */
+function failTurn(child: FakeChild): void {
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "", stopReason: "error" },
+  });
+  emitPi(child, { type: "agent_end" });
+}
+
+test("a failed turn tells the lobby once, and stays failed until the session works again", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const before = h.statuses.length;
 
-  h.pi.markRunFailed("s1");
+  failTurn(h.spawns[0].child);
+  await flush();
+
+  assert.deepEqual(h.statuses.slice(before).map(ended), [
+    { sessionId: "s1", status: "active", failed: true },
+  ]);
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
+    { sessionId: "s1", status: "active", failed: true },
+  ]);
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
+  assert.deepEqual(h.statuses.at(-1), { sessionId: "s1", status: "busy" });
+});
+
+test("a failure while another agent is still working survives until the session stops", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const { info } = h.pi.spawnSubagent("s1", { name: "Worker" });
+  const [prime, worker] = h.spawns.map(({ child }) => child);
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: info.id,
+    text: "go",
+    ingress: "tool",
+  });
+  emitPi(worker, { type: "agent_start" });
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+
+  failTurn(prime);
+  await flush();
+
+  assert.deepEqual(h.pi.getStatuses(), [
+    { sessionId: "s1", status: "busy", failed: true },
+  ]);
+
+  emitPi(worker, { type: "agent_end" });
+  await flush();
 
   assert.deepEqual(h.pi.getStatuses().map(ended), [
     { sessionId: "s1", status: "active", failed: true },
@@ -908,21 +959,40 @@ test("a failed run marks its session failed for the lobby until another run star
     status: "active",
     failed: true,
   });
-
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
-
-  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
-  assert.deepEqual(h.statuses.at(-1), { sessionId: "s1", status: "busy" });
 });
 
-test("a session with no agent running still reports that its last run failed", () => {
+test("a run from another connector ending says when, with no agent of ours running", () => {
   const h = makeManager();
+  const settle = (status: "completed" | "failed") => {
+    const run = h.runs.open({
+      sessionId: "s2",
+      participantId: "remote-1",
+      ingress: "reaction",
+    });
+    h.runs.settle(run.id, status);
+  };
 
-  h.pi.markRunFailed("s2");
+  settle("completed");
 
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
+    { sessionId: "s2", status: "idle" },
+  ]);
+  assert.deepEqual(ended(h.statuses.at(-1)), {
+    sessionId: "s2",
+    status: "idle",
+  });
+
+  settle("failed");
   assert.deepEqual(h.pi.getStatuses().map(ended), [
     { sessionId: "s2", status: "idle", failed: true },
   ]);
+
+  settle("completed");
+  assert.deepEqual(
+    h.pi.getStatuses().map(ended),
+    [{ sessionId: "s2", status: "idle" }],
+    "a later run that started from a standstill clears the failure",
+  );
 });
 
 test("a session that stops working says when, until it works again", async () => {
@@ -943,18 +1013,34 @@ test("a session that stops working says when, until it works again", async () =>
     status: "active",
   });
 
-  h.pi.dispose("s1");
-
-  assert.deepEqual(
-    h.pi.getStatuses().map(ended),
-    [{ sessionId: "s1", status: "idle" }],
-    "still reported once its agents are gone",
-  );
-
-  await h.pi.ensure("s1", "/tmp/s1");
   h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
 
   assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
+});
+
+test("disposing a deleted session forgets its lobby status without announcing it", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  runTurn(child, "hi");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  const statuses = h.statuses.length;
+  const events = h.events.length;
+
+  h.pi.dispose("s1");
+  child.crash();
+  await flush();
+
+  assert.deepEqual(h.pi.getStatuses(), []);
+  assert.equal(h.statuses.length, statuses, "the lobby isn't told");
+  assert.ok(
+    h.events.slice(events).every(({ type }) => type !== "error"),
+    "the killed turn isn't reported as an error",
+  );
+  assert.ok(runId);
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
 });
 
 test("a turn whose last model call failed settles its run as failed", async () => {

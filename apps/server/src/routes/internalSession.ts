@@ -4,7 +4,12 @@ import { z } from "zod";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import {
-  isDismissible,
+  pinAndBroadcast,
+  unpinAndBroadcast,
+} from "../sockets/chatArtifacts.ts";
+import {
+  dismissSubagent,
+  type SubagentDismissedEmitter,
   type UiCommandEmitter,
 } from "../sockets/sessionRoster.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -39,12 +44,6 @@ export const dismissSubagentSchema = z.object({
 });
 export type DismissSubagentInput = z.infer<typeof dismissSubagentSchema>;
 
-/** Tells a session's room that a sub-agent was dismissed. */
-export type SubagentDismissedEmitter = (
-  sessionId: string,
-  agentId: string,
-) => void;
-
 /**
  * `POST /rename`: applies a session rename and pushes the updated record to the
  * UI over the generic `ui:command` channel so the change is reflected promptly.
@@ -67,11 +66,6 @@ async function handleRename(
   res.json({ session });
 }
 
-/** Returns a trimmed title, falling back to the path when none was given. */
-function fallbackTitle(title: string | undefined, path: string): string {
-  return title?.trim() || path;
-}
-
 /**
  * `POST /pin-artifact`: pins an artifact (by workspace-relative path) for quick
  * access and broadcasts the updated list to the UI over the generic
@@ -86,12 +80,10 @@ async function handlePinArtifact(
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
 
-  const title = fallbackTitle(body.title, body.path);
-  const artifacts = await store.pinArtifact(session.id, {
+  const artifacts = await pinAndBroadcast(store, emitUiCommand, session.id, {
     path: body.path,
-    title,
+    title: body.title,
   });
-  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
   res.json({ artifacts });
 }
 
@@ -108,8 +100,12 @@ async function handleUnpinArtifact(
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
 
-  const artifacts = await store.unpinArtifact(session.id, body.path);
-  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+  const artifacts = await unpinAndBroadcast(
+    store,
+    emitUiCommand,
+    session.id,
+    body.path,
+  );
   res.json({ artifacts });
 }
 
@@ -127,22 +123,24 @@ async function handleDismissSubagent(
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
 
-  const agents = await store.listAgents(session.id);
-  const agent = agents.find((candidate) => candidate.id === body.agentId);
-  if (!agent || agent.role !== "subagent") {
-    res.status(404).json({ error: "No such sub-agent in this session" });
+  const outcome = await dismissSubagent(
+    store,
+    emitSubagentDismissed,
+    session.id,
+    body.agentId,
+  );
+  if (outcome === "unknown") {
+    res
+      .status(404)
+      .json({ error: "No such sub-agent in this session's agents list" });
     return;
   }
-  if (!isDismissible(agent)) {
-    res.status(409).json({
-      error:
-        "Only a finished sub-agent that isn't dismissed yet can be dismissed",
-    });
+  if (outcome === "running") {
+    res
+      .status(409)
+      .json({ error: "Only a finished sub-agent can be dismissed" });
     return;
   }
-
-  await store.dismissAgent(session.id, agent.id);
-  emitSubagentDismissed(session.id, agent.id);
   res.json({ ok: true });
 }
 
