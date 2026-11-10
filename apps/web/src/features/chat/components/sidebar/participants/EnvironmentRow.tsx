@@ -1,10 +1,7 @@
 import type { RemoteEnvironmentInfo } from "@tangent/shared/contracts";
 
+import { plural } from "@/shared/lib/utils";
 import { ListItem } from "@/shared/ui/patterns/list-item";
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
 
 /** Drops the `<sessionId>:` prefix a session-pinned dev host carries in its id. */
 function environmentLabel(environmentId: string): string {
@@ -32,7 +29,7 @@ export function EnvironmentRow({
         plural(environment.toolCount, "tool"),
         plural(environment.subagentCount, "agent"),
       ].join(" · ")}
-      flair={{ kind: "dot", label: "Connected", tone: "success" }}
+      flair={{ kind: "dot", variant: "active", label: "Connected" }}
     />
   );
 }

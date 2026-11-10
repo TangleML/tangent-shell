@@ -21,6 +21,16 @@ import { cn } from "@/shared/lib/utils";
  * (~18 hits across v2).
  */
 
+/**
+ * Row tints shared with `ListItem`. Translucent rather than `bg-muted`, so a
+ * row reads on whatever surface its list sits on, including a host page
+ * showing through an embed.
+ */
+export const ROW_TINT = {
+  hover: "hover:bg-foreground/5",
+  selected: "bg-foreground/10",
+} as const;
+
 const listRowVariants = cva("group w-full rounded-sm transition-colors", {
   variants: {
     density: {
@@ -29,11 +39,11 @@ const listRowVariants = cva("group w-full rounded-sm transition-colors", {
       comfortable: "px-3 py-2",
     },
     hoverable: {
-      true: "hover:bg-muted/60 cursor-pointer",
+      true: `${ROW_TINT.hover} cursor-pointer`,
       false: "",
     },
     selected: {
-      true: "bg-muted border-primary",
+      true: `${ROW_TINT.selected} border-primary`,
       false: "",
     },
     zebra: {

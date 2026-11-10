@@ -217,6 +217,8 @@ export function ComposerShell({
             <div className="relative flex-1">
               {autocomplete.open ? (
                 <SuggestionPicker
+                  id={autocomplete.listboxId}
+                  optionId={autocomplete.optionId}
                   suggestions={autocomplete.matches}
                   highlight={autocomplete.highlight}
                   onSelect={autocomplete.accept}
@@ -227,6 +229,11 @@ export function ComposerShell({
                 autoGrow
                 rows={2}
                 placeholder={placeholder}
+                aria-autocomplete="list"
+                aria-controls={
+                  autocomplete.open ? autocomplete.listboxId : undefined
+                }
+                aria-activedescendant={autocomplete.activeOptionId}
                 value={value}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}

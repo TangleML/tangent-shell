@@ -1,5 +1,7 @@
 import type { ChatCommandRun } from "@tangent/shared/contracts";
 
+import { matchRank, NO_MATCH } from "./matching";
+
 /**
  * A slash command the chat box offers. The page the chat is embedded in
  * supplies them: running one posts what it returns, as markdown, for everyone
@@ -26,19 +28,18 @@ export function parseCommand(
 }
 
 /**
- * Commands matching the query: the one it names exactly, so `/run` isn't
- * taken for `/runs`, then those starting with it, then those containing it.
+ * Commands matching the query, closest first: the one it names exactly, so
+ * `/run` isn't taken for `/runs`, then those starting with it, then the rest.
  */
 export function filterCommands(
   commands: readonly ChatCommand[],
   query: string,
 ): ChatCommand[] {
-  const q = query.toLowerCase();
-  const rank = ({ name }: ChatCommand) =>
-    name === q ? 0 : name.startsWith(q) ? 1 : 2;
   return commands
-    .filter(({ name }) => name.includes(q))
-    .sort((a, b) => rank(a) - rank(b));
+    .map((command) => ({ command, rank: matchRank(command.name, query) }))
+    .filter(({ rank }) => rank < NO_MATCH)
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ command }) => command);
 }
 
 export function commandRun(command: ChatCommand, args: string): ChatCommandRun {

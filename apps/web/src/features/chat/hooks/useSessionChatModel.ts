@@ -12,7 +12,6 @@ import {
   useSessionParticipants,
 } from "@/features/chat/hooks/useSessionParticipants";
 import { useSessionResources } from "@/features/chat/hooks/useSessionResources";
-import { type Agent, buildSubagents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
 import { artifactReferences } from "@/features/chat/model/references";
@@ -105,23 +104,12 @@ export function useSessionChatModel(sessionId: string) {
     isError: resourcesError,
   } = useSessionResources(sessionId, resourceScope);
 
-  const spawnedAgents = buildSubagents(subagents);
-
   // Who a composer can @mention: Prime, the sub-agent roster, and invited
   // humans. The server re-resolves names to ids at write time.
   const mentionCandidates = buildMentionCandidates(subagents, participants);
   const references = artifactReferences(artifacts);
 
-  const removeAgent = (agent: Agent) => {
-    dismissSubagent(agent.id);
-    closeAsset(agent.id);
-  };
-
   const primeMessages = messagesFor(primaryConversationId);
-
-  const busySubagents = subagents
-    .filter((s) => isConversationBusy(s.conversationId))
-    .map((s) => ({ id: s.id, name: s.name, conversationId: s.conversationId }));
 
   // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
   // viewable "page" asset keyed by its resolved URL, so both dedupe to one tab.
@@ -178,10 +166,7 @@ export function useSessionChatModel(sessionId: string) {
     togglePinArtifact,
     mentionCandidates,
     references,
-    spawnedAgents,
-    busySubagents,
     openAgent,
-    removeAgent,
   };
 
   const windowsValue: SessionChatWindowsValue = {
@@ -219,13 +204,11 @@ export function useSessionChatModel(sessionId: string) {
     memorySuggestions,
     confirmMemory,
     dismissMemory,
-    busySubagents,
-    spawnedAgents,
     primeModel,
     send,
     abort,
     openAgent,
-    removeAgent,
+    closeAsset,
     setAgentModel,
     openArtifactTab,
     pinnedPaths,

@@ -15,11 +15,11 @@ import type { ChatReference } from "@/features/chat/model/references";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { AgentModelPicker } from "./composer/AgentModelPicker";
-import { AgentsIndicator } from "./composer/AgentsIndicator";
 import { BundlePanelLauncher } from "./composer/BundlePanelLauncher";
 import { ChatInput } from "./composer/ChatInput";
 import { ComposerFooter } from "./composer/ComposerFooter";
 import { MemorySuggestionCard } from "./composer/MemorySuggestionCard";
+import { SessionAgentsPill } from "./composer/SessionAgentsPill";
 import { ChatMessageList } from "./message/ChatMessageList";
 
 type SendFn = (
@@ -46,14 +46,12 @@ interface PrimeChatPanelProps {
   memorySuggestions: MemorySuggestionPayload[];
   confirmMemory: (suggestionId: string) => void;
   dismissMemory: (suggestionId: string) => void;
-  busySubagents: { id: string; name: string; conversationId: string }[];
-  /** The sub-agents spawned in this session, without Prime. */
-  spawnedAgents: Agent[];
   primeModel: AgentModelSelection | null;
   send: SendFn;
   abort: (conversationId: string) => void;
   openAgent: (agent: Agent) => void;
-  removeAgent: (agent: Agent) => void;
+  /** Closes an opened tab, e.g. a dismissed agent's. */
+  closeAsset: (id: string) => void;
   setAgentModel: (agentId: string, selection: AgentModelSelection) => void;
   openArtifactTab: (url: string, title: string) => void;
   pinnedPaths: Set<string>;
@@ -76,13 +74,11 @@ export function PrimeChatPanel({
   memorySuggestions,
   confirmMemory,
   dismissMemory,
-  busySubagents,
-  spawnedAgents,
   primeModel,
   send,
   abort,
   openAgent,
-  removeAgent,
+  closeAsset,
   setAgentModel,
   openArtifactTab,
   pinnedPaths,
@@ -127,13 +123,10 @@ export function PrimeChatPanel({
       )}
       <PrimeComposerFooter
         sessionId={sessionId}
-        busySubagents={busySubagents}
-        spawnedAgents={spawnedAgents}
         connected={connected}
         primeModel={primeModel}
         openAgent={openAgent}
-        removeAgent={removeAgent}
-        abort={abort}
+        closeAsset={closeAsset}
         setAgentModel={setAgentModel}
       />
       <ChatInput
@@ -159,37 +152,28 @@ export function PrimeChatPanel({
 
 interface PrimeComposerFooterProps {
   sessionId: string;
-  busySubagents: { id: string; name: string; conversationId: string }[];
-  spawnedAgents: Agent[];
   connected: boolean;
   primeModel: AgentModelSelection | null;
   openAgent: (agent: Agent) => void;
-  removeAgent: (agent: Agent) => void;
-  abort: (conversationId: string) => void;
+  closeAsset: (id: string) => void;
   setAgentModel: (agentId: string, selection: AgentModelSelection) => void;
 }
 
 function PrimeComposerFooter({
   sessionId,
-  busySubagents,
-  spawnedAgents,
   connected,
   primeModel,
   openAgent,
-  removeAgent,
-  abort,
+  closeAsset,
   setAgentModel,
 }: PrimeComposerFooterProps) {
   return (
     <ComposerFooter
-      agentsPill={
-        <AgentsIndicator
+      pills={
+        <SessionAgentsPill
           sessionId={sessionId}
-          agents={spawnedAgents}
-          busySubagents={busySubagents}
           onOpenAgent={openAgent}
-          onRemoveAgent={removeAgent}
-          onAbort={abort}
+          onRemoved={(agent) => closeAsset(agent.id)}
         />
       }
       modelPicker={

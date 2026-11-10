@@ -12,3 +12,8 @@ export function truncateMiddle(text: string, maxLength: number) {
   const midLength = Math.floor(maxLength / 2);
   return text.slice(0, midLength) + "..." + text.slice(-midLength);
 }
+
+/** A count with its noun, pluralized with an `s`: `1 file`, `3 files`. */
+export function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}

@@ -2,15 +2,9 @@ import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 
-import { MessageActions } from "./MessageActions";
+import { formatMessageTime } from "@/features/chat/model/messageTime";
 
-/** Formats an ISO-8601 timestamp as a short local time, e.g. `07:35 PM`. */
-function formatMessageTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { MessageActions } from "./MessageActions";
 
 interface MessageHeaderProps {
   authorName: string;

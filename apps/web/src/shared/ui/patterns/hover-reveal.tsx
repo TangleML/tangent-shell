@@ -24,6 +24,10 @@ const hoverRevealVariants = cva(
         // Always visible, dim by default, full opacity on hover/focus.
         "dim-until-hover":
           "opacity-60 group-hover:opacity-100 focus-within:opacity-100",
+        // Takes no room until the group is hovered or focused; always shown
+        // on touch, where there's no hover.
+        collapse:
+          "hidden group-hover:flex group-focus-within:flex pointer-coarse:flex",
       },
       shrink: {
         true: "shrink-0",
@@ -41,19 +45,30 @@ type HoverRevealVariantProps = VariantProps<typeof hoverRevealVariants>;
 
 interface HoverRevealProps extends HoverRevealVariantProps {
   as?: "div" | "span";
+  /** Keeps it shown without hover, e.g. while a menu it opened is open. */
+  revealed?: boolean;
 }
 
 export const HoverReveal = forwardRef<
   HTMLElement,
   PropsWithChildren<HoverRevealProps>
 >(function HoverReveal(
-  { children, mode = "on-hover", shrink = true, as: Element = "div" },
+  {
+    children,
+    mode = "on-hover",
+    shrink = true,
+    as: Element = "div",
+    revealed = false,
+  },
   ref,
 ) {
   return (
     <Element
       ref={ref as Ref<any>}
-      className={cn(hoverRevealVariants({ mode, shrink }))}
+      className={cn(
+        hoverRevealVariants({ mode, shrink }),
+        revealed && (mode === "collapse" ? "flex" : "opacity-100"),
+      )}
     >
       {children}
     </Element>

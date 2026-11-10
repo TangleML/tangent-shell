@@ -1,6 +1,8 @@
 import type { PinnedArtifact } from "@tangent/shared/contracts";
 import type { IconName } from "@tangent/ui-primitives/icon";
 
+import { matchRank, normalize } from "./matching";
+
 export type ChatReferenceKind = "pipeline" | "document" | "run" | "file";
 
 /**
@@ -43,10 +45,6 @@ const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
 const TOKEN = /(^|\s)#([^\s#@]+)/g;
 const LINK = /\[((?:\\.|[^\]\\])*)\]\((<[^>\n]*>|[^\s)]+)\)/g;
 
-function normalize(value: string): string {
-  return value.toLowerCase().replace(/[\s_-]/g, "");
-}
-
 /**
  * The session's pinned artifacts, most recently pinned first, addressed by
  * their workspace path. Every pin lives under `artifacts/`, so the detail
@@ -63,15 +61,6 @@ export function artifactReferences(
       href: artifact.path,
       detail: artifact.path.replace(/^(\.\/)?artifacts\//, ""),
     }));
-}
-
-/** 0 when the label starts with the query, 1 when a word in it does, else 2. */
-function rank(reference: ChatReference, query: string): number {
-  const label = reference.label.toLowerCase();
-  if (normalize(label).startsWith(normalize(query))) return 0;
-  return label.split(/[\s_\-/.]+/).some((word) => word.startsWith(query))
-    ? 1
-    : 2;
 }
 
 /**
@@ -95,7 +84,7 @@ export function groupReferences(
         .map((reference, order) => ({
           reference,
           order,
-          score: rank(reference, q),
+          score: matchRank(reference.label, q),
         }))
         .sort((a, b) => a.score - b.score || a.order - b.order)
         .map(({ reference }) => reference)
