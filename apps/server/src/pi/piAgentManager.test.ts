@@ -913,3 +913,42 @@ test("a session with no agent running still reports that its last run failed", (
     { sessionId: "s2", status: "idle", failed: true },
   ]);
 });
+
+test("a turn whose last model call failed settles its run as failed", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const failedRun = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "", stopReason: "error" },
+  });
+  emitPi(child, { type: "agent_end" });
+  await flush();
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+  const retriedRun = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "", stopReason: "error" },
+  });
+  emitPi(child, { type: "message_start", message: { role: "assistant" } });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "got through", stopReason: "stop" },
+  });
+  emitPi(child, { type: "agent_end" });
+  await flush();
+
+  assert.ok(failedRun && retriedRun);
+  assert.equal((await h.runStore.getRun(failedRun))?.status, "failed");
+  assert.equal(
+    (await h.runStore.getRun(retriedRun))?.status,
+    "completed",
+    "a call that failed and then got through doesn't fail the run",
+  );
+});
