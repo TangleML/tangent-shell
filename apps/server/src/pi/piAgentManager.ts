@@ -130,6 +130,11 @@ function capabilities(role: AgentDescriptor["role"]): string {
   return capabilitiesForRole(role).join(",");
 }
 
+/** Equal for two lobby statuses that would tell a list view the same thing. */
+function statusKey({ status, failed, endedAt }: SessionStatusPayload): string {
+  return [status, failed && "failed", endedAt].filter(Boolean).join(" ");
+}
+
 function appendPreambles(config: AgentConfig, preambles: string[]): string {
   const extras = preambles.map((preamble) => preamble.trim()).filter(Boolean);
   if (extras.length === 0) return config.appendSystemPrompt;
@@ -787,6 +792,9 @@ export class PiAgentManager {
   private readonly lastStatus = new Map<string, string>();
   /** Sessions whose latest run failed, until another run starts in them. */
   private readonly failedRuns = new Set<string>();
+  /** When each session last stopped working, so a list view can tell that a
+   * run ended there since someone last looked. */
+  private readonly endedAt = new Map<string, string>();
   /** Prime spawns awaiting memory resolution, so concurrent {@link ensure}
    * calls share one; cleared by {@link dispose} to cancel a pending spawn. */
   private readonly ensuring = new Map<string, Promise<void>>();
@@ -835,40 +843,49 @@ export class PiAgentManager {
 
   private statusPayload(sessionId: string): SessionStatusPayload {
     const status = this.computeStatus(sessionId);
-    return this.failedRuns.has(sessionId)
-      ? { sessionId, status, failed: true }
-      : { sessionId, status };
+    const payload: SessionStatusPayload = { sessionId, status };
+    if (this.failedRuns.has(sessionId)) payload.failed = true;
+    const endedAt = this.endedAt.get(sessionId);
+    if (endedAt && status !== "busy") payload.endedAt = endedAt;
+    return payload;
   }
 
   /**
-   * Snapshot of every non-idle session's status, plus any whose latest run
-   * failed, for seeding a socket that just subscribed to the lobby. Sessions
-   * absent from the result are `idle`.
+   * Snapshot of every non-idle session's status, plus any that stopped working
+   * since the server started, for seeding a socket that just subscribed to the
+   * lobby. Sessions absent from the result are `idle`.
    */
   getStatuses(): SessionStatusPayload[] {
-    const sessionIds = new Set([...this.sessions.keys(), ...this.failedRuns]);
+    const sessionIds = new Set([
+      ...this.sessions.keys(),
+      ...this.endedAt.keys(),
+    ]);
     return [...sessionIds]
       .map((sessionId) => this.statusPayload(sessionId))
-      .filter(({ status, failed }) => status !== "idle" || failed);
+      .filter(({ status, endedAt }) => status !== "idle" || endedAt);
   }
 
   /** Marks a session's latest run as failed, until another one starts. */
   markRunFailed(sessionId: string): void {
     this.failedRuns.add(sessionId);
+    this.endedAt.set(sessionId, new Date().toISOString());
     this.notifyStatus(sessionId);
   }
 
   /**
    * Recomputes a session's status and relays it to the lobby only when it
    * changed since the last emit. Called after every busy/lifecycle transition.
-   * A run starting clears an earlier failure.
+   * A run starting clears an earlier failure; the session ceasing to be busy
+   * records when it stopped.
    */
   private notifyStatus(sessionId: string): void {
     if (this.computeStatus(sessionId) === "busy") {
       this.failedRuns.delete(sessionId);
+    } else if (this.lastStatus.get(sessionId) === "busy") {
+      this.endedAt.set(sessionId, new Date().toISOString());
     }
     const payload = this.statusPayload(sessionId);
-    const key = `${payload.status}${payload.failed ? ":failed" : ""}`;
+    const key = statusKey(payload);
     if ((this.lastStatus.get(sessionId) ?? "idle") === key) return;
     if (key === "idle") {
       this.lastStatus.delete(sessionId);
