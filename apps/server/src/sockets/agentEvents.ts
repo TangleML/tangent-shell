@@ -10,7 +10,6 @@ import {
   type ChatAuthor,
   PI_AGENT,
   type RunId,
-  type SessionStatusPayload,
   SocketEvents,
   sourceFromAuthor,
   type SubagentUpdatePayload,
@@ -338,8 +337,7 @@ export function createAgentMessageHandler(
  * lobby room, so every list view reflects a session's run status live.
  */
 export function createSessionStatusHandler(io: Server): SessionStatusHandler {
-  return (sessionId, status) => {
-    const payload: SessionStatusPayload = { sessionId, status };
+  return (payload) => {
     io.to(SESSIONS_LOBBY).emit(SocketEvents.SessionStatus, payload);
   };
 }

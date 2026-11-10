@@ -6,7 +6,7 @@ import type {
   ChatAuthor,
   RunId,
   RunIngress,
-  SessionRunStatus,
+  SessionStatusPayload,
   SubagentInfo,
   SubagentStatus,
   UserIdentity,
@@ -99,10 +99,7 @@ export interface PostedMessage {
 export type AgentMessageHandler = (message: PostedMessage) => void;
 
 /** Relays a session's live run status change to the shared sessions lobby. */
-export type SessionStatusHandler = (
-  sessionId: string,
-  status: SessionRunStatus,
-) => void;
+export type SessionStatusHandler = (payload: SessionStatusPayload) => void;
 
 /**
  * Where a participant's events go: whatever holds participants — the local Pi
