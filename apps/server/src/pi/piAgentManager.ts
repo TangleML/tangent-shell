@@ -915,6 +915,7 @@ function buildAgentProcess(
     child,
     busy: false,
     aborted: false,
+    modelFailed: false,
     currentMessageId: null,
     startEmitted: false,
     accum: "",
@@ -1965,6 +1966,9 @@ export class PiAgentManager {
       this.finalizeMessage(sessionId, agent, descriptor, event);
     }
 
+    // Only the latest message counts, so a call Pi retried and got through
+    // doesn't fail the run.
+    agent.modelFailed = event.message?.stopReason === "error";
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -2052,6 +2056,7 @@ export class PiAgentManager {
     );
 
     const cancelled = agent.aborted;
+    const failed = agent.modelFailed;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -2059,15 +2064,17 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    agent.modelFailed = false;
 
     this.notifyStatus(sessionId);
     // Emitted before the Run settles, so the run's last event still carries its
-    // id. An aborted run was cut short: that is a cancellation, not a finish.
+    // id. An aborted run was cut short: that is a cancellation, not a finish. A
+    // run whose last model call failed didn't finish either.
     this.emitActivity(sessionId, agent, null);
     this.runs.settleOpenFor(
       sessionId,
       agent.agentId,
-      cancelled ? "cancelled" : "completed",
+      cancelled ? "cancelled" : failed ? "failed" : "completed",
     );
   }
 
@@ -2122,6 +2129,7 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    agent.modelFailed = false;
     const descriptor = {
       agentId: agent.agentId,
       role: agent.role,
