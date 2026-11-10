@@ -783,7 +783,9 @@ export class PiAgentManager {
    * Last run status emitted per session, so {@link notifyStatus} only fires the
    * handler when the status actually changes (busy flags toggle frequently).
    */
-  private readonly lastStatus = new Map<string, SessionRunStatus>();
+  private readonly lastStatus = new Map<string, string>();
+  /** Sessions whose latest run failed, until another run starts in them. */
+  private readonly failedRuns = new Set<string>();
   /** Prime spawns awaiting memory resolution, so concurrent {@link ensure}
    * calls share one; cleared by {@link dispose} to cancel a pending spawn. */
   private readonly ensuring = new Map<string, Promise<void>>();
@@ -830,32 +832,49 @@ export class PiAgentManager {
     return "active";
   }
 
+  private statusPayload(sessionId: string): SessionStatusPayload {
+    const status = this.computeStatus(sessionId);
+    return this.failedRuns.has(sessionId)
+      ? { sessionId, status, failed: true }
+      : { sessionId, status };
+  }
+
   /**
-   * Snapshot of every non-idle session's status, for seeding a socket that just
-   * subscribed to the lobby. Sessions absent from the result are `idle`.
+   * Snapshot of every non-idle session's status, plus any whose latest run
+   * failed, for seeding a socket that just subscribed to the lobby. Sessions
+   * absent from the result are `idle`.
    */
   getStatuses(): SessionStatusPayload[] {
-    const statuses: SessionStatusPayload[] = [];
-    for (const sessionId of this.sessions.keys()) {
-      const status = this.computeStatus(sessionId);
-      if (status !== "idle") statuses.push({ sessionId, status });
-    }
-    return statuses;
+    const sessionIds = new Set([...this.sessions.keys(), ...this.failedRuns]);
+    return [...sessionIds]
+      .map((sessionId) => this.statusPayload(sessionId))
+      .filter(({ status, failed }) => status !== "idle" || failed);
+  }
+
+  /** Marks a session's latest run as failed, until another one starts. */
+  markRunFailed(sessionId: string): void {
+    this.failedRuns.add(sessionId);
+    this.notifyStatus(sessionId);
   }
 
   /**
    * Recomputes a session's status and relays it to the lobby only when it
    * changed since the last emit. Called after every busy/lifecycle transition.
+   * A run starting clears an earlier failure.
    */
   private notifyStatus(sessionId: string): void {
-    const status = this.computeStatus(sessionId);
-    if (this.lastStatus.get(sessionId) === status) return;
-    if (status === "idle") {
+    if (this.computeStatus(sessionId) === "busy") {
+      this.failedRuns.delete(sessionId);
+    }
+    const payload = this.statusPayload(sessionId);
+    const key = `${payload.status}${payload.failed ? ":failed" : ""}`;
+    if ((this.lastStatus.get(sessionId) ?? "idle") === key) return;
+    if (key === "idle") {
       this.lastStatus.delete(sessionId);
     } else {
-      this.lastStatus.set(sessionId, status);
+      this.lastStatus.set(sessionId, key);
     }
-    this.handlers.onSessionStatus(sessionId, status);
+    this.handlers.onSessionStatus(payload);
   }
 
   /** The session's full memory resolution, or SimpleMD-only if it can't load. */
