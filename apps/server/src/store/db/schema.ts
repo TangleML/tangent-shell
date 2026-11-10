@@ -61,9 +61,9 @@ export const sharedFolders = sqliteTable("shared_folders", {
 });
 
 /**
- * An asset (pinned artifact) a user or agent pinned for quick access, scoped to
- * a session. The autoincrement `id` preserves oldest-first ordering; re-pinning
- * a known `path` updates the title in place (keeping its id) via the
+ * An asset (pinned artifact or link) a user or agent pinned for quick access,
+ * scoped to a session. The autoincrement `id` preserves oldest-first ordering;
+ * re-pinning a known `path` updates the title in place (keeping its id) via the
  * `(session_id, path)` uniqueness.
  */
 export const sessionAssets = sqliteTable(
@@ -73,7 +73,12 @@ export const sessionAssets = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    /** Path relative to the session root, e.g. `artifacts/report.html`. */
+    /** `artifact` (a workspace file) or `link` (an external http(s) URL). */
+    kind: text("kind").notNull().default("artifact"),
+    /**
+     * The pin target: for an `artifact`, a path relative to the session root
+     * (e.g. `artifacts/report.html`); for a `link`, its canonical URL.
+     */
     path: text("path").notNull(),
     title: text("title").notNull(),
     pinnedAt: text("pinned_at").notNull(),
@@ -288,14 +293,15 @@ export const resources = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    /** `file` | `memory` | `attachment` | `artifact` | `host` | `mount`. */
+    /** `file` | `memory` | `attachment` | `artifact` | `host` | `mount` | `link`. */
     kind: text("kind").notNull(),
     /** Display name / title. */
     name: text("name").notNull(),
     /**
      * Where the content lives: a path relative to the session root (e.g.
      * `artifacts/report.html`, `uploads/data.csv`) or a `memory://session` /
-     * `memory://global` scheme for a memory document.
+     * `memory://global` scheme for a memory document, or the canonical http(s)
+     * URL of a pinned `link`.
      */
     uri: text("uri").notNull(),
     /** The participant that produced it; null for a backfilled/legacy row. */

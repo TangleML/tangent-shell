@@ -36,8 +36,8 @@ export function useSessionChatModel(sessionId: string) {
     triggers,
     artifacts,
     pinnedPaths,
-    pinArtifact,
-    unpinArtifact,
+    togglePin,
+    unpin,
     connected,
     memorySuggestions,
     confirmMemory,
@@ -150,13 +150,6 @@ export function useSessionChatModel(sessionId: string) {
     openArtifactTab(url, resource.name);
   };
 
-  // Pin an artifact if it isn't already pinned, else unpin it. Both the chip and
-  // the sidebar list update via the `artifacts.update` directive once confirmed.
-  const togglePinArtifact = (path: string, title: string) => {
-    if (pinnedPaths.has(path)) unpinArtifact(path);
-    else pinArtifact(path, title);
-  };
-
   // The chat state every opened asset tab's body shares; forwarded as-is so
   // AssetTabContent can resolve and render the right per-kind view.
   const sharedTabProps = {
@@ -181,7 +174,7 @@ export function useSessionChatModel(sessionId: string) {
     closeAsset,
     send,
     openArtifactTab,
-    togglePinArtifact,
+    togglePinArtifact: togglePin,
     mentionCandidates,
   };
 
@@ -209,7 +202,7 @@ export function useSessionChatModel(sessionId: string) {
       closeAsset(agent.id);
     },
     onOpenAsset: openAsset,
-    onUnpinArtifact: unpinArtifact,
+    onUnpinArtifact: unpin,
     onOpenResource: openResourceTab,
   };
 
@@ -239,7 +232,7 @@ export function useSessionChatModel(sessionId: string) {
     setAgentModel,
     openArtifactTab,
     pinnedPaths,
-    togglePinArtifact,
+    togglePinArtifact: togglePin,
     mentionCandidates,
   };
 

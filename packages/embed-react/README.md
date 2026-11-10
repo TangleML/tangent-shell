@@ -319,8 +319,9 @@ sub-agent surfaces through `onRemove`.
 
 ### `<AssetList>`
 
-Renders pinned pages, files, and triggers for a session. Wire `onOpen` to place
-an `<ArtifactViewer>` for a `page`; unpin (and trigger toggle/delete) stay
+Renders pinned pages, files, links, and triggers for a session. Wire `onOpen` to
+place an `<ArtifactViewer>` for a `page`; a pinned link opens its URL in a new
+tab itself and never reaches `onOpen`. Unpin (and trigger toggle/delete) stay
 inside the element, with `onUnpin` so the host can close a matching viewer.
 
 ```tsx

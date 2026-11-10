@@ -8,8 +8,8 @@ interface AssetRowActionsProps {
   asset: Asset;
   /** Whether a trigger mutation is in flight (disables trigger actions). */
   triggerBusy: boolean;
-  /** Unpins an artifact by its workspace-relative path. */
-  onUnpin: (path: string) => void;
+  /** Unpins an artifact or link by its pin key (path or URL). */
+  onUnpin: (key: string) => void;
   /** Toggles a trigger's enabled state. */
   onToggleTrigger: (trigger: Trigger) => void;
   /** Copies a callback trigger's URL to the clipboard. */
@@ -27,7 +27,7 @@ function withStop(handler: () => void) {
 }
 
 /**
- * Hover-revealed actions for an asset card: unpin for artifacts, or
+ * Hover-revealed actions for an asset card: unpin for artifacts and links, or
  * enable/disable, copy callback URL, and delete for triggers.
  */
 export function AssetRowActions({
@@ -38,6 +38,18 @@ export function AssetRowActions({
   onCopyCallback,
   onDeleteTrigger,
 }: AssetRowActionsProps) {
+  if (asset.kind === "link") {
+    return (
+      <IconButton
+        icon="PinOff"
+        size="xs"
+        tone="critical"
+        aria-label="Unpin link"
+        onClick={withStop(() => onUnpin(asset.url))}
+      />
+    );
+  }
+
   if (asset.kind !== "trigger") {
     return (
       <IconButton

@@ -6,7 +6,7 @@ import type {
 import { createContext, useContext } from "react";
 
 import type { Agent } from "@/features/chat/model/agents";
-import type { Asset } from "@/features/chat/model/assets";
+import type { Asset, TabAsset } from "@/features/chat/model/assets";
 
 /**
  * Live SessionChat state shared with the dockable window content. Window content
@@ -48,8 +48,9 @@ export interface SessionChatWindowsValue {
   isTogglingMute: boolean;
   onOpenAgent: (agent: Agent) => void;
   onRemoveAgent: (agent: Agent) => void;
-  onOpenAsset: (asset: Asset) => void;
-  onUnpinArtifact: (path: string) => void;
+  onOpenAsset: (asset: TabAsset) => void;
+  /** Unpins an artifact or link by its pin key (path or URL). */
+  onUnpinArtifact: (key: string) => void;
   /** Opens a viewable (`file`/`artifact`) resource in its own tab. */
   onOpenResource: (resource: Resource) => void;
 }

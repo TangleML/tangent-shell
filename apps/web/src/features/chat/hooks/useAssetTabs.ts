@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useSessionTabStore } from "@/features/chat/hooks/useSessionTabStore";
-import type { Asset } from "@/features/chat/model/assets";
+import type { TabAsset } from "@/features/chat/model/assets";
 
 /**
  * A single opened tab in the SessionChat tab strip. Carries the `kind` so
@@ -20,8 +20,8 @@ export type AssetTab =
 /** The fixed, non-closeable chat tab's value (Prime's main thread). */
 export const CHAT_TAB_VALUE = "chat";
 
-/** Maps an {@link Asset} to the tab payload SessionChat keeps open for it. */
-function toTab(asset: Asset): AssetTab {
+/** Maps a {@link TabAsset} to the tab payload SessionChat keeps open for it. */
+function toTab(asset: TabAsset): AssetTab {
   if (asset.kind === "trigger") {
     return {
       id: asset.id,
@@ -66,7 +66,7 @@ export function useAssetTabs(sessionId: string) {
     setActiveTab(tab.id);
   }
 
-  function openAsset(asset: Asset) {
+  function openAsset(asset: TabAsset) {
     openTab(toTab(asset));
   }
 

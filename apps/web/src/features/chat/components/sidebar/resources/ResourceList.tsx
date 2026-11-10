@@ -1,4 +1,5 @@
 import type { Resource } from "@tangent/shared/contracts";
+import { normalizePinnableUrl } from "@tangent/shared/pins";
 import { Box } from "@tangent/ui-primitives/box";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
@@ -26,11 +27,18 @@ function isOpenable(resource: Resource): boolean {
   return resource.kind === "file" || resource.kind === "artifact";
 }
 
+/** A pinned `link`'s URL, re-validated so only http(s) ever becomes an href. */
+function linkHref(resource: Resource): string | undefined {
+  if (resource.kind !== "link") return undefined;
+  return normalizePinnableUrl(resource.uri) ?? undefined;
+}
+
 /**
  * Read-only sidebar list of the session's catalogued content — pinned
  * artifacts, human attachments, memory documents, and workspace files — surfaced
  * from the resource catalog regardless of which mechanism produced it. A
- * viewable `file`/`artifact` opens its tab; other kinds are display-only. The
+ * viewable `file`/`artifact` opens its tab and a pinned `link` opens its URL in
+ * a new browser tab; other kinds are display-only. The
  * pin/unpin flow stays on the Assets list; this view only surfaces the catalog.
  */
 export function ResourceList({ resources, onOpen }: ResourceListProps) {
@@ -51,6 +59,7 @@ export function ResourceList({ resources, onOpen }: ResourceListProps) {
       <BlockStack as="ul" gap="1">
         {resources.map((resource) => {
           const openable = onOpen && isOpenable(resource);
+          const href = linkHref(resource);
           return (
             <ListRow
               key={resource.id}
@@ -59,6 +68,11 @@ export function ResourceList({ resources, onOpen }: ResourceListProps) {
               gap="2"
               hoverable={Boolean(openable)}
               onClick={openable ? () => onOpen?.(resource) : undefined}
+              link={
+                href
+                  ? { href, label: `${resource.name} (opens in a new tab)` }
+                  : undefined
+              }
               prefix={
                 <Box
                   background="info-subtle"

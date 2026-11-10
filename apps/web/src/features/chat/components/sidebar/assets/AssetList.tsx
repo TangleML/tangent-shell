@@ -2,7 +2,7 @@ import type { Trigger } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
 
-import type { Asset } from "@/features/chat/model/assets";
+import type { Asset, TabAsset } from "@/features/chat/model/assets";
 import { useDeleteTrigger } from "@/features/triggers/hooks/useDeleteTrigger";
 import { useUpdateTrigger } from "@/features/triggers/hooks/useUpdateTrigger";
 import { apiUrl } from "@/shared/lib/basePath";
@@ -16,18 +16,18 @@ interface AssetListProps {
   assets: Asset[];
   /** The active tab's id, so the matching card reads as selected. */
   selectedId: string | null;
-  /** Opens (or focuses) an asset's in-app tab. */
-  onOpen: (asset: Asset) => void;
-  /** Unpins an artifact by its workspace-relative path. */
-  onUnpin: (path: string) => void;
+  /** Opens (or focuses) an asset's in-app tab. Links navigate on their own. */
+  onOpen: (asset: TabAsset) => void;
+  /** Unpins an artifact or link by its pin key (path or URL). */
+  onUnpin: (key: string) => void;
 }
 
 /**
- * Unified sidebar list of the session's assets — pages, files, and triggers
- * (apps in future) — each rendered as a uniform {@link AssetCard}. Replaces the
+ * Unified sidebar list of the session's assets — pages, files, links, and
+ * triggers (apps in future) — each rendered as a uniform {@link AssetCard}. Replaces the
  * former separate sub-agent, trigger, and pinned-artifact panels. Trigger
  * management (enable/disable, copy callback URL, delete) happens inline via
- * hover actions; artifact assets expose an unpin action.
+ * hover actions; artifact and link assets expose an unpin action.
  */
 export function AssetList({
   sessionId,
@@ -56,7 +56,7 @@ export function AssetList({
           <EmptyState
             size="sm"
             title=""
-            description="Pages, files, and triggers Prime creates show up here."
+            description="Pages, files, links, and triggers Prime creates show up here."
           />
         </Box>
       ) : (
@@ -67,7 +67,7 @@ export function AssetList({
                 key={asset.id}
                 asset={asset}
                 selected={selectedId === asset.id}
-                onOpen={() => onOpen(asset)}
+                onOpen={asset.kind === "link" ? undefined : () => onOpen(asset)}
                 actions={
                   <AssetRowActions
                     asset={asset}

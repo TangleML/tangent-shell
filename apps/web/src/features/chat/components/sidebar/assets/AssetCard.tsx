@@ -14,8 +14,8 @@ interface AssetCardProps {
   asset: Asset;
   /** Whether this asset's tab is the active one. */
   selected: boolean;
-  /** Opens (or focuses) the asset's in-app tab. */
-  onOpen: () => void;
+  /** Opens (or focuses) the asset's in-app tab; a `link` navigates instead. */
+  onOpen?: () => void;
   /** Quick actions revealed on hover (kind-specific; built by the caller). */
   actions?: ReactNode;
 }
@@ -24,7 +24,7 @@ interface AssetCardProps {
  * A rich, condensed card representing one session asset (page, file, trigger,
  * and — in future — app). The leading icon conveys the asset type; the title
  * and subtitle describe it; hover-revealed actions handle inline management.
- * Clicking the card opens the asset in its own tab.
+ * Clicking the card opens the asset in its own tab; a `link` opens its URL.
  */
 export function AssetCard({
   asset,
@@ -32,6 +32,10 @@ export function AssetCard({
   onOpen,
   actions,
 }: AssetCardProps) {
+  const link =
+    asset.kind === "link"
+      ? { href: asset.url, label: `${asset.title} (opens in a new tab)` }
+      : undefined;
   return (
     <ListRow
       as="li"
@@ -40,6 +44,7 @@ export function AssetCard({
       hoverable
       selected={selected}
       onClick={onOpen}
+      link={link}
       prefix={
         <Box background="info-subtle" blockSize="full" paddingInline="sm">
           <InlineStack fill blockAlign="center" align="center">

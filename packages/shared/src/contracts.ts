@@ -485,19 +485,31 @@ export interface Trigger {
 }
 
 /**
- * An artifact the user (or an agent) pinned for quick access. Identified by its
- * workspace-relative `path` (e.g. `artifacts/report.html`) so the client can
- * resolve it against the session's file API the same way artifact chips do,
- * independent of any base-prefix the server is unaware of.
+ * Something the user (or an agent) pinned for quick access: a workspace
+ * `artifact`, identified by its workspace-relative `path` (e.g.
+ * `artifacts/report.html`) so the client resolves it against the session's file
+ * API the same way artifact chips do; or an external `link`, identified by its
+ * canonical http(s) `url` and opened directly rather than in a viewer.
  */
-export interface PinnedArtifact {
-  /** Path relative to the session root, e.g. `artifacts/report.html`. */
-  path: string;
-  /** Display label for the pinned artifact. */
-  title: string;
-  /** ISO-8601 timestamp the artifact was pinned. */
-  pinnedAt: string;
-}
+export type PinnedArtifact =
+  | {
+      kind: "artifact";
+      /** Path relative to the session root, e.g. `artifacts/report.html`. */
+      path: string;
+      /** Display label for the pinned artifact. */
+      title: string;
+      /** ISO-8601 timestamp the artifact was pinned. */
+      pinnedAt: string;
+    }
+  | {
+      kind: "link";
+      /** Canonical absolute http(s) URL (see `normalizePinnableUrl`). */
+      url: string;
+      /** Display label for the pinned link. */
+      title: string;
+      /** ISO-8601 timestamp the link was pinned. */
+      pinnedAt: string;
+    };
 
 /** What a catalogued resource is: content the session holds, by origin. */
 export type ResourceKind =
@@ -506,11 +518,12 @@ export type ResourceKind =
   | "attachment"
   | "artifact"
   | "host"
-  | "mount";
+  | "mount"
+  | "link";
 
 /**
- * A catalogued piece of content in a session — a pinned `artifact`, a human
- * `attachment`, a `memory` document, or a workspace `file` — regardless of
+ * A catalogued piece of content in a session — a pinned `artifact` or `link`,
+ * a human `attachment`, a `memory` document, or a workspace `file` — regardless of
  * which connector or mechanism produced it. The bytes stay where they are; this
  * is the catalog entry that points at them by {@link Resource.uri}.
  */
@@ -1829,6 +1842,20 @@ export interface ArtifactUnpinPayload {
   path: string;
 }
 
+/** Sent (client -> server) to pin an external http(s) link for quick access. */
+export interface LinkPinPayload {
+  sessionId: string;
+  url: string;
+  /** Display label for the pinned link. */
+  title: string;
+}
+
+/** Sent (client -> server) to unpin a previously pinned link. */
+export interface LinkUnpinPayload {
+  sessionId: string;
+  url: string;
+}
+
 /**
  * Sent (client -> server) to cancel a {@link Run}. `conversationId` is the
  * target agent's id (`"prime"` or a sub-agent id), matching how messages are
@@ -1941,6 +1968,8 @@ export const SocketEvents = {
   TriggerRemoved: "trigger:removed",
   ArtifactPin: "artifact:pin",
   ArtifactUnpin: "artifact:unpin",
+  LinkPin: "link:pin",
+  LinkUnpin: "link:unpin",
   ResourcesUpdated: "resources:updated",
   UiCommand: "ui:command",
   SessionStatusSubscribe: "session:status:subscribe",

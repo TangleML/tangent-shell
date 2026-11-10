@@ -79,14 +79,6 @@ export function EmbeddedChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rosterReady, sessionId, targetingPrime]);
 
-  const togglePinArtifact = (path: string, title: string) => {
-    if (chat.pinnedPaths.has(path)) {
-      chat.unpinArtifact(path);
-    } else {
-      chat.pinArtifact(path, title);
-    }
-  };
-
   if (!targetingPrime && agentId) {
     return (
       <SubagentChat
@@ -99,7 +91,7 @@ export function EmbeddedChat({
         autoFocus={autoFocus}
         onOpenArtifact={onOpenArtifact}
         onSendPrompt={onSendPrompt}
-        onTogglePinArtifact={togglePinArtifact}
+        onTogglePinArtifact={chat.togglePin}
       />
     );
   }
@@ -132,7 +124,7 @@ export function EmbeddedChat({
         onSendPrompt={chat.send}
         onOpenArtifact={onOpenArtifact}
         pinnedPaths={chat.pinnedPaths}
-        onTogglePinArtifact={togglePinArtifact}
+        onTogglePinArtifact={chat.togglePin}
         isMessageStreaming={chat.isMessageStreaming}
       />
       <Box paddingInline="base" paddingBlock="sm">

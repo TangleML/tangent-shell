@@ -4,6 +4,7 @@ import type {
   CatalogInput,
   Resource,
   ResourceGrant,
+  ResourceKind,
   ResourceReference,
   ResourceStore,
 } from "./resourceStore.ts";
@@ -79,12 +80,25 @@ export class InMemoryResourceStore implements ResourceStore {
     return this.catalog(input);
   }
 
-  async remove(sessionId: string, uri: string): Promise<void> {
+  async remove(
+    sessionId: string,
+    uri: string,
+    kind?: ResourceKind,
+  ): Promise<void> {
     const key = uriKey(sessionId, uri);
     const id = this.byUri.get(key);
-    if (!id) return;
+    if (!id || !this.matchesKind(id, kind)) return;
     this.byUri.delete(key);
     this.byId.delete(id);
+    this.dropLinks(id);
+  }
+
+  private matchesKind(id: string, kind: ResourceKind | undefined): boolean {
+    return !kind || this.byId.get(id)?.kind === kind;
+  }
+
+  /** Drops every reference and grant to a removed resource. */
+  private dropLinks(id: string): void {
     for (const [refId, ref] of this.refs) {
       if (ref.resourceId === id) this.refs.delete(refId);
     }

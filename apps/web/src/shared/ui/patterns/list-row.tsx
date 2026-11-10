@@ -86,7 +86,18 @@ interface ListRowProps extends ListRowVariantProps {
    * the row's rounded corners.
    */
   prefix?: ReactNode;
+  /**
+   * Makes the whole row an external link opening in a new tab, via an anchor
+   * stretched over the row; the row's own buttons stay clickable above it.
+   */
+  link?: { href: string; label: string };
 }
+
+/** Lifts the row's own buttons above the stretched link so they stay clickable. */
+const LINK_ROW_CLASS = "relative [&_button]:relative [&_button]:z-10";
+
+const STRETCHED_LINK_CLASS =
+  "absolute inset-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50";
 
 export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
   function ListRow(
@@ -101,10 +112,11 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
       onClick,
       gap = "2",
       prefix,
+      link,
     },
     ref,
   ) {
-    const isInteractive = hoverable || onClick != null;
+    const isInteractive = hoverable || onClick != null || link != null;
     const handleKeyDown: KeyboardEventHandler<HTMLElement> | undefined = onClick
       ? (event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -129,8 +141,18 @@ export const ListRow = forwardRef<HTMLElement, PropsWithChildren<ListRowProps>>(
             border,
           }),
           prefix != null && "overflow-hidden",
+          link != null && LINK_ROW_CLASS,
         )}
       >
+        {link != null ? (
+          <a
+            href={link.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={link.label}
+            className={STRETCHED_LINK_CLASS}
+          />
+        ) : null}
         <InlineStack gap={gap} wrap="nowrap" blockAlign="center">
           {prefix != null ? (
             <div className={cn(prefixBleedVariants({ density }))}>{prefix}</div>

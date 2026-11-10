@@ -1,6 +1,7 @@
 // local primitive — renders agent markdown output, styling the raw markdown
 // HTML elements (h1/ul/a/img/code/table/...). These are not Tangle UI
 // primitives, so the scoped classNames here are an allowed escape hatch.
+import { linkPinTitle, normalizePinnableUrl } from "@tangent/shared/pins";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Link } from "@tangent/ui-primitives/link";
@@ -88,16 +89,16 @@ interface MarkdownProps {
    */
   onOpenArtifact?: (url: string, title: string) => void;
   /**
-   * The set of currently pinned artifact paths (workspace-relative), used to
-   * show whether an artifact chip is already pinned.
+   * The set of currently pinned keys — workspace-relative artifact paths and
+   * canonical link URLs — used to show whether a chip or link is pinned.
    */
   pinnedPaths?: Set<string>;
   /**
-   * Toggles an artifact's pinned state from its chip, identified by its
-   * workspace-relative path. When omitted, chips render without a pin control
-   * (e.g. read-only contexts).
+   * Toggles a pin from an artifact chip (keyed by its workspace-relative path)
+   * or an external http(s) link (keyed by its canonical URL). When omitted,
+   * chips and links render without a pin control (e.g. read-only contexts).
    */
-  onTogglePinArtifact?: (path: string, title: string) => void;
+  onTogglePinArtifact?: (key: string, title: string) => void;
   /**
    * The chat session id, combined with `messageId` to namespace a bundle
    * message component's persisted state. Omitted disables `host.getState`/
@@ -129,7 +130,7 @@ interface MarkdownComponentsOptions {
   onSendPrompt?: (text: string) => void;
   onOpenArtifact?: (url: string, title: string) => void;
   pinnedPaths?: Set<string>;
-  onTogglePinArtifact?: (path: string, title: string) => void;
+  onTogglePinArtifact?: (key: string, title: string) => void;
   sessionId?: string;
   messageId?: string;
   onCollapse?: () => void;
@@ -303,6 +304,51 @@ function ArtifactChip({
           />
         </button>
       ) : null}
+    </span>
+  );
+}
+
+const LINK_PIN_GROUP_CLASS = "group/pin";
+const LINK_PIN_CLASS =
+  "ms-0.5 inline-flex items-center align-middle opacity-0 transition-opacity group-hover/pin:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 motion-reduce:transition-none";
+
+interface PinnableLinkProps {
+  href: string;
+  title?: string;
+  children?: ReactNode;
+  size: MarkdownSize;
+  pinned: boolean;
+  onTogglePin: () => void;
+}
+
+/** An external link whose pin toggle shows on hover/focus, and stays once pinned. */
+function PinnableLink({
+  href,
+  title,
+  children,
+  size,
+  pinned,
+  onTogglePin,
+}: PinnableLinkProps) {
+  return (
+    <span className={LINK_PIN_GROUP_CLASS}>
+      <Link href={href} title={title} variant="primary" size={size} external>
+        {children}
+      </Link>
+      <button
+        type="button"
+        title={pinned ? "Unpin link from sidebar" : "Pin link to sidebar"}
+        aria-label={pinned ? "Unpin link" : "Pin link"}
+        aria-pressed={pinned}
+        onClick={onTogglePin}
+        className={LINK_PIN_CLASS}
+      >
+        <Icon
+          name={pinned ? "PinOff" : "Pin"}
+          size="xs"
+          tone={pinned ? "accent" : "subdued"}
+        />
+      </button>
     </span>
   );
 }
@@ -602,6 +648,23 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
     safetyBase != null && typeof href === "string" && isArtifactsLink(href)
       ? (resolveUrl(href, safetyBase) ?? href)
       : href;
+
+  // Keyed on the authored href, so a rewritten artifacts-link is never pinnable.
+  const linkUrl = typeof href === "string" ? normalizePinnableUrl(href) : null;
+  if (linkUrl && onTogglePinArtifact) {
+    const label = linkPinTitle(linkUrl, anchorText(children));
+    return (
+      <PinnableLink
+        href={linkUrl}
+        title={title}
+        size={size}
+        pinned={pinnedPaths?.has(linkUrl) ?? false}
+        onTogglePin={() => onTogglePinArtifact(linkUrl, label)}
+      >
+        {children}
+      </PinnableLink>
+    );
+  }
 
   return (
     <Link href={fixedHref} title={title} variant="primary" size={size} external>

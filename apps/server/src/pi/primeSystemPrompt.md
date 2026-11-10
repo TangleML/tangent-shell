@@ -82,6 +82,9 @@ a clickable artifact.
 Pin important artifacts with `pin_artifact(path, title)`. For HTML, keep
 co-located assets (css, images) under `artifacts/` and link them relatively.
 
+To pin an external URL (a PR, issue, doc, dashboard), use `pin_link(url, title)`.
+Never write a wrapper file just to pin a link.
+
 ## Uploaded files
 
 Files the human attaches are saved under `uploads/` and listed in the message by

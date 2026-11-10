@@ -14,6 +14,7 @@ import {
   type SessionConfigMeta,
   type UpdateSessionRequest,
 } from "@tangent/shared/contracts.ts";
+import { pinKey } from "@tangent/shared/pins.ts";
 
 import { ARTIFACTS_DIRNAME, SESSIONS_ROOT } from "../config.ts";
 import { InMemoryParticipantStore } from "./inMemoryParticipantStore.ts";
@@ -24,6 +25,7 @@ import {
   presenceForStatus,
   sessionAgentFromParticipant,
 } from "./participantStore.ts";
+import { catalogPin, uncatalogPin } from "./pinCatalog.ts";
 import type { ResourceStore } from "./resourceStore.ts";
 import {
   applySessionUpdate,
@@ -272,36 +274,74 @@ export class InMemorySessionStore implements SessionStore {
     sessionId: string,
     artifact: { path: string; title: string },
   ): Promise<PinnedArtifact[]> {
-    const existing = this.artifacts.get(sessionId) ?? [];
-    // Re-pinning a known path refreshes its title in place (preserving order);
-    // a new path appends to the end so the list reads oldest-first.
-    const prior = existing.find((a) => a.path === artifact.path);
-    const next: PinnedArtifact = {
+    return this.pin(sessionId, {
+      kind: "artifact",
       path: artifact.path,
       title: artifact.title,
-      pinnedAt: prior?.pinnedAt ?? new Date().toISOString(),
-    };
-    const updated = prior
-      ? existing.map((a) => (a.path === artifact.path ? next : a))
-      : [...existing, next];
-    this.artifacts.set(sessionId, updated);
-    await this.resources?.catalog({
-      sessionId,
-      kind: "artifact",
-      name: artifact.title,
-      uri: artifact.path,
+      pinnedAt: new Date().toISOString(),
     });
-    return updated;
   }
 
   async unpinArtifact(
     sessionId: string,
     path: string,
   ): Promise<PinnedArtifact[]> {
+    return this.unpin(sessionId, "artifact", path);
+  }
+
+  async pinLink(
+    sessionId: string,
+    link: { url: string; title: string },
+  ): Promise<PinnedArtifact[]> {
+    return this.pin(sessionId, {
+      kind: "link",
+      url: link.url,
+      title: link.title,
+      pinnedAt: new Date().toISOString(),
+    });
+  }
+
+  async unpinLink(sessionId: string, url: string): Promise<PinnedArtifact[]> {
+    return this.unpin(sessionId, "link", url);
+  }
+
+  /**
+   * Re-pinning a known target refreshes its title in place (preserving order
+   * and pinnedAt); a new target appends so the list reads oldest-first.
+   */
+  private async pin(
+    sessionId: string,
+    pin: PinnedArtifact,
+  ): Promise<PinnedArtifact[]> {
     const existing = this.artifacts.get(sessionId) ?? [];
-    const updated = existing.filter((a) => a.path !== path);
+    const target = pinKey(pin);
+    const prior = existing.find((a) => pinKey(a) === target);
+    const next = { ...pin, pinnedAt: prior?.pinnedAt ?? pin.pinnedAt };
+    const updated = prior
+      ? existing.map((a) => (a === prior ? next : a))
+      : [...existing, next];
     this.artifacts.set(sessionId, updated);
-    await this.resources?.remove(sessionId, path);
+    await catalogPin(this.resources, sessionId, {
+      kind: pin.kind,
+      target,
+      title: pin.title,
+    });
+    return updated;
+  }
+
+  private async unpin(
+    sessionId: string,
+    kind: PinnedArtifact["kind"],
+    target: string,
+  ): Promise<PinnedArtifact[]> {
+    const existing = this.artifacts.get(sessionId) ?? [];
+    const updated = existing.filter(
+      (a) => a.kind !== kind || pinKey(a) !== target,
+    );
+    this.artifacts.set(sessionId, updated);
+    if (updated.length < existing.length) {
+      await uncatalogPin(this.resources, sessionId, { kind, target });
+    }
     return updated;
   }
 

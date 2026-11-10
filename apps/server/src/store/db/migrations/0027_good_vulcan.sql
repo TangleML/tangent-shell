@@ -1,0 +1,1 @@
+ALTER TABLE `session_assets` ADD `kind` text DEFAULT 'artifact' NOT NULL;

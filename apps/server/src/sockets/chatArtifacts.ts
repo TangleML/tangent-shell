@@ -1,9 +1,16 @@
 import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
+  type LinkPinPayload,
+  type LinkUnpinPayload,
   SocketEvents,
   type UiCommandPayload,
 } from "@tangent/shared/contracts.ts";
+import {
+  isUrlLike,
+  linkPinTitle,
+  normalizePinnableUrl,
+} from "@tangent/shared/pins.ts";
 import type { Socket } from "socket.io";
 
 import type { SessionStore } from "../store/sessionStore.ts";
@@ -51,7 +58,7 @@ export async function handleArtifactPin(
   payload: ArtifactPinPayload,
 ): Promise<void> {
   const ref = readArtifactRef(payload);
-  if (!ref) return;
+  if (!ref || isUrlLike(ref.path)) return;
   const session = await store.getSession(ref.sessionId);
   if (!session) return;
 
@@ -74,5 +81,53 @@ export async function handleArtifactUnpin(
   if (!session) return;
 
   const artifacts = await store.unpinArtifact(session.id, ref.path);
+  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+}
+
+/**
+ * Validates a link pin/unpin payload, returning its canonical URL or null when
+ * the session is missing or the URL is not a pinnable http(s) URL.
+ */
+function readLinkRef(payload?: {
+  sessionId?: string;
+  url?: string;
+}): { sessionId: string; url: string } | null {
+  if (!payload?.sessionId || typeof payload.url !== "string") return null;
+  const url = normalizePinnableUrl(payload.url);
+  if (!url) return null;
+  return { sessionId: payload.sessionId, url };
+}
+
+/** Pins an external link, then broadcasts the updated list to the session room. */
+export async function handleLinkPin(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  payload: LinkPinPayload,
+): Promise<void> {
+  const ref = readLinkRef(payload);
+  if (!ref) return;
+  const session = await store.getSession(ref.sessionId);
+  if (!session) return;
+
+  const title = linkPinTitle(
+    ref.url,
+    typeof payload.title === "string" ? payload.title : undefined,
+  );
+  const artifacts = await store.pinLink(session.id, { url: ref.url, title });
+  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+}
+
+/** Unpins a link, then broadcasts the updated list to the session room. */
+export async function handleLinkUnpin(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  payload: LinkUnpinPayload,
+): Promise<void> {
+  const ref = readLinkRef(payload);
+  if (!ref) return;
+  const session = await store.getSession(ref.sessionId);
+  if (!session) return;
+
+  const artifacts = await store.unpinLink(session.id, ref.url);
   emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
 }

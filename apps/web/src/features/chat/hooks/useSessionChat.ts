@@ -4,7 +4,9 @@ import {
   type ChatMessage,
   humanAuthor,
   type MessageDelivery,
+  type PinnedArtifact,
 } from "@tangent/shared/contracts";
+import { normalizePinnableUrl, pinKey } from "@tangent/shared/pins";
 import { useSyncExternalStore } from "react";
 
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
@@ -49,7 +51,30 @@ export function useSessionChat(sessionId: string) {
     () => (sessionId ? peekSessionChat(sessionId) : EMPTY_SESSION_CHAT),
     () => EMPTY_SESSION_CHAT,
   );
-  const pinnedPaths = new Set(snapshot.artifacts.map((a) => a.path));
+  const pinnedPaths = new Set(snapshot.artifacts.map(pinKey));
+
+  // Pin keys are artifact paths or link URLs (see `pinKey`), so one toggle and
+  // one unpin serve both chips/links in chat and the sidebar list. Unpin goes by
+  // the stored pin's kind: a legacy artifact pin may have a URL as its path.
+  function unpin(key: string): PinnedArtifact["kind"] | undefined {
+    const pin = snapshot.artifacts.find((a) => pinKey(a) === key);
+    if (!pin) return undefined;
+    const room = peekSessionChatRoom(sessionId);
+    if (pin.kind === "link") room?.unpinLink(pin.url);
+    else room?.unpinArtifact(pin.path);
+    return pin.kind;
+  }
+
+  function togglePin(key: string, title: string): void {
+    if (pinnedPaths.has(key)) {
+      unpin(key);
+      return;
+    }
+    const room = peekSessionChatRoom(sessionId);
+    const url = normalizePinnableUrl(key);
+    if (url) room?.pinLink(url, title);
+    else room?.pinArtifact(key, title);
+  }
 
   function messagesFor(conversationId: string): ChatMessage[] {
     return snapshot.messagesByConversation.get(conversationId) ?? NO_MESSAGES;
@@ -79,10 +104,8 @@ export function useSessionChat(sessionId: string) {
     triggers: snapshot.triggers,
     artifacts: snapshot.artifacts,
     pinnedPaths,
-    pinArtifact: (path: string, title: string) =>
-      peekSessionChatRoom(sessionId)?.pinArtifact(path, title),
-    unpinArtifact: (path: string) =>
-      peekSessionChatRoom(sessionId)?.unpinArtifact(path),
+    togglePin,
+    unpin,
     connected: snapshot.connected,
     historyLoaded: snapshot.historyLoaded,
     rosterReady: snapshot.rosterReady,
