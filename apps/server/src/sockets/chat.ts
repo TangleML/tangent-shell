@@ -17,7 +17,6 @@ import {
   PI_AGENT,
   type Session,
   SocketEvents,
-  type SubagentDismissedPayload,
   type SubagentDismissPayload,
   type SubagentRosterPayload,
   type TriggerRosterPayload,
@@ -51,12 +50,13 @@ import { type MentionCandidate, resolveMentions } from "./mentions.ts";
 import type { PresenceTracker } from "./presenceTracker.ts";
 import { roomFor, roomForConversation } from "./rooms.ts";
 import {
+  dismissSubagent,
   emitPrimeSelection,
   ensureSessionAgents,
   handleAgentSetModel,
   handleSessionStatusSubscribe,
-  isDismissible,
   replayAgentActivities,
+  type SubagentDismissedEmitter,
   subagentRoster,
   type UiCommandEmitter,
 } from "./sessionRoster.ts";
@@ -72,6 +72,7 @@ export interface ChatHandlerDeps {
   onRemembered: MemoryRememberedHandler;
   triggerEngine: TriggerEngine;
   emitUiCommand: UiCommandEmitter;
+  emitSubagentDismissed: SubagentDismissedEmitter;
   participantService: ParticipantService;
   presence: PresenceTracker;
 }
@@ -329,8 +330,8 @@ async function authorizedFor(
 }
 
 /**
- * Persists a finished sub-agent's dismissal and tells every client in the
- * session to drop it. A running, unknown, or unauthorized target is ignored.
+ * Dismisses a finished sub-agent for everyone in the session, when this author
+ * may see its thread. A running, unknown, or unauthorized target is ignored.
  */
 async function handleSubagentDismiss(
   deps: ChatHandlerDeps,
@@ -341,31 +342,27 @@ async function handleSubagentDismiss(
   if (!sessionId || !agentId) return;
   const session = await deps.store.getSession(sessionId);
   if (!session) return;
-  const agent = await dismissTarget(deps, author, session, agentId);
-  if (!agent) return;
-
-  await deps.store.dismissAgent(session.id, agent.id);
-  const dismissed: SubagentDismissedPayload = {
-    sessionId: session.id,
-    agentId: agent.id,
-  };
-  deps.io
-    .to(roomFor(session.id))
-    .emit(SocketEvents.SubagentDismissed, dismissed);
+  if (!(await maySeeThreadOf(deps, author, session, agentId))) return;
+  await dismissSubagent(
+    deps.store,
+    deps.emitSubagentDismissed,
+    session.id,
+    agentId,
+  );
 }
 
-/** The session's finished sub-agent `agentId`, if this author may see its thread. */
-async function dismissTarget(
+/** Whether this author may see the thread of the session's agent `agentId`. */
+async function maySeeThreadOf(
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   session: Session,
   agentId: string,
-): Promise<SessionAgent | undefined> {
+): Promise<boolean> {
   const agents = await deps.store.listAgents(session.id);
   const agent = agents.find((candidate) => candidate.id === agentId);
-  if (!agent || !isDismissible(agent)) return undefined;
+  if (!agent) return false;
   const authorized = await authorizedFor(deps, author, session, agents);
-  return authorized.has(agent.homeConversationId) ? agent : undefined;
+  return authorized.has(agent.homeConversationId);
 }
 
 const EMPTY_DISMISS: SubagentDismissPayload = { sessionId: "", agentId: "" };
@@ -523,13 +520,21 @@ export async function handleChatMessage(
   author: ChatAuthor,
   payload: ChatMessagePayload,
 ): Promise<void> {
-  const { store, pi, connectors, conversations, participantService } = deps;
-  const session = await store.getSession(payload?.sessionId);
+  const session = await deps.store.getSession(payload?.sessionId);
   if (!session) {
     socket.emit("error", { message: "Session not found" });
     return;
   }
+  await postChatMessage(deps, author, session, payload);
+}
 
+async function postChatMessage(
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  session: Session,
+  payload: ChatMessagePayload,
+): Promise<void> {
+  const { store, pi, connectors, conversations, participantService } = deps;
   // Target thread: the orchestrator's home Conversation by default, or a
   // specific sub-agent so users can steer it from its own tab.
   const primaryConversationId = await orchestratorConversationFor(
@@ -537,29 +542,20 @@ export async function handleChatMessage(
     session.id,
   );
   const conversationId = payload.conversationId ?? primaryConversationId;
+  const command = commandOf(payload);
   // Always ensure Prime, regardless of which thread the message targets: it is
   // idempotent, and unconditionally reviving Prime here means a human message
   // self-heals a cold/raced session at the delivery layer instead of depending
   // on the client sending the exact primary conversation id. Without this, a
   // send that races `chat:join` (or arrives right after a backend restart) with
   // the seed id skips the ensure and falls through to the NullConnector refusal.
-  const env = await store.getSessionEnv(session.id);
-  await pi.ensure(session.id, session.rootPath, {
-    homeConversationId: primaryConversationId,
-    env,
-  });
-
-  const command = commandOf(payload);
-  if (command) {
-    await conversations.post({
-      sessionId: session.id,
-      conversationId,
-      author,
-      content: payload.content,
-      command,
-      provokes: false,
+  // A command's result wakes no one, so it needs no Prime to reach.
+  if (!command) {
+    const env = await store.getSessionEnv(session.id);
+    await pi.ensure(session.id, session.rootPath, {
+      homeConversationId: primaryConversationId,
+      env,
     });
-    return;
   }
 
   await conversations.post({
@@ -567,19 +563,22 @@ export async function handleChatMessage(
     conversationId,
     author,
     content: payload.content,
-    mentions: resolveMentions(
-      payload.content,
-      await mentionCandidates(connectors, participantService, session.id),
-    ),
+    command,
+    mentions: command
+      ? undefined
+      : resolveMentions(
+          payload.content,
+          await mentionCandidates(connectors, participantService, session.id),
+        ),
     attachments: payload.attachments,
     delivery: payload.delivery ?? "auto",
   });
 }
 
-/** The slash command a payload carries the result of, when it names one. */
 const trimmed = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
+/** The slash command a payload carries the result of, when it names one. */
 function commandOf({
   command,
 }: ChatMessagePayload): ChatCommandRun | undefined {

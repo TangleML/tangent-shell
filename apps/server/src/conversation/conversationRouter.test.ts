@@ -386,9 +386,9 @@ test("a slash command's result is shown to the room but wakes no one", async () 
     sessionId: "s1",
     conversationId: "sub-1",
     author: ADA,
-    content: "- Train",
+    content: "- Train @Worker",
+    mentions: ["sub-1"],
     command: { name: "pipelines" },
-    provokes: false,
   });
 
   assert.deepEqual(message.command, { name: "pipelines" });
@@ -415,7 +415,6 @@ test("the conversation's agent is sent command results with its next message, on
     author: ADA,
     content: "- Train",
     command: { name: "run", args: "p-1" },
-    provokes: false,
   });
   await post("which one failed?");
   await post("and now?");
@@ -425,6 +424,51 @@ test("the conversation's agent is sent command results with its next message, on
     [
       "Command results shown in the chat since your last turn:\n\n/run p-1, run by Ada:\n- Train\n\n---\n\nwhich one failed?",
       "and now?",
+    ],
+  );
+});
+
+test("command results wait for the next message the agent actually gets", async () => {
+  const h = makeRouter();
+  await withWorker(h.sessions);
+  let refuse = true;
+  h.router.useConnectors({
+    resolve: () => ({
+      deliver: (request: DeliveryRequest) => {
+        if (refuse) return { delivered: false, reason: "offline" };
+        h.delivered.push(request);
+        return { delivered: true };
+      },
+    }),
+  } as unknown as ConnectorRegistry);
+  const post = (content: string) =>
+    h.router.post({
+      sessionId: "s1",
+      conversationId: "sub-1",
+      author: ADA,
+      content,
+      mentions: ["sub-1"],
+    });
+
+  await h.router.post({
+    sessionId: "s1",
+    conversationId: "sub-1",
+    author: ADA,
+    content: "- Train",
+    command: { name: "run", args: "p-1" },
+  });
+  const { refused } = await post("which one failed?");
+  refuse = false;
+  await post("and now?");
+
+  assert.deepEqual(
+    refused.map(({ participantId }) => participantId),
+    ["sub-1"],
+  );
+  assert.deepEqual(
+    h.delivered.map(({ text }) => text),
+    [
+      "Command results shown in the chat since your last turn:\n\n/run p-1, run by Ada:\n- Train\n\n---\n\nand now?",
     ],
   );
 });

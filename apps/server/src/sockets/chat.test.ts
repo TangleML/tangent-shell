@@ -14,7 +14,7 @@ import {
   type SubagentRosterPayload,
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
-import type { Socket } from "socket.io";
+import type { Server, Socket } from "socket.io";
 
 import type { PrimeSpawnOptions } from "../pi/piAgentManager.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
@@ -27,6 +27,7 @@ import {
   registerChatHandlers,
 } from "./chat.ts";
 import { PresenceTracker } from "./presenceTracker.ts";
+import { createSubagentDismissedEmitter } from "./sessionRoster.ts";
 
 const OWNER: UserIdentity = {
   email: "owner@example.com",
@@ -203,6 +204,45 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
   assert.equal(postCalls[0]?.conversationId, "sub-1");
 });
 
+test("a slash command's result is posted without spawning Prime", async () => {
+  let ensured = 0;
+  const posts: { command?: unknown; mentions?: unknown }[] = [];
+  const deps = {
+    store: {
+      getSession: async () => session(OWNER),
+      listAgents: async () => [primeAgent("prime")],
+    },
+    pi: {
+      ensure: async () => {
+        ensured += 1;
+      },
+    },
+    conversations: {
+      post: async (input: { command?: unknown }) => {
+        posts.push(input);
+        return { message: {}, woke: [], refused: [] };
+      },
+    },
+  } as unknown as ChatHandlerDeps;
+  const payload: ChatMessagePayload = {
+    sessionId: "s1",
+    content: "- Train",
+    command: { name: " runs ", args: "  " },
+  };
+
+  await handleChatMessage(
+    { emit: () => {} } as unknown as Socket,
+    deps,
+    humanAuthor(OWNER),
+    payload,
+  );
+
+  assert.equal(ensured, 0);
+  assert.equal(posts.length, 1);
+  assert.deepEqual(posts[0]?.command, { name: "runs" });
+  assert.equal(posts[0]?.mentions, undefined);
+});
+
 test("closing the last browser socket detaches presence without cancelling the server agent", async () => {
   const io = new EventEmitter();
   const socket = Object.assign(new EventEmitter(), {
@@ -317,6 +357,9 @@ function rosterDeps(
   return {
     io,
     store,
+    emitSubagentDismissed: createSubagentDismissedEmitter(
+      io as unknown as Server,
+    ),
     presence: new PresenceTracker(),
     pi: {
       ensure: () => {},

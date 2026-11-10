@@ -338,7 +338,8 @@ export default function (pi: ExtensionAPI) {
     label: "List Sub-agents",
     description:
       "List this session's sub-agents with their ids and current status " +
-      "(active / completed / killed / error).",
+      "(active / completed / killed / error), as the chat's agents list " +
+      "shows them: finished ones stay listed until they are dismissed.",
     promptSnippet: "List your sub-agents and their statuses",
     parameters: Type.Object({}),
     async execute() {

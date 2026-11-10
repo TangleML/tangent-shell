@@ -6,6 +6,7 @@ import {
   type Session,
   type SessionStatusSnapshotPayload,
   SocketEvents,
+  type SubagentDismissedPayload,
   type SubagentInfo,
   type ThinkingLevel,
   type UiCommand,
@@ -142,6 +143,45 @@ export function isDismissible(agent: SessionAgent): boolean {
     isTerminalStatus(agent.status) &&
     !agent.dismissedAt
   );
+}
+
+/** Tells a session's room that a sub-agent was dismissed from its roster. */
+export type SubagentDismissedEmitter = (
+  sessionId: string,
+  agentId: string,
+) => void;
+
+/** Builds the {@link SubagentDismissedEmitter} bound to the Socket.IO server. */
+export function createSubagentDismissedEmitter(
+  io: Server,
+): SubagentDismissedEmitter {
+  return (sessionId, agentId) => {
+    const payload: SubagentDismissedPayload = { sessionId, agentId };
+    io.to(roomFor(sessionId)).emit(SocketEvents.SubagentDismissed, payload);
+  };
+}
+
+/**
+ * Drops a finished sub-agent from the session's roster for everyone. `unknown`
+ * when the roster has no such sub-agent (dismissed ones included), `running`
+ * while it is still at work.
+ */
+export async function dismissSubagent(
+  store: SessionStore,
+  emitSubagentDismissed: SubagentDismissedEmitter,
+  sessionId: string,
+  agentId: string,
+): Promise<"dismissed" | "unknown" | "running"> {
+  const agents = await store.listAgents(sessionId);
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  if (!agent || agent.role !== "subagent" || agent.dismissedAt) {
+    return "unknown";
+  }
+  if (!isDismissible(agent)) return "running";
+
+  await store.dismissAgent(sessionId, agent.id);
+  emitSubagentDismissed(sessionId, agent.id);
+  return "dismissed";
 }
 
 /** The roster entry a persisted, no-longer-live sub-agent reads back as. */

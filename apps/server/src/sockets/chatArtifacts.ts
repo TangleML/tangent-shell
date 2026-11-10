@@ -1,6 +1,7 @@
 import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
+  type PinnedArtifact,
   SocketEvents,
   type UiCommandPayload,
 } from "@tangent/shared/contracts.ts";
@@ -44,7 +45,38 @@ export async function replayArtifacts(
   socket.emit(SocketEvents.UiCommand, payload);
 }
 
-/** Pins an artifact, then broadcasts the updated list to the session room. */
+/**
+ * Pins a session's file, titled by its path when no title is given, and
+ * broadcasts the updated list to the session room. Every way of pinning (chat,
+ * agent, host page) goes through here.
+ */
+export async function pinAndBroadcast(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  sessionId: string,
+  pin: { path: string; title?: string },
+): Promise<PinnedArtifact[]> {
+  const artifacts = await store.pinArtifact(sessionId, {
+    path: pin.path,
+    title: pin.title?.trim() || pin.path,
+  });
+  emitUiCommand(sessionId, { kind: "artifacts.update", artifacts });
+  return artifacts;
+}
+
+/** Unpins a session's file and broadcasts the updated list to the session room. */
+export async function unpinAndBroadcast(
+  store: SessionStore,
+  emitUiCommand: UiCommandEmitter,
+  sessionId: string,
+  path: string,
+): Promise<PinnedArtifact[]> {
+  const artifacts = await store.unpinArtifact(sessionId, path);
+  emitUiCommand(sessionId, { kind: "artifacts.update", artifacts });
+  return artifacts;
+}
+
+/** Pins an artifact from the chat's pin toggle. */
 export async function handleArtifactPin(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
@@ -54,15 +86,13 @@ export async function handleArtifactPin(
   if (!ref) return;
   const session = await store.getSession(ref.sessionId);
   if (!session) return;
-
-  const artifacts = await store.pinArtifact(session.id, {
+  await pinAndBroadcast(store, emitUiCommand, session.id, {
     path: ref.path,
-    title: payload.title?.trim() || ref.path,
+    title: payload.title,
   });
-  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
 }
 
-/** Unpins an artifact, then broadcasts the updated list to the session room. */
+/** Unpins an artifact from the chat's pin toggle. */
 export async function handleArtifactUnpin(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
@@ -72,7 +102,5 @@ export async function handleArtifactUnpin(
   if (!ref) return;
   const session = await store.getSession(ref.sessionId);
   if (!session) return;
-
-  const artifacts = await store.unpinArtifact(session.id, ref.path);
-  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+  await unpinAndBroadcast(store, emitUiCommand, session.id, ref.path);
 }

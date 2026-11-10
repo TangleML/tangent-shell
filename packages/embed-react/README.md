@@ -547,7 +547,7 @@ function EntityChip({ path, label }: AnchorProtocolProps) {
 
 The components a host passes receive typed props:
 
-- `HostUIComponentProps` — `{ name, kind: "message" | "panel", props, onSendPrompt?, onCollapse? }`
+- `HostUIComponentProps` — `{ name, kind: "message" | "panel" | "composer", props, onSendPrompt?, onCollapse? }`
 - `AnchorProtocolProps` — `{ href, protocol, path, label }`
 
 Host components render as light-DOM children projected into the chat via named
