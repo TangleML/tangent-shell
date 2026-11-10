@@ -1001,16 +1001,27 @@ test("a sub-agent never gets the recall tools, even when it asks for them", asyn
   assert.doesNotMatch(appendedPrompt(spawns[1]), /## Related sessions/);
 });
 
+/** A status with its `endedAt` checked as a timestamp and set aside. */
+function ended(status: SessionStatusPayload | undefined) {
+  assert.ok(status);
+  const { endedAt, ...rest } = status;
+  assert.ok(
+    endedAt && !Number.isNaN(Date.parse(endedAt)),
+    "says when it ended",
+  );
+  return rest;
+}
+
 test("a failed run marks its session failed for the lobby until another run starts", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
 
   h.pi.markRunFailed("s1");
 
-  assert.deepEqual(h.pi.getStatuses(), [
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
     { sessionId: "s1", status: "active", failed: true },
   ]);
-  assert.deepEqual(h.statuses.at(-1), {
+  assert.deepEqual(ended(h.statuses.at(-1)), {
     sessionId: "s1",
     status: "active",
     failed: true,
@@ -1027,9 +1038,41 @@ test("a session with no agent running still reports that its last run failed", (
 
   h.pi.markRunFailed("s2");
 
-  assert.deepEqual(h.pi.getStatuses(), [
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
     { sessionId: "s2", status: "idle", failed: true },
   ]);
+});
+
+test("a session that stops working says when, until it works again", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, { type: "agent_end" });
+  await flush();
+
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
+    { sessionId: "s1", status: "active" },
+  ]);
+  assert.deepEqual(ended(h.statuses.at(-1)), {
+    sessionId: "s1",
+    status: "active",
+  });
+
+  h.pi.dispose("s1");
+
+  assert.deepEqual(
+    h.pi.getStatuses().map(ended),
+    [{ sessionId: "s1", status: "idle" }],
+    "still reported once its agents are gone",
+  );
+
+  await h.pi.ensure("s1", "/tmp/s1");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
 });
 
 test("a turn whose last model call failed settles its run as failed", async () => {
