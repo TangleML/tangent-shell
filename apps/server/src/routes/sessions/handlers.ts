@@ -3,12 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type {
+  AgentUsage,
   Attachment,
   HostResourceInput,
   MemoryBinding,
+  Run,
+  RunUsage,
   Session,
   SessionActivity,
   SessionConfigMeta,
+  SessionUsage,
   UploadFilesResponse,
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
@@ -34,8 +38,14 @@ import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import { readActivity } from "../../store/chatLog.ts";
-import type { SessionStore } from "../../store/sessionStore.ts";
+import type { RunStore } from "../../store/runStore.ts";
+import type { SessionAgent, SessionStore } from "../../store/sessionStore.ts";
 import type { SharedFolderStore } from "../../store/sharedFolderStore.ts";
+import type {
+  AgentUsageTotals,
+  RunUsageTotals,
+  UsageStore,
+} from "../../store/usageStore.ts";
 import { injectPageBridge } from "./pageBridge.ts";
 import type {
   CreateSessionInput,
@@ -451,6 +461,98 @@ export async function handleGetSession(
   const session = await loadSession(store, res, id);
   if (!session) return;
   res.json({ session });
+}
+
+/** Builds one agent's row: its roster metadata, or id-only defaults. */
+function agentUsage(
+  { agentId, totals }: AgentUsageTotals,
+  agent: SessionAgent | undefined,
+): AgentUsage {
+  if (!agent) {
+    return {
+      agentId,
+      name: agentId,
+      role: "subagent",
+      status: "completed",
+      totals,
+    };
+  }
+  return {
+    agentId,
+    name: agent.name,
+    role: agent.role,
+    purpose: agent.purpose,
+    status: agent.status,
+    totals,
+  };
+}
+
+/** Enriches a store's per-agent totals with each agent's roster metadata. */
+function enrichAgents(
+  byAgent: AgentUsageTotals[],
+  agents: SessionAgent[],
+): AgentUsage[] {
+  const roster = new Map(agents.map((agent) => [agent.id, agent]));
+  return byAgent.map((row) => agentUsage(row, roster.get(row.agentId)));
+}
+
+/** Builds one run's row: its ingress/status, or defaults for an unknown run. */
+function runUsage(
+  { runId, totals }: RunUsageTotals,
+  run: Run | undefined,
+): RunUsage {
+  if (!run) {
+    return {
+      runId,
+      participantId: "",
+      ingress: "reaction",
+      status: "completed",
+      totals,
+    };
+  }
+  return {
+    runId,
+    participantId: run.participantId,
+    ingress: run.ingress,
+    status: run.status,
+    totals,
+  };
+}
+
+/** Enriches a store's per-run totals with each run's ingress and status. */
+function enrichRuns(byRun: RunUsageTotals[], runs: Run[]): RunUsage[] {
+  const index = new Map(runs.map((run) => [run.id, run]));
+  return byRun.map((row) => runUsage(row, index.get(row.runId)));
+}
+
+/**
+ * Handles `GET /api/sessions/:id/usage`: the session's token/cost total plus
+ * the per-agent and per-run (task) breakdowns. The store rolls up the raw ids;
+ * this enriches them with roster and run metadata the store does not hold.
+ */
+export async function handleGetSessionUsage(
+  store: SessionStore,
+  usageStore: UsageStore,
+  runStore: RunStore,
+  id: string,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, id);
+  if (!session) return;
+
+  const [summary, agents, runs] = await Promise.all([
+    usageStore.summarize(id),
+    store.listAgents(id),
+    runStore.listRuns(id),
+  ]);
+
+  const usage: SessionUsage = {
+    sessionId: id,
+    total: summary.total,
+    byAgent: enrichAgents(summary.byAgent, agents),
+    byRun: enrichRuns(summary.byRun, runs),
+  };
+  res.json({ usage });
 }
 
 /** Handles `PATCH /api/sessions/:id`. */

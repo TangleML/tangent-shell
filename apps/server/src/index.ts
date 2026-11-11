@@ -81,6 +81,7 @@ import { SqliteResourceStore } from "./store/sqliteResourceStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 import { SqliteSharedFolderStore } from "./store/sqliteSharedFolderStore.ts";
+import { SqliteUsageStore } from "./store/sqliteUsageStore.ts";
 
 // Opening the DB applies pending drizzle-kit migrations on startup. The single
 // shared connection backs every store: session metadata for the REST routes and
@@ -204,10 +205,14 @@ reactors.useSuperviseCitation(async (sessionId, cause, supervisorId) => {
 // previous process are settled once here: nothing can run before we start.
 // Constructed before the router so a correlation can be keyed by its asker's
 // open run.
-const runs = new RunRegistry(new SqliteRunStore(db));
+const runStore = new SqliteRunStore(db);
+const runs = new RunRegistry(runStore);
 void runs.failStaleRuns().then((failed) => {
   if (failed > 0) console.log(`[runs] settled ${failed} stale run(s)`);
 });
+// Per-message token/cost accounting, appended as each turn finalizes and rolled
+// up by the usage route into per-session / per-agent / per-run totals.
+const usage = new SqliteUsageStore(db);
 // Holds the outstanding request/reply correlations posted Messages open and
 // resolve, so "who is blocked on whom" is a listable fact and a timeout is
 // engine policy rather than a connector's private table. Empty until a Message
@@ -291,6 +296,7 @@ const pi = new PiAgentManager(
   agentHandlers,
   memoryResolver,
   runs,
+  usage,
   hostResourcePreamble,
 );
 pi.useTranscript(
@@ -450,6 +456,8 @@ app.use(
       context: contextEngine,
     },
     remoteGateway,
+    usage,
+    runStore,
   ),
 );
 app.use(

@@ -44,9 +44,11 @@ higher-level choreography between the human, Prime, and sub-agents, see
     or `null`; retained in memory so a client joining mid-run can replay it.
 
 The manager is constructed with a shared `ConversationEventSink` (the same sink
-every connector uses), the `MemoryManager`, the `RunRegistry`, and the host
-resource preamble. The sink's handlers bridge Pi's stream into the conversation
-layer rather than emitting to a room directly:
+every connector uses), the `MemoryManager`, the `RunRegistry`, the `UsageStore`
+(per-message token/cost accounting, written as each turn finalizes — see
+[sessions-and-storage.md](./sessions-and-storage.md#usage-and-cost-accounting)),
+and the host resource preamble. The sink's handlers bridge Pi's stream into the
+conversation layer rather than emitting to a room directly:
 
 - `onAgentEvent(sessionId, descriptor, event)` — streaming + terminal events; the
   handler routes finalized content through the `ConversationRouter` (which
@@ -145,7 +147,7 @@ parsed and routed through `eventHandlers`, keyed by the Pi RPC `type`:
 | `agent_start`          | `onAgentStart`         | Reset run state; emit `activity: "Thinking..."`.                                                           |
 | `message_start`        | `onMessageStart`       | Open a fresh in-flight assistant message (ignore non-assistant).                                           |
 | `message_update`       | `onMessageDelta`       | Accumulate + relay a text/`thinking` delta; lazily emit `start` on the first one.                          |
-| `message_end`          | `onMessageEnd`         | Finalize the message into its own bubble; relay sub-agent replies to Prime.                                |
+| `message_end`          | `onMessageEnd`         | Finalize the message into its own bubble; record its token/cost `usage`; relay sub-agent replies to Prime. |
 | `tool_execution_start` | `onToolExecutionStart` | Emit a descriptive `tool` activity label.                                                                  |
 | `queue_update`         | `onQueueUpdate`        | Relay the pending steer/follow-up queue as a `queue` event (drives the composer's queued-nudge indicator). |
 | `agent_end`            | `onAgentEnd`           | Clear `busy` + activity; reset run state.                                                                  |
@@ -204,6 +206,9 @@ Notes:
   `Spawning sub-agent ...`).
 - An empty (tool-only) assistant message that never emitted `start` finalizes
   silently.
+- `finalizeMessage` also records the message's token/cost `usage` to the
+  `UsageStore`, attributed to the agent and its open Run, when Pi reported any
+  (see [sessions-and-storage.md](./sessions-and-storage.md#usage-and-cost-accounting)).
 - `emitActivity` records the value on the producing `AgentProcess`
   (`lastActivity`) in addition to relaying it. This is in-memory only (never
   persisted to disk), but it lets `handleChatJoin` replay the current activity to

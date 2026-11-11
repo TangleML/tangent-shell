@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  real,
   sqliteTable,
   text,
   unique,
@@ -120,6 +121,43 @@ export const runs = sqliteTable(
       table.sessionId,
       table.participantId,
     ),
+  ],
+);
+
+/**
+ * One assistant message's token/cost accounting, appended as the message
+ * finalizes. Append-only (one row per model call) so the per-agent and per-run
+ * breakdowns are a `GROUP BY` rather than a running counter that a crash could
+ * leave half-updated. `cost_usd` is the dollar figure the agent runtime already
+ * computed; `run_id` is nullable because a connector can stream a turn the
+ * server opened no Run for.
+ */
+export const usageEvents = sqliteTable(
+  "usage_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    /** The agent that produced the message (`prime` or a sub-agent id). */
+    agentId: text("agent_id").notNull(),
+    /** The Run the turn was attributed to, when one was open. */
+    runId: text("run_id"),
+    /** The model that served the call, for later per-model rollups. */
+    model: text("model"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    /** Combined cost in US dollars. */
+    costUsd: real("cost_usd").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("usage_events_session_idx").on(table.sessionId),
+    index("usage_events_session_agent_idx").on(table.sessionId, table.agentId),
+    index("usage_events_session_run_idx").on(table.sessionId, table.runId),
   ],
 );
 
@@ -462,6 +500,7 @@ export type SessionRow = typeof sessions.$inferSelect;
 export type SharedFolderRow = typeof sharedFolders.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
+export type UsageEventRow = typeof usageEvents.$inferSelect;
 export type ConversationRow = typeof conversations.$inferSelect;
 export type MembershipRow = typeof memberships.$inferSelect;
 export type ParticipantRow = typeof participants.$inferSelect;

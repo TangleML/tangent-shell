@@ -1,12 +1,17 @@
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
-import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
+import {
+  connectorFor,
+  type SubagentInfo,
+  type UsageTotals,
+} from "@tangent/shared/contracts.ts";
 
 import type {
   AgentDescriptor,
   AgentProcess,
   AssistantDelta,
+  MessageUsage,
   PiStdoutEvent,
 } from "./types.ts";
 
@@ -221,6 +226,38 @@ export function isAssistantRole(
  */
 export function assistantTextFromMessage(message: unknown): string | undefined {
   return assistantText(message);
+}
+
+/** A finite number, or 0 — so a missing/NaN field never poisons a sum. */
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Lifts the token/cost accounting off a finalized assistant message into the
+ * wire {@link UsageTotals}. Returns `undefined` when the message carries no
+ * `usage` at all (the signal not to record anything), but tolerates partial
+ * usage — any absent field reads as 0.
+ */
+export function usageFromMessage(
+  message: { usage?: MessageUsage } | undefined,
+): UsageTotals | undefined {
+  const usage = message?.usage;
+  if (!usage || typeof usage !== "object") return undefined;
+  const input = num(usage.input);
+  const output = num(usage.output);
+  const cacheRead = num(usage.cacheRead);
+  const cacheWrite = num(usage.cacheWrite);
+  const totalTokens =
+    num(usage.totalTokens) || input + output + cacheRead + cacheWrite;
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    cacheReadTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
+    totalTokens,
+    costUsd: num(usage.cost?.total),
+  };
 }
 
 /** Max length of an arg hint before it is ellipsized in the activity label. */
