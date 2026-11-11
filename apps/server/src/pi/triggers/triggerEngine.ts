@@ -123,8 +123,13 @@ export class TriggerEngine {
    * on chat join to re-arm after a server restart.
    */
   sync(sessionId: string, rootPath: string): void {
-    this.triggers.register(sessionId, rootPath);
+    this.load(sessionId, rootPath);
     this.arm(sessionId, rootPath);
+  }
+
+  /** Loads a session's triggers for listing without arming any schedule. */
+  load(sessionId: string, rootPath: string): void {
+    this.triggers.register(sessionId, rootPath);
   }
 
   /**

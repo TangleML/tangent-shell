@@ -453,14 +453,40 @@ export async function handleGetSession(
   res.json({ session });
 }
 
+/** Dependencies for applying a session update's lifecycle side effects. */
+export interface SessionUpdateDeps {
+  store: SessionStore;
+  pi: PiAgentManager;
+  triggerEngine: TriggerEngine;
+}
+
+/**
+ * Archiving puts a session to sleep: its Pi processes stop, live sub-agents are
+ * persisted `detached` so a later wake revives them, and schedules disarm.
+ * Unarchiving only re-arms schedules; agents wake on the next message.
+ */
+async function applyArchiveState(
+  deps: SessionUpdateDeps,
+  session: Session,
+): Promise<void> {
+  if (!session.archived) {
+    deps.triggerEngine.sync(session.id, session.rootPath);
+    return;
+  }
+  for (const agentId of deps.pi.sleep(session.id)) {
+    await deps.store.setAgentStatus(session.id, agentId, "detached");
+  }
+  deps.triggerEngine.disarm(session.id);
+}
+
 /** Handles `PATCH /api/sessions/:id`. */
 export async function handleUpdateSession(
-  store: SessionStore,
+  deps: SessionUpdateDeps,
   id: string,
   body: UpdateSessionInput,
   res: Response,
 ): Promise<void> {
-  const session = await store.updateSession(id, {
+  const session = await deps.store.updateSession(id, {
     name: body.name,
     archived: body.archived,
     accessPolicy: body.accessPolicy,
@@ -470,6 +496,7 @@ export async function handleUpdateSession(
     res.status(404).json({ error: "Session not found" });
     return;
   }
+  if (body.archived !== undefined) await applyArchiveState(deps, session);
   res.json({ session });
 }
 

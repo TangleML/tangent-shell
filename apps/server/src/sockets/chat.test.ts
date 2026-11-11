@@ -4,7 +4,6 @@ import { test } from "node:test";
 
 import {
   type ChatAuthor,
-  type ChatMessagePayload,
   connectorFor,
   humanAuthor,
   type Session,
@@ -155,9 +154,10 @@ function primeAgent(homeConversationId: string): SessionAgent {
   };
 }
 
-test("a human message always ensures Prime, even when it targets a sub-agent thread", async () => {
+function messageHarness(primeLive: boolean) {
   const primeHome = "conv-prime-home";
   const ensureCalls: PrimeSpawnOptions[] = [];
+  const revives: string[] = [];
   const postCalls: { conversationId?: string }[] = [];
 
   const deps = {
@@ -167,6 +167,7 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
       listAgents: async () => [primeAgent(primeHome)],
     },
     pi: {
+      hasAgent: () => primeLive,
       ensure: async (
         _id: string,
         _root: string,
@@ -175,7 +176,10 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
         ensureCalls.push(options);
       },
     },
-    connectors: { list: () => [] },
+    connectors: {
+      list: () => [],
+      revive: (sessionId: string) => revives.push(sessionId),
+    },
     participantService: { list: async () => [] },
     conversations: {
       post: async (input: { conversationId?: string }) => {
@@ -185,18 +189,74 @@ test("a human message always ensures Prime, even when it targets a sub-agent thr
     },
   } as unknown as ChatHandlerDeps;
 
-  const socket = { emit: () => {} } as unknown as Socket;
-  const payload: ChatMessagePayload = {
-    sessionId: "s1",
-    content: "hello",
-    conversationId: "sub-1",
-  };
+  const send = (): Promise<void> =>
+    handleChatMessage(
+      { emit: () => {} } as unknown as Socket,
+      deps,
+      humanAuthor(OWNER),
+      { sessionId: "s1", content: "hello", conversationId: "sub-1" },
+    );
+  return { primeHome, ensureCalls, revives, postCalls, send };
+}
 
-  await handleChatMessage(socket, deps, humanAuthor(OWNER), payload);
+test("a human message wakes a cold session, even when it targets a sub-agent thread", async () => {
+  const h = messageHarness(false);
 
-  assert.equal(ensureCalls.length, 1);
-  assert.equal(ensureCalls[0]?.homeConversationId, primeHome);
-  assert.equal(postCalls[0]?.conversationId, "sub-1");
+  await h.send();
+
+  assert.equal(h.ensureCalls.length, 1);
+  assert.equal(h.ensureCalls[0]?.homeConversationId, h.primeHome);
+  assert.deepEqual(h.revives, ["s1"]);
+  assert.equal(h.postCalls[0]?.conversationId, "sub-1");
+});
+
+test("a human message to a live session does not re-ensure its agents", async () => {
+  const h = messageHarness(true);
+
+  await h.send();
+
+  assert.equal(h.ensureCalls.length, 0);
+  assert.deepEqual(h.revives, []);
+  assert.equal(h.postCalls[0]?.conversationId, "sub-1");
+});
+
+test("joining an archived session loads its triggers without waking it", async () => {
+  const io = new EventEmitter();
+  const socket = Object.assign(new EventEmitter(), {
+    handshake: { headers: {}, auth: {} },
+    join: async () => {},
+  });
+  const calls: string[] = [];
+  const deps = {
+    io,
+    presence: new PresenceTracker(),
+    store: {
+      getSession: async () => ({ ...session(), archived: true }),
+      listAgents: async () => [primeAgent("prime")],
+      getMessages: async () => [],
+      getArtifacts: async () => [],
+    },
+    pi: {
+      ensure: async () => calls.push("ensure"),
+      listActivities: () => [],
+      getAgentSelection: () => undefined,
+    },
+    connectors: { revive: () => calls.push("revive"), list: () => [] },
+    triggerEngine: {
+      sync: () => calls.push("sync"),
+      load: () => calls.push("load"),
+      list: () => [],
+    },
+    participantService: {
+      get: async () => undefined,
+      membershipsOf: async () => [],
+    },
+  } as unknown as ChatHandlerDeps;
+  registerChatHandlers(deps);
+  io.emit("connection", socket);
+  socket.emit(SocketEvents.ChatJoin, { sessionId: "s1" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["load"]);
 });
 
 test("closing the last browser socket detaches presence without cancelling the server agent", async () => {

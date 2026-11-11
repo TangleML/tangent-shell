@@ -89,7 +89,12 @@ function registerSessionItemRoutes(
       const { params, body } = getValidated<UpdateSessionInput, SessionParams>(
         req,
       );
-      return handleUpdateSession(store, params.id, body, res);
+      return handleUpdateSession(
+        { store, pi, triggerEngine },
+        params.id,
+        body,
+        res,
+      );
     },
   );
 
