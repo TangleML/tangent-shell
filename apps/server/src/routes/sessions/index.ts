@@ -11,8 +11,10 @@ import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
 import type { UiCommandEmitter } from "../../sockets/sessionRoster.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
+import type { RunStore } from "../../store/runStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SharedFolderStore } from "../../store/sharedFolderStore.ts";
+import type { UsageStore } from "../../store/usageStore.ts";
 import {
   registerBundleRoutes,
   type SystemNotePoster,
@@ -26,6 +28,7 @@ import {
   handleCreateSession,
   handleDeleteSession,
   handleGetSession,
+  handleGetSessionUsage,
   handleListSessions,
   handleMarkSessionViewed,
   handleUpdateSession,
@@ -66,6 +69,27 @@ function registerSessionCollectionRoutes(
         createDeps,
         req,
         getValidated<CreateSessionInput>(req).body,
+        res,
+      ),
+  );
+}
+
+/** Registers `GET /:id/usage`: a session's token/cost totals and breakdowns. */
+function registerSessionUsageRoute(
+  router: Router,
+  store: SessionStore,
+  usage: UsageStore,
+  runStore: RunStore,
+): void {
+  router.get(
+    "/:id/usage",
+    validate({ params: sessionParamsSchema }),
+    (req: Request, res: Response) =>
+      handleGetSessionUsage(
+        store,
+        usage,
+        runStore,
+        getValidated<unknown, SessionParams>(req).params.id,
         res,
       ),
   );
@@ -163,6 +187,8 @@ export function createSessionsRouter(
   environments: EnvironmentLister,
   emitUiCommand: UiCommandEmitter,
   postSystemNote: SystemNotePoster,
+  usage: UsageStore,
+  runStore: RunStore,
   bundleKb?: BundleKbRegistry,
 ): Router {
   const router = Router();
@@ -182,6 +208,7 @@ export function createSessionsRouter(
 
   registerSessionCollectionRoutes(router, createDeps);
   registerSessionItemRoutes(router, store, pi, triggerEngine);
+  registerSessionUsageRoute(router, store, usage, runStore);
   registerSessionActivityRoutes(router, store);
   registerBundleRoutes(router, {
     store,

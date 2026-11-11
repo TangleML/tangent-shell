@@ -38,6 +38,7 @@ implemented under [server/src/routes/](../../server/src/routes).
 | `DELETE /api/sessions/:id`                                                         | Delete a session; disposes its `pi` processes and triggers.                                                    |
 | `POST /api/sessions/:id/viewed`                                                    | Record that the current user opened the session.                                                               |
 | `POST /api/sessions/:id/files`                                                     | Upload chat attachments into the session's `uploads/`.                                                         |
+| `GET /api/sessions/:id/usage`                                                      | Token/cost totals for the session, with per-agent and per-run breakdowns (`SessionUsage`).                     |
 | `GET /api/sessions/:id/triggers`                                                   | List the session's triggers.                                                                                   |
 | `POST /api/sessions/:id/triggers`                                                  | Create a runtime trigger.                                                                                      |
 | `PATCH /api/sessions/:id/triggers/:triggerId`                                      | Update a mutable trigger field.                                                                                |

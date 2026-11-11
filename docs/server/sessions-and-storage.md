@@ -64,6 +64,7 @@ changes go exclusively through drizzle migrations; never alter tables ad-hoc.
 | `conversations`       | per-Conversation `seq` counter and its owning agent; maps a Conversation id to its transcript.                                                                                                                                                        |
 | `memberships`         | a `(participant, conversation)` attachment: reaction spec, ingress, transcript visibility.                                                                                                                                                            |
 | `runs`                | one unit of work by one participant: status, ingress, home conversation, external id, cursor.                                                                                                                                                         |
+| `usage_events`        | append-only token/cost accounting, one row per finalized assistant message: `agent_id`, nullable `run_id`, `model`, the token columns, and `cost_usd`. Rolled up by the usage route (see [Usage and cost accounting](#usage-and-cost-accounting)).    |
 | `resources`           | the catalog: `file` / `memory` / `attachment` / `artifact` / `host` / `mount`, pointing at bytes by `uri`.                                                                                                                                            |
 | `resource_references` | a resource surfaced into a Conversation (surfacing + citation, not a filesystem gate).                                                                                                                                                                |
 | `resource_grants`     | per-Membership refinement of a reference; default-permissive (an empty table changes nothing).                                                                                                                                                        |
@@ -75,6 +76,53 @@ its deprecated `host` column) is gone; `SessionStore.listAgents` /
 `recordAgent` / `setAgentStatus` now read and write `participants` directly,
 mapping an agent's `agent_payload` back to a `SessionAgent`. Connector kind is a
 facet column, defaulting to `pi-stdio` when unset.
+
+---
+
+## Usage and cost accounting
+
+Every finalized assistant turn carries the token counts and the dollar cost the
+`pi` runtime computed for that model call (from its per-model rate table). The
+local connector lifts that off each `message_end` message and appends it, so a
+session's spend is a durable, queryable fact rather than a derived guess.
+
+- **Source.** Pi attaches a `usage` object to the assistant message on
+  `message_end`: `{ input, output, cacheRead, cacheWrite, totalTokens, cost: { total, … } }`,
+  `cost` already in USD.
+  [`PiAgentManager.finalizeMessage`](../../apps/server/src/pi/piAgentManager.ts)
+  reads it (via `usageFromMessage` in
+  [pi/utils.ts](../../apps/server/src/pi/utils.ts)) and records one row,
+  attributed to the producing agent and whatever [Run](./connectors.md) it was
+  working under. A message with no `usage` records nothing; the write is
+  fire-and-forget so it never blocks or fails the turn.
+- **Store.** [`UsageStore`](../../apps/server/src/store/usageStore.ts)
+  (`SqliteUsageStore` in production, `InMemoryUsageStore` for tests) owns the
+  append-only `usage_events` table. `record()` appends; `summarize(sessionId)`
+  rolls every row up with SQL `GROUP BY` into a session total plus per-agent and
+  per-run groupings (a run-less turn counts toward the total and its agent but no
+  run bucket).
+- **Endpoint.** `GET /api/sessions/:id/usage` returns the wire `SessionUsage`
+  ([packages/shared/src/contracts.ts](../../packages/shared/src/contracts.ts)):
+
+  ```jsonc
+  {
+    "usage": {
+      "sessionId": "…",
+      "total": { "inputTokens": 140, "outputTokens": 40, "cacheReadTokens": 0, "cacheWriteTokens": 0, "totalTokens": 180, "costUsd": 0.05 },
+      "byAgent": [{ "agentId": "worker-1", "name": "Worker", "role": "subagent", "purpose": "…", "status": "active", "totals": { … } }],
+      "byRun": [{ "runId": "…", "participantId": "worker-1", "ingress": "tool", "status": "completed", "totals": { … } }]
+    }
+  }
+  ```
+
+  [`handleGetSessionUsage`](../../apps/server/src/routes/sessions/handlers.ts)
+  enriches the store's raw ids with roster metadata (name/role/purpose/status
+  from `listAgents`) and run metadata (ingress/status from the `RunStore`); the
+  store itself stays unaware of either.
+
+> **Scope.** Only locally spawned pi agents (Prime + local sub-agents) are
+> metered today. A sub-agent hosted in a remote environment would need its
+> `usage` threaded through `RemoteAgentEvent` before it shows up here.
 
 ---
 
