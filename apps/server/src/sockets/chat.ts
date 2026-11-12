@@ -30,7 +30,7 @@ import {
 } from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import type { MemoryManager } from "../pi/memory.ts";
-import type { PiAgentManager } from "../pi/piAgentManager.ts";
+import { type PiAgentManager, PRIME_AGENT_ID } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
@@ -194,6 +194,24 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
   deps.io.on("connection", (socket: Socket) => wireSocket(socket, deps));
 }
 
+/**
+ * Lazily (re)spawns Prime, revives the session's sub-agents, and re-arms its
+ * schedules (all idempotent) in case the server restarted. An archived session
+ * is asleep: viewing it only loads its triggers for the roster.
+ */
+async function wakeOnJoin(
+  deps: ChatHandlerDeps,
+  session: Session,
+): Promise<void> {
+  const { store, pi, connectors, triggerEngine } = deps;
+  if (session.archived) {
+    triggerEngine.load(session.id, session.rootPath);
+    return;
+  }
+  await ensureSessionAgents(store, pi, connectors, session);
+  triggerEngine.sync(session.id, session.rootPath);
+}
+
 /** Joins the session room, then replays history and the sub-agent roster. */
 async function handleChatJoin(
   socket: Socket,
@@ -212,12 +230,7 @@ async function handleChatJoin(
   // triggers, artifacts); per-Conversation rooms carry the Messages.
   await socket.join(roomFor(session.id));
 
-  // Lazily (re)spawn Prime and revive the session's sub-agents in case the
-  // server restarted or the session predates the process manager.
-  await ensureSessionAgents(store, pi, connectors, session);
-
-  // Re-arm the session's schedule triggers (idempotent) and surface the roster.
-  triggerEngine.sync(session.id, session.rootPath);
+  await wakeOnJoin(deps, session);
 
   const authorized = await joinAuthorized(socket, deps, author, session);
   socket.emit(
@@ -453,8 +466,8 @@ function markAbsent(deps: ChatHandlerDeps, tracked: Set<string>): void {
  * sub-agent because the message landed in its own thread. No branch on which
  * conversation it was — that was the hardcoded routing this replaces.
  *
- * `pi.ensure` stays because it is lifecycle, not delivery: a cold session has no
- * Prime process for a reaction to reach.
+ * Waking the session stays because it is lifecycle, not delivery: a cold session
+ * has no Prime process for a reaction to reach.
  */
 export async function handleChatMessage(
   socket: Socket,
@@ -476,17 +489,13 @@ export async function handleChatMessage(
     session.id,
   );
   const conversationId = payload.conversationId ?? primaryConversationId;
-  // Always ensure Prime, regardless of which thread the message targets: it is
-  // idempotent, and unconditionally reviving Prime here means a human message
-  // self-heals a cold/raced session at the delivery layer instead of depending
-  // on the client sending the exact primary conversation id. Without this, a
-  // send that races `chat:join` (or arrives right after a backend restart) with
-  // the seed id skips the ensure and falls through to the NullConnector refusal.
-  const env = await store.getSessionEnv(session.id);
-  await pi.ensure(session.id, session.rootPath, {
-    homeConversationId: primaryConversationId,
-    env,
-  });
+  // Wake a cold session regardless of which thread the message targets, so a
+  // human message self-heals a raced, restarted, or archived (asleep) session at
+  // the delivery layer. Reviving its sub-agents too means a message into a
+  // sleeping sub-agent's thread reaches it instead of the NullConnector refusal.
+  if (!pi.hasAgent(session.id, PRIME_AGENT_ID)) {
+    await ensureSessionAgents(store, pi, connectors, session);
+  }
 
   await conversations.post({
     sessionId: session.id,

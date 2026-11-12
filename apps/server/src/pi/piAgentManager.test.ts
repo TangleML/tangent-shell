@@ -536,6 +536,30 @@ test("an intentional kill is not auto-respawned", async () => {
   assert.equal(pi.hasAgent("s1", info.id), false);
 });
 
+test("sleep kills every agent, cancels open runs, and reports the sub-agents", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const { info } = h.pi.spawnSubagent("s1", { name: "Worker" });
+  h.pi.sendToAgent({ sessionId: "s1", agentId: info.id, text: "go" });
+  const runId = h.runs.current("s1", info.id)?.id;
+  assert.ok(runId);
+
+  assert.deepEqual(h.pi.sleep("s1"), [info.id]);
+  for (const { child } of h.spawns) child.crash();
+  await flush();
+
+  assert.ok(h.spawns.every(({ child }) => child.killed));
+  assert.equal(h.spawns.length, 2, "nothing respawns after sleep");
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
+  assert.equal(
+    h.events.some((e) => e.type === "error"),
+    false,
+    "the kill is not reported as an in-flight failure",
+  );
+  assert.deepEqual(h.rosterUpdates.slice(1), [], "no roster churn on sleep");
+  assert.equal(h.pi.computeStatus("s1"), "idle");
+});
+
 test("a synchronous spawn failure is relayed as an error, not thrown", async () => {
   const error = mock.method(console, "error", () => {});
   const { pi, spawns, events } = makeManager({ shouldFailSpawn: () => true });

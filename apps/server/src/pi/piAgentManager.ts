@@ -1345,6 +1345,26 @@ export class PiAgentManager {
     this.notifyStatus(sessionId);
   }
 
+  /**
+   * Puts a session to sleep: cancels its open Runs and kills every agent
+   * without supervisor respawn. Returns the sub-agent ids that were live so the
+   * caller can persist them as `detached`, which a later revive restores.
+   */
+  sleep(sessionId: string): string[] {
+    const agents = [...(this.sessions.get(sessionId)?.agents.values() ?? [])];
+    for (const agent of agents) {
+      // Quieted so the kill-triggered exit doesn't report an in-flight error.
+      agent.busy = false;
+      agent.currentMessageId = null;
+      agent.aborted = true;
+      this.runs.settleOpenFor(sessionId, agent.agentId, "cancelled");
+    }
+    this.dispose(sessionId);
+    return agents
+      .filter((agent) => agent.role === "subagent")
+      .map((agent) => agent.agentId);
+  }
+
   /** Kills every managed process. Used on server shutdown. */
   disposeAll(): void {
     for (const sessionId of [...this.sessions.keys()]) {
