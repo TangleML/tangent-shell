@@ -90,6 +90,11 @@ export interface SessionAgent {
   systemPrompt?: string;
   /** Whether the sub-agent's replies auto-relay back to Prime. Defaults true. */
   autoRelayToPrime?: boolean;
+  /**
+   * Set once a user dismissed this finished sub-agent; the roster stops listing
+   * it, but the row stays so its transcript keeps its attributions.
+   */
+  dismissedAt?: string;
   /** The connector that runs the agent. */
   connector: ConnectorDescriptor;
   /**
@@ -224,6 +229,8 @@ export interface SessionStore {
     agentId: string,
     status: SessionAgentStatus,
   ): Promise<void>;
+  /** Stamps an agent's `dismissedAt`. No-op if unknown. */
+  dismissAgent(sessionId: string, agentId: string): Promise<void>;
   /** Lists a session's agents (Prime first), oldest first. */
   listAgents(sessionId: string): Promise<SessionAgent[]>;
   /**
