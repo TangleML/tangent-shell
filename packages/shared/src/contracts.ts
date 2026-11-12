@@ -232,6 +232,11 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     provider: "anthropic",
   },
   {
+    id: "anthropic/claude-opus-4-8",
+    label: "Claude Opus 4.8",
+    provider: "anthropic",
+  },
+  {
     id: "anthropic/claude-fable-5-1",
     label: "Claude Fable 5.1",
     provider: "anthropic",
@@ -879,6 +884,59 @@ export interface Run {
   updatedAt: string;
   /** ISO-8601 timestamp the Run settled; absent while it is `running`. */
   endedAt?: string;
+}
+
+/**
+ * Aggregated model spend for some scope (a whole session, one agent, or one
+ * {@link Run}). Token counts are summed across every model call; `costUsd` is
+ * the dollar figure the agent runtime computed from its per-model rate table,
+ * so no pricing lives server-side.
+ */
+export interface UsageTotals {
+  /** Non-cached input (prompt) tokens. */
+  inputTokens: number;
+  /** Output (completion) tokens. */
+  outputTokens: number;
+  /** Input tokens served from the prompt cache. */
+  cacheReadTokens: number;
+  /** Input tokens written to the prompt cache. */
+  cacheWriteTokens: number;
+  /** All token kinds combined. */
+  totalTokens: number;
+  /** Combined cost in US dollars. */
+  costUsd: number;
+}
+
+/** One agent's share of a session's spend, in the per-agent breakdown. */
+export interface AgentUsage {
+  agentId: string;
+  name: string;
+  role: AgentRole;
+  /** The agent's task/description, when known. */
+  purpose?: string;
+  status: SubagentStatus;
+  totals: UsageTotals;
+}
+
+/** One {@link Run}'s share of a session's spend, the per-task breakdown. */
+export interface RunUsage {
+  runId: RunId;
+  participantId: string;
+  ingress: RunIngress;
+  status: RunStatus;
+  totals: UsageTotals;
+}
+
+/**
+ * A session's model spend: the grand {@link UsageTotals} plus the per-agent and
+ * per-{@link Run} (task) breakdowns. The shape returned by
+ * `GET /api/sessions/:id/usage`.
+ */
+export interface SessionUsage {
+  sessionId: string;
+  total: UsageTotals;
+  byAgent: AgentUsage[];
+  byRun: RunUsage[];
 }
 
 /**

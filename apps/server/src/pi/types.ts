@@ -234,6 +234,28 @@ export interface AssistantDelta {
 }
 
 /**
+ * The token/cost accounting Pi attaches to a finalized assistant message. Token
+ * counts are that model call's own; `cost` is already in US dollars, computed by
+ * Pi from its per-model rate table. Flat and all-optional because it comes
+ * straight from JSON and an older Pi (or a provider that omits a field) may not
+ * carry every key.
+ */
+export interface MessageUsage {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+  cost?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    total?: number;
+  };
+}
+
+/**
  * A parsed line from a Pi process's stdout (JSONL RPC stream). Kept as a flat
  * shape (rather than a discriminated union) because the `type` field comes
  * straight from JSON and may carry events we don't model; the dispatcher
@@ -244,7 +266,7 @@ export interface PiStdoutEvent {
   assistantMessageEvent?: AssistantDelta;
   messages?: unknown;
   /** Present on `message_start` / `message_update` / `message_end` events. */
-  message?: { role?: string; content?: unknown };
+  message?: { role?: string; content?: unknown; usage?: MessageUsage };
   /** Present on `tool_execution_*` events. */
   toolName?: string;
   /** Present on `tool_execution_start` / `tool_execution_update` events. */

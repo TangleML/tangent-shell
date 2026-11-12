@@ -67,7 +67,7 @@ flowchart TB
     Runs["RunRegistry"]
 
     subgraph stores [SQLite stores + disk]
-      DB["tangent.db (sessions, agents, participants,<br/>memberships, runs, resources)"]
+      DB["tangent.db (sessions, agents, participants,<br/>memberships, runs, usage_events, resources)"]
       JSONL[".tangent/chats/*.jsonl transcripts"]
     end
   end
@@ -143,10 +143,14 @@ SqliteResourceStore(db)`, `membershipStore = new SqliteMembershipStore(db)` —
   that relays a participant's streaming events, roster changes, and posted
   messages the same way whether it runs locally, remotely, or entirely outside
   Tangent.
-- `runs = new RunRegistry(new SqliteRunStore(db))` — tracks which participant is
-  working under which run id; settles stale runs left by a previous process.
-- `pi = new PiAgentManager(agentHandlers, memory, runs, hostResourcePreamble)` —
-  the roster of Pi processes per session (the local connector).
+- `runStore = new SqliteRunStore(db)`, `runs = new RunRegistry(runStore)` — tracks
+  which participant is working under which run id; settles stale runs left by a
+  previous process.
+- `usage = new SqliteUsageStore(db)` — append-only per-message token/cost
+  accounting, rolled up by `GET /api/sessions/:id/usage`.
+- `pi = new PiAgentManager(agentHandlers, memory, runs, usage, hostResourcePreamble)`
+  — the roster of Pi processes per session (the local connector); records each
+  finalized turn's usage as it streams.
 - `remoteGateway`, `externalGateway`, `a2aGateway` — the other three connector
   gateways, all sharing `agentHandlers` and `runs`.
 - `connectors = createConnectorRegistry(pi, remoteGateway, externalGateway,
@@ -162,7 +166,7 @@ participantService)` — arms schedule timers and posts firings into the target'
 The Express app mounts:
 
 - `GET /api/health`
-- `/api/sessions` -> `createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore, participantService, resourceCatalog, sharedFolderStore, memory, hostResourcePreamble, emitResourcesUpdated, …)`
+- `/api/sessions` -> `createSessionsRouter(store, pi, triggers, triggerEngine, agentBundleStore, participantService, resourceCatalog, sharedFolderStore, memory, hostResourcePreamble, emitResourcesUpdated, …, usage, runStore, …)` (adds `GET /:id/usage`)
 - `/api/agent-bundles` -> `createAgentBundlesRouter(agentBundleStore)`
 - `/api/shared-folders` -> `createSharedFoldersRouter(sharedFolderStore)` (cross-session folders a session mounts into its root)
 - `/api/global-memory` -> `createGlobalMemoryRouter(memory)`

@@ -36,6 +36,7 @@ import type {
 } from "../memory/resolver.ts";
 import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
+import type { UsageStore } from "../store/usageStore.ts";
 import {
   type AgentConfig,
   getPrimeAgentConfig,
@@ -72,6 +73,7 @@ import {
   toolActivityLabel,
   toSubagentInfo,
   TRIGGERS_EXTENSION,
+  usageFromMessage,
 } from "./utils.ts";
 
 // Re-exported so existing consumers (sockets, routes, index) keep importing
@@ -770,6 +772,11 @@ export class PiAgentManager {
    */
   private readonly runs: RunRegistry;
   /**
+   * Sink for per-message token/cost accounting, written as each assistant turn
+   * finalizes. The authority that feeds the usage route's rollups.
+   */
+  private readonly usage: UsageStore;
+  /**
    * Spawn-time projection of each session's host resources, appended to every
    * agent's preamble. Optional so a bare manager (e.g. a test) skips it.
    */
@@ -794,6 +801,7 @@ export class PiAgentManager {
     handlers: ConversationEventSink,
     memory: MemoryResolver,
     runs: RunRegistry,
+    usage: UsageStore,
     hostResources?: HostResourcePreamble,
     spawnProcess: typeof spawn = spawn,
   ) {
@@ -801,6 +809,7 @@ export class PiAgentManager {
     this.handlers = handlers;
     this.memory = memory;
     this.runs = runs;
+    this.usage = usage;
     this.hostResources = hostResources;
   }
 
@@ -1756,6 +1765,8 @@ export class PiAgentManager {
       assistantTextFromMessage(event.message) || agent.accum || "";
     if (content.trim()) agent.lastFinalContent = content;
 
+    this.recordUsage(sessionId, agent, event);
+
     this.emit(sessionId, descriptor, {
       type: "end",
       messageId: agent.currentMessageId as string,
@@ -1763,6 +1774,32 @@ export class PiAgentManager {
       thinking: agent.thinkingAccum,
       ...(agent.aborted ? { aborted: true } : {}),
     });
+  }
+
+  /**
+   * Appends the finalized message's token/cost accounting, attributed to the
+   * agent and whatever Run it is working under. Fire-and-forget: a usage write
+   * must never block or fail the turn it measures. A message Pi sent with no
+   * `usage` (an older build, or a provider that omits it) records nothing.
+   */
+  private recordUsage(
+    sessionId: string,
+    agent: AgentProcess,
+    event: PiStdoutEvent,
+  ): void {
+    const usage = usageFromMessage(event.message);
+    if (!usage) return;
+    void this.usage
+      .record({
+        sessionId,
+        agentId: agent.agentId,
+        runId: this.runs.current(sessionId, agent.agentId)?.id,
+        model: agent.config.model,
+        usage,
+      })
+      .catch((err: unknown) => {
+        console.error(`[pi:${sessionId}:${agent.agentId}] usage write`, err);
+      });
   }
 
   /**

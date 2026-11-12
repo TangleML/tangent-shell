@@ -22,6 +22,7 @@ import type { MemoryResolver, MemorySpawnPlan } from "../memory/resolver.ts";
 import type { AgentRole } from "../memory/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
+import { InMemoryUsageStore } from "../store/inMemoryUsageStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
@@ -128,6 +129,7 @@ function makeManager(options?: {
   events: RelayedEvent[];
   runs: RunRegistry;
   runStore: InMemoryRunStore;
+  usageStore: InMemoryUsageStore;
 } {
   const spawns: SpawnRecord[] = [];
   const rosterUpdates: { id: string; status: string }[] = [];
@@ -159,8 +161,16 @@ function makeManager(options?: {
 
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
-  const pi = new PiAgentManager(handlers, memory, runs, undefined, fakeSpawn);
-  return { pi, spawns, rosterUpdates, events, runs, runStore };
+  const usageStore = new InMemoryUsageStore();
+  const pi = new PiAgentManager(
+    handlers,
+    memory,
+    runs,
+    usageStore,
+    undefined,
+    fakeSpawn,
+  );
+  return { pi, spawns, rosterUpdates, events, runs, runStore, usageStore };
 }
 
 /** A persisted roster row with sane defaults, overridable per field. */
@@ -388,6 +398,68 @@ function runTurn(child: FakeChild, text: string): void {
 function flush(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
+
+/** Drives a turn whose assistant `message_end` carries token/cost usage. */
+function runTurnWithUsage(
+  child: FakeChild,
+  text: string,
+  usage: Record<string, unknown>,
+): void {
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, { type: "message_start", message: { role: "assistant" } });
+  emitPi(child, {
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: text },
+  });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: text, usage },
+  });
+  emitPi(child, { type: "agent_end" });
+}
+
+test("an assistant turn's usage is recorded against its agent and run", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hi" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  runTurnWithUsage(h.spawns[0].child, "done", {
+    input: 100,
+    output: 20,
+    cacheRead: 5,
+    cacheWrite: 0,
+    totalTokens: 125,
+    cost: { total: 0.0021 },
+  });
+  await flush();
+
+  const summary = await h.usageStore.summarize("s1");
+  assert.equal(summary.total.totalTokens, 125);
+  assert.equal(summary.total.inputTokens, 100);
+  assert.equal(summary.total.cacheReadTokens, 5);
+  assert.equal(summary.total.costUsd, 0.0021);
+  assert.deepEqual(
+    summary.byAgent.map((agent) => agent.agentId),
+    [PRIME_AGENT_ID],
+  );
+  assert.equal(summary.byRun[0]?.runId, runId);
+  assert.equal(summary.byRun[0]?.totals.totalTokens, 125);
+});
+
+test("a turn whose message carries no usage records nothing", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hi" });
+  runTurn(h.spawns[0].child, "no usage here");
+  await flush();
+
+  const summary = await h.usageStore.summarize("s1");
+  assert.equal(summary.total.totalTokens, 0);
+  assert.equal(summary.byAgent.length, 0);
+});
 
 test("a prompt opens one run and every event in the turn carries its id", async () => {
   const h = makeManager();
