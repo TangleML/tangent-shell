@@ -18,7 +18,6 @@ import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
 import { buildSubagents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
-import { commandRun } from "@/features/chat/model/commands";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
 import {
   artifactReferences,
@@ -271,14 +270,9 @@ export function EmbeddedChat({
         mentionCandidates={mentionCandidates}
         references={references}
         commands={commands}
-        onRunCommand={async (command, args) => {
-          const result = await command.run(args);
-          chat.postCommandResult(
-            result,
-            commandRun(command, args),
-            primaryConversationId,
-          );
-        }}
+        onRunCommand={(command, args) =>
+          chat.runCommand(command, args, primaryConversationId)
+        }
         onAbort={() => chat.abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) => {
           chat.send(content, {
