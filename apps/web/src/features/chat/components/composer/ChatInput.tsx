@@ -13,6 +13,7 @@ import {
 import type { MentionCandidate } from "@/features/chat/model/mentions";
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
 
+import { useQuoteScope } from "../quote/quoteScope";
 import { ComposerShell } from "./ComposerShell";
 import { KilledAgentNotice } from "./KilledAgentNotice";
 import { QueuedFollowUps } from "./QueuedFollowUps";
@@ -91,6 +92,17 @@ export function ChatInput({
   // Tracks the previous busy state so we can detect the run-end transition and
   // flush the queue exactly once when the agent stops.
   const wasBusyRef = useRef(agentBusy);
+  // Quoting a message drops its excerpt into this composer's draft.
+  const quoteScope = useQuoteScope();
+  // A killed agent has no composer, so the quote action must stay hidden.
+  const composerReady = agentStatus !== "killed";
+  const setComposerReady = quoteScope?.setComposerReady;
+
+  useEffect(() => {
+    if (!setComposerReady) return;
+    setComposerReady(composerReady);
+    return () => setComposerReady(false);
+  }, [setComposerReady, composerReady]);
 
   const busy = disabled || uploading;
   const canSubmit = !busy && (value.trim().length > 0 || files.length > 0);
@@ -220,6 +232,8 @@ export function ChatInput({
       hideSend={agentBusy}
       autoFocus={autoFocus}
       mentionCandidates={mentionCandidates}
+      insertion={quoteScope?.insertion}
+      onInsertionApplied={quoteScope?.consumeInsertion}
     >
       <StagedFiles files={files} uploading={uploading} onRemove={removeFile} />
       <QueuedFollowUps
