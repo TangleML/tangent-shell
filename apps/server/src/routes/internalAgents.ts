@@ -20,11 +20,13 @@ import {
 } from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import { reactionSpec } from "../conversation/reaction.ts";
+import type { ReactorRegistry } from "../conversation/reactorRegistry.ts";
 import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
+import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
-import type { SessionStore } from "../store/sessionStore.ts";
+import type { RecordAgentInput, SessionStore } from "../store/sessionStore.ts";
 
 /** Spawn a sub-agent; `sessionId` and `name` identify and label it. */
 export const spawnSchema = z.object({
@@ -138,6 +140,101 @@ async function postInitialTask(
 }
 
 /**
+ * Installs a `supervise` reactor so the orchestrator is woken on any termination
+ * cause surfaced in a freshly spawned sub-agent's Conversation — a budget
+ * exhausted, a failed Run, a dropped connection — which otherwise lands as a
+ * system notice that no membership reaction fires on. Best-effort: a failure to
+ * install must not read as a failed spawn Prime might retry. Idempotent, since
+ * the store keys a reactor by its scope.
+ */
+async function installSupervisor(
+  reactors: ReactorRegistry,
+  store: SessionStore,
+  sessionId: string,
+  subagentConversationId: string,
+): Promise<void> {
+  try {
+    const { orchestratorId, homeConversationId } = await orchestratorIdentity(
+      store,
+      sessionId,
+    );
+    await reactors.install({
+      sessionId,
+      participantId: orchestratorId,
+      spec: { name: "supervise" },
+      scope: {
+        memberships: [
+          {
+            conversationId: subagentConversationId,
+            participantId: orchestratorId,
+          },
+        ],
+        homeConversationId,
+      },
+    });
+  } catch (err) {
+    console.error(
+      `[agents] failed to install supervisor for ${subagentConversationId}:`,
+      err,
+    );
+  }
+}
+
+/**
+ * Removes the `supervise` reactor {@link installSupervisor} installed for a
+ * sub-agent, so a killed worker's dead thread stops showing in the workflow
+ * view. Best-effort: a stale reactor watching a quiet thread is harmless, so a
+ * failure here is logged, not surfaced.
+ */
+async function removeSupervisor(
+  reactors: ReactorRegistry,
+  store: SessionStore,
+  sessionId: string,
+  agentId: string,
+): Promise<void> {
+  try {
+    const { orchestratorId } = await orchestratorIdentity(store, sessionId);
+    const home = await homeConversationFor(store, sessionId, agentId);
+    const installed = await reactors.listForParticipant(
+      sessionId,
+      orchestratorId,
+    );
+    const supervisor = installed.find(
+      (record) =>
+        record.spec.name === "supervise" &&
+        record.scope.memberships.some(
+          (member) => member.conversationId === home,
+        ),
+    );
+    if (supervisor) await reactors.remove(supervisor.id);
+  } catch (err) {
+    console.error(`[agents] failed to remove supervisor for ${agentId}:`, err);
+  }
+}
+
+/** The roster row a freshly spawned sub-agent is persisted as. */
+function subagentRecord(
+  body: SpawnInput,
+  { info, tools, systemPrompt, autoRelayToPrime }: SpawnedSubagent,
+): RecordAgentInput {
+  return {
+    id: info.id,
+    role: "subagent",
+    name: info.name,
+    purpose: body.task,
+    status: "active",
+    model: info.model,
+    thinkingDepth: info.thinkingDepth,
+    template: info.template,
+    tools,
+    systemPrompt,
+    autoRelayToPrime,
+    connector: info.connector,
+    homeConversationId: info.conversationId,
+  };
+}
+
+/**
  * Spawns a sub-agent (resolving its model/thinking) on the connector its
  * requested environment names, persists it so the roster survives a restart, and
  * posts its initial task. The row is awaited before the task is posted, so the
@@ -149,6 +246,7 @@ async function handleSpawn(
   connectors: ConnectorRegistry,
   router: ConversationRouter,
   runs: RunRegistry,
+  reactors: ReactorRegistry,
   body: SpawnInput,
   res: Response,
 ): Promise<void> {
@@ -161,39 +259,31 @@ async function handleSpawn(
 
   const audienceParticipantId = runs.audienceFor(body.sessionId, PI_AGENT.id);
   try {
-    const { info, tools, systemPrompt, autoRelayToPrime } = connector.spawn(
-      body.sessionId,
-      {
-        name: body.name,
-        template: body.template,
-        systemPrompt: body.systemPrompt,
-        tools: body.tools,
-        model: body.model,
-        thinkingDepth: parseThinkingLevel(body.thinkingDepth),
-        environment: body.environment,
-        environmentId: body.environmentId,
-        autoRelayToPrime: body.autoRelayToPrime,
-        audienceParticipantId,
-      },
-    );
+    const spawnResult = connector.spawn(body.sessionId, {
+      name: body.name,
+      template: body.template,
+      systemPrompt: body.systemPrompt,
+      tools: body.tools,
+      model: body.model,
+      thinkingDepth: parseThinkingLevel(body.thinkingDepth),
+      environment: body.environment,
+      environmentId: body.environmentId,
+      autoRelayToPrime: body.autoRelayToPrime,
+      audienceParticipantId,
+    });
+    const { info } = spawnResult;
     if (audienceParticipantId) {
       runs.recordAudience(body.sessionId, info.id, audienceParticipantId);
     }
-    await store.recordAgent(body.sessionId, {
-      id: info.id,
-      role: "subagent",
-      name: info.name,
-      purpose: body.task,
-      status: "active",
-      model: info.model,
-      thinkingDepth: info.thinkingDepth,
-      template: info.template,
-      tools,
-      systemPrompt,
-      autoRelayToPrime,
-      connector: info.connector,
-      homeConversationId: info.conversationId,
-    });
+    await store.recordAgent(body.sessionId, subagentRecord(body, spawnResult));
+    // Watch the sub-agent's thread before its first task runs, so any cause it
+    // surfaces wakes the orchestrator to re-assess. Best-effort inside.
+    await installSupervisor(
+      reactors,
+      store,
+      body.sessionId,
+      info.conversationId,
+    );
     res.json({ subagent: info });
     // Answered first: the sub-agent exists either way, and a failure to post its
     // first task must not read as a failed spawn Prime might retry.
@@ -323,15 +413,18 @@ async function handleReport(
 }
 
 /** Terminates a sub-agent, optionally marking its work completed. */
-function handleKill(
+async function handleKill(
   connectors: ConnectorRegistry,
+  store: SessionStore,
+  reactors: ReactorRegistry,
   body: KillInput,
   res: Response,
-): void {
+): Promise<void> {
   const { sessionId, agentId } = body;
   connectors
     .resolve(sessionId, agentId)
     .kill(sessionId, agentId, body.completed ?? false);
+  await removeSupervisor(reactors, store, sessionId, agentId);
   res.json({ ok: true });
 }
 
@@ -394,6 +487,7 @@ export function createInternalAgentsRouter(
   a2a: A2aPeerGateway,
   participants: ParticipantService,
   runs: RunRegistry,
+  reactors: ReactorRegistry,
   context?: ContextEngine,
   memberships?: MembershipRegistry,
 ): Router {
@@ -407,6 +501,7 @@ export function createInternalAgentsRouter(
       connectors,
       conversations,
       runs,
+      reactors,
       getValidated<SpawnInput>(req).body,
       res,
     ),
@@ -442,7 +537,13 @@ export function createInternalAgentsRouter(
   );
 
   router.post("/kill", validate({ body: killSchema }), (req, res) =>
-    handleKill(connectors, getValidated<KillInput>(req).body, res),
+    handleKill(
+      connectors,
+      store,
+      reactors,
+      getValidated<KillInput>(req).body,
+      res,
+    ),
   );
 
   router.get("/list", validate({ query: listQuerySchema }), (req, res) =>
