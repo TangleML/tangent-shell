@@ -232,6 +232,11 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     provider: "anthropic",
   },
   {
+    id: "anthropic/claude-fable-5-2",
+    label: "Claude Fable 5.2",
+    provider: "anthropic",
+  },
+  {
     id: "anthropic/claude-fable-5-1",
     label: "Claude Fable 5.1",
     provider: "anthropic",
@@ -270,7 +275,7 @@ export const AVAILABLE_MODELS: ModelOption[] = [
  * default value rather than a generic "Default" label. `DEFAULT_MODEL_ID` is a
  * `provider/model` string matching an {@link AVAILABLE_MODELS} entry.
  */
-export const DEFAULT_MODEL_ID = "openai/gpt-6.1-sol";
+export const DEFAULT_MODEL_ID = "anthropic/claude-fable-5-2";
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
 /** Author of a chat message. Chats assume multiple humans and agents. */

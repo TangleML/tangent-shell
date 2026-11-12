@@ -102,7 +102,7 @@ ENV PI_BIN=pi
 ENV PI_PROXY_URL=https://proxy.shopify.ai
 # PI_PROXY_API_KEY must be supplied at deploy time (e.g. a Cloud Run secret) so
 # Pi can authenticate to the proxy; it is intentionally not baked into the image.
-# Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default openai/gpt-6.1-sol),
+# Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default anthropic/claude-fable-5-2),
 # PI_DEBUG=1 enables verbose Pi RPC logging.
 
 COPY --from=builder /app/apps/server/dist ./dist
