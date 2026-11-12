@@ -8,7 +8,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   clearDraft,
   readDraft,
+  readDraftPicks,
   writeDraft,
+  writeDraftPicks,
 } from "@/features/chat/model/chatDraft";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
 import {
@@ -85,13 +87,14 @@ export function ChatInput({
   references,
   onSubmit,
 }: ChatInputProps) {
-  // Drafts persist per session+agent so the unsent text survives navigation and
-  // reloads. Seed from storage on mount; callers key this component by
-  // session+agent, so it remounts (and re-seeds) when either changes.
+  // Drafts persist per session+agent so the unsent text and its picked
+  // references survive navigation and reloads. Seed from storage on mount;
+  // callers key this component by session+agent, so it remounts (and re-seeds)
+  // when either changes.
   const [value, setValue] = useState(() => readDraft(sessionId, agentId));
   const [files, setFiles] = useState<File[]>([]);
-  const [picked, setPicked] = useState<ReadonlyMap<string, ChatReference>>(
-    () => new Map(),
+  const [picked, setPicked] = useState(() =>
+    readDraftPicks(sessionId, agentId),
   );
   const [uploading, setUploading] = useState(false);
   // Follow-ups composed while the agent is busy wait here until the run ends
@@ -115,7 +118,9 @@ export function ChatInput({
   }
 
   function pickReference(token: string, reference: ChatReference) {
-    setPicked((prev) => new Map(prev).set(token, reference));
+    const next = new Map(picked).set(token, reference);
+    setPicked(next);
+    writeDraftPicks(sessionId, agentId, next);
   }
 
   // Takes the composed text for sending: each `#token` becomes its reference's
