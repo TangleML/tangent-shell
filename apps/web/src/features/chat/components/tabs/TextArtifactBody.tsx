@@ -20,14 +20,34 @@ function PlainText({ children }: { children: string }) {
   );
 }
 
-/** Valid JSON reads better indented; anything else is shown as written. */
-function readable(text: string, url: string): string {
-  if (!/\.json(?:[?#]|$)/i.test(url)) return text;
+// Past this a single text block makes the tab sluggish.
+const MAX_SHOWN_CHARS = 2_000_000;
+const MAX_INDENTED_CHARS = 500_000;
+
+/**
+ * JSON written on one line reads better indented. It's only re-indented when
+ * parsing and writing it back gives the same text, since that loses detail
+ * otherwise: big integers round, `1.0` becomes `1`, repeated keys drop.
+ */
+function indented(text: string): string {
+  const compact = text.trim();
+  if (compact.length > MAX_INDENTED_CHARS || compact.includes("\n"))
+    return text;
   try {
-    return JSON.stringify(JSON.parse(text), null, 2);
+    const parsed: unknown = JSON.parse(compact);
+    return JSON.stringify(parsed) === compact
+      ? JSON.stringify(parsed, null, 2)
+      : text;
   } catch {
     return text;
   }
+}
+
+function readable(text: string, url: string): string {
+  if (text.length > MAX_SHOWN_CHARS) {
+    return `${text.slice(0, MAX_SHOWN_CHARS)}\n\n… This file is too long to show in full here.`;
+  }
+  return /\.json(?:[?#]|$)/i.test(url) ? indented(text) : text;
 }
 
 /**

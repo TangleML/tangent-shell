@@ -309,6 +309,7 @@ const pi = new PiAgentManager(
   hostResourcePreamble,
   (sessionId) => store.selectorsOf(sessionId),
 );
+pi.useOnDisposed((sessionId) => conversations.forgetSession(sessionId));
 pi.useTranscript(
   async (sessionId) => (await store.getMessages(sessionId)).length > 0,
 );

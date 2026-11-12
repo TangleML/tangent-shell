@@ -151,6 +151,11 @@ export interface AgentProcess {
    * failed, so the run settles `failed` rather than `completed`.
    */
   modelFailed: boolean;
+  /**
+   * Set while a turn that ended on a failed model call waits to hear whether
+   * Pi is retrying it, before the run is settled as failed.
+   */
+  pendingEnd: ReturnType<typeof setTimeout> | null;
   /** The id of the assistant message currently streaming, if any. */
   currentMessageId: string | null;
   /**
@@ -260,4 +265,8 @@ export interface PiStdoutEvent {
   steering?: unknown;
   /** Present on `queue_update` events: pending follow-up messages. */
   followUp?: unknown;
+  /** Present on `agent_end` in newer Pi: it is about to retry the turn. */
+  willRetry?: boolean;
+  /** Present on `auto_retry_end`: whether a retry got through. */
+  success?: boolean;
 }
