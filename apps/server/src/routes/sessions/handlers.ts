@@ -116,10 +116,11 @@ export function createArtifactFileHandler() {
 }
 
 /**
- * Sends a validated artifact. HTML gets the page bridge injected so its forms
- * can fire trigger callbacks through the sandboxed frame's parent; everything
- * else streams via `sendFile`, which derives the Content-Type from the extension
- * and only applies its dotfile check to the path after `root`.
+ * Sends a validated artifact. HTML gets the page bridge injected so the page
+ * can fire trigger callbacks and read its session's files through the
+ * sandboxed frame's parent; everything else streams via `sendFile`, which
+ * derives the Content-Type from the extension and only applies its dotfile
+ * check to the path after `root`.
  */
 function serveArtifact(
   res: Response,
