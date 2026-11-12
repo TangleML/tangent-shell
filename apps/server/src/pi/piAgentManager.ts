@@ -35,7 +35,11 @@ import type {
   MemorySpawnPlan,
   ResolvedMemory,
 } from "../memory/resolver.ts";
-import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
+import type {
+  RunRegistry,
+  SettledStatus,
+  Settlement,
+} from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
   type AgentConfig,
@@ -884,19 +888,25 @@ export class PiAgentManager {
    * Records how a settled Run ended, whichever connector ran it, so the lobby
    * can mark the session finished or failed. A failure stands until the
    * session starts working again from a standstill, so one agent failing while
-   * another is still busy isn't lost.
+   * another is still busy isn't lost. A Run superseded by its participant's
+   * next one ended no work, so it isn't recorded.
    */
-  recordSettled(run: Run): void {
+  recordSettled(run: Run, { superseded }: Settlement): void {
     const { sessionId } = run;
-    if (this.disposing.has(sessionId)) return;
+    if (superseded || this.disposing.has(sessionId)) return;
+    this.lastEnd.set(sessionId, this.endingWith(run));
+    this.notifyStatus(sessionId);
+  }
+
+  private endingWith(run: Run): LastEnd {
+    const { sessionId } = run;
     const previous = this.lastEnd.get(sessionId);
     const failedBefore = previous?.failed === true && !previous.stretchOver;
-    this.lastEnd.set(sessionId, {
+    return {
       endedAt: run.endedAt ?? new Date().toISOString(),
       failed: run.status === "failed" || failedBefore,
       stretchOver: this.runs.listForSession(sessionId).length === 0,
-    });
-    this.notifyStatus(sessionId);
+    };
   }
 
   /**

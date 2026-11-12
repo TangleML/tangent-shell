@@ -240,9 +240,9 @@ const conversations = new ConversationRouter(
 // `run-error` cause in its home Conversation so a supervisor can react. A
 // boot-stale row is settled by `failStaleRuns` writing the store directly, not
 // through `settle`, so it never reaches here.
-runs.useOnSettled((run) => {
+runs.useOnSettled((run, settlement) => {
   admission.release(run);
-  pi.recordSettled(run);
+  pi.recordSettled(run, settlement);
   if (run.status === "failed") {
     conversations.announceCause(run.sessionId, {
       kind: "run-error",

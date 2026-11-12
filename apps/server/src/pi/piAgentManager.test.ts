@@ -163,7 +163,7 @@ function makeManager(options?: {
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
   const pi = new PiAgentManager(handlers, memory, runs, undefined, fakeSpawn);
-  runs.useOnSettled((run) => pi.recordSettled(run));
+  runs.useOnSettled((run, settlement) => pi.recordSettled(run, settlement));
   return { pi, spawns, rosterUpdates, events, statuses, runs, runStore };
 }
 
@@ -993,6 +993,22 @@ test("a run from another connector ending says when, with no agent of ours runni
     [{ sessionId: "s2", status: "idle" }],
     "a later run that started from a standstill clears the failure",
   );
+});
+
+test("an agent handed new work while its last run was still open isn't announced as finished", () => {
+  const h = makeManager();
+  const handWork = () =>
+    h.runs.open({
+      sessionId: "s2",
+      participantId: "remote-1",
+      ingress: "reaction",
+    });
+
+  handWork();
+  handWork();
+
+  assert.deepEqual(h.statuses, []);
+  assert.deepEqual(h.pi.getStatuses(), []);
 });
 
 test("a session that stops working says when, until it works again", async () => {
