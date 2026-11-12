@@ -9,7 +9,7 @@ import { apiUrl } from "@/shared/lib/basePath";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
 import { AssetCard } from "./AssetCard";
-import { AssetRowActions } from "./AssetRowActions";
+import { assetRowActions } from "./assetRowActions";
 
 interface AssetListProps {
   sessionId: string;
@@ -68,21 +68,17 @@ export function AssetList({
                 asset={asset}
                 selected={selectedId === asset.id}
                 onOpen={() => onOpen(asset)}
-                actions={
-                  <AssetRowActions
-                    asset={asset}
-                    triggerBusy={triggerBusy}
-                    onUnpin={onUnpin}
-                    onToggleTrigger={(trigger) =>
-                      update.mutate({
-                        triggerId: trigger.id,
-                        input: { enabled: !trigger.enabled },
-                      })
-                    }
-                    onCopyCallback={copyCallback}
-                    onDeleteTrigger={(trigger) => remove.mutate(trigger.id)}
-                  />
-                }
+                actions={assetRowActions(asset, {
+                  triggerBusy,
+                  onUnpin,
+                  onToggleTrigger: (trigger) =>
+                    update.mutate({
+                      triggerId: trigger.id,
+                      input: { enabled: !trigger.enabled },
+                    }),
+                  onCopyCallback: copyCallback,
+                  onDeleteTrigger: (trigger) => remove.mutate(trigger.id),
+                })}
               />
             ))}
           </BlockStack>
