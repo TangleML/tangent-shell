@@ -20,7 +20,8 @@ dashboard, it hands you the dashboard — embedded.
 - **Genuinely rich.** Interactive HTML, charts, PDFs, and images all render in
   place — far beyond what fits in a chat bubble.
 - **Live while the agent works.** A page can re-read files saved beside it, so
-  a progress dashboard keeps itself current.
+  a progress dashboard keeps itself current. **Reload** re-reads the page
+  itself.
 - **Multiple at once.** Open several pages as tabs and switch between them like a
   mini browser built into the session.
 
