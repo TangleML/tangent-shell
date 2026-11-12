@@ -98,6 +98,8 @@ export type {
  * window resets the count); each attempt waits the matching
  * {@link RESTART_BACKOFF_MS} entry (the last value repeats for further attempts).
  */
+// Pi reports a retry in the same breath as the failed turn's end.
+const RETRY_NOTICE_GRACE_MS = 250;
 const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
@@ -756,6 +758,7 @@ function buildAgentProcess(
     busy: false,
     aborted: false,
     modelFailed: false,
+    pendingEnd: null,
     currentMessageId: null,
     startEmitted: false,
     accum: "",
@@ -810,6 +813,7 @@ export class PiAgentManager {
   private readonly lastEnd = new Map<string, LastEnd>();
   /** Sessions being torn down, whose settling Runs the lobby shouldn't hear of. */
   private readonly disposing = new Set<string>();
+  private onDisposed?: (sessionId: string) => void;
   /** Prime spawns awaiting memory resolution, so concurrent {@link ensure}
    * calls share one; cleared by {@link dispose} to cancel a pending spawn. */
   private readonly ensuring = new Map<string, Promise<void>>();
@@ -1412,17 +1416,39 @@ export class PiAgentManager {
     this.sessions.delete(sessionId);
     this.disposing.add(sessionId);
     for (const agent of session?.agents.values() ?? []) {
-      // Quiets the exit handler: a turn cut short here was stopped, not failed.
-      agent.busy = false;
-      agent.currentMessageId = null;
-      agent.intentionalKill = true;
-      agent.child.kill();
-      this.runs.settleOpenFor(sessionId, agent.agentId, "cancelled");
+      this.killQuietly(agent);
     }
+    this.cancelRuns(sessionId);
     this.disposing.delete(sessionId);
     this.lastEnd.delete(sessionId);
     this.lastEmitted.delete(sessionId);
     if (session) rmSync(promptDir(sessionId), { recursive: true, force: true });
+    this.onDisposed?.(sessionId);
+  }
+
+  /**
+   * Cancels every participant's open Run in the session, not only Pi's: a
+   * remote run left open would settle later and bring a deleted session back
+   * into the lobby.
+   */
+  private cancelRuns(sessionId: string): void {
+    for (const run of this.runs.listForSession(sessionId)) {
+      this.runs.settle(run.id, "cancelled");
+    }
+  }
+
+  /** Kills an agent's process so its exit reads as stopped, not failed. */
+  private killQuietly(agent: AgentProcess): void {
+    agent.busy = false;
+    agent.currentMessageId = null;
+    agent.intentionalKill = true;
+    agent.child.kill();
+    this.clearPendingEnd(agent);
+  }
+
+  /** Registers the one listener told when a session is disposed. */
+  useOnDisposed(handler: (sessionId: string) => void): void {
+    this.onDisposed = handler;
   }
 
   /** Kills every managed process. Used on server shutdown. */
@@ -1570,6 +1596,7 @@ export class PiAgentManager {
       console.log(
         `[pi:${sessionId}:${agent.agentId}] process exited (code=${code}, signal=${signal})`,
       );
+      this.clearPendingEnd(agent);
       this.failInFlight(sessionId, agent, "Pi process exited unexpectedly.");
       this.handleChildExit(sessionId, agent);
     });
@@ -1693,7 +1720,14 @@ export class PiAgentManager {
         this.onToolExecutionStart(sessionId, agent, event),
       queue_update: ({ sessionId, descriptor, event }) =>
         this.onQueueUpdate(sessionId, descriptor, event),
-      agent_end: ({ sessionId, agent }) => this.onAgentEnd(sessionId, agent),
+      agent_end: ({ sessionId, agent, event }) =>
+        this.onAgentEnd(sessionId, agent, event),
+      auto_retry_start: ({ agent }) => this.clearPendingEnd(agent),
+      auto_retry_end: ({ sessionId, agent, event }) => {
+        if (event.success === false && agent.busy) {
+          this.finishRun(sessionId, agent);
+        }
+      },
     };
 
   /** Dispatches one parsed stdout line to the matching per-event handler. */
@@ -1725,6 +1759,7 @@ export class PiAgentManager {
         ingress: "reaction",
       });
     }
+    this.clearPendingEnd(agent);
     agent.busy = true;
     agent.aborted = false;
     agent.currentMessageId = null;
@@ -1884,8 +1919,38 @@ export class PiAgentManager {
     });
   }
 
+  /**
+   * Pi ends the turn on a failed model call and only then says whether it is
+   * retrying, so that turn isn't final yet: the run stays open and the agent
+   * busy until Pi retries, gives up, or says nothing for a moment.
+   */
+  private onAgentEnd(
+    sessionId: string,
+    agent: AgentProcess,
+    event: PiStdoutEvent,
+  ): void {
+    const mayRetry =
+      agent.modelFailed && !agent.aborted && event.willRetry !== false;
+    if (!mayRetry) {
+      this.finishRun(sessionId, agent);
+      return;
+    }
+    this.clearPendingEnd(agent);
+    if (event.willRetry) return;
+    agent.pendingEnd = setTimeout(
+      () => this.finishRun(sessionId, agent),
+      RETRY_NOTICE_GRACE_MS,
+    );
+  }
+
+  private clearPendingEnd(agent: AgentProcess): void {
+    if (agent.pendingEnd) clearTimeout(agent.pendingEnd);
+    agent.pendingEnd = null;
+  }
+
   /** Ends a run: clears busy + the activity indicator. */
-  private onAgentEnd(sessionId: string, agent: AgentProcess): void {
+  private finishRun(sessionId: string, agent: AgentProcess): void {
+    this.clearPendingEnd(agent);
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
       JSON.stringify({

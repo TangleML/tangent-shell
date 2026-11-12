@@ -30,6 +30,7 @@ import {
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 import { FileDropZone } from "./FileDropZone";
+import { PickerAnchor } from "./PickerAnchor";
 import { SuggestionPicker } from "./SuggestionPicker";
 import {
   type ComposerSuggestion,
@@ -149,6 +150,7 @@ export function ComposerShell({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoFocusedRef = useRef(false);
+  const submittedFromKeyboardRef = useRef(false);
   const autocomplete = useComposerAutocomplete({
     value,
     onValueChange,
@@ -165,6 +167,21 @@ export function ComposerShell({
     // Embedded in a host page — don't scroll the host to reach the composer.
     textarea.focus({ preventScroll: true });
   }, [autoFocus, busy]);
+
+  // Submitting can disable the textarea for a moment, as a slash command
+  // does, which drops focus; give it back unless it has gone somewhere else.
+  useEffect(() => {
+    if (busy || !submittedFromKeyboardRef.current) return;
+    submittedFromKeyboardRef.current = false;
+    const textarea = textareaRef.current;
+    const root = textarea?.getRootNode();
+    // Embedded, the composer sits in a shadow root with its own focus.
+    const active =
+      root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+    if (active === null || active === document.body) {
+      textarea?.focus({ preventScroll: true });
+    }
+  }, [busy]);
 
   function handleFilesPicked(e: ChangeEvent<HTMLInputElement>) {
     onAttach(e.target.files ? Array.from(e.target.files) : []);
@@ -188,6 +205,7 @@ export function ComposerShell({
     if (autocomplete.handleKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      submittedFromKeyboardRef.current = true;
       onSubmit();
     }
   }
@@ -213,8 +231,7 @@ export function ComposerShell({
               disabled={busy}
               aria-label="Attach files"
             />
-            {/* local primitive — relative anchor for the floating suggestion picker. */}
-            <div className="relative flex-1">
+            <PickerAnchor>
               {autocomplete.open ? (
                 <SuggestionPicker
                   id={autocomplete.listboxId}
@@ -243,7 +260,7 @@ export function ComposerShell({
                 }
                 disabled={busy}
               />
-            </div>
+            </PickerAnchor>
             {hideSend ? null : (
               <IconButton
                 icon="Send"

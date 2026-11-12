@@ -4,7 +4,7 @@ import {
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
-import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef } from "react";
 
 import { AgentModelPicker } from "@/features/chat/components/composer/AgentModelPicker";
 import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
@@ -95,12 +95,18 @@ export function EmbeddedChat({
     rosterReady,
     resourcesVersion,
   } = chat;
-  const [mountedResourcesVersion] = useState(resourcesVersion);
+  // The element is reused when the host shows another session, whose count
+  // starts elsewhere, so a change is one seen within the same session.
+  const seenResources = useRef({ sessionId, version: resourcesVersion });
   const announceResourcesChange = useEffectEvent(() => onResourcesChange?.());
 
   useEffect(() => {
-    if (resourcesVersion !== mountedResourcesVersion) announceResourcesChange();
-  }, [resourcesVersion, mountedResourcesVersion]);
+    const seen = seenResources.current;
+    seenResources.current = { sessionId, version: resourcesVersion };
+    if (seen.sessionId === sessionId && seen.version !== resourcesVersion) {
+      announceResourcesChange();
+    }
+  }, [sessionId, resourcesVersion]);
 
   const targetingPrime = isPrimeAgent(agentId);
   const references: ChatReference[] = [
