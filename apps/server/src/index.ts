@@ -534,6 +534,7 @@ app.use(
     a2aGateway,
     participantService,
     runs,
+    reactors,
     contextEngine,
     memberships,
   ),
