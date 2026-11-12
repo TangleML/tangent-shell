@@ -66,6 +66,10 @@ No token needed — the client self-mints a short-lived, session-scoped token an
 
 - No immediate control from inside the agent once attached — only through the Web UI.
 
+## Prime worker skill (`tangent-prime-worker`)
+
+The reverse direction: a local orchestrator (for example in herdr) hands tasks to a session's Prime through a worker pane. Build the installable skill with `pnpm package:prime-worker-skill`; it writes `apps/prime-worker-cli/dist/skill/tangent-prime-worker.zip`, bundling the sign-in config from your repo-root `.env` (same as the acp skill). Unzip it into your agent's skills folder and ask the agent to use it; see `apps/prime-worker-cli/SKILL.md`. New sessions are started in a Tangle project (`--project <id|link>`, or `--workspace <name>` for a new project) on that workspace's Shell, with the project's run attribution, and attached to the project so they are listed there; `--url` still starts a bare Shell session.
+
 ## Which should I use?
 
 - On VS Code / Cursor and want Prime to spin up local helpers across a whole project → **Flavor A**.

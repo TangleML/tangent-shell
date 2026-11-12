@@ -12,6 +12,7 @@
     "build": "turbo run build",
     "build:acp-skill": "pnpm --filter tangent-acp-attach-cli build",
     "package:acp-skill": "pnpm --filter tangent-acp-attach-cli package",
+    "package:prime-worker-skill": "pnpm --filter tangent-prime-worker-cli package",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
