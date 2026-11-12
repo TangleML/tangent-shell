@@ -51,3 +51,9 @@ ui-dist
 .env
 examples/local
 examples/*.zip
+# Agent skills packaged locally for each coding tool
+.claude/skills/tangent-acp-attach/
+.codex/
+.cursor/skills/tangent-acp-attach/
+.cursor/skills/tangent-local-agent/
+.pi/
