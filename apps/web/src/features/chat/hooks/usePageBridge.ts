@@ -8,6 +8,8 @@ import { useEffect, useRef } from "react";
 
 import { apiUrl } from "@/shared/lib/basePath";
 
+import { readPageFile } from "./readPageFile";
+
 interface UsePageBridgeOptions {
   iframeRef: RefObject<HTMLIFrameElement | null>;
   sessionId: string;
@@ -77,9 +79,10 @@ async function fireCallback(
  * carry the deployment's credentials, and the kube-apiserver proxy rewrites
  * absolute paths baked into served HTML. The page therefore posts a
  * {@link PageBridgeMessage} and the host acts on its behalf: firing a
- * session-scoped trigger callback (URL built at runtime, credentials attached)
- * or opening an external link. Messages are accepted only from this iframe's
- * own window; the message origin is `"null"` and is never trusted.
+ * session-scoped trigger callback (URL built at runtime, credentials attached),
+ * reading a file in the page's own session, or opening an external link.
+ * Messages are accepted only from this iframe's own window; the message origin
+ * is `"null"` and is never trusted.
  */
 export function usePageBridge({
   iframeRef,
@@ -99,6 +102,10 @@ export function usePageBridge({
       const message = event.data;
       if (message.type === "tangent:openUrl") {
         openExternalUrl(message.url);
+        return;
+      }
+      if (message.type === "tangent:fetch") {
+        void readPageFile(message, sessionIdRef.current, frame);
         return;
       }
       void fireCallback(message, sessionIdRef.current, frame);

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { ArtifactQueryKeys } from "@/features/chat/model/artifactQueryKeys";
 import { getArtifactText } from "@/features/sessions/api/sessionsApi";
 
 /**
@@ -9,7 +10,7 @@ import { getArtifactText } from "@/features/sessions/api/sessionsApi";
  */
 export function useArtifactText(url: string, enabled = true) {
   return useQuery({
-    queryKey: ["artifact-text", url],
+    queryKey: ArtifactQueryKeys.Text(url),
     queryFn: () => getArtifactText(url),
     enabled: enabled && url.length > 0,
   });

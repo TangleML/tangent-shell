@@ -1972,7 +1972,14 @@ export type PageBridgeMessage =
       /** Wire encoding; defaults to form-urlencoded. */
       encoding?: "form" | "json";
     }
-  | { type: "tangent:openUrl"; url: string };
+  | { type: "tangent:openUrl"; url: string }
+  | {
+      type: "tangent:fetch";
+      /** Correlates the host's result message back to this request. */
+      requestId: string;
+      /** Origin-root path of a file in the page's own session. */
+      path: string;
+    };
 
 /** Host's reply to a `tangent:callback` message. */
 export interface PageCallbackResult {
@@ -1980,6 +1987,16 @@ export interface PageCallbackResult {
   requestId: string;
   ok: boolean;
   status: number;
+}
+
+/** Host's reply to a `tangent:fetch` message. */
+export interface PageFetchResult {
+  type: "tangent:fetch:result";
+  requestId: string;
+  /** The read's HTTP status; `0` when the request itself failed. */
+  status: number;
+  contentType?: string;
+  body?: ArrayBuffer;
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -2003,7 +2020,47 @@ export function isPageBridgeMessage(data: unknown): data is PageBridgeMessage {
       );
     case "tangent:openUrl":
       return typeof msg.url === "string";
+    case "tangent:fetch":
+      return typeof msg.requestId === "string" && typeof msg.path === "string";
     default:
       return false;
   }
+}
+
+/** Session folders the file API serves, and so the only ones a page may read. */
+const PAGE_FILE_ROOTS = ["artifacts", "uploads"];
+
+/**
+ * True when an encoded path segment is a plain file or folder name. URL
+ * parsing drops raw whitespace, reads `\` as `/` and ends the path at `?` or
+ * `#`, and a proxy may decode an escaped separator or dot segment; any of
+ * those would turn the path into a different one.
+ */
+function isPlainSegment(segment: string): boolean {
+  if ([...segment].some((char) => char <= " " || "\\?#".includes(char))) {
+    return false;
+  }
+  let name: string;
+  try {
+    name = decodeURIComponent(segment);
+  } catch {
+    return false;
+  }
+  return name !== "" && name !== "." && name !== ".." && !/[/\\]/.test(name);
+}
+
+/**
+ * Whether a `tangent:fetch` path names a file a page in `sessionId` may read:
+ * one in that session's served folders, and nothing else the host's
+ * credentials could reach.
+ */
+export function isPageFilePath(sessionId: string, path: string): boolean {
+  const prefix = `/api/sessions/${sessionId}/files/`;
+  if (!path.startsWith(prefix)) return false;
+  const [root, ...names] = path.slice(prefix.length).split("/");
+  return (
+    PAGE_FILE_ROOTS.includes(root) &&
+    names.length > 0 &&
+    names.every(isPlainSegment)
+  );
 }
