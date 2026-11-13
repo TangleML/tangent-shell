@@ -8,6 +8,7 @@ import type { MemoryManager } from "../../pi/memory.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
+import type { UiCommandEmitter } from "../../sockets/sessionRoster.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SharedFolderStore } from "../../store/sharedFolderStore.ts";
@@ -28,6 +29,7 @@ import {
   uploadFiles,
 } from "./handlers.ts";
 import { registerParticipantRoutes } from "./participants.ts";
+import { registerPinRoutes } from "./pins.ts";
 import { registerResourceRoutes } from "./resources.ts";
 import type {
   CreateSessionInput,
@@ -149,6 +151,7 @@ export function createSessionsRouter(
   emitResourcesUpdated: (sessionId: string) => void,
   workflow: WorkflowRouteDeps,
   environments: EnvironmentLister,
+  emitUiCommand: UiCommandEmitter,
 ): Router {
   const router = Router();
 
@@ -179,6 +182,7 @@ export function createSessionsRouter(
     emitResourcesUpdated,
   });
   registerWorkflowRoutes(router, workflow);
+  registerPinRoutes(router, store, emitUiCommand);
 
   // Declared after the trigger routes so the `*splat` catch-all doesn't shadow
   // the more specific `/:id/triggers/...` paths.

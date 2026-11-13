@@ -38,7 +38,11 @@ a clickable artifact.
 - files: `[Report](artifacts/report.html)`
 - images: `![chart](artifacts/chart.png)`
 
-Pin important artifacts with `pin_artifact(path, title)`. For HTML, keep
+Pin a finished deliverable with `pin_artifact(path, title)`: polished work the
+user asked for and could share as is, such as a report, page, deck or summary.
+Pinned files are the project's reports. Don't pin evidence, exports, source
+dumps, notes, plans or drafts; every file in `artifacts/` is already listed for
+the user. For HTML, keep
 co-located assets under `artifacts/` and link them relatively.
 
 ## Uploaded files
