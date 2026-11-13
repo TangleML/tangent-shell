@@ -159,8 +159,12 @@ stored version (any other answers `409`).
 - **Who:** the session owner (its creator; anyone when it has none because auth
   is off) or an admin. Others get `403`.
 - **Busy policy:** refused with `409` while any Pi agent is mid-run or Prime is
-  still starting, checked before staging and again just before the swap. A
-  reinstall never waits on a run: the user stops it or retries.
+  still starting. A reinstall never waits on a run: the user stops it or
+  retries. After staging, the swap claims the session's maintenance window
+  (`PiAgentManager.beginMaintenance`), which succeeds only while idle and is
+  held until the agents are back: messages that arrive meanwhile are held and
+  delivered to the respawned agents, Prime spawns (e.g. a trigger) wait, and new
+  sub-agent spawns are refused.
 - **Stage, then swap** ([pi/config/bundleReinstall.ts](../../apps/server/src/pi/config/bundleReinstall.ts)):
   `installBundle` runs into a scratch root `<root>/.tangent-staging-*` (trigger
   compile included), so a bad bundle leaves the session untouched. The commit
@@ -170,7 +174,10 @@ stored version (any other answers `409`).
   back. `.tangent/` itself never moves.
 - **Preserved:** runtime `.tangent/` entries (`chats/`, `triggers.json`),
   `MEMORY.md`, seed memory files (only missing seeds are added), `artifacts/`,
-  `uploads/`, mounts and every other workspace file.
+  `uploads/`, mounts and every other workspace file. A bundle whose context
+  files would land on a reserved name (`MEMORY.md`, `GLOBAL_MEMORY.md`,
+  `artifacts`, `uploads`, `.tangent`) or on an existing path the previous
+  install did not write is refused with `409` before anything moves.
 - **Re-resolved:** the session's `config` metadata (`attachConfig`), bundle
   triggers (reconciled by name: refreshed in place keeping id, secret, enable
   toggle and target; dropped ones removed; runtime triggers untouched).

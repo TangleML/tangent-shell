@@ -16,6 +16,7 @@ import { orchestratorConversationFor } from "../../conversation/participantRegis
 import { getValidated, validate } from "../../middleware/validate.ts";
 import type { ResolvedSessionConfig } from "../../pi/agentConfig.ts";
 import {
+  BundleRootConflictError,
   stageBundle,
   type StagedBundle,
 } from "../../pi/config/bundleReinstall.ts";
@@ -177,9 +178,9 @@ async function checkStoredVersion(
 /**
  * Handles `POST /api/sessions/:id/bundle/reinstall`: re-installs the session's
  * stored bundle into its existing root (replacing only bundle-owned files),
- * records the new metadata, reconciles triggers and extension selection, and
- * respawns the session's Pi agents. Refused with `409` while any agent is
- * mid-run, checked both before staging and again right before the swap.
+ * records the new metadata, reconciles triggers, and respawns the session's Pi
+ * agents. Refused with `409` while any agent is mid-run; once the swap starts,
+ * new work is held (or refused) until the agents are back.
  */
 export async function handleReinstallBundle(
   deps: BundleReinstallDeps,
@@ -207,8 +208,14 @@ export async function handleReinstallBundle(
   }
 }
 
+/** A staging/commit failure's status: a root collision is a conflict, not a bad bundle. */
+function failureStatus(err: unknown, fallback: number): number {
+  return err instanceof BundleRootConflictError ? 409 : fallback;
+}
+
 /**
- * Stages the stored bundle and re-checks the busy gate just before the swap.
+ * Stages the stored bundle, then claims the session's maintenance window, which
+ * succeeds only while every agent is idle and holds new work until released.
  * Answers the request itself and returns `undefined` when it cannot proceed.
  */
 async function stageForSession(
@@ -226,10 +233,10 @@ async function stageForSession(
   try {
     staged = await stageBundle(zip, session.rootPath);
   } catch (err) {
-    res.status(400).json({ error: (err as Error).message });
+    res.status(failureStatus(err, 400)).json({ error: (err as Error).message });
     return undefined;
   }
-  if (deps.pi.isBusy(session.id)) {
+  if (!deps.pi.beginMaintenance(session.id)) {
     await staged.discard();
     res.status(409).json({ error: BUSY_MESSAGE });
     return undefined;
@@ -277,19 +284,24 @@ async function reinstall(
   const staged = await stageForSession(deps, session, res);
   if (!staged) return;
 
-  let config: ResolvedSessionConfig;
+  let applied: Awaited<ReturnType<typeof applyReinstall>>;
   try {
-    config = await staged.commit();
-  } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
-    return;
+    let config: ResolvedSessionConfig;
+    try {
+      config = await staged.commit();
+    } catch (err) {
+      res
+        .status(failureStatus(err, 500))
+        .json({ error: (err as Error).message });
+      return;
+    }
+    applied = await applyReinstall(deps, session, staged.manifest, config);
+  } finally {
+    // Held messages go to the respawned agents, or to the untouched old ones
+    // when the commit failed.
+    deps.pi.endMaintenance(session.id);
   }
-  const { updated, summary } = await applyReinstall(
-    deps,
-    session,
-    staged.manifest,
-    config,
-  );
+  const { updated, summary } = applied;
   await deps.postSystemNote(
     session.id,
     await orchestratorConversationFor(deps.store, session.id),
