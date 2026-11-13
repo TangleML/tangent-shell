@@ -40,7 +40,12 @@ class TestResponse {
 
 const encoder = new TextEncoder();
 
-function bundle(version: string, prompt: string): Buffer {
+function bundle(
+  version: string,
+  prompt: string,
+  contextFiles: Record<string, string> = {},
+): Buffer {
+  const contextList = Object.keys(contextFiles).map((rel) => `  - ${rel}`);
   const files = {
     "tangent.yaml": [
       "schemaVersion: 1",
@@ -49,8 +54,10 @@ function bundle(version: string, prompt: string): Buffer {
       `version: ${version}`,
       "prime:",
       "  systemPrompt: prompts/prime.md",
+      ...(contextList.length ? ["contextFiles:", ...contextList] : []),
     ].join("\n"),
     "prompts/prime.md": prompt,
+    ...contextFiles,
   };
   return Buffer.from(
     zipSync(
@@ -75,6 +82,8 @@ interface Harness {
   reloads: number;
   config: SessionConfigMeta | undefined;
   busy: boolean;
+  /** Maintenance windows opened and closed, in order. */
+  gate: string[];
 }
 
 async function withHarness(
@@ -97,6 +106,7 @@ async function withHarness(
     reloads: 0,
     config: session.config,
     busy: false,
+    gate: [],
     deps: undefined as unknown as BundleReinstallDeps,
   };
   const reload: SessionReload = {
@@ -115,6 +125,14 @@ async function withHarness(
     } as unknown as SessionStore,
     pi: {
       isBusy: () => h.busy,
+      beginMaintenance: () => {
+        if (h.busy) return false;
+        h.gate.push("begin");
+        return true;
+      },
+      endMaintenance: () => {
+        h.gate.push("end");
+      },
       reloadSession: () => {
         h.reloads += 1;
         return reload;
@@ -164,6 +182,11 @@ test("the owner reinstalls: files, metadata, agents and a session note", async (
     assert.equal(prompt(h.root), "prime v2");
     assert.equal(h.config?.version, "2.0.0");
     assert.equal(h.reloads, 1, "agents are respawned");
+    assert.deepEqual(
+      h.gate,
+      ["begin", "end"],
+      "new work is held during the swap",
+    );
     const { reload } = res.body as ReinstallBundleResponse;
     assert.equal(reload.previousVersion, "1.0.0");
     assert.equal(reload.version, "2.0.0");
@@ -221,5 +244,22 @@ test("a version other than the stored one is refused", async () => {
     const res = await reinstall(h, "owner@example.com", { version: "9.9.9" });
     assert.equal(res.statusCode, 409);
     assert.equal(prompt(h.root), "prime v1");
+  });
+});
+
+test("a bundle whose context file would overwrite session data is refused", async () => {
+  await withHarness(async (h) => {
+    h.deps.agentBundleStore = {
+      get: async () => ({ id: "demo", version: "2.0.0" }),
+      readBundle: async () =>
+        bundle("2.0.0", "prime v2", { "context/MEMORY.md": "bundle memory" }),
+    } as unknown as AgentBundleStore;
+    const res = await reinstall(h, "owner@example.com");
+
+    assert.equal(res.statusCode, 409);
+    assert.match((res.body as { error: string }).error, /MEMORY\.md/);
+    assert.equal(prompt(h.root), "prime v1");
+    assert.equal(h.reloads, 0);
+    assert.deepEqual(h.gate, [], "refused before the maintenance window");
   });
 });

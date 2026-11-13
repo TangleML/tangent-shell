@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ import { test } from "node:test";
 import { zipSync } from "fflate";
 
 import { INSTALL_RECORD_FILENAME, installBundle } from "./bundleLoader.ts";
-import { stageBundle } from "./bundleReinstall.ts";
+import { BundleRootConflictError, stageBundle } from "./bundleReinstall.ts";
 
 const encoder = new TextEncoder();
 
@@ -148,5 +149,71 @@ test("a discarded stage changes nothing", async () => {
     await staged.discard();
     assert.equal(read(root, ".tangent/prompts/prime.md"), "prime v1");
     assert.equal(read(root, "brief.md"), "brief v1");
+  });
+});
+
+/** A v2 that also ships the given context files to the session root. */
+function v2WithContext(files: Record<string, string>): Buffer {
+  const list = Object.keys(files).map((rel) => `  - ${rel}`);
+  return zip({
+    "tangent.yaml": manifest("2.0.0", ["contextFiles:", ...list].join("\n")),
+    "prompts/prime.md": "prime v2",
+    ...files,
+  });
+}
+
+/** Everything a session owns, so a refused reinstall can be shown to leave it as is. */
+function sessionData(root: string): Record<string, string> {
+  return {
+    memory: read(root, "MEMORY.md"),
+    artifact: read(root, "artifacts/chart.png"),
+    work: read(root, "analysis.py"),
+    notes: read(root, "notes.md"),
+    chats: read(root, ".tangent/chats/prime.jsonl"),
+    prompt: read(root, ".tangent/prompts/prime.md"),
+  };
+}
+
+test("context files that collide with session data are refused before anything moves", async () => {
+  for (const name of ["MEMORY.md", "artifacts", "analysis.py", "shared"]) {
+    await withRunningSession(async (root) => {
+      mkdirSync(path.join(root, "..", `${path.basename(root)}-mount`));
+      symlinkSync(
+        path.join(root, "..", `${path.basename(root)}-mount`),
+        path.join(root, "shared"),
+      );
+      const before = sessionData(root);
+
+      await assert.rejects(
+        stageBundle(v2WithContext({ [`context/${name}`]: "bundle" }), root),
+        BundleRootConflictError,
+        `context file "${name}" is refused`,
+      );
+
+      assert.deepEqual(sessionData(root), before, `"${name}" left data intact`);
+      assert.ok(existsSync(path.join(root, "shared")), "the mount survives");
+      assert.deepEqual(
+        readdirSync(root).filter((entry) => entry.startsWith(".tangent-")),
+        [],
+      );
+      rmSync(path.join(root, "..", `${path.basename(root)}-mount`), {
+        recursive: true,
+        force: true,
+      });
+    });
+  }
+});
+
+test("an install record never makes session memory bundle-owned", async () => {
+  await withRunningSession(async (root) => {
+    const recordFile = path.join(root, ".tangent", INSTALL_RECORD_FILENAME);
+    const record = JSON.parse(readFileSync(recordFile, "utf8"));
+    record.rootFiles.push("MEMORY.md", "artifacts");
+    writeFileSync(recordFile, JSON.stringify(record));
+
+    await (await stageBundle(V2, root)).commit();
+
+    assert.equal(read(root, "MEMORY.md"), "session memory");
+    assert.equal(read(root, "artifacts/chart.png"), "png");
   });
 });

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -9,6 +9,12 @@ import {
   RULES_FILENAME,
 } from "@tangent/shared/configBundle.ts";
 
+import {
+  ARTIFACTS_DIRNAME,
+  GLOBAL_MEMORY_FILENAME,
+  SESSION_MEMORY_FILENAME,
+  UPLOADS_DIRNAME,
+} from "../../config.ts";
 import type { ResolvedSessionConfig } from "../agentConfig.ts";
 import {
   INSTALL_RECORD_FILENAME,
@@ -23,6 +29,34 @@ import { parseManifest } from "./manifest.ts";
 /** Prefix of the scratch root a reinstall stages into, inside the session root
  * so the final swap is a same-filesystem rename. */
 const STAGING_PREFIX = ".tangent-staging-";
+
+/**
+ * Session-root names a bundle may never own: memory, the served subtrees and
+ * the install itself. A reinstall neither writes nor moves them, whatever an
+ * install record claims.
+ */
+const RESERVED_ROOT_NAMES: ReadonlySet<string> = new Set([
+  ARTIFACTS_DIRNAME,
+  UPLOADS_DIRNAME,
+  TANGENT_DIRNAME,
+  SESSION_MEMORY_FILENAME,
+  GLOBAL_MEMORY_FILENAME,
+]);
+
+/**
+ * Raised when a new bundle would write a session-root path the session owns:
+ * a reserved name, or an existing file, folder or mount the previous install
+ * did not write. Checked before anything moves.
+ */
+export class BundleRootConflictError extends Error {
+  constructor(names: string[]) {
+    super(
+      `bundle: it would overwrite session files it does not own: ${names.join(", ")}. ` +
+        "Rename these context or memory files in the bundle.",
+    );
+    this.name = "BundleRootConflictError";
+  }
+}
 
 /** A bundle fully installed into a scratch root, not yet live. */
 export interface StagedBundle {
@@ -45,6 +79,7 @@ export async function stageBundle(
   const discard = () => rm(stagingRoot, { recursive: true, force: true });
   try {
     const { manifest } = await installBundle(zipBuffer, stagingRoot);
+    assertNoRootConflicts(stagingRoot, rootPath);
     return {
       manifest,
       commit: () => commitStaged(stagingRoot, rootPath),
@@ -111,10 +146,7 @@ async function commitStaged(
     staged: path.join(stagingRoot, TANGENT_DIRNAME),
     replaced: path.join(stagingRoot, ".replaced"),
   };
-  const next = readInstallRecord(paths.staged);
-  if (!next) throw new Error("bundle: staged install is missing its record");
-  const previous =
-    readInstallRecord(paths.live) ?? legacyInstallRecord(paths.live);
+  const { previous, next } = assertNoRootConflicts(stagingRoot, rootPath);
 
   const journal = new SwapJournal();
   try {
@@ -175,6 +207,54 @@ async function addMissingSeeds(
     if (existsSync(path.join(rootPath, name))) continue;
     await journal.move(path.join(stagingRoot, name), path.join(rootPath, name));
   }
+}
+
+function isReservedRootName(name: string): boolean {
+  return RESERVED_ROOT_NAMES.has(name) || name.startsWith(STAGING_PREFIX);
+}
+
+/** Whether anything (including a dangling mount symlink) sits at `abs`. */
+function pathTaken(abs: string): boolean {
+  try {
+    lstatSync(abs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The previous install's record, with reserved root names never treated as owned. */
+function previousInstallRecord(live: string): InstallRecord {
+  const record = readInstallRecord(live) ?? legacyInstallRecord(live);
+  return {
+    ...record,
+    rootFiles: record.rootFiles.filter((name) => !isReservedRootName(name)),
+  };
+}
+
+/**
+ * Reads both install records and refuses, before anything moves, a new bundle
+ * whose root files would land on a reserved name or replace an existing path
+ * the previous install did not write. Seeds need no check: they are only ever
+ * added where nothing exists.
+ */
+function assertNoRootConflicts(
+  stagingRoot: string,
+  rootPath: string,
+): { previous: InstallRecord; next: InstallRecord } {
+  const next = readInstallRecord(path.join(stagingRoot, TANGENT_DIRNAME));
+  if (!next) throw new Error("bundle: staged install is missing its record");
+  const previous = previousInstallRecord(path.join(rootPath, TANGENT_DIRNAME));
+
+  const owned = new Set(previous.rootFiles);
+  const conflicts = union(
+    next.rootFiles.filter(isReservedRootName),
+    next.rootFiles.filter(
+      (name) => !owned.has(name) && pathTaken(path.join(rootPath, name)),
+    ),
+  );
+  if (conflicts.length > 0) throw new BundleRootConflictError(conflicts);
+  return { previous, next };
 }
 
 function union(a: string[], b: string[]): string[] {

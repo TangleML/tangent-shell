@@ -194,6 +194,21 @@ export interface SessionReload {
   stopped: { id: string; name: string; template?: string }[];
 }
 
+/** A session's bundle-reload window (see {@link PiAgentManager.beginMaintenance}). */
+interface Maintenance {
+  held: SendToAgentOptions[];
+  done: Promise<void>;
+  release: () => void;
+}
+
+/** Raised for work refused while a session's bundle is being reloaded. */
+export class SessionMaintenanceError extends Error {
+  constructor(sessionId: string) {
+    super(`Session ${sessionId} is reloading its bundle; retry shortly.`);
+    this.name = "SessionMaintenanceError";
+  }
+}
+
 /** One message to deliver to one agent's stdin. */
 export interface SendToAgentOptions {
   sessionId: string;
@@ -836,6 +851,12 @@ export class PiAgentManager {
   /** Prime spawns awaiting memory resolution, so concurrent {@link ensure}
    * calls share one; cleared by {@link dispose} to cancel a pending spawn. */
   private readonly ensuring = new Map<string, Promise<void>>();
+  /**
+   * Sessions under a bundle reload: messages are held for the replacement
+   * processes, Prime spawns wait, and new sub-agents are refused, so no work
+   * starts on a process that is about to be killed or a bundle mid-swap.
+   */
+  private readonly maintenance = new Map<string, Maintenance>();
   private hasTranscript: (sessionId: string) => Promise<boolean> = async () =>
     false;
 
@@ -947,6 +968,12 @@ export class PiAgentManager {
   ): Promise<void> {
     if (this.sessions.get(sessionId)?.agents.has(PRIME_AGENT_ID)) {
       return Promise.resolve();
+    }
+    const maintenance = this.maintenance.get(sessionId);
+    if (maintenance) {
+      return maintenance.done.then(() =>
+        this.ensure(sessionId, rootPath, options),
+      );
     }
     const pending = this.ensuring.get(sessionId);
     if (pending) return pending;
@@ -1179,13 +1206,53 @@ export class PiAgentManager {
   }
 
   /**
-   * Whether a bundle reload must be refused: an agent is mid-run, or Prime is
-   * still starting (its spawn would read the bundle mid-swap).
+   * Whether a bundle reload must be refused: an agent is mid-run, Prime is
+   * still starting (its spawn would read the bundle mid-swap), or a reload is
+   * already under way.
    */
   isBusy(sessionId: string): boolean {
     return (
-      this.ensuring.has(sessionId) || this.computeStatus(sessionId) === "busy"
+      this.maintenance.has(sessionId) ||
+      this.ensuring.has(sessionId) ||
+      this.computeStatus(sessionId) === "busy"
     );
+  }
+
+  /**
+   * Opens a session's bundle-reload window when, and only when, it is idle; the
+   * check and the claim are one synchronous step, so no prompt can slip between
+   * them. Until {@link endMaintenance}, messages are held, Prime spawns wait and
+   * sub-agent spawns are refused. Returns false (nothing claimed) when busy.
+   */
+  beginMaintenance(sessionId: string): boolean {
+    if (this.isBusy(sessionId)) return false;
+    let release = () => {};
+    const done = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.maintenance.set(sessionId, { held: [], done, release });
+    return true;
+  }
+
+  /** Queues a message for replay when its session is mid-reload. */
+  private holdDuringMaintenance(options: SendToAgentOptions): boolean {
+    const maintenance = this.maintenance.get(options.sessionId);
+    if (!maintenance) return false;
+    maintenance.held.push(options);
+    return true;
+  }
+
+  /**
+   * Closes the reload window and delivers every held message, in order, to the
+   * agent now live under its id (the respawned process after a reload, or the
+   * original one if the reload was abandoned).
+   */
+  endMaintenance(sessionId: string): void {
+    const maintenance = this.maintenance.get(sessionId);
+    if (!maintenance) return;
+    this.maintenance.delete(sessionId);
+    maintenance.release();
+    for (const options of maintenance.held) this.sendToAgent(options);
   }
 
   /**
@@ -1270,6 +1337,9 @@ export class PiAgentManager {
     sessionId: string,
     request: SubagentSpawnRequest,
   ): SpawnedSubagent {
+    if (this.maintenance.has(sessionId)) {
+      throw new SessionMaintenanceError(sessionId);
+    }
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`No active session for ${sessionId}`);
@@ -1322,6 +1392,7 @@ export class PiAgentManager {
    * follow-up into the turn it is already taking.
    */
   sendToAgent(options: SendToAgentOptions): void {
+    if (this.holdDuringMaintenance(options)) return;
     const { sessionId, agentId, text } = options;
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
     if (!agent) {
@@ -1341,19 +1412,21 @@ export class PiAgentManager {
       return;
     }
 
-    if (!agent.busy) {
-      const ingress = options.ingress ?? "reaction";
-      this.runs.open({
-        sessionId,
-        participantId: agentId,
-        homeConversationId: agent.homeConversationId,
-        ingress,
-        audienceParticipantId: options.audienceParticipantId,
-      });
-    }
+    if (!agent.busy) this.openRunFor(agent, options);
 
     this.writePrompt(sessionId, agent, text, options.delivery ?? "auto");
     this.notifyStatus(sessionId);
+  }
+
+  /** Opens the Run a message starts when it finds its agent idle. */
+  private openRunFor(agent: AgentProcess, options: SendToAgentOptions): void {
+    this.runs.open({
+      sessionId: options.sessionId,
+      participantId: options.agentId,
+      homeConversationId: agent.homeConversationId,
+      ingress: options.ingress ?? "reaction",
+      audienceParticipantId: options.audienceParticipantId,
+    });
   }
 
   /**
@@ -1485,6 +1558,9 @@ export class PiAgentManager {
   /** Kills every agent in the session and clears its state. */
   dispose(sessionId: string): void {
     this.ensuring.delete(sessionId);
+    const maintenance = this.maintenance.get(sessionId);
+    this.maintenance.delete(sessionId);
+    maintenance?.release();
     const session = this.sessions.get(sessionId);
     if (!session) return;
     this.sessions.delete(sessionId);

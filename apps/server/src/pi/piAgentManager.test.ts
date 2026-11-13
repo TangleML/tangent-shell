@@ -24,7 +24,11 @@ import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import type { ResolvedSessionConfig } from "./agentConfig.ts";
-import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
+import {
+  PiAgentManager,
+  PRIME_AGENT_ID,
+  SessionMaintenanceError,
+} from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
 
 /**
@@ -977,4 +981,68 @@ test("a Prime restarted by a bundle reload is told to recover its context", asyn
   const [prompt] = promptsOf(restarted.child);
   assert.ok(prompt.startsWith(RESTART_NOTICE_PREFIX));
   assert.ok(prompt.endsWith("\n\nnext"));
+});
+
+test("a prompt that arrives during a bundle reload reaches the replacement Prime", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1", { config: bundleConfig("v1", {}) });
+  const old = h.spawns[0];
+
+  assert.equal(h.pi.beginMaintenance("s1"), true);
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "mid" });
+  assert.deepEqual(promptsOf(old.child), [], "held, not sent to the old Prime");
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.throws(
+    () => h.pi.spawnSubagent("s1", { name: "Late" }),
+    SessionMaintenanceError,
+  );
+
+  h.pi.reloadSession("s1", bundleConfig("v2", {}));
+  h.pi.endMaintenance("s1");
+
+  const replacement = h.spawns.at(-1)!;
+  assert.notEqual(replacement, old);
+  assert.deepEqual(promptsOf(replacement.child), ["mid"]);
+  assert.ok(
+    h.runs.current("s1", PRIME_AGENT_ID),
+    "the replayed prompt opens a run",
+  );
+});
+
+test("maintenance is only claimed while idle, and a waiting ensure resumes after it", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1", { config: bundleConfig("v1", {}) });
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "go" });
+  assert.equal(
+    h.pi.beginMaintenance("s1"),
+    false,
+    "a mid-run session is refused",
+  );
+  runTurn(h.spawns[0].child, "done");
+  await flush();
+
+  assert.equal(h.pi.beginMaintenance("s1"), true);
+  assert.equal(h.pi.beginMaintenance("s1"), false, "one window at a time");
+  h.pi.dispose("s1");
+  assert.equal(
+    h.pi.beginMaintenance("s1"),
+    true,
+    "dispose released the window",
+  );
+  h.pi.endMaintenance("s1");
+
+  assert.equal(h.pi.beginMaintenance("s2"), true);
+  let spawnedDuring = false;
+  const pending = h.pi.ensure("s2", "/tmp/s2").then(() => {
+    spawnedDuring = h.pi.hasAgent("s2", PRIME_AGENT_ID);
+  });
+  await flush();
+  assert.equal(
+    h.pi.hasAgent("s2", PRIME_AGENT_ID),
+    false,
+    "Prime waits out the swap",
+  );
+  h.pi.endMaintenance("s2");
+  await pending;
+  assert.equal(spawnedDuring, true);
 });
