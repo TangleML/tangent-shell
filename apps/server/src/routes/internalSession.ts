@@ -3,7 +3,10 @@ import { z } from "zod";
 
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
-import type { UiCommandEmitter } from "../sockets/sessionRoster.ts";
+import {
+  isDismissible,
+  type UiCommandEmitter,
+} from "../sockets/sessionRoster.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { loadSession } from "./sessions/utils.ts";
 
@@ -28,6 +31,19 @@ export const unpinArtifactSchema = z.object({
   path: z.string().trim().min(1),
 });
 export type UnpinArtifactInput = z.infer<typeof unpinArtifactSchema>;
+
+/** Dismiss-subagent body: the finished sub-agent to drop from the roster. */
+export const dismissSubagentSchema = z.object({
+  sessionId: z.string(),
+  agentId: z.string().trim().min(1),
+});
+export type DismissSubagentInput = z.infer<typeof dismissSubagentSchema>;
+
+/** Tells a session's room that a sub-agent was dismissed. */
+export type SubagentDismissedEmitter = (
+  sessionId: string,
+  agentId: string,
+) => void;
 
 /**
  * `POST /rename`: applies a session rename and pushes the updated record to the
@@ -98,16 +114,50 @@ async function handleUnpinArtifact(
 }
 
 /**
+ * `POST /dismiss-subagent`: drops a finished sub-agent from the roster, as the
+ * agents pill's remove button does, and tells the session's room. A running or
+ * unknown sub-agent is refused, so the caller knows nothing changed.
+ */
+async function handleDismissSubagent(
+  store: SessionStore,
+  emitSubagentDismissed: SubagentDismissedEmitter,
+  body: DismissSubagentInput,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
+
+  const agents = await store.listAgents(session.id);
+  const agent = agents.find((candidate) => candidate.id === body.agentId);
+  if (!agent || agent.role !== "subagent") {
+    res.status(404).json({ error: "No such sub-agent in this session" });
+    return;
+  }
+  if (!isDismissible(agent)) {
+    res.status(409).json({
+      error:
+        "Only a finished sub-agent that isn't dismissed yet can be dismissed",
+    });
+    return;
+  }
+
+  await store.dismissAgent(session.id, agent.id);
+  emitSubagentDismissed(session.id, agent.id);
+  res.json({ ok: true });
+}
+
+/**
  * Internal API used only by the session extension running inside each Pi
  * process. It lets Prime rename the session (e.g. to a concise,
- * conversation-derived title) and lets any agent pin/unpin artifacts for quick
- * access; the server owns the session record and broadcasts changes to the
- * room. Guarded by the same bearer token as the other internal APIs so
- * arbitrary local callers can't mutate a session.
+ * conversation-derived title) and dismiss finished sub-agents, and lets any
+ * agent pin/unpin artifacts for quick access; the server owns the session
+ * record and broadcasts changes to the room. Guarded by the same bearer token
+ * as the other internal APIs so arbitrary local callers can't mutate a session.
  */
 export function createInternalSessionRouter(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
+  emitSubagentDismissed: SubagentDismissedEmitter,
 ): Router {
   const router = Router();
 
@@ -145,6 +195,18 @@ export function createInternalSessionRouter(
         store,
         emitUiCommand,
         getValidated<UnpinArtifactInput>(req).body,
+        res,
+      ),
+  );
+
+  router.post(
+    "/dismiss-subagent",
+    validate({ body: dismissSubagentSchema }),
+    (req: Request, res: Response) =>
+      handleDismissSubagent(
+        store,
+        emitSubagentDismissed,
+        getValidated<DismissSubagentInput>(req).body,
         res,
       ),
   );

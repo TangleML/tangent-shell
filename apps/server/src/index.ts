@@ -539,7 +539,15 @@ app.use(
   createInternalResourcesRouter(store, resourceCatalog),
 );
 // Internal API for the session extension running inside each Pi process.
-app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
+app.use(
+  "/internal/session",
+  createInternalSessionRouter(store, emitUiCommand, (sessionId, agentId) => {
+    io.to(roomFor(sessionId)).emit(SocketEvents.SubagentDismissed, {
+      sessionId,
+      agentId,
+    });
+  }),
+);
 // Internal API for bundle extensions to open/close generic MCP relay channels
 // bound to their session (remote-runtime specifics stay in the bundle).
 app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
