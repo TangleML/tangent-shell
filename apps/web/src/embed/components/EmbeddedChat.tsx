@@ -11,11 +11,13 @@ import { AgentsIndicator } from "@/features/chat/components/composer/AgentsIndic
 import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
 import { ChatInput } from "@/features/chat/components/composer/ChatInput";
 import { ComposerFooter } from "@/features/chat/components/composer/ComposerFooter";
+import { FilesIndicator } from "@/features/chat/components/composer/FilesIndicator";
 import { ChatMessageList } from "@/features/chat/components/message/ChatMessageList";
 import { SubagentTabView } from "@/features/chat/components/tabs/SubagentTabView";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
 import { buildSubagents } from "@/features/chat/model/agents";
+import { buildAssets } from "@/features/chat/model/assets";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
 import {
   artifactReferences,
@@ -119,21 +121,38 @@ export function EmbeddedChat({
     onRemoveAgent?.(id);
   };
 
+  const assets = buildAssets({
+    sessionId,
+    artifacts: chat.artifacts,
+    triggers: chat.triggers,
+  });
+
   const renderAgentsPill = (selectedId?: string) => (
-    <AgentsIndicator
-      sessionId={sessionId}
-      agents={buildSubagents(chat.subagents)}
-      busySubagents={busySubagents}
-      selectedId={selectedId}
-      onOpenAgent={(agent) =>
-        onOpenAgent?.({
-          ...agent,
-          conversationId: chat.conversationForAgent(agent.id),
-        })
-      }
-      onRemoveAgent={(agent) => removeAgent(agent.id)}
-      onAbort={chat.abort}
-    />
+    <>
+      <AgentsIndicator
+        sessionId={sessionId}
+        agents={buildSubagents(chat.subagents)}
+        busySubagents={busySubagents}
+        selectedId={selectedId}
+        onOpenAgent={(agent) =>
+          onOpenAgent?.({
+            ...agent,
+            conversationId: chat.conversationForAgent(agent.id),
+          })
+        }
+        onRemoveAgent={(agent) => removeAgent(agent.id)}
+        onAbort={chat.abort}
+      />
+      <FilesIndicator
+        sessionId={sessionId}
+        assets={assets}
+        onOpen={(asset) => {
+          if (asset.kind !== "trigger")
+            onOpenArtifact?.(asset.url, asset.title);
+        }}
+        onUnpin={chat.unpinArtifact}
+      />
+    </>
   );
 
   if (!targetingPrime && agentId) {
