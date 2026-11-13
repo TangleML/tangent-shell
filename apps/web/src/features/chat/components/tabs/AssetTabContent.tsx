@@ -106,7 +106,7 @@ export function AssetTabContent({
           activity={getActivity(conversationId)}
           status={info?.status ?? "completed"}
           busy={isConversationBusy(conversationId)}
-          disabled={!connected}
+          disabled={!connected || !info}
           isMessageStreaming={isMessageStreaming}
           model={model?.model}
           thinkingDepth={model?.thinkingDepth}

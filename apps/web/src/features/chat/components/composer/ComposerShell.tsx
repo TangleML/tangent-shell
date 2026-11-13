@@ -30,6 +30,7 @@ import {
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 import { FileDropZone } from "./FileDropZone";
+import { PickerAnchor } from "./PickerAnchor";
 import { SuggestionPicker } from "./SuggestionPicker";
 import {
   type ComposerSuggestion,
@@ -131,6 +132,22 @@ interface ComposerShellProps {
   children?: ReactNode;
 }
 
+/**
+ * Whether nothing holds focus, here or on the page around an embedded
+ * composer, whose shadow root reports no focus while the host page has it.
+ */
+function focusIsNowhere(textarea: HTMLTextAreaElement): boolean {
+  const root = textarea.getRootNode();
+  const onPage = document.activeElement;
+  if (!(root instanceof ShadowRoot)) {
+    return onPage === null || onPage === document.body;
+  }
+  return (
+    root.activeElement === null &&
+    (onPage === null || onPage === document.body || onPage === root.host)
+  );
+}
+
 export function ComposerShell({
   value,
   onValueChange,
@@ -149,6 +166,8 @@ export function ComposerShell({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoFocusedRef = useRef(false);
+  const submittedFromKeyboardRef = useRef(false);
+  const refocusWhenFreeRef = useRef(false);
   const autocomplete = useComposerAutocomplete({
     value,
     onValueChange,
@@ -165,6 +184,23 @@ export function ComposerShell({
     // Embedded in a host page — don't scroll the host to reach the composer.
     textarea.focus({ preventScroll: true });
   }, [autoFocus, busy]);
+
+  // Submitting can disable the textarea for a moment, as a slash command
+  // does, which drops focus; give it back unless it has gone somewhere else.
+  // Only a submit that caused the disabling counts, so a reconnect or an
+  // upload finishing later never pulls focus here.
+  useEffect(() => {
+    if (busy) {
+      refocusWhenFreeRef.current = submittedFromKeyboardRef.current;
+      return;
+    }
+    if (!refocusWhenFreeRef.current) return;
+    refocusWhenFreeRef.current = false;
+    const textarea = textareaRef.current;
+    if (textarea && focusIsNowhere(textarea)) {
+      textarea.focus({ preventScroll: true });
+    }
+  }, [busy]);
 
   function handleFilesPicked(e: ChangeEvent<HTMLInputElement>) {
     onAttach(e.target.files ? Array.from(e.target.files) : []);
@@ -188,7 +224,12 @@ export function ComposerShell({
     if (autocomplete.handleKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      submittedFromKeyboardRef.current = true;
       onSubmit();
+      // By the next task the submit has either disabled the textarea or not.
+      setTimeout(() => {
+        submittedFromKeyboardRef.current = false;
+      });
     }
   }
 
@@ -213,8 +254,7 @@ export function ComposerShell({
               disabled={busy}
               aria-label="Attach files"
             />
-            {/* local primitive — relative anchor for the floating suggestion picker. */}
-            <div className="relative flex-1">
+            <PickerAnchor>
               {autocomplete.open ? (
                 <SuggestionPicker
                   id={autocomplete.listboxId}
@@ -243,7 +283,7 @@ export function ComposerShell({
                 }
                 disabled={busy}
               />
-            </div>
+            </PickerAnchor>
             {hideSend ? null : (
               <IconButton
                 icon="Send"

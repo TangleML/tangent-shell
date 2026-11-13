@@ -249,6 +249,10 @@ function memoryResource(
   };
 }
 
+// Someone can run commands without ever messaging the agent; it's handed the
+// latest of them, not all of them.
+const MAX_HELD_COMMAND_RESULTS = 20;
+
 /**
  * The one way a Message enters a Conversation: allocate its ordinal, persist it,
  * broadcast it, then let the fan-out engine decide who reacts. Nothing else
@@ -386,21 +390,32 @@ export class ConversationRouter {
       message.conversationId,
     );
     const results = this.takeCommandResults(message);
-    const outcome = await this.engine.fanOut({
-      message,
-      ingress: input.ingress,
-      delivery: input.delivery,
-      project: (msg, recipient) => {
-        const text = deliveryText(msg, recipient, owner);
-        return recipient.participantId === owner
-          ? withCommandResults(text, results)
-          : text;
-      },
-    });
-    if (!outcome.woke.includes(owner)) {
-      this.holdCommandResults(message, results);
+    let delivered = false;
+    try {
+      const outcome = await this.engine.fanOut({
+        message,
+        ingress: input.ingress,
+        delivery: input.delivery,
+        project: (msg, recipient) => {
+          const text = deliveryText(msg, recipient, owner);
+          return recipient.participantId === owner
+            ? withCommandResults(text, results)
+            : text;
+        },
+      });
+      delivered = outcome.woke.includes(owner);
+      return outcome;
+    } finally {
+      // Also when the fan-out throws, so a failed wake doesn't lose them.
+      if (!delivered) this.holdCommandResults(message, results);
     }
-    return outcome;
+  }
+
+  /** Drops what was held for a deleted session's Conversations. */
+  forgetSession(sessionId: string): void {
+    for (const key of [...this.heldCommandResults.keys()]) {
+      if (key.startsWith(`${sessionId}\0`)) this.heldCommandResults.delete(key);
+    }
   }
 
   /** Holds command results for the Conversation's agent, oldest first. */
@@ -413,7 +428,9 @@ export class ConversationRouter {
     const held = this.heldCommandResults.get(key) ?? [];
     this.heldCommandResults.set(
       key,
-      [...held, ...results].sort((a, b) => a.seq - b.seq),
+      [...held, ...results]
+        .sort((a, b) => a.seq - b.seq)
+        .slice(-MAX_HELD_COMMAND_RESULTS),
     );
   }
 
