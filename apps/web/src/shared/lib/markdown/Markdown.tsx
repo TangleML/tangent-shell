@@ -114,6 +114,11 @@ interface MarkdownProps {
    * components so they can request collapse via `host.execUICommand`.
    */
   onCollapse?: () => void;
+  /**
+   * For text a participant supplied rather than an agent wrote: images show
+   * only their alt text and `tangent-ui:<name>` blocks stay code blocks.
+   */
+  untrusted?: boolean;
 }
 
 /**
@@ -133,6 +138,7 @@ interface MarkdownComponentsOptions {
   sessionId?: string;
   messageId?: string;
   onCollapse?: () => void;
+  untrusted?: boolean;
 }
 
 /**
@@ -488,7 +494,8 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
 }
 
 function MdImage({ src, alt, title }: ImageProps) {
-  const { artifactBaseUrl } = useMarkdownOptions();
+  const { artifactBaseUrl, untrusted } = useMarkdownOptions();
+  if (untrusted) return alt;
   return (
     <img
       src={
@@ -504,11 +511,17 @@ function MdImage({ src, alt, title }: ImageProps) {
 }
 
 function MdCode({ className, children, node }: CodeProps) {
-  const { bundleId, onSendPrompt, sessionId, messageId, onCollapse } =
-    useMarkdownOptions();
+  const {
+    bundleId,
+    onSendPrompt,
+    sessionId,
+    messageId,
+    onCollapse,
+    untrusted,
+  } = useMarkdownOptions();
   const { registry, uiNames } = useHostExtensions();
 
-  const bundleMatch = className?.match(BUNDLE_UI_LANGUAGE);
+  const bundleMatch = untrusted ? null : className?.match(BUNDLE_UI_LANGUAGE);
   if (bundleMatch) {
     const name = bundleMatch[1];
     const body = String(children).replace(/\n$/, "");
@@ -631,6 +644,7 @@ export function Markdown({
   sessionId,
   messageId,
   onCollapse,
+  untrusted,
 }: MarkdownProps) {
   const { anchorProtocols } = useHostExtensions();
   const urlTransform = makeUrlTransform(anchorProtocols);
@@ -646,6 +660,7 @@ export function Markdown({
     sessionId,
     messageId,
     onCollapse,
+    untrusted,
   };
 
   return (

@@ -578,12 +578,19 @@ async function postChatMessage(
 const trimmed = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
-/** The slash command a payload carries the result of, when it names one. */
+const COMMAND_NAME = /^[\w.:-]{1,64}$/;
+const MAX_COMMAND_ARGS_CHARS = 2_000;
+
+/**
+ * The slash command a payload carries the result of, when it names one. A name
+ * that isn't a short plain word is no command, so the payload is an ordinary
+ * message.
+ */
 function commandOf({
   command,
 }: ChatMessagePayload): ChatCommandRun | undefined {
   const name = trimmed(command?.name);
-  if (!name) return undefined;
-  const args = trimmed(command?.args);
+  if (!COMMAND_NAME.test(name)) return undefined;
+  const args = trimmed(command?.args).slice(0, MAX_COMMAND_ARGS_CHARS);
   return args ? { name, args } : { name };
 }
