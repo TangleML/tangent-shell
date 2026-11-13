@@ -16,6 +16,7 @@ import { afterEach, mock, test } from "node:test";
 import {
   capabilitiesForRole,
   connectorFor,
+  type SessionStatusPayload,
 } from "@tangent/shared/contracts.ts";
 
 import type { MemoryResolver, MemorySpawnPlan } from "../memory/resolver.ts";
@@ -126,12 +127,14 @@ function makeManager(options?: {
   spawns: SpawnRecord[];
   rosterUpdates: { id: string; status: string }[];
   events: RelayedEvent[];
+  statuses: SessionStatusPayload[];
   runs: RunRegistry;
   runStore: InMemoryRunStore;
 } {
   const spawns: SpawnRecord[] = [];
   const rosterUpdates: { id: string; status: string }[] = [];
   const events: RelayedEvent[] = [];
+  const statuses: SessionStatusPayload[] = [];
 
   const fakeSpawn = ((
     _command: string,
@@ -152,7 +155,7 @@ function makeManager(options?: {
     onSubagentUpdate: (_sessionId, subagent) =>
       rosterUpdates.push({ id: subagent.id, status: subagent.status }),
     onAgentMessage: () => {},
-    onSessionStatus: () => {},
+    onSessionStatus: (payload) => statuses.push(payload),
   };
 
   const memory = options?.memory ?? stubResolver();
@@ -160,7 +163,7 @@ function makeManager(options?: {
   const runStore = new InMemoryRunStore();
   const runs = new RunRegistry(runStore);
   const pi = new PiAgentManager(handlers, memory, runs, undefined, fakeSpawn);
-  return { pi, spawns, rosterUpdates, events, runs, runStore };
+  return { pi, spawns, rosterUpdates, events, statuses, runs, runStore };
 }
 
 /** A persisted roster row with sane defaults, overridable per field. */
@@ -878,4 +881,117 @@ test("a failing transcript lookup spawns Prime without the notice", async () => 
   pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
 
   assert.deepEqual(promptsOf(spawns[0].child), ["hello"]);
+});
+
+/** A status with its `endedAt` checked as a timestamp and set aside. */
+function ended(status: SessionStatusPayload | undefined) {
+  assert.ok(status);
+  const { endedAt, ...rest } = status;
+  assert.ok(
+    endedAt && !Number.isNaN(Date.parse(endedAt)),
+    "says when it ended",
+  );
+  return rest;
+}
+
+test("a failed run marks its session failed for the lobby until another run starts", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+
+  h.pi.markRunFailed("s1");
+
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
+    { sessionId: "s1", status: "active", failed: true },
+  ]);
+  assert.deepEqual(ended(h.statuses.at(-1)), {
+    sessionId: "s1",
+    status: "active",
+    failed: true,
+  });
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
+  assert.deepEqual(h.statuses.at(-1), { sessionId: "s1", status: "busy" });
+});
+
+test("a session with no agent running still reports that its last run failed", () => {
+  const h = makeManager();
+
+  h.pi.markRunFailed("s2");
+
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
+    { sessionId: "s2", status: "idle", failed: true },
+  ]);
+});
+
+test("a session that stops working says when, until it works again", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, { type: "agent_end" });
+  await flush();
+
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
+    { sessionId: "s1", status: "active" },
+  ]);
+  assert.deepEqual(ended(h.statuses.at(-1)), {
+    sessionId: "s1",
+    status: "active",
+  });
+
+  h.pi.dispose("s1");
+
+  assert.deepEqual(
+    h.pi.getStatuses().map(ended),
+    [{ sessionId: "s1", status: "idle" }],
+    "still reported once its agents are gone",
+  );
+
+  await h.pi.ensure("s1", "/tmp/s1");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
+});
+
+test("a turn whose last model call failed settles its run as failed", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const failedRun = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "", stopReason: "error" },
+  });
+  emitPi(child, { type: "agent_end" });
+  await flush();
+
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+  const retriedRun = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "", stopReason: "error" },
+  });
+  emitPi(child, { type: "message_start", message: { role: "assistant" } });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "got through", stopReason: "stop" },
+  });
+  emitPi(child, { type: "agent_end" });
+  await flush();
+
+  assert.ok(failedRun && retriedRun);
+  assert.equal((await h.runStore.getRun(failedRun))?.status, "failed");
+  assert.equal(
+    (await h.runStore.getRun(retriedRun))?.status,
+    "completed",
+    "a call that failed and then got through doesn't fail the run",
+  );
 });

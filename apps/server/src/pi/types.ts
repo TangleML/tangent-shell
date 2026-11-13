@@ -6,7 +6,7 @@ import type {
   ChatAuthor,
   RunId,
   RunIngress,
-  SessionRunStatus,
+  SessionStatusPayload,
   SubagentInfo,
   SubagentStatus,
   UserIdentity,
@@ -99,10 +99,7 @@ export interface PostedMessage {
 export type AgentMessageHandler = (message: PostedMessage) => void;
 
 /** Relays a session's live run status change to the shared sessions lobby. */
-export type SessionStatusHandler = (
-  sessionId: string,
-  status: SessionRunStatus,
-) => void;
+export type SessionStatusHandler = (payload: SessionStatusPayload) => void;
 
 /**
  * Where a participant's events go: whatever holds participants — the local Pi
@@ -149,6 +146,11 @@ export interface AgentProcess {
    * persisted without waking anyone, then reset for the next run.
    */
   aborted: boolean;
+  /**
+   * Whether the run's latest assistant message ended because the model call
+   * failed, so the run settles `failed` rather than `completed`.
+   */
+  modelFailed: boolean;
   /** The id of the assistant message currently streaming, if any. */
   currentMessageId: string | null;
   /**
@@ -243,8 +245,11 @@ export interface PiStdoutEvent {
   type?: string;
   assistantMessageEvent?: AssistantDelta;
   messages?: unknown;
-  /** Present on `message_start` / `message_update` / `message_end` events. */
-  message?: { role?: string; content?: unknown };
+  /**
+   * Present on `message_start` / `message_update` / `message_end` events. An
+   * assistant message's `stopReason` is `error` when the model call failed.
+   */
+  message?: { role?: string; content?: unknown; stopReason?: string };
   /** Present on `tool_execution_*` events. */
   toolName?: string;
   /** Present on `tool_execution_start` / `tool_execution_update` events. */

@@ -130,6 +130,11 @@ function capabilities(role: AgentDescriptor["role"]): string {
   return capabilitiesForRole(role).join(",");
 }
 
+/** Equal for two lobby statuses that would tell a list view the same thing. */
+function statusKey({ status, failed, endedAt }: SessionStatusPayload): string {
+  return [status, failed && "failed", endedAt].filter(Boolean).join(" ");
+}
+
 function appendPreambles(config: AgentConfig, preambles: string[]): string {
   const extras = preambles.map((preamble) => preamble.trim()).filter(Boolean);
   if (extras.length === 0) return config.appendSystemPrompt;
@@ -734,6 +739,7 @@ function buildAgentProcess(
     child,
     busy: false,
     aborted: false,
+    modelFailed: false,
     currentMessageId: null,
     startEmitted: false,
     accum: "",
@@ -783,7 +789,12 @@ export class PiAgentManager {
    * Last run status emitted per session, so {@link notifyStatus} only fires the
    * handler when the status actually changes (busy flags toggle frequently).
    */
-  private readonly lastStatus = new Map<string, SessionRunStatus>();
+  private readonly lastStatus = new Map<string, string>();
+  /** Sessions whose latest run failed, until another run starts in them. */
+  private readonly failedRuns = new Set<string>();
+  /** When each session last stopped working, so a list view can tell that a
+   * run ended there since someone last looked. */
+  private readonly endedAt = new Map<string, string>();
   /** Prime spawns awaiting memory resolution, so concurrent {@link ensure}
    * calls share one; cleared by {@link dispose} to cancel a pending spawn. */
   private readonly ensuring = new Map<string, Promise<void>>();
@@ -830,32 +841,58 @@ export class PiAgentManager {
     return "active";
   }
 
+  private statusPayload(sessionId: string): SessionStatusPayload {
+    const status = this.computeStatus(sessionId);
+    const payload: SessionStatusPayload = { sessionId, status };
+    if (this.failedRuns.has(sessionId)) payload.failed = true;
+    const endedAt = this.endedAt.get(sessionId);
+    if (endedAt && status !== "busy") payload.endedAt = endedAt;
+    return payload;
+  }
+
   /**
-   * Snapshot of every non-idle session's status, for seeding a socket that just
-   * subscribed to the lobby. Sessions absent from the result are `idle`.
+   * Snapshot of every non-idle session's status, plus any that stopped working
+   * since the server started, for seeding a socket that just subscribed to the
+   * lobby. Sessions absent from the result are `idle`.
    */
   getStatuses(): SessionStatusPayload[] {
-    const statuses: SessionStatusPayload[] = [];
-    for (const sessionId of this.sessions.keys()) {
-      const status = this.computeStatus(sessionId);
-      if (status !== "idle") statuses.push({ sessionId, status });
-    }
-    return statuses;
+    const sessionIds = new Set([
+      ...this.sessions.keys(),
+      ...this.endedAt.keys(),
+    ]);
+    return [...sessionIds]
+      .map((sessionId) => this.statusPayload(sessionId))
+      .filter(({ status, endedAt }) => status !== "idle" || endedAt);
+  }
+
+  /** Marks a session's latest run as failed, until another one starts. */
+  markRunFailed(sessionId: string): void {
+    this.failedRuns.add(sessionId);
+    this.endedAt.set(sessionId, new Date().toISOString());
+    this.notifyStatus(sessionId);
   }
 
   /**
    * Recomputes a session's status and relays it to the lobby only when it
    * changed since the last emit. Called after every busy/lifecycle transition.
+   * A run starting clears an earlier failure; the session ceasing to be busy
+   * records when it stopped.
    */
   private notifyStatus(sessionId: string): void {
-    const status = this.computeStatus(sessionId);
-    if (this.lastStatus.get(sessionId) === status) return;
-    if (status === "idle") {
+    if (this.computeStatus(sessionId) === "busy") {
+      this.failedRuns.delete(sessionId);
+    } else if (this.lastStatus.get(sessionId) === "busy") {
+      this.endedAt.set(sessionId, new Date().toISOString());
+    }
+    const payload = this.statusPayload(sessionId);
+    const key = statusKey(payload);
+    if ((this.lastStatus.get(sessionId) ?? "idle") === key) return;
+    if (key === "idle") {
       this.lastStatus.delete(sessionId);
     } else {
-      this.lastStatus.set(sessionId, status);
+      this.lastStatus.set(sessionId, key);
     }
-    this.handlers.onSessionStatus(sessionId, status);
+    this.handlers.onSessionStatus(payload);
   }
 
   /** The session's full memory resolution, or SimpleMD-only if it can't load. */
@@ -1726,6 +1763,9 @@ export class PiAgentManager {
       this.finalizeMessage(sessionId, agent, descriptor, event);
     }
 
+    // Only the latest message counts, so a call Pi retried and got through
+    // doesn't fail the run.
+    agent.modelFailed = event.message?.stopReason === "error";
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -1813,6 +1853,7 @@ export class PiAgentManager {
     );
 
     const cancelled = agent.aborted;
+    const failed = agent.modelFailed;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -1820,15 +1861,17 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    agent.modelFailed = false;
 
     this.notifyStatus(sessionId);
     // Emitted before the Run settles, so the run's last event still carries its
-    // id. An aborted run was cut short: that is a cancellation, not a finish.
+    // id. An aborted run was cut short: that is a cancellation, not a finish. A
+    // run whose last model call failed didn't finish either.
     this.emitActivity(sessionId, agent, null);
     this.runs.settleOpenFor(
       sessionId,
       agent.agentId,
-      cancelled ? "cancelled" : "completed",
+      cancelled ? "cancelled" : failed ? "failed" : "completed",
     );
   }
 
@@ -1883,6 +1926,7 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    agent.modelFailed = false;
     const descriptor = {
       agentId: agent.agentId,
       role: agent.role,

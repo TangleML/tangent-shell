@@ -1936,11 +1936,19 @@ export interface UiCommandPayload {
 export interface SessionStatusPayload {
   sessionId: string;
   status: SessionRunStatus;
+  /** Set while the session's latest run failed and no other has started. */
+  failed?: boolean;
+  /**
+   * When the session last stopped working (ISO 8601), while it isn't working
+   * now, so a list view can tell a run finished or failed since someone looked.
+   */
+  endedAt?: string;
 }
 
 /**
- * Full snapshot of non-idle session statuses, sent to a socket right after it
- * subscribes to the lobby. Any session absent from `statuses` is `idle`.
+ * Full snapshot of non-idle session statuses, plus those that stopped working
+ * since the server started, sent to a socket right after it subscribes to the
+ * lobby. Any session absent from `statuses` is `idle`.
  */
 export interface SessionStatusSnapshotPayload {
   statuses: SessionStatusPayload[];
