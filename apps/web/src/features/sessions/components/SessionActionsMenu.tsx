@@ -10,15 +10,21 @@ import {
 import { useState } from "react";
 
 import {
+  SessionBundleReinstallConfirm,
   SessionDeleteConfirm,
   SessionRenameForm,
 } from "@/features/sessions/components/sessionActionForms";
+import {
+  type BundleUpdate,
+  useBundleUpdate,
+} from "@/features/sessions/hooks/useBundleUpdate";
 import { useDeleteSession } from "@/features/sessions/hooks/useDeleteSession";
+import { useReinstallBundle } from "@/features/sessions/hooks/useReinstallBundle";
 import { useUpdateSession } from "@/features/sessions/hooks/useUpdateSession";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 /** Which sub-view the actions popover currently shows. */
-type View = "menu" | "rename" | "delete";
+type View = "menu" | "rename" | "delete" | "bundle";
 
 interface SessionActionsMenuProps {
   session: Session;
@@ -27,7 +33,8 @@ interface SessionActionsMenuProps {
 }
 
 /**
- * Per-row actions for a session: rename, archive/unarchive, and delete. Rendered
+ * Per-row actions for a session: rename, archive/unarchive, bundle
+ * update/reinstall, and delete. Rendered
  * as a single controlled popover that switches between a menu, an inline rename
  * form, and an inline delete confirmation — keeping all three in one anchored
  * surface without a separate dialog primitive.
@@ -41,12 +48,17 @@ export function SessionActionsMenu({
 
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
+  const reinstallBundle = useReinstallBundle();
+  const bundleUpdate = useBundleUpdate(session);
 
   // Reset to the menu view whenever the popover (re)opens so a prior
   // rename/delete view never lingers.
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next) setView("menu");
+    if (next) {
+      setView("menu");
+      reinstallBundle.reset();
+    }
   };
 
   const close = () => setOpen(false);
@@ -77,6 +89,13 @@ export function SessionActionsMenu({
     }
     updateSession.mutate(
       { id: session.id, input: { name: trimmed } },
+      { onSuccess: close },
+    );
+  };
+
+  const confirmReinstall = () => {
+    reinstallBundle.mutate(
+      { id: session.id, input: { version: bundleUpdate?.storedVersion } },
       { onSuccess: close },
     );
   };
@@ -112,6 +131,8 @@ export function SessionActionsMenu({
             onRename={() => setView("rename")}
             onToggleArchive={toggleArchive}
             onToggleAccess={toggleAccess}
+            bundleUpdate={bundleUpdate}
+            onBundle={() => setView("bundle")}
             onDelete={() => setView("delete")}
           />
         ) : null}
@@ -120,6 +141,16 @@ export function SessionActionsMenu({
             initialName={session.name}
             pending={updateSession.isPending}
             onSubmit={submitRename}
+            onCancel={() => setView("menu")}
+          />
+        ) : null}
+        {view === "bundle" && bundleUpdate ? (
+          <SessionBundleReinstallConfirm
+            installedVersion={bundleUpdate.installedVersion}
+            storedVersion={bundleUpdate.storedVersion}
+            pending={reinstallBundle.isPending}
+            error={reinstallBundle.error?.message}
+            onConfirm={confirmReinstall}
             onCancel={() => setView("menu")}
           />
         ) : null}
@@ -141,6 +172,8 @@ interface MenuViewProps {
   onRename: () => void;
   onToggleArchive: () => void;
   onToggleAccess: () => void;
+  bundleUpdate: BundleUpdate | undefined;
+  onBundle: () => void;
   onDelete: () => void;
 }
 
@@ -150,6 +183,8 @@ function MenuView({
   onRename,
   onToggleArchive,
   onToggleAccess,
+  bundleUpdate,
+  onBundle,
   onDelete,
 }: MenuViewProps) {
   const open = accessPolicy === "open";
@@ -189,6 +224,20 @@ function MenuView({
         />
         {archived ? "Unarchive" : "Archive"}
       </Button>
+      {bundleUpdate ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          align="start"
+          fullWidth
+          onClick={onBundle}
+        >
+          <Icon name="RefreshCw" size="xs" tone="subdued" />
+          {bundleUpdate.updateAvailable
+            ? `Update bundle to v${bundleUpdate.storedVersion}`
+            : "Reinstall bundle"}
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         tone="critical"

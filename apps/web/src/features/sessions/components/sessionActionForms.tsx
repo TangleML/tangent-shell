@@ -87,3 +87,65 @@ export function SessionDeleteConfirm({
     </BlockStack>
   );
 }
+
+interface SessionBundleReinstallConfirmProps {
+  installedVersion: string;
+  /** The stored version to install; `undefined` when it is no longer stored. */
+  storedVersion?: string;
+  pending: boolean;
+  error?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+/** Inline confirmation for updating or reinstalling a session's bundle. */
+export function SessionBundleReinstallConfirm({
+  installedVersion,
+  storedVersion,
+  pending,
+  error,
+  onConfirm,
+  onCancel,
+}: SessionBundleReinstallConfirmProps) {
+  const isUpdate =
+    storedVersion !== undefined && storedVersion !== installedVersion;
+  const action = isUpdate ? "Update" : "Reinstall";
+  const pendingLabel = isUpdate ? "Updating..." : "Reinstalling...";
+
+  return (
+    <BlockStack gap="2">
+      <Text size="sm">
+        {isUpdate
+          ? `Update the bundle from v${installedVersion} to v${storedVersion}?`
+          : `Reinstall bundle v${installedVersion}?`}
+      </Text>
+      <Text size="sm" tone="subdued">
+        Prime and its sub-agents restart with the new prompts, rules, skills and
+        tools. Chats, memory and workspace files are kept.
+      </Text>
+      {storedVersion === undefined ? (
+        <Text size="sm" tone="critical" role="alert">
+          This bundle is no longer in the marketplace.
+        </Text>
+      ) : null}
+      {error ? (
+        <Text size="sm" tone="critical" role="alert">
+          {error}
+        </Text>
+      ) : null}
+      <InlineStack gap="2" align="end">
+        <Button variant="ghost" size="xs" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          variant="default"
+          size="xs"
+          disabled={pending || storedVersion === undefined}
+          onClick={onConfirm}
+        >
+          {pending ? pendingLabel : action}
+        </Button>
+      </InlineStack>
+    </BlockStack>
+  );
+}

@@ -10,10 +10,13 @@ import {
 import { type MouseEvent, type SyntheticEvent, useState } from "react";
 
 import {
+  SessionBundleReinstallConfirm,
   SessionDeleteConfirm,
   SessionRenameForm,
 } from "@/features/sessions/components/sessionActionForms";
+import { useBundleUpdate } from "@/features/sessions/hooks/useBundleUpdate";
 import { useDeleteSession } from "@/features/sessions/hooks/useDeleteSession";
+import { useReinstallBundle } from "@/features/sessions/hooks/useReinstallBundle";
 import { useUpdateSession } from "@/features/sessions/hooks/useUpdateSession";
 
 interface SessionRowActionsProps {
@@ -23,8 +26,8 @@ interface SessionRowActionsProps {
 }
 
 /**
- * Inline session actions for a table row: three labelled buttons (rename,
- * archive/unarchive, delete). Rename and delete open a small popover for input
+ * Inline session actions for a table row: labelled buttons for rename,
+ * archive/unarchive, delete, and — when the stored bundle is newer — update. Rename and delete open a small popover for input
  * or confirmation; archive toggles immediately. Clicks never bubble to the
  * row's open handler.
  */
@@ -34,9 +37,12 @@ export function SessionRowActions({
 }: SessionRowActionsProps) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bundleOpen, setBundleOpen] = useState(false);
 
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
+  const reinstallBundle = useReinstallBundle();
+  const bundleUpdate = useBundleUpdate(session);
 
   const stop = (event: SyntheticEvent) => event.stopPropagation();
 
@@ -57,6 +63,18 @@ export function SessionRowActions({
     updateSession.mutate(
       { id: session.id, input: { name: trimmed } },
       { onSuccess: () => setRenameOpen(false) },
+    );
+  };
+
+  const handleBundleOpenChange = (next: boolean) => {
+    setBundleOpen(next);
+    if (next) reinstallBundle.reset();
+  };
+
+  const confirmReinstall = () => {
+    reinstallBundle.mutate(
+      { id: session.id, input: { version: bundleUpdate?.storedVersion } },
+      { onSuccess: () => setBundleOpen(false) },
     );
   };
 
@@ -101,6 +119,32 @@ export function SessionRowActions({
         />
         {session.archived ? "Unarchive" : "Archive"}
       </Button>
+
+      {bundleUpdate?.updateAvailable ? (
+        <Popover open={bundleOpen} onOpenChange={handleBundleOpenChange}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="xs" onClick={stop}>
+              <Icon name="RefreshCw" size="xs" tone="subdued" />
+              Update bundle
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            onClick={stop}
+            onKeyDown={stop}
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
+            <SessionBundleReinstallConfirm
+              installedVersion={bundleUpdate.installedVersion}
+              storedVersion={bundleUpdate.storedVersion}
+              pending={reinstallBundle.isPending}
+              error={reinstallBundle.error?.message}
+              onConfirm={confirmReinstall}
+              onCancel={() => setBundleOpen(false)}
+            />
+          </PopoverContent>
+        </Popover>
+      ) : null}
 
       <Popover open={deleteOpen} onOpenChange={setDeleteOpen}>
         <PopoverTrigger asChild>

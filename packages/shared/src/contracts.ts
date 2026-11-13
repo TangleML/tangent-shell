@@ -1520,6 +1520,32 @@ export interface UpdateSessionRequest {
   tags?: string[];
 }
 
+/**
+ * Body for `POST /api/sessions/:id/bundle/reinstall`. `version` pins the
+ * expected stored version (the store keeps one per bundle id); omitted means
+ * whatever is stored.
+ */
+export interface ReinstallBundleRequest {
+  version?: string;
+}
+
+/** What a bundle reinstall did to the session's live agents. */
+export interface BundleReloadSummary {
+  /** The version the session ran before, when it had one. */
+  previousVersion?: string;
+  version: string;
+  primeRestarted: boolean;
+  /** Sub-agents respawned under the new bundle. */
+  respawned: { id: string; name: string }[];
+  /** Template sub-agents stopped because the new bundle dropped their template. */
+  stopped: { id: string; name: string; template?: string }[];
+}
+
+export interface ReinstallBundleResponse {
+  session: Session;
+  reload: BundleReloadSummary;
+}
+
 /** Response from `POST /api/sessions/:id/files`: the stored attachments. */
 export interface UploadFilesResponse {
   files: Attachment[];

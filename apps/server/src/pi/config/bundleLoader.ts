@@ -27,6 +27,32 @@ import { parseManifest } from "./manifest.ts";
 /** Subdirectory under a session root that holds its installed bundle config. */
 export const TANGENT_DIRNAME = ".tangent";
 
+/**
+ * Records, under `.tangent/`, exactly what {@link installBundle} wrote, so a
+ * reinstall replaces only bundle-owned paths and leaves runtime state alone.
+ */
+export const INSTALL_RECORD_FILENAME = ".install.json";
+
+/**
+ * Top-level `.tangent/` entries written at runtime rather than by the bundle:
+ * chat transcripts (`store/chatLog.ts`) and the trigger store
+ * (`triggers/triggerManager.ts`). Never replaced by a reinstall.
+ */
+export const RUNTIME_TANGENT_ENTRIES: ReadonlySet<string> = new Set([
+  "chats",
+  "triggers.json",
+]);
+
+/** On-disk shape of {@link INSTALL_RECORD_FILENAME}. */
+export interface InstallRecord {
+  /** Top-level entries under `.tangent/` the bundle owns. */
+  tangentEntries: string[];
+  /** Workspace-root files the bundle owns (rules, context files). */
+  rootFiles: string[];
+  /** Workspace-root seed memory files: written once, then owned by the session. */
+  seedFiles: string[];
+}
+
 /** Result of {@link installBundle}: the parsed manifest and resolved config. */
 export interface InstalledBundle {
   manifest: BundleManifest;
@@ -155,10 +181,12 @@ async function copyRootFiles(
   rootPath: string,
   entries: ZipEntries,
   manifest: BundleManifest,
-): Promise<void> {
+): Promise<Pick<InstallRecord, "rootFiles" | "seedFiles">> {
+  const rootFiles: string[] = [];
   const rulesRel = `${BUNDLE_DIRS.rules}/${RULES_FILENAME}`;
   if (entries[rulesRel]) {
     await writeEntry(rootPath, RULES_FILENAME, entries[rulesRel]);
+    rootFiles.push(RULES_FILENAME);
   }
 
   const memoryFiles = listOrDiscover(
@@ -167,11 +195,47 @@ async function copyRootFiles(
     BUNDLE_DIRS.memory,
     (rel) => rel.endsWith(".md"),
   );
-  for (const rel of [...memoryFiles, ...(manifest.contextFiles ?? [])]) {
+  const contextFiles = manifest.contextFiles ?? [];
+  for (const rel of [...memoryFiles, ...contextFiles]) {
     const data = entries[rel];
     if (!data) throw new Error(`bundle: missing file "${rel}"`);
     await writeEntry(rootPath, path.basename(rel), data);
   }
+  return {
+    rootFiles: [...new Set([...rootFiles, ...contextFiles.map(basename)])],
+    seedFiles: [...new Set(memoryFiles.map(basename))],
+  };
+}
+
+function basename(rel: string): string {
+  return path.posix.basename(rel);
+}
+
+/** The top-level `.tangent/` entries a bundle's ZIP writes, runtime names excluded. */
+function ownedTangentEntries(
+  entries: ZipEntries,
+  manifest: BundleManifest,
+): string[] {
+  const names = new Set(Object.keys(entries).map((rel) => rel.split("/")[0]));
+  if (manifest.triggers?.some((trigger) => trigger.handler)) {
+    names.add(BUNDLE_DIRS.triggers);
+  }
+  return [...names]
+    .filter(
+      (name) =>
+        !RUNTIME_TANGENT_ENTRIES.has(name) && name !== INSTALL_RECORD_FILENAME,
+    )
+    .sort();
+}
+
+async function writeInstallRecord(
+  rootPath: string,
+  record: InstallRecord,
+): Promise<void> {
+  await writeFile(
+    path.join(rootPath, TANGENT_DIRNAME, INSTALL_RECORD_FILENAME),
+    `${JSON.stringify(record, null, 2)}\n`,
+  );
 }
 
 /** Absolute paths passed to Pi for the bundle's skills/workflows/extensions. */
@@ -324,10 +388,14 @@ export async function installBundle(
   const manifest = parsed.manifest;
 
   await writeBundleTree(rootPath, entries);
-  await copyRootFiles(rootPath, entries, manifest);
+  const rootRecord = await copyRootFiles(rootPath, entries, manifest);
 
   const installRoot = path.join(rootPath, TANGENT_DIRNAME);
   await compileTriggerHandlers(entries, manifest, installRoot);
+  await writeInstallRecord(rootPath, {
+    tangentEntries: ownedTangentEntries(entries, manifest),
+    ...rootRecord,
+  });
   const config = resolveSessionConfig(entries, manifest, rootPath);
 
   return { manifest, config };

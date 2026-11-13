@@ -179,6 +179,28 @@ function bundleToStored(
   };
 }
 
+/**
+ * Refreshes a bundle trigger from its re-declared version. The bundle owns the
+ * definition; the session keeps its id, enable toggle, target, history and (for
+ * an unchanged kind) its callback secret, so existing callback URLs stay valid.
+ */
+function refreshBundleTrigger(
+  stored: StoredTrigger,
+  declared: BundleTrigger,
+  now: string,
+): StoredTrigger {
+  const fresh = bundleToStored(declared, now);
+  return {
+    ...fresh,
+    id: stored.id,
+    enabled: stored.enabled,
+    target: stored.target,
+    secret: stored.kind === fresh.kind ? stored.secret : fresh.secret,
+    createdAt: stored.createdAt,
+    lastFiredAt: stored.lastFiredAt,
+  };
+}
+
 /** Applies a mutable patch to a stored trigger in place. */
 function applyPatch(stored: StoredTrigger, patch: UpdateTriggerRequest): void {
   if (patch.enabled !== undefined) stored.enabled = patch.enabled;
@@ -407,6 +429,39 @@ export class TriggerManager {
     const now = new Date().toISOString();
     for (const bundleTrigger of bundleTriggers) {
       const stored = bundleToStored(bundleTrigger, now);
+      state.triggers.set(stored.id, stored);
+    }
+    this.persist(state);
+  }
+
+  /**
+   * Reconciles a session's bundle triggers with a reinstalled bundle, by name:
+   * re-declared ones are refreshed in place, dropped ones removed, new ones
+   * added. Runtime triggers are untouched; a new bundle trigger whose name a
+   * runtime trigger already holds is skipped.
+   */
+  reconcileBundle(
+    sessionId: string,
+    rootPath: string,
+    bundleTriggers: BundleTrigger[] | undefined,
+  ): void {
+    const state = this.register(sessionId, rootPath);
+    const declared = new Map(
+      (bundleTriggers ?? []).map((trigger) => [trigger.name, trigger]),
+    );
+    const now = new Date().toISOString();
+    for (const [id, stored] of state.triggers) {
+      if (stored.source !== "bundle") {
+        declared.delete(stored.name);
+        continue;
+      }
+      const next = declared.get(stored.name);
+      declared.delete(stored.name);
+      if (next) state.triggers.set(id, refreshBundleTrigger(stored, next, now));
+      else state.triggers.delete(id);
+    }
+    for (const trigger of declared.values()) {
+      const stored = bundleToStored(trigger, now);
       state.triggers.set(stored.id, stored);
     }
     this.persist(state);

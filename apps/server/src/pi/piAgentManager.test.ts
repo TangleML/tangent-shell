@@ -23,7 +23,12 @@ import type { AgentRole } from "../memory/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
-import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
+import type { ResolvedSessionConfig } from "./agentConfig.ts";
+import {
+  PiAgentManager,
+  PRIME_AGENT_ID,
+  SessionMaintenanceError,
+} from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
 
 /**
@@ -878,4 +883,166 @@ test("a failing transcript lookup spawns Prime without the notice", async () => 
   pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
 
   assert.deepEqual(promptsOf(spawns[0].child), ["hello"]);
+});
+
+/** A bundle config with one Prime prompt and the given sub-agent templates. */
+function bundleConfig(
+  primePrompt: string,
+  templates: Record<string, string>,
+): ResolvedSessionConfig {
+  return {
+    prime: {
+      tools: ["read"],
+      appendSystemPrompt: primePrompt,
+      model: "proxy/bundle-model",
+    },
+    subagentDefaults: {},
+    templates: new Map(
+      Object.entries(templates).map(([name, systemPrompt]) => [
+        name,
+        { name, description: name, tools: ["read"], systemPrompt },
+      ]),
+    ),
+    skillPaths: [],
+    workflowPaths: [],
+    extensionPaths: [],
+  };
+}
+
+test("reloadSession respawns Prime and live sub-agents with the new bundle", async () => {
+  const h = makeManager();
+  const v1 = bundleConfig("prime v1", { scout: "scout v1", gone: "gone v1" });
+  await h.pi.ensure("s1", "/tmp/s1", { config: v1 });
+  const scout = h.pi.spawnSubagent("s1", { name: "Scout", template: "scout" });
+  const gone = h.pi.spawnSubagent("s1", { name: "Old", template: "gone" });
+  const inline = h.pi.spawnSubagent("s1", {
+    name: "Inline",
+    systemPrompt: "inline prompt",
+  });
+  h.pi.setAgentModel("s1", PRIME_AGENT_ID, { model: "proxy/user-pick" });
+  const before = h.spawns.length;
+
+  const reload = h.pi.reloadSession(
+    "s1",
+    bundleConfig("prime v2", { scout: "scout v2" }),
+  );
+
+  assert.equal(reload.primeRestarted, true);
+  assert.deepEqual(
+    reload.respawned.map((agent) => agent.info.id).sort(),
+    [scout.info.id, inline.info.id].sort(),
+  );
+  assert.deepEqual(reload.stopped, [
+    { id: gone.info.id, name: "Old", template: "gone" },
+  ]);
+  const fresh = h.spawns.slice(before);
+  assert.equal(fresh.length, 3, "Prime, the scout and the inline agent");
+  const byId = (id: string) => fresh.find((spawn) => spawn.agentId === id)!;
+  assert.match(appendedPrompt(byId(PRIME_AGENT_ID)), /prime v2/);
+  assert.match(appendedPrompt(byId(scout.info.id)), /scout v2/);
+  assert.match(appendedPrompt(byId(inline.info.id)), /inline prompt/);
+  assert.equal(
+    h.pi.getAgentSelection("s1", PRIME_AGENT_ID)?.model,
+    "proxy/user-pick",
+    "a user model override survives the reload",
+  );
+  assert.equal(h.pi.hasAgent("s1", gone.info.id), false);
+  assert.ok(
+    h.rosterUpdates.some((u) => u.id === gone.info.id && u.status === "killed"),
+  );
+});
+
+test("reloadSession cancels a run it cuts instead of leaving it open", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1", { config: bundleConfig("v1", {}) });
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "go" });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+  assert.equal(h.pi.isBusy("s1"), true, "a mid-run session reads busy");
+
+  h.pi.reloadSession("s1", bundleConfig("v2", {}));
+  await flush();
+
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
+  assert.equal(h.pi.isBusy("s1"), false);
+});
+
+test("a Prime restarted by a bundle reload is told to recover its context", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1", { config: bundleConfig("v1", {}) });
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hi" });
+  runTurn(h.spawns[0].child, "hello");
+  await flush();
+
+  h.pi.reloadSession("s1", bundleConfig("v2", {}));
+  const restarted = h.spawns.at(-1)!;
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "next" });
+
+  const [prompt] = promptsOf(restarted.child);
+  assert.ok(prompt.startsWith(RESTART_NOTICE_PREFIX));
+  assert.ok(prompt.endsWith("\n\nnext"));
+});
+
+test("a prompt that arrives during a bundle reload reaches the replacement Prime", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1", { config: bundleConfig("v1", {}) });
+  const old = h.spawns[0];
+
+  assert.equal(h.pi.beginMaintenance("s1"), true);
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "mid" });
+  assert.deepEqual(promptsOf(old.child), [], "held, not sent to the old Prime");
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.throws(
+    () => h.pi.spawnSubagent("s1", { name: "Late" }),
+    SessionMaintenanceError,
+  );
+
+  h.pi.reloadSession("s1", bundleConfig("v2", {}));
+  h.pi.endMaintenance("s1");
+
+  const replacement = h.spawns.at(-1)!;
+  assert.notEqual(replacement, old);
+  assert.deepEqual(promptsOf(replacement.child), ["mid"]);
+  assert.ok(
+    h.runs.current("s1", PRIME_AGENT_ID),
+    "the replayed prompt opens a run",
+  );
+});
+
+test("maintenance is only claimed while idle, and a waiting ensure resumes after it", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1", { config: bundleConfig("v1", {}) });
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "go" });
+  assert.equal(
+    h.pi.beginMaintenance("s1"),
+    false,
+    "a mid-run session is refused",
+  );
+  runTurn(h.spawns[0].child, "done");
+  await flush();
+
+  assert.equal(h.pi.beginMaintenance("s1"), true);
+  assert.equal(h.pi.beginMaintenance("s1"), false, "one window at a time");
+  h.pi.dispose("s1");
+  assert.equal(
+    h.pi.beginMaintenance("s1"),
+    true,
+    "dispose released the window",
+  );
+  h.pi.endMaintenance("s1");
+
+  assert.equal(h.pi.beginMaintenance("s2"), true);
+  let spawnedDuring = false;
+  const pending = h.pi.ensure("s2", "/tmp/s2").then(() => {
+    spawnedDuring = h.pi.hasAgent("s2", PRIME_AGENT_ID);
+  });
+  await flush();
+  assert.equal(
+    h.pi.hasAgent("s2", PRIME_AGENT_ID),
+    false,
+    "Prime waits out the swap",
+  );
+  h.pi.endMaintenance("s2");
+  await pending;
+  assert.equal(spawnedDuring, true);
 });
