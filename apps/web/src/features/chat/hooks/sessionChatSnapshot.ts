@@ -30,6 +30,8 @@ export interface SessionChatSnapshot {
   modelByAgent: Map<string, AgentModelSelection>;
   triggers: Trigger[];
   artifacts: PinnedArtifact[];
+  /** Goes up each time the session's resources may have changed. */
+  resourcesVersion: number;
   connected: boolean;
   historyLoaded: boolean;
   rosterReady: boolean;
@@ -48,6 +50,7 @@ export function emptySessionChat(): SessionChatSnapshot {
     modelByAgent: new Map(),
     triggers: [],
     artifacts: [],
+    resourcesVersion: 0,
     connected: false,
     historyLoaded: false,
     rosterReady: false,
