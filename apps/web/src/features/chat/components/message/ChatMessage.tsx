@@ -169,6 +169,7 @@ function ChatMessageContent({
           sessionId={sessionId}
           messageId={message.id}
           tone={isOwn ? "on-primary" : undefined}
+          pinnedPaths={pinnedPaths}
           onOpenArtifact={onOpenArtifact}
         />
       )}

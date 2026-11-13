@@ -1165,3 +1165,59 @@ test("a failed call Pi says nothing more about is final after a moment", async (
   assert.ok(run);
   assert.equal((await h.runStore.getRun(run))?.status, "failed");
 });
+
+test("a failed call Pi says it will retry keeps the run open without waiting", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  emitPi(child, { type: "agent_start" });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "", stopReason: "error" },
+  });
+  emitPi(child, { type: "agent_end", willRetry: true });
+  await flush();
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, run);
+  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
+
+  runTurn(child, "got through");
+  await flush();
+
+  assert.ok(run);
+  assert.equal((await h.runStore.getRun(run))?.status, "completed");
+});
+
+test("stopping the agent while Pi waits to retry cancels the run, not fails it", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  failCall(child);
+  emitPi(child, { type: "auto_retry_start" });
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), true);
+  emitPi(child, { type: "auto_retry_end", success: false });
+  await flush();
+
+  assert.ok(run);
+  assert.equal((await h.runStore.getRun(run))?.status, "cancelled");
+  assert.equal(h.pi.getStatuses()[0]?.failed, undefined);
+});
+
+test("a prompt sent while a failed call may still be retried joins the same run", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  failCall(h.spawns[0].child);
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, run);
+});
