@@ -39,7 +39,7 @@ import {
   presenceForStatus,
   sessionAgentFromParticipant,
 } from "./participantStore.ts";
-import type { ResourceStore } from "./resourceStore.ts";
+import { catalogPin, removePin, type ResourceStore } from "./resourceStore.ts";
 import {
   applySessionUpdate,
   type CreateSessionParams,
@@ -448,12 +448,7 @@ export class SqliteSessionStore implements SessionStore {
       .run();
     // Mirror the pin into the resource catalog so an artifact is citable
     // content; the pin row stays authoritative for the asset list.
-    await this.resources?.catalog({
-      sessionId,
-      kind: "artifact",
-      name: artifact.title,
-      uri: artifact.path,
-    });
+    if (this.resources) await catalogPin(this.resources, sessionId, artifact);
     return this.readArtifacts(sessionId);
   }
 
@@ -470,7 +465,9 @@ export class SqliteSessionStore implements SessionStore {
         ),
       )
       .run();
-    await this.resources?.remove(sessionId, artifactPath);
+    if (this.resources) {
+      await removePin(this.resources, sessionId, artifactPath);
+    }
     return this.readArtifacts(sessionId);
   }
 

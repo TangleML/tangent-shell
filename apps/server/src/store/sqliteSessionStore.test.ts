@@ -740,3 +740,55 @@ test("pinning an artifact mirrors it into the resource catalog", async () => {
   await store.unpinArtifact(session.id, "artifacts/report.html");
   assert.equal((await resources.listForSession(session.id)).length, 0);
 });
+
+test("pinning and unpinning leave a catalog entry of another kind alone", async () => {
+  const db = openDb(":memory:");
+  const resources = new SqliteResourceStore(db);
+  const store = new SqliteSessionStore(db, resources);
+  const session = await store.createSession({ name: "S" });
+  const others = [
+    { kind: "mount", name: "Shared", uri: "mount://shared" },
+    { kind: "host", name: "Pipeline", uri: "pipeline://id/1" },
+    { kind: "memory", name: "Session memory", uri: "memory://session" },
+  ] as const;
+  for (const other of others) {
+    await resources.catalog({ sessionId: session.id, ...other });
+  }
+  const kinds = async () =>
+    (await resources.listForSession(session.id)).map(({ kind, name, uri }) => ({
+      kind,
+      name,
+      uri,
+    }));
+
+  for (const { uri } of others) {
+    await store.pinArtifact(session.id, { path: uri, title: "Taken over" });
+  }
+  assert.deepEqual(await kinds(), others);
+
+  for (const { uri } of others) await store.unpinArtifact(session.id, uri);
+  assert.deepEqual(await kinds(), others);
+  assert.deepEqual(await store.getArtifacts(session.id), []);
+});
+
+test("pinning a file already in the catalog makes it an artifact", async () => {
+  const db = openDb(":memory:");
+  const resources = new SqliteResourceStore(db);
+  const store = new SqliteSessionStore(db, resources);
+  const session = await store.createSession({ name: "S" });
+  await resources.catalog({
+    sessionId: session.id,
+    kind: "file",
+    name: "report.html",
+    uri: "artifacts/report.html",
+  });
+
+  await store.pinArtifact(session.id, {
+    path: "artifacts/report.html",
+    title: "Report",
+  });
+
+  const [entry] = await resources.listForSession(session.id);
+  assert.equal(entry.kind, "artifact");
+  assert.equal(entry.name, "Report");
+});

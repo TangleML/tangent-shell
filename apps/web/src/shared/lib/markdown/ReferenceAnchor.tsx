@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
 import { useHostAnchorProtocol } from "@/shared/lib/hostSlots";
 import {
-  isAbsoluteUrl,
+  isSessionFilePath,
   isViewableArtifact,
   resolveUrl,
 } from "@/shared/lib/markdown/artifact";
@@ -82,7 +82,7 @@ export function ReferenceAnchor({
     );
   }
 
-  if (artifactBaseUrl == null || isAbsoluteUrl(href)) return fallback;
+  if (artifactBaseUrl == null || !isSessionFilePath(href)) return fallback;
 
   const url = resolveUrl(href, artifactBaseUrl) ?? href;
   const label = artifactLabel(children, url);

@@ -3,7 +3,10 @@ import { Paragraph } from "@tangent/ui-primitives/typography";
 import { splitReferenceLinks } from "@/features/chat/model/references";
 import { apiUrl } from "@/shared/lib/basePath";
 import { useHostAnchorProtocol } from "@/shared/lib/hostSlots";
-import { isArtifactsLink } from "@/shared/lib/markdown/artifact";
+import {
+  isArtifactsLink,
+  isSessionFilePath,
+} from "@/shared/lib/markdown/artifact";
 import { ReferenceAnchor } from "@/shared/lib/markdown/ReferenceAnchor";
 
 interface MessageTextProps {
@@ -36,7 +39,7 @@ export function MessageText({
     (href) =>
       hostProtocolOf(href) !== undefined ||
       isArtifactsLink(href) ||
-      Boolean(pinnedPaths?.has(href)),
+      (isSessionFilePath(href) && Boolean(pinnedPaths?.has(href))),
   );
 
   return (

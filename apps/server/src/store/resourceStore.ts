@@ -88,3 +88,41 @@ export interface ResourceStore {
     conversationId: string,
   ): Promise<Resource[]>;
 }
+
+// A pin takes over a workspace file's entry, never a mount, host entry or memory.
+const PINNABLE_KINDS: ResourceKind[] = ["file", "attachment", "artifact"];
+
+async function entryAt(
+  store: ResourceStore,
+  sessionId: string,
+  uri: string,
+): Promise<Resource | undefined> {
+  const resources = await store.listForSession(sessionId);
+  return resources.find((resource) => resource.uri === uri);
+}
+
+/** Mirrors a pin into the catalog as an `artifact`. */
+export async function catalogPin(
+  store: ResourceStore,
+  sessionId: string,
+  pin: { path: string; title: string },
+): Promise<void> {
+  const existing = await entryAt(store, sessionId, pin.path);
+  if (existing && !PINNABLE_KINDS.includes(existing.kind)) return;
+  await store.catalog({
+    sessionId,
+    kind: "artifact",
+    name: pin.title,
+    uri: pin.path,
+  });
+}
+
+/** Drops a pin's catalog entry, leaving an entry of any other kind there. */
+export async function removePin(
+  store: ResourceStore,
+  sessionId: string,
+  path: string,
+): Promise<void> {
+  const existing = await entryAt(store, sessionId, path);
+  if (existing?.kind === "artifact") await store.remove(sessionId, path);
+}
