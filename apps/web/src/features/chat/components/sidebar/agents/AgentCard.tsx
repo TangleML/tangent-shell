@@ -1,12 +1,6 @@
-import type { SubagentStatus } from "@tangent/shared/contracts";
-
 import { useAgentStatus } from "@/features/chat/hooks/useAgentStatus";
-import type { Agent } from "@/features/chat/model/agents";
-import {
-  ListItem,
-  type ListItemAction,
-  type ListItemFlair,
-} from "@/shared/ui/patterns/list-item";
+import { type Agent, agentStatusVisual } from "@/features/chat/model/agents";
+import { ListItem, type ListItemAction } from "@/shared/ui/patterns/list-item";
 
 interface AgentCardProps {
   agent: Agent;
@@ -25,31 +19,10 @@ interface AgentCardProps {
   onRemove?: () => void;
 }
 
-// Keep in step with AgentStatusIndicator, which shows these states on the tab.
-function statusFlair(
-  status: SubagentStatus,
-  busy: boolean,
-  label: string,
-): ListItemFlair {
-  if (busy) return { kind: "dot", label, tone: "success", pulse: true };
-  switch (status) {
-    case "active":
-      return { kind: "dot", label, tone: "success" };
-    case "detached":
-      return { kind: "icon", icon: "Unplug", label };
-    case "completed":
-      return { kind: "icon", icon: "Check", label };
-    case "killed":
-      return { kind: "icon", icon: "Ban", label };
-    case "error":
-      return { kind: "icon", icon: "TriangleAlert", label, tone: "critical" };
-  }
-}
-
 /**
  * One session agent (Prime or a sub-agent) in the sidebar. The icon conveys the
- * agent kind and the flair its live status. Clicking it opens (or focuses) the
- * agent's thread tab.
+ * agent kind, the flair its live status, and the subtitle says it in words.
+ * Clicking it opens (or focuses) the agent's thread tab.
  */
 export function AgentCard({
   agent,
@@ -84,7 +57,7 @@ export function AgentCard({
       icon={agent.kind === "prime" ? "Crown" : "Bot"}
       title={agent.name}
       subtitle={label}
-      flair={statusFlair(status, busy, label)}
+      flair={agentStatusVisual(status, busy)}
       tone={status === "error" ? "critical" : undefined}
       selected={selected}
       onOpen={onOpen}

@@ -9,11 +9,10 @@ interface MessageLayoutProps {
   avatar?: ReactNode;
   /** Row above the bubble (author/label + actions); omit for headerless rows. */
   header?: ReactNode;
+  /** `own` also puts the message on the right, as chat apps do. */
   variant: MessageBubbleVariant;
   /** When false, native text selection inside the bubble is disabled. */
   selectable?: boolean;
-  /** `end` puts the viewer's own messages on the right, as chat apps do. */
-  side?: "start" | "end";
   children: ReactNode;
 }
 
@@ -27,14 +26,13 @@ export function MessageLayout({
   header,
   variant,
   selectable,
-  side = "start",
   children,
 }: MessageLayoutProps) {
   return (
     <Box group inlineSize="full">
       <InlineStack gap="2" blockAlign="end" wrap="nowrap">
         {avatar}
-        <BlockStack gap="1" align={side === "end" ? "end" : "stretch"} grow>
+        <BlockStack gap="1" align={variant === "own" ? "end" : "stretch"} grow>
           {header}
           <MessageBubble variant={variant} selectable={selectable}>
             {children}

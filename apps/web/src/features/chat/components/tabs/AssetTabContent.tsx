@@ -13,7 +13,7 @@ import type { MentionCandidate } from "@/features/chat/model/mentions";
 import type { ChatReference } from "@/features/chat/model/references";
 import type { ChatMessage } from "@/features/chat/model/types";
 
-import { AgentsIndicator } from "../composer/AgentsIndicator";
+import { SessionAgentsPill } from "../composer/SessionAgentsPill";
 import { ArtifactTabView } from "./ArtifactTabView";
 import { SubagentTabView } from "./SubagentTabView";
 import { TriggerTabPanel } from "./TriggerTabPanel";
@@ -51,10 +51,7 @@ interface AssetTabContentProps {
   togglePinArtifact: (path: string, title: string) => void;
   mentionCandidates: MentionCandidate[];
   references: ChatReference[];
-  spawnedAgents: Agent[];
-  busySubagents: { id: string; conversationId: string }[];
   openAgent: (agent: Agent) => void;
-  removeAgent: (agent: Agent) => void;
 }
 
 /**
@@ -88,10 +85,7 @@ export function AssetTabContent({
   togglePinArtifact,
   mentionCandidates,
   references,
-  spawnedAgents,
-  busySubagents,
   openAgent,
-  removeAgent,
 }: AssetTabContentProps) {
   switch (tab.kind) {
     case "agent": {
@@ -134,15 +128,12 @@ export function AssetTabContent({
           onTogglePinArtifact={togglePinArtifact}
           mentionCandidates={mentionCandidates}
           references={references}
-          agentsPill={
-            <AgentsIndicator
+          pills={
+            <SessionAgentsPill
               sessionId={sessionId}
-              agents={spawnedAgents}
-              busySubagents={busySubagents}
               selectedId={tab.agentId}
               onOpenAgent={openAgent}
-              onRemoveAgent={removeAgent}
-              onAbort={abort}
+              onRemoved={(agent) => closeAsset(agent.id)}
             />
           }
         />

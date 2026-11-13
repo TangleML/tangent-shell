@@ -23,6 +23,8 @@ flowchart TB
     Section
     Card
     ListRow
+    ListItem
+    StatusDot
     ScrollRegion
     Truncating
     HoverReveal
@@ -71,7 +73,10 @@ Code is expected to live in the upper layers. Reaching for a lower one is a smel
 | `<ScrollRegion axis="y">`                    | `flex-1 min-h-0 overflow-y-auto`                                                |
 | `<Truncating>`                               | `min-w-0 flex-1` around a shrinkable cell                                       |
 | `<ListRow hoverable onClick>`                | `<InlineStack className="group hover:bg-* px-* py-*">` rows                     |
+| `<ListItem icon title subtitle flair>`       | icon tile + title/subtitle + status + hover actions, one openable thing per row |
 | `<HoverReveal>`                              | `opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity` |
+| `<HoverReveal mode="collapse">`              | `hidden group-hover:flex group-focus-within:flex` actions that take no room     |
+| `<StatusDot variant>`                        | `size-2 rounded-full bg-*` live-status dots                                     |
 | `<Toolbar density chrome sticky>`            | `InlineStack gap-1 shrink-0 px-* py-*` action bars                              |
 | `<EmptyState icon title description action>` | centered `flex items-center justify-center text-center p-*` placeholders        |
 | `<StickyHeader>`                             | `sticky top-0 z-* bg-*` inside a `ScrollRegion`                                 |
@@ -81,6 +86,19 @@ Code is expected to live in the upper layers. Reaching for a lower one is a smel
 | `<Divider>`                                  | `<Separator className="...">`                                                   |
 | `<Page height padded>`                       | `mx-auto w-full max-w-2xl flex flex-col {min-,}h-svh p-*` page columns          |
 | `<CenteredScreen gap>`                       | `flex min-h-svh flex-col items-center justify-center p-6` full-screen centering |
+
+### `ListItem` or `ListRow`
+
+Both share one hover and selected tint (`ROW_TINT`), so rows read alike.
+
+- **`ListItem`** — a list of things someone opens: agents, files, sessions, people.
+  It renders a real `<button>`, takes data rather than markup (icon, title,
+  subtitle, a `flair`, `actions`, a `menu`), and owns its layout, so every such
+  list looks the same. Its `flair` dot takes a `StatusDot` variant; leave the
+  flair's `label` out when the subtitle already says it.
+- **`ListRow`** — any other row whose content you lay out yourself, such as a
+  picker option or a table-like line. It's a styled container, not a control:
+  wrap it in the element that carries the role (a `button`, an `option`).
 
 For text use props on `Text` / `Paragraph` / `Heading`: `truncate`, `align`, `italic`,
 `wrap`, `tone`, `font="mono"`, `weight`, `size`. For `Icon`: `tone`, `rotate`, `spin`, `pulse`, `size`.

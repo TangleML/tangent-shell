@@ -6,9 +6,9 @@ import { Heading, Paragraph } from "@tangent/ui-primitives/typography";
 import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
 import { SESSION_STATUS_DISPLAY } from "@/features/sessions/model/sessionStatusDisplay";
 import { truncateMiddle } from "@/shared/lib/utils";
+import { StatusDot } from "@/shared/ui/patterns/status-dot";
 import { Truncating } from "@/shared/ui/patterns/truncating";
 
-import { StatusDot } from "../StatusDot";
 import { SessionDropDownSwitcher } from "./SessionDropDownSwitcher";
 
 interface SessionCardProps {

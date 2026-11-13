@@ -112,12 +112,20 @@ Reach for these instead of stacking utility classes. Each names an intent:
   `density`. Establishes Surface level 1.
 - `ListRow` — list row composing `InlineStack` + the `group` class. `density`, `hoverable`,
   `selected`, `zebra`, `gap`, `onClick`. Replaces `<InlineStack className="group hover:bg-* px-* py-*">`.
+- `ListItem` — the one design for a list of openable things (agents, files, sessions, people):
+  icon tile, `title`/`subtitle`, a `flair` (status dot, icon, or pill), hover `actions`, a
+  `menu`. Renders a real `<button>` and takes data, not markup. Use it for openable things;
+  use `ListRow` for rows you lay out yourself (picker options, table-like lines). Both share
+  one hover/selected tint. Leave a dot/icon flair's `label` out when the subtitle says it.
+- `StatusDot` — the live-status dot (`busy`, `active`, `away`, `disconnected`, `completed`,
+  `killed`, `error`), so a status reads the same colour everywhere. A `ListItem` dot flair
+  takes the same `variant`.
 - `ScrollRegion` — fills available flex space and scrolls. `axis` (`y`/`x`/`both`), `scrollbar`.
   Replaces `flex-1 min-h-0 overflow-y-auto`.
 - `Truncating` — wraps a shrinkable flex cell (`min-w-0 flex-1`). `grow` (`fill`/`fit`). Put
   `truncate` on the inner `<Text>`.
 - `HoverReveal` — reveal actions on hover/focus of an enclosing `ListRow`/`group`. `mode`
-  (`on-hover`/`dim-until-hover`), `shrink`.
+  (`on-hover`/`dim-until-hover`/`collapse`, which takes no room until revealed), `shrink`.
 - `IconButton` — square icon-only button. `icon`, `size`, `variant`, `tone`, and a **required**
   `aria-label`. Replaces `<Button size="..." className="h-5 w-5 p-0"><Icon /></Button>`.
 - `EmptyState` — centered placeholder. `icon`, `title`, `description`, `action`.

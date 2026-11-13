@@ -7,16 +7,15 @@ import { BlockStack } from "@tangent/ui-primitives/layout";
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
 import { AgentModelPicker } from "@/features/chat/components/composer/AgentModelPicker";
-import { AgentsIndicator } from "@/features/chat/components/composer/AgentsIndicator";
 import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
 import { ChatInput } from "@/features/chat/components/composer/ChatInput";
 import { ComposerFooter } from "@/features/chat/components/composer/ComposerFooter";
 import { FilesIndicator } from "@/features/chat/components/composer/FilesIndicator";
+import { SessionAgentsPill } from "@/features/chat/components/composer/SessionAgentsPill";
 import { ChatMessageList } from "@/features/chat/components/message/ChatMessageList";
 import { SubagentTabView } from "@/features/chat/components/tabs/SubagentTabView";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
-import { buildSubagents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
 import {
@@ -139,10 +138,6 @@ export function EmbeddedChat({
     }
   };
 
-  const busySubagents = chat.subagents
-    .filter((s) => chat.isConversationBusy(s.conversationId))
-    .map((s) => ({ id: s.id, name: s.name, conversationId: s.conversationId }));
-
   const removeAgent = (id: string) => {
     chat.dismissSubagent(id);
     onRemoveAgent?.(id);
@@ -155,12 +150,10 @@ export function EmbeddedChat({
     triggers: chat.triggers,
   });
 
-  const renderAgentsPill = (selectedId?: string) => (
+  const renderPills = (selectedId?: string) => (
     <>
-      <AgentsIndicator
+      <SessionAgentsPill
         sessionId={sessionId}
-        agents={buildSubagents(chat.subagents)}
-        busySubagents={busySubagents}
         selectedId={selectedId}
         onOpenAgent={(agent) =>
           onOpenAgent?.({
@@ -168,8 +161,7 @@ export function EmbeddedChat({
             conversationId: chat.conversationForAgent(agent.id),
           })
         }
-        onRemoveAgent={(agent) => removeAgent(agent.id)}
-        onAbort={chat.abort}
+        onRemoved={(agent) => onRemoveAgent?.(agent.id)}
       />
       <FilesIndicator
         sessionId={sessionId}
@@ -209,7 +201,7 @@ export function EmbeddedChat({
         onSendPrompt={onSendPrompt}
         onTogglePinArtifact={togglePinArtifact}
         onRemove={() => removeAgent(agentId)}
-        agentsPill={renderAgentsPill(agentId)}
+        pills={renderPills(agentId)}
         references={references}
       />
     );
@@ -242,7 +234,7 @@ export function EmbeddedChat({
         isMessageStreaming={chat.isMessageStreaming}
       />
       <ComposerFooter
-        agentsPill={renderAgentsPill()}
+        pills={renderPills()}
         modelPicker={
           <AgentModelPicker
             model={primeModel?.model}
@@ -299,7 +291,7 @@ interface SubagentChatProps {
   onSendPrompt?: (content: string) => void;
   onTogglePinArtifact: (path: string, title: string) => void;
   onRemove: () => void;
-  agentsPill: ReactNode;
+  pills: ReactNode;
   references: ChatReference[];
 }
 
@@ -315,7 +307,7 @@ function SubagentChat({
   onSendPrompt,
   onTogglePinArtifact,
   onRemove,
-  agentsPill,
+  pills,
   references,
 }: SubagentChatProps) {
   if (!rosterReady) {
@@ -372,7 +364,7 @@ function SubagentChat({
       mentionCandidates={mentionCandidates}
       references={references}
       autoFocus={autoFocus}
-      agentsPill={agentsPill}
+      pills={pills}
     />
   );
 }

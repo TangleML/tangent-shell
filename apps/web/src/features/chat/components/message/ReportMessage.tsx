@@ -1,13 +1,10 @@
-import { Icon } from "@tangent/ui-primitives/icon";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
-import { Paragraph, Text } from "@tangent/ui-primitives/typography";
+import { Paragraph } from "@tangent/ui-primitives/typography";
 
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { apiUrl } from "@/shared/lib/basePath";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
-import { Surface } from "@/shared/ui/patterns/surface";
 
-import { MessageActions } from "./MessageActions";
+import { CalloutMessage } from "./CalloutMessage";
 import { MessageAttachments } from "./MessageAttachments";
 
 interface ReportMessageProps {
@@ -19,13 +16,6 @@ interface ReportMessageProps {
   pinnedPaths?: Set<string>;
   onTogglePinArtifact?: (path: string, title: string) => void;
   onCollapse?: () => void;
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 /**
@@ -48,40 +38,36 @@ export function ReportMessage({
   const attachments = message.attachments ?? [];
 
   return (
-    <Surface tone="info">
-      <BlockStack gap="1">
-        <InlineStack gap="2" blockAlign="center" wrap="nowrap">
-          <Icon name="CornerDownRight" size="xs" tone="subdued" />
-          <Text size="xs" weight="medium" tone="subdued">
-            {`Report from ${message.author.name}`}
-            {" · "}
-            {formatTime(message.createdAt)}
-          </Text>
-          <MessageActions content={message.content} onCollapse={onCollapse} />
-        </InlineStack>
-        {isAgent ? (
-          <Markdown
-            artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
-            bundleId={bundleId}
-            onSendPrompt={onSendPrompt}
-            onOpenArtifact={onOpenArtifact}
-            pinnedPaths={pinnedPaths}
-            onTogglePinArtifact={onTogglePinArtifact}
-            sessionId={sessionId}
-            messageId={message.id}
-            onCollapse={onCollapse}
-          >
-            {message.content}
-          </Markdown>
-        ) : (
-          <Paragraph size="sm" wrap="pre-wrap">
-            {message.content}
-          </Paragraph>
-        )}
-        {attachments.length > 0 ? (
-          <MessageAttachments sessionId={sessionId} attachments={attachments} />
-        ) : null}
-      </BlockStack>
-    </Surface>
+    <CalloutMessage
+      icon="CornerDownRight"
+      title={`Report from ${message.author.name}`}
+      tone="info"
+      createdAt={message.createdAt}
+      content={message.content}
+      onCollapse={onCollapse}
+    >
+      {isAgent ? (
+        <Markdown
+          artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
+          bundleId={bundleId}
+          onSendPrompt={onSendPrompt}
+          onOpenArtifact={onOpenArtifact}
+          pinnedPaths={pinnedPaths}
+          onTogglePinArtifact={onTogglePinArtifact}
+          sessionId={sessionId}
+          messageId={message.id}
+          onCollapse={onCollapse}
+        >
+          {message.content}
+        </Markdown>
+      ) : (
+        <Paragraph size="sm" wrap="pre-wrap">
+          {message.content}
+        </Paragraph>
+      )}
+      {attachments.length > 0 ? (
+        <MessageAttachments sessionId={sessionId} attachments={attachments} />
+      ) : null}
+    </CalloutMessage>
   );
 }

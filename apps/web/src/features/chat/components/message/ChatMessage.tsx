@@ -121,7 +121,6 @@ function ChatMessageContent({
   return (
     <MessageLayout
       variant={variant}
-      side={isOwn ? "end" : undefined}
       avatar={
         isOwn ? undefined : (
           <MessageAvatar
