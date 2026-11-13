@@ -174,6 +174,7 @@ function makeManager(options?: {
     runs,
     undefined,
     () => options?.selectors ?? [],
+    undefined,
     fakeSpawn,
   );
   return { pi, spawns, rosterUpdates, events, runs, runStore };

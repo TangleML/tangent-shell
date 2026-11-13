@@ -98,6 +98,49 @@ test("the sessions table has a nullable env column", () => {
   assert.equal(env.notnull, 0, "and left it nullable");
 });
 
+test("extensionsOf round-trips every selection shape, and clears to inherit", async () => {
+  const store = newStore();
+
+  // A fresh session inherits the bundle policy: no selection of its own.
+  const session = await store.createSession({ name: "exts" });
+  assert.equal(store.extensionsOf(session.id), undefined);
+
+  await store.setSessionExtensions(session.id, "all");
+  assert.equal(store.extensionsOf(session.id), "all");
+
+  await store.setSessionExtensions(session.id, "none");
+  assert.equal(store.extensionsOf(session.id), "none");
+
+  await store.setSessionExtensions(session.id, ["a", "b"]);
+  assert.deepEqual(store.extensionsOf(session.id), ["a", "b"]);
+
+  // Resetting to inherit stores NULL and reads back as undefined.
+  await store.setSessionExtensions(session.id, undefined);
+  assert.equal(store.extensionsOf(session.id), undefined);
+});
+
+test("extensionsOf reads a selection back from a cold store (no cache)", async () => {
+  const db = openDb(":memory:");
+  const warm = new SqliteSessionStore(db);
+  const session = await warm.createSession({ name: "persisted" });
+  await warm.setSessionExtensions(session.id, ["x"]);
+
+  // A second store over the same DB has an empty cache, forcing a DB read.
+  const cold = new SqliteSessionStore(db);
+  assert.deepEqual(cold.extensionsOf(session.id), ["x"]);
+});
+
+test("the sessions table has a nullable extensions column", () => {
+  const db = openDb(":memory:");
+  const columns = db.$client.prepare("PRAGMA table_info(sessions)").all() as {
+    name: string;
+    notnull: number;
+  }[];
+  const extensions = columns.find((column) => column.name === "extensions");
+  assert.ok(extensions, "the migration added the extensions column");
+  assert.equal(extensions.notnull, 0, "and left it nullable");
+});
+
 test("tags round-trip on the wire session and through selectorsOf", async () => {
   const store = newStore();
 

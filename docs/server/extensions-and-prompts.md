@@ -237,3 +237,122 @@ prompt is written to a per-agent file and handed to Pi as a
 `--append-system-prompt <path>` (Pi reads file contents when the value is an
 existing path). It embeds the unbounded memory and host-resource preambles, so
 passing it inline would eventually overflow the kernel's argv limit (`E2BIG`).
+
+---
+
+## Global extensions
+
+Beyond the always-on extensions and a bundle's own resources, an instance can
+install **global extensions** — Pi packages (extensions, skills, and prompt
+templates) shared across every session. Unlike the always-on set (compiled into
+the image) and bundle resources (scoped to one session), global extensions are
+installed at runtime, persist on the data volume, and are opted into per session.
+
+The relevant code lives under [server/src/extensions/](../../server/src/extensions),
+with the HTTP surface in
+[routes/globalExtensions.ts](../../server/src/routes/globalExtensions.ts).
+
+### Marketplaces (the install source abstraction)
+
+An install always comes from a **marketplace** — an abstraction over "where the
+bytes come from", keyed by id. A `"<marketplace>:<ref>"` source string selects
+one (`MarketplaceRegistry.parseSource`); only the first `:` separates them, so a
+ref may itself contain `:` (e.g. a git url). The built-ins:
+
+| Marketplace | Ref example                      | Install                                                                                                       |
+| ----------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `npm`       | `npm:pi-weather@1.2.0`           | `npm install` into the install's `pkg/`; searchable (npm registry, `keywords:pi-package`)                     |
+| `git`       | `git:github.com/user/repo#v1`    | `npm install` of a normalized `git+https` spec                                                                |
+| `file`      | uploaded `.tgz` / `.zip` / `.ts` | tarball → npm; zip → extracted (with a `..` traversal guard) then its deps installed; lone code file → copied |
+
+"Marketplace" is deliberately an abstraction: a proprietary or private source is
+one new class implementing `ExtensionMarketplace` plus one `register()` call in
+`createMarketplaceRegistry()` — nothing in the install or spawn path changes.
+
+### Storage and reconcile-on-boot
+
+Each install lives under `EXTENSIONS_ROOT` (defaults to
+`SESSIONS_ROOT/.extensions`, so it rides the same PVC as sessions) as
+`<id>/extension.json` (metadata), a `<id>/pkg/` package tree, and — for `file`
+sources — a preserved `<id>/source/` upload. Writes go to a sibling staging
+directory and are swapped in with an atomic rename, so a failed install never
+leaves a half-written entry (mirrors `FileAgentBundleStore`).
+
+On boot, `index.ts` awaits `GlobalExtensionService.reconcile()` **before** the
+server listens. Reconcile loads the persisted installs into an in-memory cache
+and, for any whose resource files are missing from the volume (a fresh pod on a
+reused volume, or an interrupted write), reinstalls them from the recorded source
+(or the preserved `source/` upload). A reinstall that fails is kept as `error`
+rather than throwing, so one bad install never blocks startup, and a later retry
+can recover it. This is what makes an install survive a pod restart.
+
+### What a package contributes
+
+`resolvePackageResources` reads a package root into the Pi resource paths it
+contributes, following Pi's own discovery rules: a declared `pi` manifest block
+(`extensions` / `skills` / `prompts`) wins per resource type; an undeclared type
+falls back to its conventional directory (`extensions/`, `skills/`, `prompts/`);
+a package with none of those exposes a root `SKILL.md` as one skill and lone
+code files as extensions. Tool names come from `tangent.tools` (then `pi.tools`).
+Paths are stored package-root-relative and resolved to absolute at spawn.
+
+When the installer doesn't pass an explicit `tools` list, `resolveInstallTools`
+decides the recorded allowlist: declared tool names (`tangent.tools` /
+`pi.tools`) win; otherwise the extension is loaded in an isolated Node
+subprocess (`probeExtensionTools`) through Pi's own extension loader to
+enumerate exactly the tools it registers, which are pre-filled into `tools` so
+opting in grants those and nothing more. The probe resolves Pi's loader from an
+explicit `PI_EXTENSION_LOADER`, the `pi` binary's package, or the workspace
+pnpm store; if it can't run at all, a package that ships extension code falls
+back to `["*"]`, and a skills/prompts-only package records `[]`. Admins can
+edit the recorded list afterward via `PATCH /api/extensions/:id`.
+
+### Per-session opt-in: bundle policy × session selection
+
+Which installed extensions an agent gets is resolved from two layers by the pure
+`resolveExtensionSelection(policy, selection)`:
+
+- **Session selection** (`sessions.extensions`, nullable): `"all"`, `"none"`, a
+  list of ids, or absent (inherit the bundle policy). Set via
+  `PUT /api/sessions/:id/extensions` (a `null` body resets it to inherit).
+- **Bundle policy** (`BundleManifest.globalExtensions`): `"all"` (session may
+  override), a list of ids (session may extend the list, or clear it with
+  `"none"`), or `{ only: [...] }` — **locked**: the session cannot override it,
+  and a create/PUT that tries is rejected with `409`.
+
+| Bundle policy \ Session | absent | `"all"` | `"none"` | `[b]`          |
+| ----------------------- | ------ | ------- | -------- | -------------- |
+| none                    | none   | all     | none     | `[b]`          |
+| `"all"`                 | all    | all     | none     | `[b]`          |
+| `[a]`                   | `[a]`  | all     | none     | `[a, b]`       |
+| `{ only: [a] }`         | `[a]`  | `[a]`   | `[a]`    | `[a]` (locked) |
+
+The resolved result (`"all"` or a concrete id list) is expanded — `"all"` means
+every currently-ready install — and handed to `GlobalExtensionService.spawnPlan`.
+
+### Folding into the spawn
+
+`spawnPlan(ids)` is synchronous (the agent manager calls it on the hot spawn
+path, fed by the boot-seeded cache) and returns the absolute `--extension`,
+`--skill`, and `--prompt-template` paths plus the tool allowlist for those
+installs. Unknown or errored ids are skipped with a warning so one bad install
+never blocks a session. `buildPiArgs` folds the plan in exactly like the memory
+plan: the resource flags are appended and `allowlistTools` is unioned into
+`--tools` (recall extension tools must also be allowlisted, above).
+
+### HTTP surface
+
+`/api/extensions` (reads are open; writes require admin via `requireAdmin`):
+
+- `GET /api/extensions` — list installs (with status).
+- `GET /api/extensions/marketplaces` — available marketplaces (+ `canSearch`).
+- `GET /api/extensions/marketplaces/:id/search?q=` — search one marketplace.
+- `POST /api/extensions` — install from a JSON `{ source }` or a multipart file
+  upload (`409` on an id conflict without `replace`, `400` on a package that
+  declares no resources).
+- `PATCH /api/extensions/:id` — patch an install's tool allowlist / display name.
+- `DELETE /api/extensions/:id` — uninstall.
+
+This surface is also exposed in the web app under Settings, Extensions: anyone
+can view installs; admins can install (npm/git source, marketplace search, or
+file upload), edit a tool allowlist, and uninstall.

@@ -77,6 +77,16 @@ export const hostResourceInputSchema = z.discriminatedUnion("kind", [
 ]);
 export type HostResourceInputBody = z.infer<typeof hostResourceInputSchema>;
 
+/** A global-extension id slug (matches the install registry's id rule). */
+const extensionId = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
+
+/** A session's global-extension selection: `"all"`, `"none"`, or a list of ids. */
+export const extensionSelectionSchema = z.union([
+  z.literal("all"),
+  z.literal("none"),
+  z.array(extensionId),
+]);
+
 export const createSessionSchema = z.object({
   name: z.string().optional(),
   bundleId: z.string().min(1),
@@ -84,8 +94,20 @@ export const createSessionSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   tags: z.array(z.string()).optional(),
   memory: memoryBindingSchema.optional(),
+  extensions: extensionSelectionSchema.optional(),
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
+
+/**
+ * Body for `PUT /:id/extensions`: replace the session's global-extension
+ * selection, or `null` to reset it to inherit the bundle policy.
+ */
+export const setSessionExtensionsSchema = z.object({
+  extensions: z.union([extensionSelectionSchema, z.null()]),
+});
+export type SetSessionExtensionsInput = z.infer<
+  typeof setSessionExtensionsSchema
+>;
 
 /** `DELETE /:id/resources` query: the resource uri to remove. */
 export const deleteResourceQuerySchema = z.object({

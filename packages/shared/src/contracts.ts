@@ -1498,6 +1498,135 @@ export interface ListAgentBundlesResponse {
   bundles: AgentBundleMeta[];
 }
 
+/**
+ * Health of an installed global extension. `ready` when every resolved resource
+ * path is present on disk; `error` when the boot reconcile could not restore it
+ * (the install is kept so a later reinstall can recover it).
+ */
+export type GlobalExtensionStatus = "ready" | "error";
+
+/**
+ * The source an installed global extension was fetched from, so a boot reconcile
+ * can reinstall it when its files are missing from the volume. `marketplace` is
+ * a registered marketplace id (`npm`, `git`, `file`, or a future proprietary
+ * source); `ref` is the install spec that marketplace understands (an npm spec,
+ * a git url, or an uploaded file's name for `file`).
+ */
+export interface GlobalExtensionSource {
+  marketplace: string;
+  ref: string;
+}
+
+/**
+ * Resolved resource paths an installed extension contributes to a Pi spawn, all
+ * relative to the package root (see {@link GlobalExtensionMeta.packageRoot}).
+ * `extensions` are `--extension` files, `skills` are `--skill` directories (each
+ * holding a `SKILL.md`) or files, and `prompts` are `--prompt-template` files.
+ */
+export interface GlobalExtensionResources {
+  extensions: string[];
+  skills: string[];
+  prompts: string[];
+}
+
+/**
+ * Metadata for one installed global extension, persisted as `extension.json`
+ * under `EXTENSIONS_ROOT/<id>/` and returned by the `/api/extensions` API.
+ */
+export interface GlobalExtensionMeta {
+  /** Stable slug id (`^[a-z0-9][a-z0-9-]*$`); also the storage directory name. */
+  id: string;
+  /** Display name (the package name when available). */
+  name: string;
+  /** Installed package version, when the source carries one. */
+  version?: string;
+  /** Where it was installed from, for boot-time reinstall. */
+  source: GlobalExtensionSource;
+  /**
+   * Tool names the extension registers, unioned into every opted-in agent's
+   * `--tools` allowlist (Pi strips extension tools that aren't listed).
+   */
+  tools: string[];
+  /** Package-root-relative resource paths (see {@link GlobalExtensionResources}). */
+  resources: GlobalExtensionResources;
+  /**
+   * The package root relative to the install's `pkg/` directory: `node_modules/
+   * <name>` for an npm/git source, `.` for an extracted archive or single file.
+   */
+  packageRoot: string;
+  /** ISO-8601 timestamp the extension was first installed. */
+  installedAt: string;
+  /** ISO-8601 timestamp of the most recent (re)install. */
+  updatedAt: string;
+  /** Runtime health, reconciled at boot. */
+  status: GlobalExtensionStatus;
+  /** Human-readable reason when {@link GlobalExtensionMeta.status} is `error`. */
+  error?: string;
+}
+
+/** Response from `GET /api/extensions`: the installed extensions. */
+export interface ListGlobalExtensionsResponse {
+  extensions: GlobalExtensionMeta[];
+}
+
+/**
+ * Body for `POST /api/extensions` (JSON form, for `npm`/`git` sources). File
+ * uploads use the multipart form instead (a `file` field plus `id`/`tools`).
+ */
+export interface InstallGlobalExtensionRequest {
+  /** Install source, `"<marketplace>:<ref>"` (e.g. `npm:pi-foo@1.2.0`). */
+  source: string;
+  /** Override the id derived from the package name. */
+  id?: string;
+  /** Tool names to allowlist; defaults to the package's declared tools. */
+  tools?: string[];
+  /** Replace an existing install with the same id instead of conflicting. */
+  replace?: boolean;
+}
+
+/** One discoverable package from a marketplace's optional `search`. */
+export interface MarketplaceListing {
+  /** The install ref for this listing (e.g. the npm package name). */
+  ref: string;
+  /** Display name. */
+  name: string;
+  /** Short description, when the marketplace provides one. */
+  description?: string;
+  /** Latest version, when known. */
+  version?: string;
+}
+
+/** Response from `GET /api/extensions/marketplaces`: the registered sources. */
+export interface ListMarketplacesResponse {
+  marketplaces: { id: string; canSearch: boolean }[];
+}
+
+/** Response from `GET /api/extensions/marketplaces/:id/search`. */
+export interface SearchMarketplaceResponse {
+  listings: MarketplaceListing[];
+}
+
+/**
+ * A session's global-extension selection (the session layer of the opt-in). It
+ * overlays the bundle's {@link BundleExtensionPolicy}. An absent selection
+ * (`undefined` at the store, `null` on the wire reset) means "inherit the
+ * bundle policy"; `"all"` opts into every installed extension, `"none"` into
+ * none, and a list names specific extension ids.
+ */
+export type ExtensionSelection = "all" | "none" | string[];
+
+/**
+ * A bundle's global-extension policy, from `tangent.yaml` `globalExtensions`
+ * (the bundle layer of the opt-in):
+ * - `"all"`: include every installed extension; the session may override it.
+ * - `string[]`: include these ids; the session may extend the list, or drop to
+ *   `"none"`, but cannot remove individual bundle ids.
+ * - `{ only: string[] }`: include exactly these ids, locked; the session may not
+ *   override (a defined session selection is rejected). `{ only: [] }` locks the
+ *   session to no extensions.
+ */
+export type BundleExtensionPolicy = "all" | string[] | { only: string[] };
+
 export interface CreateSessionRequest {
   name?: string;
   /** Marketplace agent bundle id to create the session from. */
@@ -1520,6 +1649,12 @@ export interface CreateSessionRequest {
    * the bundle's declared binding (or none). Resolved and persisted at create.
    */
   memory?: MemoryBinding;
+  /**
+   * Global-extension selection for the session, overlaying the bundle's
+   * {@link BundleExtensionPolicy}. Omit to inherit the bundle policy. Rejected
+   * (409) when the bundle locks the policy with `{ only }`.
+   */
+  extensions?: ExtensionSelection;
 }
 
 export interface UpdateSessionRequest {
@@ -1528,6 +1663,15 @@ export interface UpdateSessionRequest {
   accessPolicy?: SessionAccessPolicy;
   /** Replace the session's selector tags (e.g. `projectId:<GUID>`). */
   tags?: string[];
+}
+
+/**
+ * Body for `PUT /api/sessions/:id/extensions`: replaces the session's
+ * global-extension selection. `null` resets it to inherit the bundle policy.
+ * Takes effect on each agent's next spawn.
+ */
+export interface SetSessionExtensionsRequest {
+  extensions: ExtensionSelection | null;
 }
 
 /** Response from `POST /api/sessions/:id/files`: the stored attachments. */
