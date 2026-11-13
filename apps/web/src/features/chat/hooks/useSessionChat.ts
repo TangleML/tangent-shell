@@ -7,12 +7,15 @@ import {
 } from "@tangent/shared/contracts";
 import { useSyncExternalStore } from "react";
 
+import { type ChatCommand, commandRun } from "@/features/chat/model/commands";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 
 import {
+  acquireSessionChatRoom,
   NO_MESSAGES,
   peekSessionChat,
   peekSessionChatRoom,
+  releaseSessionChatRoom,
   subscribeToSessionChat,
 } from "./sessionChatRoom";
 import {
@@ -106,6 +109,24 @@ export function useSessionChat(sessionId: string) {
         attachments?: Attachment[];
       },
     ) => peekSessionChatRoom(sessionId)?.send(content, options),
+    // Holds the room until the command is done, so its result still posts here
+    // when the person has opened another chat in the meantime.
+    runCommand: async (
+      command: ChatCommand,
+      args: string,
+      conversationId?: string,
+    ) => {
+      const room = acquireSessionChatRoom(sessionId);
+      try {
+        room.postCommandResult(
+          await command.run(args),
+          commandRun(command, args),
+          conversationId,
+        );
+      } finally {
+        releaseSessionChatRoom(sessionId);
+      }
+    },
     abort: (conversationId: string) =>
       peekSessionChatRoom(sessionId)?.abort(conversationId),
     getAgentModel,

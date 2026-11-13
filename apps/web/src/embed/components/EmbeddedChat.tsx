@@ -30,6 +30,7 @@ import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
 import type {
   EmbedAgentPayload,
+  EmbedCommandPayload,
   EmbedReferencePayload,
   TangentRuntime,
 } from "../types";
@@ -53,6 +54,8 @@ interface EmbeddedChatProps {
   onResourcesChange?: () => void;
   /** The host's pipelines, documents and runs the composer's `#` can reference. */
   references?: EmbedReferencePayload[];
+  /** The host's slash commands, offered by Prime's composer. */
+  commands?: EmbedCommandPayload[];
 }
 
 /**
@@ -81,6 +84,7 @@ export function EmbeddedChat({
   onRemoveAgent,
   onResourcesChange,
   references: hostReferences = [],
+  commands,
 }: EmbeddedChatProps) {
   const chat = useSessionChat(sessionId);
   const { data: session } = useSession(sessionId);
@@ -265,6 +269,10 @@ export function EmbeddedChat({
         autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
         references={references}
+        commands={commands}
+        onRunCommand={(command, args) =>
+          chat.runCommand(command, args, primaryConversationId)
+        }
         onAbort={() => chat.abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) => {
           chat.send(content, {
