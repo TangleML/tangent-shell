@@ -17,10 +17,18 @@ import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
 import { buildSubagents } from "@/features/chat/model/agents";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
+import {
+  artifactReferences,
+  type ChatReference,
+} from "@/features/chat/model/references";
 import { useSession } from "@/features/sessions/hooks/useSession";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
-import type { EmbedAgentPayload, TangentRuntime } from "../types";
+import type {
+  EmbedAgentPayload,
+  EmbedReferencePayload,
+  TangentRuntime,
+} from "../types";
 
 interface EmbeddedChatProps {
   sessionId: string;
@@ -37,6 +45,8 @@ interface EmbeddedChatProps {
   onOpenAgent?: (agent: EmbedAgentPayload) => void;
   /** A finished sub-agent was dismissed, so the host can close its tab. */
   onRemoveAgent?: (id: string) => void;
+  /** The host's pipelines, documents and runs the composer's `#` can reference. */
+  references?: EmbedReferencePayload[];
 }
 
 function isPrimeAgent(agentId: string | undefined): boolean {
@@ -57,6 +67,7 @@ export function EmbeddedChat({
   onSendPrompt,
   onOpenAgent,
   onRemoveAgent,
+  references: hostReferences = [],
 }: EmbeddedChatProps) {
   const chat = useSessionChat(sessionId);
   const { data: session } = useSession(sessionId);
@@ -64,6 +75,10 @@ export function EmbeddedChat({
   const bundleId = session?.config?.id;
   const { historyLoaded, primaryConversationId, rosterReady } = chat;
   const targetingPrime = isPrimeAgent(agentId);
+  const references: ChatReference[] = [
+    ...hostReferences,
+    ...artifactReferences(chat.artifacts),
+  ];
 
   useEffect(() => {
     if (!targetingPrime) return;
@@ -136,6 +151,7 @@ export function EmbeddedChat({
         onTogglePinArtifact={togglePinArtifact}
         onRemove={() => removeAgent(agentId)}
         agentsPill={renderAgentsPill(agentId)}
+        references={references}
       />
     );
   }
@@ -193,6 +209,7 @@ export function EmbeddedChat({
         agentBusy={chat.agentBusy}
         autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
+        references={references}
         onAbort={() => chat.abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) => {
           chat.send(content, {
@@ -220,6 +237,7 @@ interface SubagentChatProps {
   onTogglePinArtifact: (path: string, title: string) => void;
   onRemove: () => void;
   agentsPill: ReactNode;
+  references: ChatReference[];
 }
 
 function SubagentChat({
@@ -235,6 +253,7 @@ function SubagentChat({
   onTogglePinArtifact,
   onRemove,
   agentsPill,
+  references,
 }: SubagentChatProps) {
   if (!rosterReady) {
     return <BlockStack fill grow align="stretch" />;
@@ -288,6 +307,7 @@ function SubagentChat({
       pinnedPaths={chat.pinnedPaths}
       onTogglePinArtifact={onTogglePinArtifact}
       mentionCandidates={mentionCandidates}
+      references={references}
       autoFocus={autoFocus}
       agentsPill={agentsPill}
     />

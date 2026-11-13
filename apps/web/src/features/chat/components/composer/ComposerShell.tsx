@@ -11,12 +11,26 @@ import {
   useRef,
 } from "react";
 
-import type { MentionCandidate } from "@/features/chat/model/mentions";
+import {
+  type ComposerTrigger,
+  filterMentionCandidates,
+  type MentionCandidate,
+  mentionToken,
+} from "@/features/chat/model/mentions";
+import {
+  type ChatReference,
+  groupReferences,
+  type PickedReferences,
+  referenceToken,
+} from "@/features/chat/model/references";
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
 import { FileDropZone } from "./FileDropZone";
-import { MentionPicker } from "./MentionPicker";
-import { useMentionAutocomplete } from "./useMentionAutocomplete";
+import { SuggestionPicker } from "./SuggestionPicker";
+import {
+  type ComposerSuggestion,
+  useComposerAutocomplete,
+} from "./useComposerAutocomplete";
 
 // Pasted blobs are often named generically, so derive a unique, readable name
 // from the MIME subtype to disambiguate the staged-file pills.
@@ -32,6 +46,49 @@ function extractPastedImages(e: ClipboardEvent): File[] {
     );
   }
   return images;
+}
+
+/** What the `#` picker offers, and where a pick is recorded for sending. */
+export interface ComposerReferences {
+  candidates: ChatReference[];
+  picked: PickedReferences;
+  onPick: (token: string, reference: ChatReference) => void;
+}
+
+function suggestionsFor(
+  trigger: ComposerTrigger,
+  query: string,
+  mentionCandidates: MentionCandidate[],
+  references: ComposerReferences | undefined,
+): ComposerSuggestion[] {
+  if (trigger === "@") {
+    return filterMentionCandidates(mentionCandidates, query).map(
+      (candidate) => ({
+        key: candidate.id,
+        label: candidate.name,
+        token: mentionToken(candidate),
+      }),
+    );
+  }
+  if (!references) return [];
+  return groupReferences(references.candidates, query).flatMap((group) => {
+    const shown = group.references.length;
+    const groupDetail =
+      group.total > shown ? `${shown} of ${group.total}` : undefined;
+    return group.references.map((reference) => {
+      const token = referenceToken(reference, references.picked);
+      return {
+        key: `${reference.kind}:${reference.href}`,
+        label: reference.label,
+        token,
+        icon: group.icon,
+        group: group.title,
+        groupDetail,
+        detail: reference.detail,
+        onAccept: () => references.onPick(token, reference),
+      };
+    });
+  });
 }
 
 interface ComposerShellProps {
@@ -51,6 +108,8 @@ interface ComposerShellProps {
   autoFocus?: boolean;
   /** People/agents the `@mention` picker can address; omitted disables it. */
   mentionCandidates?: MentionCandidate[];
+  /** What the `#` picker can reference; omitted disables it. */
+  references?: ComposerReferences;
   children?: ReactNode;
 }
 
@@ -65,16 +124,18 @@ export function ComposerShell({
   hideSend,
   autoFocus,
   mentionCandidates = [],
+  references,
   children,
 }: ComposerShellProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoFocusedRef = useRef(false);
-  const mention = useMentionAutocomplete({
-    candidates: mentionCandidates,
+  const autocomplete = useComposerAutocomplete({
     value,
     onValueChange,
     textareaRef,
+    suggest: (trigger, query) =>
+      suggestionsFor(trigger, query, mentionCandidates, references),
   });
 
   useEffect(() => {
@@ -101,11 +162,11 @@ export function ComposerShell({
 
   function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
     onValueChange(e.target.value);
-    mention.sync(e.target);
+    autocomplete.sync(e.target);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (mention.handleKeyDown(e)) return;
+    if (autocomplete.handleKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
@@ -133,13 +194,13 @@ export function ComposerShell({
               disabled={busy}
               aria-label="Attach files"
             />
-            {/* local primitive — relative anchor for the floating mention picker. */}
+            {/* local primitive — relative anchor for the floating suggestion picker. */}
             <div className="relative flex-1">
-              {mention.open ? (
-                <MentionPicker
-                  candidates={mention.matches}
-                  highlight={mention.highlight}
-                  onSelect={mention.accept}
+              {autocomplete.open ? (
+                <SuggestionPicker
+                  suggestions={autocomplete.matches}
+                  highlight={autocomplete.highlight}
+                  onSelect={autocomplete.accept}
                 />
               ) : null}
               <Textarea
@@ -152,7 +213,7 @@ export function ComposerShell({
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 onSelect={(e: SyntheticEvent<HTMLTextAreaElement>) =>
-                  mention.sync(e.currentTarget)
+                  autocomplete.sync(e.currentTarget)
                 }
                 disabled={busy}
               />

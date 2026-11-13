@@ -10,6 +10,7 @@ import type { AssetTab } from "@/features/chat/hooks/useAssetTabs";
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
 import type { Agent } from "@/features/chat/model/agents";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
+import type { ChatReference } from "@/features/chat/model/references";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import { AgentsIndicator } from "../composer/AgentsIndicator";
@@ -49,6 +50,7 @@ interface AssetTabContentProps {
   openArtifactTab: (url: string, title: string) => void;
   togglePinArtifact: (path: string, title: string) => void;
   mentionCandidates: MentionCandidate[];
+  references: ChatReference[];
   spawnedAgents: Agent[];
   busySubagents: { id: string; conversationId: string }[];
   openAgent: (agent: Agent) => void;
@@ -85,6 +87,7 @@ export function AssetTabContent({
   openArtifactTab,
   togglePinArtifact,
   mentionCandidates,
+  references,
   spawnedAgents,
   busySubagents,
   openAgent,
@@ -130,6 +133,7 @@ export function AssetTabContent({
           pinnedPaths={pinnedPaths}
           onTogglePinArtifact={togglePinArtifact}
           mentionCandidates={mentionCandidates}
+          references={references}
           agentsPill={
             <AgentsIndicator
               sessionId={sessionId}

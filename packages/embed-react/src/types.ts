@@ -277,6 +277,7 @@ export interface TangentChatElementLike extends HTMLElement {
   initialPrompt?: string;
   /** Focuses the composer once it accepts input (`auto-focus` as an attribute). */
   autoFocus: boolean;
+  references?: EmbedReference[];
   /** Current host-slot records to project as light-DOM children. */
   getHostSlots?: () => HostSlotRecordLike[];
   /** Subscribes to host-slot changes; returns an unsubscribe. */
@@ -321,6 +322,20 @@ export interface TangentParticipantListElementLike extends HTMLElement {
 }
 
 /** An agent row emitted by `<AgentList onOpen>`. */
+/**
+ * Something the composer's `#` picker can reference. A pick is sent as the
+ * markdown link `[label](href)`, so use an `href` the agent can act on and
+ * register an anchor protocol for its scheme to show it as a chip. The picker
+ * keeps the order given within each kind, so list the most recent first.
+ */
+export interface EmbedReference {
+  kind: "pipeline" | "document" | "run";
+  label: string;
+  href: string;
+  /** Secondary text in the picker, e.g. a run's status. */
+  detail?: string;
+}
+
 export interface EmbedAgent {
   id: string;
   name: string;

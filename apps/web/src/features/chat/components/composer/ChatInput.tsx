@@ -8,9 +8,15 @@ import { useEffect, useRef, useState } from "react";
 import {
   clearDraft,
   readDraft,
+  readDraftPicks,
   writeDraft,
+  writeDraftPicks,
 } from "@/features/chat/model/chatDraft";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
+import {
+  type ChatReference,
+  expandReferences,
+} from "@/features/chat/model/references";
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
 
 import { ComposerShell } from "./ComposerShell";
@@ -60,6 +66,8 @@ interface ChatInputProps {
   autoFocus?: boolean;
   /** People/agents the `@mention` picker can address in this composer. */
   mentionCandidates?: MentionCandidate[];
+  /** Pipelines, runs, files, ... the `#` picker can reference. */
+  references?: ChatReference[];
   onSubmit: (
     content: string,
     options: { delivery: MessageDelivery; attachments?: Attachment[] },
@@ -76,13 +84,18 @@ export function ChatInput({
   onAbort,
   autoFocus,
   mentionCandidates,
+  references,
   onSubmit,
 }: ChatInputProps) {
-  // Drafts persist per session+agent so the unsent text survives navigation and
-  // reloads. Seed from storage on mount; callers key this component by
-  // session+agent, so it remounts (and re-seeds) when either changes.
+  // Drafts persist per session+agent so the unsent text and its picked
+  // references survive navigation and reloads. Seed from storage on mount;
+  // callers key this component by session+agent, so it remounts (and re-seeds)
+  // when either changes.
   const [value, setValue] = useState(() => readDraft(sessionId, agentId));
   const [files, setFiles] = useState<File[]>([]);
+  const [picked, setPicked] = useState(() =>
+    readDraftPicks(sessionId, agentId),
+  );
   const [uploading, setUploading] = useState(false);
   // Follow-ups composed while the agent is busy wait here until the run ends
   // (auto-drained) or the user sends one immediately. They never become chat
@@ -100,8 +113,25 @@ export function ChatInput({
     writeDraft(sessionId, agentId, next);
   }
 
-  function addFiles(picked: File[]) {
-    if (picked.length) setFiles((prev) => [...prev, ...picked]);
+  function addFiles(added: File[]) {
+    if (added.length) setFiles((prev) => [...prev, ...added]);
+  }
+
+  function pickReference(token: string, reference: ChatReference) {
+    const next = new Map(picked).set(token, reference);
+    setPicked(next);
+    writeDraftPicks(sessionId, agentId, next);
+  }
+
+  // Takes the composed text for sending: each `#token` becomes its reference's
+  // link, and the draft's picks are spent with it.
+  function takeComposed(): string {
+    const content = expandReferences(value.trim(), picked, references ?? []);
+    setValue("");
+    clearDraft(sessionId, agentId);
+    setFiles([]);
+    setPicked(new Map());
+    return content;
   }
 
   function removeFile(index: number) {
@@ -131,10 +161,7 @@ export function ChatInput({
     const attachments = await uploadStagedFiles();
     if (attachments === null) return;
 
-    setValue("");
-    clearDraft(sessionId, agentId);
-    setFiles([]);
-    onSubmit(trimmed, { delivery, attachments });
+    onSubmit(takeComposed(), { delivery, attachments });
   }
 
   // Adds the composed message to the client-side follow-up queue instead of
@@ -147,14 +174,12 @@ export function ChatInput({
     const attachments = await uploadStagedFiles();
     if (attachments === null) return;
 
-    setValue("");
-    clearDraft(sessionId, agentId);
-    setFiles([]);
+    const content = takeComposed();
     setQueue((prev) => [
       ...prev,
       {
         id: crypto.randomUUID(),
-        content: trimmed,
+        content,
         attachments: attachments ?? undefined,
       },
     ]);
@@ -220,6 +245,13 @@ export function ChatInput({
       hideSend={agentBusy}
       autoFocus={autoFocus}
       mentionCandidates={mentionCandidates}
+      references={
+        references && {
+          candidates: references,
+          picked,
+          onPick: pickReference,
+        }
+      }
     >
       <StagedFiles files={files} uploading={uploading} onRemove={removeFile} />
       <QueuedFollowUps
