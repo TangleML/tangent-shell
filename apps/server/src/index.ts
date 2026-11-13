@@ -22,6 +22,7 @@ import { ExternalSubagentGateway } from "./external/externalSubagentGateway.ts";
 import { RelayRegistry } from "./mcp/relayRegistry.ts";
 import { createRelayReport } from "./mcp/relayReport.ts";
 import { mountedFolderPaths } from "./memory/binding.ts";
+import { BundleKbRegistry } from "./memory/bundleKbRegistry.ts";
 import { MemoryResolver } from "./memory/resolver.ts";
 import { createEmbedCors } from "./middleware/embedCors.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
@@ -133,11 +134,18 @@ const io = new SocketIOServer(httpServer, {
 // writes use directly.
 const memory = new MemoryManager();
 
+// One knowledge base per bundle, shared by every session that binds `bundle-kb`.
+const bundleKb = new BundleKbRegistry();
+
 // Resolves each session's pluggable memory (always-on SimpleMD plus the
 // session's own memory binding, when it declares one) for the Pi spawn and the
 // internal /call API.
-const memoryResolver = new MemoryResolver(memory, store, async (sessionId) =>
-  mountedFolderPaths(await resourceStore.listForSession(sessionId)),
+const memoryResolver = new MemoryResolver(
+  memory,
+  store,
+  async (sessionId) =>
+    mountedFolderPaths(await resourceStore.listForSession(sessionId)),
+  bundleKb,
 );
 
 // Owns each session's triggers (schedule + callback) and their persistence.
@@ -451,6 +459,7 @@ app.use(
       context: contextEngine,
     },
     remoteGateway,
+    bundleKb,
   ),
 );
 app.use(
@@ -571,6 +580,9 @@ registerChatHandlers({
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);
 });
+
+// Not awaited: indexing runs in qmd child processes and may take minutes.
+void bundleKb.reindexAll();
 
 function shutdown(): void {
   pi.disposeAll();

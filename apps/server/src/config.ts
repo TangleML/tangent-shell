@@ -70,9 +70,23 @@ export const QMD_STATE_ROOT = path.resolve(
   process.env.QMD_STATE_ROOT ?? path.join(process.cwd(), ".qmd-state"),
 );
 
+/**
+ * Root directory holding each bundle's knowledge base (`<root>/<manifestId>/`),
+ * shared by every session created from that bundle. Never mounted into a
+ * session: the server is its only writer. Gitignored by default.
+ */
+export const BUNDLE_MEMORY_ROOT = path.resolve(
+  process.env.BUNDLE_MEMORY_ROOT ?? path.join(process.cwd(), ".bundle-memory"),
+);
+
 // Agents write the session and shared trees, and qmd state is keyed by which
-// root a store sits under, so the three must stay disjoint.
-const nested = nestedRoots({ SESSIONS_ROOT, SHARED_ROOT, QMD_STATE_ROOT });
+// root a store sits under, so these must stay disjoint.
+const nested = nestedRoots({
+  SESSIONS_ROOT,
+  SHARED_ROOT,
+  QMD_STATE_ROOT,
+  BUNDLE_MEMORY_ROOT,
+});
 if (nested) {
   throw new Error(
     `${nested[0]} and ${nested[1]} must not be the same directory or nested inside each other`,

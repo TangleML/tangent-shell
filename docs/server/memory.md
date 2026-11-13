@@ -54,15 +54,51 @@ newline.
 
 Every agent's appended system prompt is joined with the resolved memory's
 preamble (`session.resolvedMemory.preamble()` in
-[piAgentManager.ts](../../server/src/pi/piAgentManager.ts)). For `SimpleMdMemory`
-that is a `## Memory` block embedding the current global and session memory text
-inline, so memory is authoritative standing context from the very first turn, and
-it reminds the agent to modify it only via the memory tools. A composite joins
-each leaf's preamble, so the session binding's project-memory note or `pi-memory`
-guidance appears alongside it. The preamble is built per role: a sub-agent's
-SimpleMD and `pi-memory` guidance only mentions the read tools it actually has
-and tells it to report durable learnings to Prime. Because the preamble is built at spawn time, each
-new process (including each sub-agent) starts aware of the latest memory.
+[piAgentManager.ts](../../server/src/pi/piAgentManager.ts)). It has two parts:
+
+- **The index** ([memoryIndex.ts](../../server/src/memory/memoryIndex.ts)): a
+  `## Memory` heading, the role's rules (Prime writes only through the listed
+  write paths; sub-agents are read-only), and one bullet per source saying what
+  it holds, who shares it, and how to read and write it (tools or a workspace
+  file). Every backend describes itself with `describe(ctx, role)`; the index is
+  the only place agents are told how to use memory. `ResolvedMemory.sources`
+  drops any tool the role's `--tools` allowlist lacks, so the index never
+  advertises a tool the agent doesn't have.
+- **The source sections**: each leaf's `preamble()` holds only its content, as a
+  digest ([memoryDigest.ts](../../server/src/memory/memoryDigest.ts)). A store of
+  at most 3,000 characters is inlined whole. A larger one becomes a table of
+  contents plus a keyword index: one line per entry with a 6-character id (a
+  hash of the entry's text, so it survives edits elsewhere), its title, date and
+  tags, newest first (file order with line ranges for a project note), and each
+  tag mapped to the ids carrying it. Past 80 entries the oldest are summarized
+  by count. Agents fetch entries by id (`read_memory { entry }`,
+  `kb_read { entry }`) or, for a project note, read the line range with their
+  file tools. Nothing is truncated, so a large store never loses its newest
+  entries.
+
+Entries split at pi-memory stamps (bundle knowledge base), at markdown headings
+(SimpleMD and project notes; blank-line paragraphs before the first heading),
+or at paragraphs in a note without headings. Write tools take a short `title`,
+written as a `### title` line, so new entries get good contents lines; older
+untitled entries fall back to their first line. pi-memory has no section: it
+injects its own context each turn, so it only appears in the index.
+
+Because the preamble is built at spawn time, each new process (including each
+sub-agent) starts aware of the latest memory; writes made mid-session reach the
+preamble on the next spawn.
+
+### Launch details
+
+Every spawn writes everything it launched Pi with to
+`<session root>/.tangent/debug/pi-launch-<agentId>.md`
+([launchDebug.ts](../../server/src/pi/launchDebug.ts)) and always logs
+`[pi:<session>:<agent>] launch details: <path>`. The file holds the model, the
+full argv, the `--tools` allowlist and denied memory tools, resource paths by
+source, the env the spawn adds (keys matching `KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL`
+are masked), each memory source's index entry and digest stats, and the
+appended system prompt verbatim with the size of each part. It is overwritten
+on every respawn and survives the session's processes, so you can read exactly
+what memory an agent started with.
 
 ---
 
@@ -75,7 +111,9 @@ fixed set of dispatcher tools inside each Pi process; each `execute` POSTs to
 `--tools` is never offered, regardless of the extension registration. For
 `SimpleMdMemory`:
 
-- **All agents:** `read_memory` — returns the current session + global text.
+- **All agents:** `read_memory { scope?, entry? }` — returns the current
+  session + global text (or one store), or with `entry` just the named entries
+  by id; an unknown id is answered with the current contents list.
   Sub-agents that spot something worth remembering must mention it in their reply
   and let Prime decide (per
   [subagentSystemPrompt.md](../../server/src/pi/subagentSystemPrompt.md)).
@@ -87,7 +125,12 @@ fixed set of dispatcher tools inside each Pi process; each `execute` POSTs to
   rejects them unless the calling `agentId` is the session's Prime. That
   `agentId` is self-reported, so these checks keep sub-agents from writing
   through the memory tools but don't isolate an agent whose shell can read the
-  internal token and call the endpoint directly. Malformed params (empty `text`, an unknown `scope`) are rejected with a 400.
+  internal token and call the endpoint directly. Malformed params (empty `text`, a missing `title`, an unknown `scope`) are rejected with a 400.
+
+`remember { title, text, tags?, scope?, replaces? }` and
+`suggest_memory { title, text, scope? }` store `### title`, the text, and a
+`#tag` line. To revise a fact, Prime fetches it and passes its full text in
+`replaces`.
 
 `remember` uses `scope: "session"` by default (or when Prime spots a durable
 session improvement) and `scope: "global"` ONLY on an explicit user request.
@@ -98,10 +141,11 @@ especially global facts — goes through `suggest_memory` instead.
 
 ## Pluggable backends
 
-A [`MemoryBackend`](../../server/src/memory/types.ts) declares its `preamble`,
-its dispatcher `tools(role)`, its spawn extras (`spawn(ctx, role)` →
+A [`MemoryBackend`](../../server/src/memory/types.ts) declares its `preamble`
+(content only), its index entries (`describe(ctx, role)`), its dispatcher
+`tools(role)`, its spawn extras (`spawn(ctx, role)` →
 env / `--extension` paths / allowlist), and how to `execute` a dispatcher tool.
-`CompositeMemory` unions several: it concatenates preambles, unions tools
+`CompositeMemory` unions several: it concatenates preambles and index entries, unions tools
 (deduped), merges spawn extras, and routes `execute` to the first child that
 owns the tool.
 
@@ -156,8 +200,8 @@ Bindings:
 - `simple-md` → [`SharedMarkdownMemory`](../../server/src/memory/sharedMarkdown.ts)
   when a `root` is given: injects `<root>/MEMORY.md` as standing context; agents
   edit it with ordinary file tools (no dispatcher tools, no server write path).
-  Until the note exists, the preamble says so and tells the agent where to
-  create it.
+  Until the note exists, its section says so and Prime's index entry tells it
+  where to create it.
   Without a `root` the always-on `SimpleMdMemory` already covers it, so the leaf
   adds nothing.
 - `pi-memory` → [`PiMemory`](../../server/src/memory/piMemory.ts): binds the
@@ -176,7 +220,7 @@ Bindings:
   explicitly, and inherited `PI_MEMORY_*` / qmd env from the server or the
   session is dropped, so only the binding configures the store. Sub-agents run
   with the exit summary and qmd upkeep off, so they never append to the shared
-  daily log. The preamble names the store by its workspace path (e.g.
+  daily log. Its index entry names the store by its workspace path (e.g.
   `project/pi-memory/`) and, when that differs from the real path pi-memory's
   tools report, says both name the same files.
 
@@ -216,9 +260,68 @@ Bindings:
   for a symlink that pi-memory then follows; closing that is a
   process-sandbox concern, not a qmd one.
 
+- `bundle-kb` → [`BundleKnowledgeMemory`](../../server/src/memory/bundleKnowledge.ts):
+  the knowledge base shared by every session created from the same bundle, keyed
+  by the bundle manifest `id` (from the session's `config`), not its version, so
+  knowledge survives bundle upgrades. See [Bundle knowledge base](#bundle-knowledge-base).
 - `composite` → nests the above. At most one `pi-memory` leaf per binding (one
   Pi process loads the extension once); a stored binding with more than one
-  degrades the session to SimpleMD-only.
+  degrades the session to SimpleMD-only. At most one `bundle-kb` leaf too.
+
+---
+
+## Bundle knowledge base
+
+A `bundle-kb` leaf gives the session a second, bundle-wide store next to its
+project memory. It can sit beside `pi-memory` in a composite: its tools have
+distinct names, so the agent always knows which scope it is writing to.
+
+- **Store.** `BUNDLE_MEMORY_ROOT/<manifestId>/` (default `.bundle-memory/`),
+  managed by [`BundleKbRegistry`](../../server/src/memory/bundleKbRegistry.ts)
+  and [`BundleKbStore`](../../server/src/memory/bundleKbStore.ts). It is never
+  mounted into a workspace, so the server is its only writer, and every write is
+  synchronous, so writes from many sessions never interleave. The layout is
+  pi-memory's (`MEMORY.md`, `daily/<date>.md`, `<!-- timestamp [session] -->`
+  stamped entries), so the store stays readable by pi-memory. The server refuses
+  to start when `BUNDLE_MEMORY_ROOT` overlaps another root.
+- **Seeding and lifecycle.** The first session that binds it creates the store
+  from the bundle's `memory/*.md` files (`MEMORY.md` included); later sessions
+  find it already there. Deleting the bundle keeps the store: it is knowledge,
+  not config.
+- **Tools** (dispatcher-backed, executed by the server):
+  - `kb_search { query, mode?, limit? }` — all agents. Runs `qmd search`,
+    `vsearch`, or `query` (for `keyword`, `semantic`, `deep`) on the store's
+    index.
+  - `kb_read { path?, entry? }` — all agents. `MEMORY.md` by default, or any
+    markdown file inside the store, plus a file list; with `entry`, just the
+    named `MEMORY.md` entries by id.
+  - `kb_write { title, content, target?, tags? }` — Prime only. Appends a
+    stamped `### title` entry to `MEMORY.md` (`long_term`, the default) or
+    today's daily log. There is no
+    overwrite mode, since every session of the bundle shares the store. The
+    "remembered" highlight shows `Remembered (bundle)` and catalogs
+    `memory://bundle`; removing that catalog entry never clears the store.
+  - `kb_forget { match }` — Prime only. Removes every `MEMORY.md` entry
+    containing `match` (at least 4 characters), refusing when more than 5 match.
+- **Preamble.** The digest of `MEMORY.md` (inline when small, otherwise its
+  contents and keyword index); its index entry says when to use `kb_search`
+  rather than project or session memory.
+- **Audit.** Every write and forget appends a JSON line (time, session, tool,
+  text written or removed) to `<store>/.audit.jsonl`, which qmd doesn't index.
+- **qmd on the server.** The server itself runs qmd for this store, with
+  `INDEX_PATH` and `QMD_CONFIG_DIR` under `QMD_STATE_ROOT/bundles/<manifestId>/`
+  and that directory as the working directory
+  ([qmdRunner.ts](../../server/src/memory/qmdRunner.ts)). The server host needs
+  the `qmd` binary (both Dockerfiles install it) and its embedding models, which
+  download on the first semantic search. After writes, a debounced `qmd update`
+  then `qmd embed` runs; all reindexing goes through one queue, so at most one
+  qmd indexing process runs at a time. Every existing store is reindexed at
+  server start. Without qmd, writes and reads still work and `kb_search`
+  reports that search is unavailable.
+- **Trust.** Every user of a bundle can grow the store that all other users of
+  that bundle read as standing context. The audit log records who wrote what.
+- A session with no bundle id, or a server without the registry, drops the leaf
+  with the "memory unavailable" notice.
 
 ---
 
@@ -235,7 +338,7 @@ sequenceDiagram
   participant Socket as SocketIO
   participant UI
 
-  Prime->>Ext: remember({ text, scope?, replaces? })
+  Prime->>Ext: remember({ title, text, tags?, scope?, replaces? })
   activate Ext
   Ext->>Internal: POST /internal/memory/call { name: "remember" }
   activate Internal

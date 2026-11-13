@@ -4,7 +4,7 @@ import {
   type Attachment,
   type ChatAuthor,
   type ChatMessage,
-  type MemoryScope,
+  type MemoryHighlightScope,
   type MessageDelivery,
   type MessageSource,
   type RunId,
@@ -54,7 +54,7 @@ export interface PostInput {
   inReplyTo?: string;
   /** The structured cause this Message is the system notice of, when one. */
   cause?: TerminationCause;
-  memory?: { scope: MemoryScope };
+  memory?: { scope: MemoryHighlightScope };
   /**
    * The Conversation the author wrote this from, when it is not this one. Set
    * only by {@link ConversationRouter.postToConversation}, and what makes the
@@ -207,15 +207,21 @@ function attachmentResource(
   };
 }
 
+const MEMORY_RESOURCE_NAMES: Record<MemoryHighlightScope, string> = {
+  session: "Session memory",
+  global: "Global memory",
+  bundle: "Bundle memory",
+};
+
 /** The catalog entry a memory write surfaced in a Message stands for. */
 function memoryResource(
   message: ChatMessage,
-  scope: MemoryScope,
+  scope: MemoryHighlightScope,
 ): CatalogInput {
   return {
     sessionId: message.sessionId,
     kind: "memory",
-    name: scope === "global" ? "Global memory" : "Session memory",
+    name: MEMORY_RESOURCE_NAMES[scope],
     uri: `memory://${scope}`,
     authorParticipantId: message.author.id,
     meta: { scope },
