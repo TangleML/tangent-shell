@@ -132,6 +132,22 @@ interface ComposerShellProps {
   children?: ReactNode;
 }
 
+/**
+ * Whether nothing holds focus, here or on the page around an embedded
+ * composer, whose shadow root reports no focus while the host page has it.
+ */
+function focusIsNowhere(textarea: HTMLTextAreaElement): boolean {
+  const root = textarea.getRootNode();
+  const onPage = document.activeElement;
+  if (!(root instanceof ShadowRoot)) {
+    return onPage === null || onPage === document.body;
+  }
+  return (
+    root.activeElement === null &&
+    (onPage === null || onPage === document.body || onPage === root.host)
+  );
+}
+
 export function ComposerShell({
   value,
   onValueChange,
@@ -151,6 +167,7 @@ export function ComposerShell({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoFocusedRef = useRef(false);
   const submittedFromKeyboardRef = useRef(false);
+  const refocusWhenFreeRef = useRef(false);
   const autocomplete = useComposerAutocomplete({
     value,
     onValueChange,
@@ -170,16 +187,18 @@ export function ComposerShell({
 
   // Submitting can disable the textarea for a moment, as a slash command
   // does, which drops focus; give it back unless it has gone somewhere else.
+  // Only a submit that caused the disabling counts, so a reconnect or an
+  // upload finishing later never pulls focus here.
   useEffect(() => {
-    if (busy || !submittedFromKeyboardRef.current) return;
-    submittedFromKeyboardRef.current = false;
+    if (busy) {
+      refocusWhenFreeRef.current = submittedFromKeyboardRef.current;
+      return;
+    }
+    if (!refocusWhenFreeRef.current) return;
+    refocusWhenFreeRef.current = false;
     const textarea = textareaRef.current;
-    const root = textarea?.getRootNode();
-    // Embedded, the composer sits in a shadow root with its own focus.
-    const active =
-      root instanceof ShadowRoot ? root.activeElement : document.activeElement;
-    if (active === null || active === document.body) {
-      textarea?.focus({ preventScroll: true });
+    if (textarea && focusIsNowhere(textarea)) {
+      textarea.focus({ preventScroll: true });
     }
   }, [busy]);
 
@@ -207,6 +226,10 @@ export function ComposerShell({
       e.preventDefault();
       submittedFromKeyboardRef.current = true;
       onSubmit();
+      // By the next task the submit has either disabled the textarea or not.
+      setTimeout(() => {
+        submittedFromKeyboardRef.current = false;
+      });
     }
   }
 
