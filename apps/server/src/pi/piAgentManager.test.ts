@@ -24,7 +24,11 @@ import type { AgentRole } from "../memory/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
-import { PiAgentManager, PRIME_AGENT_ID } from "./piAgentManager.ts";
+import {
+  MAX_REMEMBERED_ENDS,
+  PiAgentManager,
+  PRIME_AGENT_ID,
+} from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
 
 /**
@@ -993,6 +997,31 @@ test("a run from another connector ending says when, with no agent of ours runni
     [{ sessionId: "s2", status: "idle" }],
     "a later run that started from a standstill clears the failure",
   );
+});
+
+test("only the most recently ended idle sessions are remembered, and never a live one is dropped", async () => {
+  const h = makeManager();
+  await h.pi.ensure("live", "/tmp/live");
+  h.pi.sendToAgent({ sessionId: "live", agentId: PRIME_AGENT_ID, text: "hi" });
+  runTurn(h.spawns[0].child, "done");
+  await flush();
+  const extra = 3;
+
+  for (let n = 0; n < MAX_REMEMBERED_ENDS + extra; n++) {
+    const run = h.runs.open({
+      sessionId: `s${n}`,
+      participantId: "remote-1",
+      ingress: "reaction",
+    });
+    h.runs.settle(run.id, "completed");
+  }
+
+  const remembered = h.pi.getStatuses().map(({ sessionId }) => sessionId);
+  assert.equal(remembered.length, MAX_REMEMBERED_ENDS + 1);
+  assert.ok(remembered.includes("live"));
+  assert.ok(!remembered.includes(`s${extra - 1}`), "the oldest are forgotten");
+  assert.ok(remembered.includes(`s${extra}`));
+  assert.ok(remembered.includes(`s${MAX_REMEMBERED_ENDS + extra - 1}`));
 });
 
 test("an agent handed new work while its last run was still open isn't announced as finished", () => {

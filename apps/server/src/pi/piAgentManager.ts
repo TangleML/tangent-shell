@@ -100,6 +100,8 @@ export type {
  */
 // Pi reports a retry in the same breath as the failed turn's end.
 const RETRY_NOTICE_GRACE_MS = 250;
+/** How many sessions with no agent running are remembered as having ended. */
+export const MAX_REMEMBERED_ENDS = 500;
 const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
@@ -900,6 +902,19 @@ export class PiAgentManager {
     if (superseded || this.disposing.has(sessionId)) return;
     this.lastEnd.set(sessionId, this.endingWith(run));
     this.notifyStatus(sessionId);
+    this.forgetOldEnds();
+  }
+
+  /** Forgets the longest-ended sessions with no agent running, past the cap. */
+  private forgetOldEnds(): void {
+    if (this.lastEnd.size <= MAX_REMEMBERED_ENDS) return;
+    const idle = [...this.lastEnd]
+      .filter(([sessionId]) => this.computeStatus(sessionId) === "idle")
+      .sort(([, a], [, b]) => a.endedAt.localeCompare(b.endedAt));
+    for (const [sessionId] of idle.slice(0, -MAX_REMEMBERED_ENDS)) {
+      this.lastEnd.delete(sessionId);
+      this.lastEmitted.delete(sessionId);
+    }
   }
 
   private endingWith(run: Run): LastEnd {
