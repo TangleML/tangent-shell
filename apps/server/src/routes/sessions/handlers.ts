@@ -115,11 +115,19 @@ export function createArtifactFileHandler() {
   };
 }
 
+// The flags the chat's artifact frame grants, so a page opened in its own tab
+// is as confined as it is there: an opaque origin without the app's cookies.
+const PAGE_SANDBOX =
+  "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms";
+/** Content types a browser runs as a document: HTML, and XML such as SVG. */
+const ACTIVE_CONTENT_TYPE = /^(text\/html|[^;]*[/+]xml)\s*(;|$)/i;
+
 /**
  * Sends a validated artifact. HTML gets the page bridge injected so its forms
  * can fire trigger callbacks through the sandboxed frame's parent; everything
- * else streams via `sendFile`, which derives the Content-Type from the extension
- * and only applies its dotfile check to the path after `root`.
+ * else streams via `sendFile`, which only applies its dotfile check to the path
+ * after `root`. The Content-Type comes from the extension and is never sniffed,
+ * and a type the browser would run is served sandboxed.
  */
 function serveArtifact(
   res: Response,
@@ -127,10 +135,16 @@ function serveArtifact(
   rel: string,
   target: string,
 ): void {
+  res.type(path.extname(rel));
+  res.set("X-Content-Type-Options", "nosniff");
+  if (ACTIVE_CONTENT_TYPE.test(String(res.get("Content-Type")))) {
+    res.set("Content-Security-Policy", PAGE_SANDBOX);
+  }
+
   if (/\.html?$/i.test(rel)) {
     fs.readFile(target, "utf8", (err, html) => {
       if (err) res.status(404).end();
-      else res.type("html").send(injectPageBridge(html));
+      else res.send(injectPageBridge(html));
     });
     return;
   }

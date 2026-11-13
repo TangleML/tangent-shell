@@ -243,6 +243,8 @@ const conversations = new ConversationRouter(
 runs.useOnSettled((run, settlement) => {
   admission.release(run);
   pi.recordSettled(run, settlement);
+  // A file an agent writes isn't announced, so a finished run may have added some.
+  emitResourcesUpdated(run.sessionId);
   if (run.status === "failed") {
     conversations.announceCause(run.sessionId, {
       kind: "run-error",

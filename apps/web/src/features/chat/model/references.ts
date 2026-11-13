@@ -1,6 +1,8 @@
 import type { PinnedArtifact } from "@tangent/shared/contracts";
 import type { IconName } from "@tangent/ui-primitives/icon";
 
+import { isSessionFilePath } from "@/shared/lib/markdown/artifact";
+
 import { matchRank, normalize } from "./matching";
 
 export type ChatReferenceKind = "pipeline" | "document" | "run" | "file";
@@ -41,9 +43,10 @@ export interface ReferenceGroup {
 
 const BROWSE_LIMIT = 3;
 const SEARCH_LIMIT = 6;
-const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
+const TRAILING_PUNCTUATION = ".,;:!?)]";
 const TOKEN = /(^|\s)#([^\s#@]+)/g;
-const LINK = /\[((?:\\.|[^\]\\])*)\]\((<[^>\n]*>|[^\s)]+)\)/g;
+// No part can run past the start of another link, so matching stays linear.
+const LINK = /\[((?:\\.|[^[\]\\])*)\]\((<[^<>\n]*>|[^\s()]+)\)/g;
 
 /**
  * The session's pinned artifacts, most recently pinned first, addressed by
@@ -53,7 +56,8 @@ const LINK = /\[((?:\\.|[^\]\\])*)\]\((<[^>\n]*>|[^\s)]+)\)/g;
 export function artifactReferences(
   artifacts: PinnedArtifact[],
 ): ChatReference[] {
-  return [...artifacts]
+  return artifacts
+    .filter((artifact) => isSessionFilePath(artifact.path))
     .sort((a, b) => b.pinnedAt.localeCompare(a.pinnedAt))
     .map((artifact) => ({
       kind: "file",
@@ -100,16 +104,23 @@ export function groupReferences(
   });
 }
 
+// A loop, since a regex anchored at the end rescans a long run from every start.
+function withoutTrailingPunctuation(text: string): string {
+  let end = text.length;
+  while (end > 0 && TRAILING_PUNCTUATION.includes(text[end - 1])) end--;
+  return text.slice(0, end);
+}
+
 // Brackets and trailing punctuation are dropped so the token survives being
 // typed mid-sentence, as in "(see #Churn-model)." or a markdown link.
 function slug(label: string): string {
-  const token = label
-    .replace(/[[\]()<>]/g, "")
-    .trim()
-    .replace(/[\s#@]+/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(TRAILING_PUNCTUATION, "")
-    .replace(/^-+|-+$/g, "");
+  const token = withoutTrailingPunctuation(
+    label
+      .replace(/[[\]()<>]/g, "")
+      .trim()
+      .replace(/[\s#@]+/g, "-")
+      .replace(/-{2,}/g, "-"),
+  ).replace(/^-+|-+$/g, "");
   return token || "reference";
 }
 
@@ -135,8 +146,9 @@ function escapeLabel(label: string): string {
 }
 
 function referenceLink(reference: ChatReference): string {
+  // Inside `<...>` an angle bracket or line break would end the address early.
   const href = /[\s()<>]/.test(reference.href)
-    ? `<${reference.href}>`
+    ? `<${reference.href.replace(/[<>\r\n]/g, encodeURIComponent)}>`
     : reference.href;
   return `[${escapeLabel(reference.label)}](${href})`;
 }
@@ -163,10 +175,9 @@ export function expandReferences(
   }
 
   return text.replace(TOKEN, (match, lead: string, body: string) => {
-    const trailing = body.match(TRAILING_PUNCTUATION)?.[0] ?? "";
-    const reference = resolve(
-      `#${body.slice(0, body.length - trailing.length)}`,
-    );
+    const name = withoutTrailingPunctuation(body);
+    const trailing = body.slice(name.length);
+    const reference = resolve(`#${name}`);
     return reference ? `${lead}${referenceLink(reference)}${trailing}` : match;
   });
 }

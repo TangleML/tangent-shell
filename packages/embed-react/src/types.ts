@@ -341,7 +341,11 @@ export interface EmbedReference {
 
 /** A slash command the chat box offers, e.g. `/runs`. */
 export interface EmbedCommand {
-  /** Typed after the slash; lowercase, no spaces. */
+  /**
+   * Typed after the slash; lowercase, no spaces. Up to 64 letters, digits,
+   * `-`, `_`, `.` or `:` — a result under any other name is posted as an
+   * ordinary message.
+   */
   name: string;
   /** Shown beside the name in the picker. Keep it short. */
   description: string;

@@ -97,18 +97,19 @@ export function EmbeddedChat({
   } = chat;
   // The element is reused when the host shows another session, whose count
   // starts elsewhere, so a change is one seen within the same session.
+  const targetingPrime = isPrimeAgent(agentId);
   const seenResources = useRef({ sessionId, version: resourcesVersion });
   const announceResourcesChange = useEffectEvent(() => onResourcesChange?.());
 
   useEffect(() => {
     const seen = seenResources.current;
     seenResources.current = { sessionId, version: resourcesVersion };
-    if (seen.sessionId === sessionId && seen.version !== resourcesVersion) {
-      announceResourcesChange();
+    if (seen.sessionId !== sessionId || seen.version === resourcesVersion) {
+      return;
     }
-  }, [sessionId, resourcesVersion]);
-
-  const targetingPrime = isPrimeAgent(agentId);
+    // Every chat of a session sees the change; only Prime's tells the host.
+    if (targetingPrime) announceResourcesChange();
+  }, [sessionId, resourcesVersion, targetingPrime]);
   const references: ChatReference[] = [
     ...hostReferences,
     ...artifactReferences(chat.artifacts),

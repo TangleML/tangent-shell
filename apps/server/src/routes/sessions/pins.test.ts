@@ -7,6 +7,8 @@ import type { UiCommand } from "@tangent/shared/contracts";
 const express = (await import("express")).default;
 const { Router } = await import("express");
 const { registerPinRoutes } = await import("./pins.ts");
+const { handleArtifactPin, pinProblem } =
+  await import("../../sockets/chatArtifacts.ts");
 const { InMemorySessionStore } =
   await import("../../store/inMemorySessionStore.ts");
 const { InMemoryParticipantStore } =
@@ -101,4 +103,93 @@ test("pinning in a session that doesn't exist is a 404", async () => {
   });
 
   assert.equal(res.status, 404);
+});
+
+const BAD_PATHS = [
+  "https://example.com/x.html",
+  "javascript:alert(1)",
+  "mount://shared",
+  "memory://session",
+  "/etc/passwd",
+  "artifacts/../../secrets.txt",
+  "artifacts/%2e%2e/uploads/x.html",
+  "../artifacts/a.html",
+  "artifacts\\a.html",
+  "artifacts/a\n.html",
+  "artifacts",
+  "artifacts/",
+  "notes/a.html",
+  `artifacts/${"a".repeat(1_100)}.html`,
+];
+
+test("only a relative path under artifacts/ or uploads/ can be pinned", () => {
+  for (const path of BAD_PATHS) assert.ok(pinProblem({ path }), path);
+  for (const path of [
+    "artifacts/summary.html",
+    "./artifacts/deep/er/summary.html",
+    "uploads/data.csv",
+    "artifacts/a..b.html",
+  ]) {
+    assert.equal(pinProblem({ path }), undefined, path);
+  }
+  assert.ok(pinProblem({ path: "artifacts/a.html", title: "t".repeat(301) }));
+});
+
+test("POST /:id/pins refuses a path that isn't one of the session's files", async () => {
+  const { store, session, broadcasts, url } = await serve();
+
+  for (const path of BAD_PATHS) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    assert.equal(res.status, 400, path);
+    const { error } = (await res.json()) as { error: string };
+    assert.match(error, /artifacts\/ or uploads\/|at most/);
+  }
+
+  assert.deepEqual(await store.getArtifacts(session.id), []);
+  assert.equal(broadcasts.length, 0);
+});
+
+test("the chat's pin toggle ignores a path that isn't one of the session's files", async () => {
+  const { store, session, broadcasts } = await serve();
+  const emit = (sessionId: string, command: UiCommand) =>
+    broadcasts.push({ sessionId, command });
+
+  for (const path of BAD_PATHS) {
+    await handleArtifactPin(store, emit, {
+      sessionId: session.id,
+      path,
+      title: "Bad",
+    });
+  }
+  await handleArtifactPin(store, emit, {
+    sessionId: session.id,
+    path: "artifacts/a.html",
+    title: "A",
+  });
+
+  assert.deepEqual(
+    (await store.getArtifacts(session.id)).map(({ path }) => path),
+    ["artifacts/a.html"],
+  );
+  assert.equal(broadcasts.length, 1);
+});
+
+test("a bad pin stored earlier can still be unpinned", async () => {
+  const { store, session, url } = await serve();
+  await store.pinArtifact(session.id, {
+    path: "https://example.com/x.html",
+    title: "Old",
+  });
+
+  const res = await fetch(
+    `${url}?path=${encodeURIComponent("https://example.com/x.html")}`,
+    { method: "DELETE" },
+  );
+
+  assert.equal(res.status, 204);
+  assert.deepEqual(await store.getArtifacts(session.id), []);
 });

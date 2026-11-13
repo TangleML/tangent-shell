@@ -2,7 +2,11 @@ import type { PinnedArtifact, Trigger } from "@tangent/shared/contracts";
 import type { IconName } from "@tangent/ui-primitives/icon";
 
 import { apiUrl } from "@/shared/lib/basePath";
-import { isViewableArtifact, resolveUrl } from "@/shared/lib/markdown/artifact";
+import {
+  isSessionFilePath,
+  isViewableArtifact,
+  resolveUrl,
+} from "@/shared/lib/markdown/artifact";
 
 /**
  * A session resource the user (or an agent) created, surfaced in the sidebar as
@@ -94,16 +98,19 @@ export function buildAssets({
 }: BuildAssetsArgs): Asset[] {
   const base = apiUrl(`/api/sessions/${sessionId}/files`);
 
-  const artifactAssets: Asset[] = artifacts.map((artifact) => {
-    const url = resolveUrl(artifact.path, base) ?? artifact.path;
-    return {
-      kind: isViewableArtifact(artifact.path) ? "page" : "file",
-      id: url,
-      title: artifact.title,
-      url,
-      path: artifact.path,
-    };
-  });
+  // A pin stored before paths were checked may point outside the session.
+  const artifactAssets: Asset[] = artifacts
+    .filter((artifact) => isSessionFilePath(artifact.path))
+    .map((artifact) => {
+      const url = resolveUrl(artifact.path, base) ?? artifact.path;
+      return {
+        kind: isViewableArtifact(artifact.path) ? "page" : "file",
+        id: url,
+        title: artifact.title,
+        url,
+        path: artifact.path,
+      };
+    });
 
   const triggerAssets: Asset[] = triggers.map((trigger) => ({
     kind: "trigger",
