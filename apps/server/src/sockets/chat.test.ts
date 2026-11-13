@@ -27,7 +27,10 @@ import {
   registerChatHandlers,
 } from "./chat.ts";
 import { PresenceTracker } from "./presenceTracker.ts";
-import { createSubagentDismissedEmitter } from "./sessionRoster.ts";
+import {
+  createSubagentDismissedEmitter,
+  MAX_FINISHED_SUBAGENTS,
+} from "./sessionRoster.ts";
 
 const OWNER: UserIdentity = {
   email: "owner@example.com",
@@ -425,6 +428,24 @@ test("a finished sub-agent stays in the join roster after its connector drops it
   assert.equal(entry?.name, "Worker sub-1");
   assert.equal(entry?.conversationId, worker.homeConversationId);
   assert.equal(entry?.model, "anthropic/claude-test");
+});
+
+test("the roster lists every live sub-agent but only the latest finished ones", async () => {
+  const { store, live, join, sessionId } = await rosterHarness();
+  const extra = 5;
+  for (let n = 0; n < MAX_FINISHED_SUBAGENTS + extra; n++) {
+    await recordSubagent(store, sessionId, `done-${n}`, "completed");
+  }
+  const running = await recordSubagent(store, sessionId, "running", "active");
+  live.push(liveInfo(running, "active"));
+
+  const ids = (await join()).map((s) => s.id);
+
+  assert.equal(ids.length, MAX_FINISHED_SUBAGENTS + 1);
+  assert.equal(ids[0], "running");
+  assert.ok(!ids.includes(`done-${extra - 1}`), "the oldest are left out");
+  assert.equal(ids[1], `done-${extra}`);
+  assert.equal(ids.at(-1), `done-${MAX_FINISHED_SUBAGENTS + extra - 1}`);
 });
 
 test("a sub-agent both live and persisted is listed once, as the live entry", async () => {

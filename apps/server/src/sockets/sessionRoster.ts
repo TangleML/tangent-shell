@@ -200,9 +200,13 @@ function finishedSubagentInfo(agent: SessionAgent): SubagentInfo {
   };
 }
 
+export const MAX_FINISHED_SUBAGENTS = 50;
+
 /**
  * Every live sub-agent plus the finished, undismissed ones connectors no longer
- * hold, so a reload keeps them. A live entry wins over its persisted row.
+ * hold, so a reload keeps them. A live entry wins over its persisted row. Of
+ * the finished ones only the latest are listed: the most recently created,
+ * since a row doesn't say when it finished.
  */
 export async function subagentRoster(
   store: SessionStore,
@@ -219,6 +223,8 @@ export async function subagentRoster(
   const liveIds = new Set(live.map((subagent) => subagent.id));
   const finished = persisted
     .filter((agent) => isDismissible(agent) && !liveIds.has(agent.id))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .slice(-MAX_FINISHED_SUBAGENTS)
     .map(finishedSubagentInfo);
   return [...live, ...finished];
 }
