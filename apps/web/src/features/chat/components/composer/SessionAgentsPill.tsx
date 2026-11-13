@@ -4,6 +4,7 @@ import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import {
   type Agent,
   buildSubagents,
+  busySubagentConversations,
   isDismissible,
 } from "@/features/chat/model/agents";
 import { plural } from "@/shared/lib/utils";
@@ -36,10 +37,9 @@ export function SessionAgentsPill({
   if (subagents.length === 0) return null;
 
   const agents = buildSubagents(subagents);
-  const busyConversations = new Map(
-    subagents.flatMap(({ id, conversationId }) =>
-      isConversationBusy(conversationId) ? [[id, conversationId] as const] : [],
-    ),
+  const busyConversations = busySubagentConversations(
+    subagents,
+    isConversationBusy,
   );
   const finished = agents.filter(isDismissible);
   const working = busyConversations.size;
