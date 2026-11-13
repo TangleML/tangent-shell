@@ -1170,6 +1170,7 @@ export class PiAgentManager {
     existing.aborted = true;
     existing.intentionalKill = true;
     existing.child.kill();
+    this.clearCutTurn(sessionId, existing);
     // The killed process will never emit `agent_end`, so settle here: the turn
     // we cut was stopped, not finished.
     this.runs.settleOpenFor(sessionId, agentId, "cancelled");
@@ -1357,6 +1358,7 @@ export class PiAgentManager {
     agent.intentionalKill = true;
     session.agents.delete(agentId);
     agent.child.kill();
+    this.clearPendingEnd(agent);
     this.runs.settleOpenFor(sessionId, agentId, settledForKill(completed));
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     this.notifyStatus(sessionId);
@@ -1435,6 +1437,12 @@ export class PiAgentManager {
     for (const run of this.runs.listForSession(sessionId)) {
       this.runs.settle(run.id, "cancelled");
     }
+  }
+
+  /** A killed agent won't end its turn itself, so what it left showing goes. */
+  private clearCutTurn(sessionId: string, agent: AgentProcess): void {
+    this.clearPendingEnd(agent);
+    if (agent.lastActivity) this.emitActivity(sessionId, agent, null);
   }
 
   /** Kills an agent's process so its exit reads as stopped, not failed. */
