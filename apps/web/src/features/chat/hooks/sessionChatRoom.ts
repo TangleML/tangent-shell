@@ -464,8 +464,6 @@ class SessionChatRoom {
       this.streaming.delete(agentId);
       this.publish(agentId);
       this.invalidateWorkflow();
-      // A file an agent writes isn't announced, so a finished turn may have added some.
-      this.resourcesChanged();
     });
 
     socket.on(

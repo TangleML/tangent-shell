@@ -38,7 +38,8 @@ export interface ChatProps {
   onRemoveAgent?: (id: string) => void;
   /**
    * The session's resources may have changed: a pin, a host entry, memory, or
-   * the files an agent wrote during a turn. Refetch what was built from them.
+   * the files an agent wrote during a run. Refetch what was built from them.
+   * Only Prime's chat fires it, not a sub-agent's.
    */
   onResourcesChange?: () => void;
   /**

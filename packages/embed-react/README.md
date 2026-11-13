@@ -260,9 +260,10 @@ would for `<AgentList onOpen>`) and `onRemoveAgent` to close that tab.
 
 `onResourcesChange` fires when the session's resources may have changed: a file
 was pinned or unpinned (by an agent or a person), a host entry or memory was
-added or removed, or an agent finished a turn, which is when the files it wrote
+added or removed, or an agent finished a run, which is when the files it wrote
 show up. Refetch anything you built from `listResources` or the session's files
-when it fires.
+when it fires. Only Prime's `<Chat>` fires it; a `<Chat agentId>` for a sub-agent
+of the same session stays quiet, so one change is announced once.
 
 #### Adding your own pill beside the agents pill
 
