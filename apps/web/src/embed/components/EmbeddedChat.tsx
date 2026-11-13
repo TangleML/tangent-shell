@@ -228,7 +228,7 @@ export function EmbeddedChat({
         messages={chat.messagesFor(primaryConversationId)}
         currentAuthorId={chat.currentAuthorId}
         primaryConversationId={primaryConversationId}
-        activity={chat.getActivity(primaryConversationId)}
+        activity={chat.primeActivity}
         activityAuthorName={PI_AGENT.name}
         activityAuthorRole="prime"
         historyLoaded={historyLoaded}

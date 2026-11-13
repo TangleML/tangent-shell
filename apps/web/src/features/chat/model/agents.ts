@@ -1,10 +1,13 @@
 import {
+  type AgentActivity,
   isTerminalStatus,
   PI_AGENT,
   type SubagentInfo,
   type SubagentStatus,
 } from "@tangent/shared/contracts";
 import type { IconName } from "@tangent/ui-primitives/icon";
+
+import { plural } from "@/shared/lib/utils";
 
 /**
  * A session agent surfaced in the sidebar as a card and openable in its own
@@ -73,6 +76,35 @@ export function agentStatusVisual(
     case "error":
       return { kind: "icon", icon: "TriangleAlert", tone: "critical" };
   }
+}
+
+/** Each sub-agent with work under way, by id, to the Conversation it's in. */
+export function busySubagentConversations(
+  subagents: SubagentInfo[],
+  isConversationBusy: (conversationId: string) => boolean,
+): Map<string, string> {
+  return new Map(
+    subagents.flatMap(({ id, conversationId }) =>
+      isConversationBusy(conversationId) ? [[id, conversationId] as const] : [],
+    ),
+  );
+}
+
+/**
+ * Prime ends its turn once it has handed work out, so its thread would go
+ * quiet while the sub-agents work on, sometimes for many minutes. Until they
+ * are done it says how many are still working.
+ */
+export function primeThreadActivity(
+  activity: AgentActivity | null,
+  primeBusy: boolean,
+  workingSubagents: number,
+): AgentActivity | null {
+  if (primeBusy || workingSubagents === 0) return activity;
+  return {
+    kind: "thinking",
+    label: `${plural(workingSubagents, "agent")} working`,
+  };
 }
 
 // The server ignores a dismissal for a sub-agent still running.

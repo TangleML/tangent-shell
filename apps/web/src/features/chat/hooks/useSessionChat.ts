@@ -7,6 +7,10 @@ import {
 } from "@tangent/shared/contracts";
 import { useSyncExternalStore } from "react";
 
+import {
+  busySubagentConversations,
+  primeThreadActivity,
+} from "@/features/chat/model/agents";
 import { type ChatCommand, commandRun } from "@/features/chat/model/commands";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 
@@ -74,6 +78,15 @@ export function useSessionChat(sessionId: string) {
     return snapshot.streamingMessageIds.has(messageId);
   }
 
+  const agentBusy = isConversationBusy(
+    snapshot,
+    snapshot.primaryConversationId,
+  );
+  const workingSubagents = busySubagentConversations(
+    snapshot.subagents,
+    (conversationId) => isConversationBusy(snapshot, conversationId),
+  ).size;
+
   return {
     messagesFor,
     subagents: snapshot.subagents,
@@ -95,10 +108,15 @@ export function useSessionChat(sessionId: string) {
       peekSessionChatRoom(sessionId)?.confirmMemory(suggestionId),
     dismissMemory: (suggestionId: string) =>
       peekSessionChatRoom(sessionId)?.dismissMemory(suggestionId),
-    agentBusy: isConversationBusy(snapshot, snapshot.primaryConversationId),
+    agentBusy,
     isConversationBusy: (conversationId: string) =>
       isConversationBusy(snapshot, conversationId),
     getActivity,
+    primeActivity: primeThreadActivity(
+      getActivity(snapshot.primaryConversationId),
+      agentBusy,
+      workingSubagents,
+    ),
     isMessageStreaming,
     currentAuthorId: author.id,
     send: (
