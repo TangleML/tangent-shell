@@ -306,7 +306,11 @@ rest of the text, instead of sending a message to the agent. The markdown
 `run` returns is posted in the chat as the command's result for everyone, and
 the agent doesn't start; it's sent the result along with the next message it
 gets. Throw from `run` to keep the draft and show your message under it. Links
-in the result show as chips, the same as in a message.
+in the result show as chips, the same as in a message; images show only their
+alt text and `tangent-ui` blocks show as code, since a result is text from a
+browser rather than from the agent. The agent is sent at most the first 20,000
+characters of a result. Name a command with up to 64 letters, digits, `-`, `_`,
+`.` or `:`.
 
 ```tsx
 <Chat

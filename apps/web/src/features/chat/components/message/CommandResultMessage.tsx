@@ -44,6 +44,7 @@ export function CommandResultMessage({
         onOpenArtifact={onOpenArtifact}
         sessionId={sessionId}
         messageId={message.id}
+        untrusted
       >
         {message.content}
       </Markdown>
