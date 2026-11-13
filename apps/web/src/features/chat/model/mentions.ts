@@ -58,6 +58,8 @@ export function findActiveMention(
   caret: number,
   trigger: ComposerTrigger = "@",
 ): ActiveMention | null {
+  // `lastIndexOf` reads a start of -1 as 0, which finds a trigger after the caret.
+  if (caret <= 0) return null;
   const at = value.lastIndexOf(trigger, caret - 1);
   if (at < 0) return null;
   if (at > 0 && !/\s/.test(value[at - 1])) return null;
