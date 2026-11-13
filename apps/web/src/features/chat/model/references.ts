@@ -1,6 +1,8 @@
 import type { PinnedArtifact } from "@tangent/shared/contracts";
 import type { IconName } from "@tangent/ui-primitives/icon";
 
+import { isSessionFilePath } from "@/shared/lib/markdown/artifact";
+
 import { matchRank, normalize } from "./matching";
 
 export type ChatReferenceKind = "pipeline" | "document" | "run" | "file";
@@ -54,7 +56,8 @@ const LINK = /\[((?:\\.|[^[\]\\])*)\]\((<[^<>\n]*>|[^\s()]+)\)/g;
 export function artifactReferences(
   artifacts: PinnedArtifact[],
 ): ChatReference[] {
-  return [...artifacts]
+  return artifacts
+    .filter((artifact) => isSessionFilePath(artifact.path))
     .sort((a, b) => b.pinnedAt.localeCompare(a.pinnedAt))
     .map((artifact) => ({
       kind: "file",
@@ -143,8 +146,9 @@ function escapeLabel(label: string): string {
 }
 
 function referenceLink(reference: ChatReference): string {
+  // Inside `<...>` an angle bracket or line break would end the address early.
   const href = /[\s()<>]/.test(reference.href)
-    ? `<${reference.href}>`
+    ? `<${reference.href.replace(/[<>\r\n]/g, encodeURIComponent)}>`
     : reference.href;
   return `[${escapeLabel(reference.label)}](${href})`;
 }
