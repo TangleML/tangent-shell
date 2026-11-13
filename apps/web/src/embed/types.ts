@@ -8,6 +8,11 @@ import type {
   ThinkingLevel,
 } from "@tangent/shared/contracts";
 
+import type { ChatCommand } from "@/features/chat/model/commands";
+import type {
+  ChatReference,
+  ChatReferenceKind,
+} from "@/features/chat/model/references";
 import type { EmbedApiConfig } from "@/shared/lib/basePath";
 
 /** Host-driven theme inputs. Kept deliberately small (see tech design 6.4). */
@@ -69,22 +74,14 @@ export interface EmbedAgentPayload {
 /**
  * Something the host lets the composer's `#` picker reference. A pick is sent
  * as a markdown link to `href`, which the host renders through its anchor
- * protocol for that scheme.
+ * protocol for that scheme. Files come from the session, not the host.
  */
-export interface EmbedReferencePayload {
-  kind: "pipeline" | "document" | "run";
-  label: string;
-  href: string;
-  detail?: string;
-}
+export type EmbedReferencePayload = ChatReference & {
+  kind: Exclude<ChatReferenceKind, "file">;
+};
 
 /** A slash command the host offers; `run` returns the markdown to post. */
-export interface EmbedCommandPayload {
-  name: string;
-  description: string;
-  argumentHint?: string;
-  run: (args: string) => Promise<string> | string;
-}
+export type EmbedCommandPayload = ChatCommand;
 
 /** Serializable asset row handed to the host via `open-asset`. */
 export type EmbedAssetPayload =

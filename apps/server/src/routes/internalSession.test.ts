@@ -96,3 +96,14 @@ test("dismiss-subagent says when there is no such sub-agent", async () => {
   assert.equal(res.status, 404);
   assert.deepEqual(dismissed, []);
 });
+
+test("dismiss-subagent treats an already dismissed sub-agent as gone", async () => {
+  const { store, session, dismissed, dismiss } = await serve();
+  await recordSubagent(store, session.id, "sub-done", "completed");
+  await dismiss("sub-done");
+
+  const res = await dismiss("sub-done");
+
+  assert.equal(res.status, 404);
+  assert.equal(dismissed.length, 1, "the room is told only once");
+});

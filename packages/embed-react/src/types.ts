@@ -35,7 +35,10 @@ export interface HostUIComponentProps {
   name: string;
   /** Which surface it renders on. */
   kind: "message" | "panel" | "composer";
-  /** JSON props (a `message` token's body, or `{}` for a `panel`). */
+  /**
+   * JSON props: a `message` token's body, `{ sessionId, agentId }` for a
+   * `composer` pill, or `{}` for a `panel`.
+   */
   props: Record<string, unknown>;
   /** Sends a composed prompt to the chat, as if the user had typed it. */
   onSendPrompt?: (text: string) => void;
@@ -322,7 +325,6 @@ export interface TangentParticipantListElementLike extends HTMLElement {
   agentId: string;
 }
 
-/** An agent row emitted by `<AgentList onOpen>`. */
 /**
  * Something the composer's `#` picker can reference. A pick is sent as the
  * markdown link `[label](href)`, so use an `href` the agent can act on and
@@ -353,6 +355,7 @@ export interface EmbedCommand {
   run: (args: string) => Promise<string> | string;
 }
 
+/** An agent row emitted by `<AgentList onOpen>`. */
 export interface EmbedAgent {
   id: string;
   name: string;

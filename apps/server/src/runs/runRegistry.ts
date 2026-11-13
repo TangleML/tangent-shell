@@ -36,6 +36,12 @@ export interface OpenRunInput {
 /** The terminal states {@link RunRegistry.settle} accepts. */
 export type SettledStatus = Exclude<RunStatus, "running">;
 
+/** How a Run came to settle, as its listener is told. */
+export interface Settlement {
+  /** Settled only because its participant's next Run was opening. */
+  superseded: boolean;
+}
+
 /** Composite key of the at-most-one Run a participant has open. */
 function keyFor(sessionId: string, participantId: string): string {
   return `${sessionId}\u0000${participantId}`;
@@ -65,7 +71,7 @@ export class RunRegistry {
   private readonly lastAudience = new Map<string, string>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
-  private onSettled?: (run: Run) => void;
+  private onSettled?: (run: Run, settlement: Settlement) => void;
 
   constructor(store: RunStore) {
     this.store = store;
@@ -73,7 +79,7 @@ export class RunRegistry {
 
   /** Registers the one listener told when a Run settles. Separate from the
    * constructor because the admission engine that listens is wired after. */
-  useOnSettled(handler: (run: Run) => void): void {
+  useOnSettled(handler: (run: Run, settlement: Settlement) => void): void {
     this.onSettled = handler;
   }
 
@@ -83,7 +89,8 @@ export class RunRegistry {
    * with persistence following behind.
    */
   open(input: OpenRunInput): Run {
-    this.settleOpenFor(input.sessionId, input.participantId, "completed");
+    const previous = this.current(input.sessionId, input.participantId);
+    if (previous) this.finish(previous, "completed", { superseded: true });
     this.stampAudience(
       input.sessionId,
       input.participantId,
@@ -188,6 +195,14 @@ export class RunRegistry {
   settle(runId: RunId, status: SettledStatus): void {
     const run = this.byId.get(runId);
     if (!run) return;
+    this.finish(run, status, { superseded: false });
+  }
+
+  private finish(
+    run: Run,
+    status: SettledStatus,
+    settlement: Settlement,
+  ): void {
     this.forget(run);
     // Stamp the terminal status on the object handed to the listener, so a
     // `failed` Run is distinguishable from a clean one there (the store write
@@ -195,7 +210,7 @@ export class RunRegistry {
     run.status = status;
     run.endedAt = new Date().toISOString();
     this.persist(run.id, { status, endedAt: run.endedAt });
-    this.onSettled?.(run);
+    this.onSettled?.(run, settlement);
   }
 
   /** Settles the Run a participant has open, if it has one. */

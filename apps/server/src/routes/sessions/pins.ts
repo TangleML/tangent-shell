@@ -1,21 +1,21 @@
 import type { Request, Response, Router } from "express";
-import { z } from "zod";
+import type { z } from "zod";
 
 import { getValidated, validate } from "../../middleware/validate.ts";
+import {
+  pinAndBroadcast,
+  unpinAndBroadcast,
+} from "../../sockets/chatArtifacts.ts";
 import type { UiCommandEmitter } from "../../sockets/sessionRoster.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
+import { pinArtifactSchema, unpinArtifactSchema } from "../internalSession.ts";
 import { type SessionParams, sessionParamsSchema } from "./schemas.ts";
 import { loadSession } from "./utils.ts";
 
-const pinBodySchema = z.object({
-  path: z.string().trim().min(1),
-  title: z.string().optional(),
-});
+const pinBodySchema = pinArtifactSchema.omit({ sessionId: true });
 type PinBody = z.infer<typeof pinBodySchema>;
 
-const unpinQuerySchema = z.object({
-  path: z.string().trim().min(1),
-});
+const unpinQuerySchema = unpinArtifactSchema.omit({ sessionId: true });
 type UnpinQuery = z.infer<typeof unpinQuerySchema>;
 
 /**
@@ -35,11 +35,12 @@ export function registerPinRoutes(
       const { params, body } = getValidated<PinBody, SessionParams>(req);
       const session = await loadSession(store, res, params.id);
       if (!session) return;
-      const artifacts = await store.pinArtifact(session.id, {
-        path: body.path,
-        title: body.title?.trim() || body.path,
-      });
-      emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+      const artifacts = await pinAndBroadcast(
+        store,
+        emitUiCommand,
+        session.id,
+        body,
+      );
       res.json({ artifacts });
     },
   );
@@ -55,8 +56,7 @@ export function registerPinRoutes(
       >(req);
       const session = await loadSession(store, res, params.id);
       if (!session) return;
-      const artifacts = await store.unpinArtifact(session.id, query.path);
-      emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+      await unpinAndBroadcast(store, emitUiCommand, session.id, query.path);
       res.status(204).end();
     },
   );
