@@ -11,6 +11,7 @@ import {
 } from "@/shared/lib/markdown/artifact";
 import { Toolbar } from "@/shared/ui/patterns/toolbar";
 
+import { useArtifactReload } from "../../hooks/useArtifactReload";
 import { useViewportCapture } from "../../hooks/useViewportCapture";
 import { ArtifactMarkdownContent } from "./ArtifactMarkdownContent";
 import { ArtifactReviewOverlay } from "./ArtifactReviewOverlay";
@@ -42,7 +43,8 @@ interface FrozenArtifact {
  *
  * A "Review" action captures the current tab, crops the shot to the viewer's
  * box, and hands it to {@link ArtifactReviewOverlay} so the user can select a
- * region and send it — with a note — to Prime as visual feedback.
+ * region and send it — with a note — to Prime as visual feedback. "Reload"
+ * re-reads an artifact that changed on disk since it was opened.
  */
 export function ArtifactTabView({
   sessionId,
@@ -51,6 +53,7 @@ export function ArtifactTabView({
   onSendPrompt,
 }: ArtifactTabViewProps) {
   const { captureFrame } = useViewportCapture();
+  const { reloadCount, reload } = useArtifactReload(url);
   const viewerRef = useRef<HTMLDivElement>(null);
   const [frozen, setFrozen] = useState<FrozenArtifact | null>(null);
   const [capturing, setCapturing] = useState(false);
@@ -65,10 +68,15 @@ export function ArtifactTabView({
       case isMarkdownArtifact(url):
         return <ArtifactMarkdownContent sessionId={sessionId} url={url} />;
       case isPdfArtifact(url):
-        return <PdfArtifactBody url={url} title={title} />;
+        return <PdfArtifactBody key={reloadCount} url={url} title={title} />;
       default:
         return (
-          <IframeArtifactBody sessionId={sessionId} url={url} title={title} />
+          <IframeArtifactBody
+            key={reloadCount}
+            sessionId={sessionId}
+            url={url}
+            title={title}
+          />
         );
     }
   }
@@ -129,6 +137,10 @@ export function ArtifactTabView({
   return (
     <BlockStack grow>
       <Toolbar chrome="light" align="end" aria-label="Artifact actions">
+        <Button variant="toolbar" size="xs" onClick={reload}>
+          <Icon name="RefreshCw" size="xs" />
+          Reload
+        </Button>
         <Button variant="toolbar" size="xs" onClick={toggleFullscreen}>
           <Icon name="Maximize" size="xs" />
           Fullscreen

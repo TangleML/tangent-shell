@@ -19,6 +19,9 @@ dashboard, it hands you the dashboard — embedded.
   follow-up without losing the result.
 - **Genuinely rich.** Interactive HTML, charts, PDFs, and images all render in
   place — far beyond what fits in a chat bubble.
+- **Live while the agent works.** A page can re-read files saved beside it, so
+  a progress dashboard keeps itself current. **Reload** re-reads the page
+  itself.
 - **Multiple at once.** Open several pages as tabs and switch between them like a
   mini browser built into the session.
 
@@ -40,7 +43,8 @@ flowchart LR
 
 - **Sandboxed for safety.** Embedded pages run isolated, so agent-authored
   content can be interactive without reaching your app's data or credentials.
-  That isolation is deliberate.
+  That isolation is deliberate. The one thing a page can read is its own
+  session's outputs and uploads.
 - **Best for viewable formats.** Rich, viewable files become Pages; other files
   remain clean download chips. The right surface for the right output.
 

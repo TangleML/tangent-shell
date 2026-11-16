@@ -8,9 +8,13 @@
  * - submitting a `<form action="<callback path>">`, or clicking an
  *   `<a href="<callback path>">`, fires that trigger callback
  *   (`tangent:callback`); a callback link's query string becomes the body;
- * - clicking an `<a>` to another site opens it in a new tab (`tangent:openUrl`).
+ * - clicking an `<a>` to another site opens it in a new tab (`tangent:openUrl`);
+ * - a `fetch()` GET of a file in the page's own session is read by the host
+ *   (`tangent:fetch`), so a page can poll a data file beside it to show live
+ *   progress. Only the sandboxed frame needs this: opened in its own tab, the
+ *   page's `fetch` already carries credentials.
  *
- * Pages need no JavaScript of their own. Callback paths are normalized at
+ * Pages need no bridge-specific JavaScript. Session paths are normalized at
  * runtime (sliced from `/api/sessions/`), undoing any proxy prefix the served
  * HTML picked up.
  */
@@ -21,15 +25,36 @@ const PAGE_BRIDGE_CLIENT = `
 
   var framed = !!window.parent && window.parent !== window;
   var CALLBACK_RE = /^\\/api\\/sessions\\/[^/]+\\/triggers\\/[\\w-]+\\/callback\\/[a-f0-9]+$/;
+  var FILE_RE = /^\\/api\\/sessions\\/([^/]+)\\/files\\/(?:artifacts|uploads)\\/./;
+
+  function sessionPath(u) {
+    var p = u.pathname;
+    var i = p.indexOf("/api/sessions/");
+    return i > 0 ? p.slice(i) : p;
+  }
 
   function callbackOf(raw) {
     if (!raw) return null;
     var u;
     try { u = new URL(raw, document.baseURI); } catch (e) { return null; }
-    var p = u.pathname;
-    var i = p.indexOf("/api/sessions/");
-    if (i > 0) p = p.slice(i);
+    var p = sessionPath(u);
     return CALLBACK_RE.test(p) ? { path: p, search: u.searchParams } : null;
+  }
+
+  function fileOf(input, init) {
+    var request = input && typeof input === "object" ? input : {};
+    var method = (init && init.method) || request.method || "GET";
+    if (String(method).toUpperCase() !== "GET") return null;
+    var base, u;
+    try {
+      base = new URL(document.baseURI);
+      u = new URL(request.url || String(input), base);
+    } catch (e) { return null; }
+    if (u.origin !== base.origin) return null;
+    var p = sessionPath(u);
+    var own = FILE_RE.exec(sessionPath(location));
+    var file = FILE_RE.exec(p);
+    return own && file && file[1] === own[1] ? p : null;
   }
 
   function externalUrl(raw) {
@@ -74,6 +99,28 @@ const PAGE_BRIDGE_CLIENT = `
       : (status.getAttribute("data-error") || "Couldn't send just now — please try again.");
   }
 
+  function ask(message, done) {
+    message.requestId = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : String(Date.now()) + Math.random().toString(16).slice(2);
+    var settled = false;
+    function settle(result) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener("message", onResult);
+      done(result);
+    }
+    function onResult(e) {
+      var d = e.data;
+      if (!d || d.type !== message.type + ":result" || d.requestId !== message.requestId) return;
+      settle(d);
+    }
+    var timer = setTimeout(function () { settle(null); }, 15000);
+    window.addEventListener("message", onResult);
+    window.parent.postMessage(message, "*");
+  }
+
   function fireCallback(el, path, body) {
     var status = statusEl(el);
     setBusy(el, true);
@@ -87,27 +134,9 @@ const PAGE_BRIDGE_CLIENT = `
       return;
     }
 
-    var requestId = (window.crypto && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : String(Date.now()) + Math.random().toString(16).slice(2);
-    var done = false;
-    function settle(ok) {
-      if (done) return;
-      done = true;
-      window.removeEventListener("message", onResult);
-      finish(el, status, ok);
-    }
-    function onResult(e) {
-      var d = e.data;
-      if (!d || d.type !== "tangent:callback:result" || d.requestId !== requestId) return;
-      settle(!!d.ok);
-    }
-    window.addEventListener("message", onResult);
-    setTimeout(function () { settle(false); }, 15000);
-    window.parent.postMessage(
-      { type: "tangent:callback", requestId: requestId, path: path, body: body },
-      "*"
-    );
+    ask({ type: "tangent:callback", path: path, body: body }, function (result) {
+      finish(el, status, !!(result && result.ok));
+    });
   }
 
   function searchBody(search) {
@@ -147,6 +176,24 @@ const PAGE_BRIDGE_CLIENT = `
       window.parent.postMessage({ type: "tangent:openUrl", url: ext }, "*");
     }
   }, true);
+
+  function readFile(path) {
+    return new Promise(function (resolve) {
+      ask({ type: "tangent:fetch", path: path }, resolve);
+    }).then(function (result) {
+      if (!result || !result.status) throw new TypeError("Failed to fetch");
+      var headers = result.contentType ? { "content-type": result.contentType } : {};
+      return new Response(result.body, { status: result.status, headers: headers });
+    });
+  }
+
+  var nativeFetch = window.fetch;
+  if (framed && nativeFetch && window.origin === "null") {
+    window.fetch = function (input, init) {
+      var path = fileOf(input, init);
+      return path ? readFile(path) : nativeFetch.apply(window, arguments);
+    };
+  }
 })();
 `.trim();
 
