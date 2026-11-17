@@ -134,7 +134,7 @@ export function ComposerShell({
               aria-label="Attach files"
             />
             {/* local primitive — relative anchor for the floating mention picker. */}
-            <div className="relative flex-1">
+            <div className="relative min-w-0 flex-1">
               {mention.open ? (
                 <MentionPicker
                   candidates={mention.matches}
