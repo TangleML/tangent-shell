@@ -245,7 +245,7 @@ export function ChatMessageList({
       <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col">
         <div
           ref={containerRef}
-          className="min-h-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-3 [overflow-anchor:none]"
+          className="reveal-scrollbar min-h-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-3 [overflow-anchor:none]"
         >
           {rows.length === 0 ? (
             <EmptyThread historyLoaded={historyLoaded} />

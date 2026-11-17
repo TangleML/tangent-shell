@@ -1,7 +1,7 @@
 import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
 
-import type { Agent } from "@/features/chat/model/agents";
+import { type Agent, isDismissible } from "@/features/chat/model/agents";
 
 import { AgentCard } from "./AgentCard";
 
@@ -13,7 +13,7 @@ interface AgentListProps {
   selectedId: string | null;
   /** Opens (or focuses) an agent's in-app tab. */
   onOpen: (agent: Agent) => void;
-  /** Removes a (killed) sub-agent from the list and closes its tab. */
+  /** Removes a finished sub-agent from the list and closes its tab. */
   onRemove?: (agent: Agent) => void;
 }
 
@@ -41,9 +41,7 @@ export function AgentList({
               selected={selectedId === agent.id}
               onOpen={() => onOpen(agent)}
               onRemove={
-                agent.kind === "subagent" && agent.status === "killed"
-                  ? () => onRemove?.(agent)
-                  : undefined
+                isDismissible(agent) ? () => onRemove?.(agent) : undefined
               }
             />
           ))}

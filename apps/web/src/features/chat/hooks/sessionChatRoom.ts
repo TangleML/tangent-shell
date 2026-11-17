@@ -12,6 +12,7 @@ import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
   type Attachment,
+  type ChatCommandRun,
   type ChatMessage,
   type ChatMessagePayload,
   type ConversationHistoryPayload,
@@ -23,6 +24,8 @@ import {
   PI_AGENT,
   type RunId,
   SocketEvents,
+  type SubagentDismissedPayload,
+  type SubagentDismissPayload,
   type SubagentRosterPayload,
   type SubagentStatus,
   type SubagentUpdatePayload,
@@ -131,6 +134,23 @@ class SessionChatRoom {
     socket.emit(SocketEvents.ChatMessage, payload);
   }
 
+  /** Posts a slash command's result for everyone; it doesn't start the agent. */
+  postCommandResult(
+    content: string,
+    command: ChatCommandRun,
+    conversationId?: string,
+  ): void {
+    const socket = this.socket;
+    if (!socket) throw new Error("The chat isn't connected.");
+    const payload: ChatMessagePayload = {
+      sessionId: this.sessionId,
+      content: content.trim() || `Ran /${command.name}.`,
+      conversationId: conversationId ?? this.snapshot.primaryConversationId,
+      command,
+    };
+    socket.emit(SocketEvents.ChatMessage, payload);
+  }
+
   abort(conversationId: string): void {
     const socket = this.socket;
     if (!socket) return;
@@ -181,6 +201,18 @@ class SessionChatRoom {
   }
 
   dismissSubagent(id: string): void {
+    this.removeSubagent(id);
+    const socket = this.socket;
+    if (!socket) return;
+    const payload: SubagentDismissPayload = {
+      sessionId: this.sessionId,
+      agentId: id,
+    };
+    socket.emit(SocketEvents.SubagentDismiss, payload);
+  }
+
+  private removeSubagent(id: string): void {
+    if (!this.snapshot.subagents.some((s) => s.id === id)) return;
     this.patch((prev) => ({
       ...prev,
       subagents: prev.subagents.filter((s) => s.id !== id),
@@ -248,6 +280,17 @@ class SessionChatRoom {
     });
   }
 
+  /** Refetches the catalog here and, through `resourcesVersion`, tells a host. */
+  private resourcesChanged(): void {
+    void queryClient.invalidateQueries({
+      queryKey: SessionQueryKeys.Resources(this.sessionId),
+    });
+    this.patch((prev) => ({
+      ...prev,
+      resourcesVersion: prev.resourcesVersion + 1,
+    }));
+  }
+
   private trackRunActivity(
     conversationId: string,
     activity: AgentActivity | null,
@@ -279,10 +322,11 @@ class SessionChatRoom {
       this.resetLiveMaps();
       this.statuses.clear();
       this.publish(PI_AGENT.id);
-      this.patch({
+      this.patch((prev) => ({
         ...emptySessionChat(),
         connected: true,
-      });
+        resourcesVersion: prev.resourcesVersion,
+      }));
       socket.emit(SocketEvents.ChatJoin, { sessionId });
     });
 
@@ -330,9 +374,7 @@ class SessionChatRoom {
         ),
       }));
       if (message.attachments?.length || message.memory) {
-        void queryClient.invalidateQueries({
-          queryKey: SessionQueryKeys.Resources(sessionId),
-        });
+        this.resourcesChanged();
       }
       this.invalidateWorkflow();
     });
@@ -556,6 +598,11 @@ class SessionChatRoom {
     );
 
     socket.on(
+      SocketEvents.SubagentDismissed,
+      ({ agentId }: SubagentDismissedPayload) => this.removeSubagent(agentId),
+    );
+
+    socket.on(
       SocketEvents.AgentModel,
       ({ agentId, model, thinkingDepth }: AgentModelPayload) => {
         this.patch((prev) => ({
@@ -581,9 +628,7 @@ class SessionChatRoom {
     });
 
     socket.on(SocketEvents.ResourcesUpdated, () => {
-      void queryClient.invalidateQueries({
-        queryKey: SessionQueryKeys.Resources(sessionId),
-      });
+      this.resourcesChanged();
       this.invalidateWorkflow();
     });
 
@@ -621,9 +666,7 @@ class SessionChatRoom {
         return;
       }
       this.patch({ artifacts: command.artifacts });
-      void queryClient.invalidateQueries({
-        queryKey: SessionQueryKeys.Resources(sessionId),
-      });
+      this.resourcesChanged();
     });
   }
 }

@@ -21,14 +21,14 @@ import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
 import { useHostExtensions } from "@/shared/lib/hostSlots";
 import {
   artifactPath,
-  isAbsoluteUrl,
   isArtifactsLink,
-  isViewableArtifact,
+  protocolOf,
   resolveUrl,
 } from "@/shared/lib/markdown/artifact";
 import { cn } from "@/shared/lib/utils";
 
 import { CodeBlock } from "./CodeBlock";
+import { ReferenceAnchor } from "./ReferenceAnchor";
 
 /**
  * Matches a bundle-UI message token's language class, e.g.
@@ -114,6 +114,11 @@ interface MarkdownProps {
    * components so they can request collapse via `host.execUICommand`.
    */
   onCollapse?: () => void;
+  /**
+   * For text a participant supplied rather than an agent wrote: images show
+   * only their alt text and `tangent-ui:<name>` blocks stay code blocks.
+   */
+  untrusted?: boolean;
 }
 
 /**
@@ -133,6 +138,7 @@ interface MarkdownComponentsOptions {
   sessionId?: string;
   messageId?: string;
   onCollapse?: () => void;
+  untrusted?: boolean;
 }
 
 /**
@@ -188,21 +194,6 @@ function parsePromptHref(href: string | undefined): string | undefined {
   }
 }
 
-/** Extracts the scheme from a `proto://…` href (lowercased), else undefined. */
-function protocolOf(href: string | undefined): string | undefined {
-  if (typeof href !== "string") return undefined;
-  const match = href.match(/^([a-z][a-z0-9+.-]*):\/\//i);
-  return match ? match[1].toLowerCase() : undefined;
-}
-
-/** Flattens a link's markdown children into a plain-text label. */
-function anchorText(children: ReactNode): string {
-  if (typeof children === "string") return children;
-  if (typeof children === "number") return String(children);
-  if (Array.isArray(children)) return children.map(anchorText).join("");
-  return "";
-}
-
 /**
  * URL sanitizer for `react-markdown`. The default transform drops unknown
  * protocols (keeping only http/https/mailto/etc.), which would blank our
@@ -216,95 +207,6 @@ function makeUrlTransform(anchorProtocols: ReadonlySet<string>) {
     if (proto && anchorProtocols.has(proto)) return url;
     return defaultUrlTransform(url);
   };
-}
-
-/** Derives a short tab title from the link text, falling back to the filename. */
-function artifactLabel(children: ReactNode, url: string): string {
-  if (typeof children === "string" && children.trim()) return children.trim();
-  const path = url.split(/[?#]/, 1)[0];
-  const filename = path.split("/").pop() ?? url;
-  try {
-    return decodeURIComponent(filename);
-  } catch {
-    return filename;
-  }
-}
-
-/**
- * Artifact chip — a recognizable, padded pill-style reference for artifact
- * output. The main action opens the artifact in an in-app tab (`onOpen`) or
- * links to it for download. When `onTogglePin` is set, an adjacent pin toggle
- * lets the user keep the artifact in the sidebar's quick-access list. Raw
- * `<span>`/`<a>`/`<button>`, so scoped classes are fine.
- */
-const ARTIFACT_CHIP_CLASS =
-  "inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 align-middle text-xs font-medium text-foreground";
-const ARTIFACT_ACTION_CLASS =
-  "inline-flex min-w-0 items-center gap-1 text-foreground no-underline transition hover:opacity-70";
-const ARTIFACT_PIN_CLASS =
-  "inline-flex shrink-0 items-center transition hover:opacity-70";
-
-interface ArtifactChipProps {
-  href?: string;
-  title?: string;
-  children?: ReactNode;
-  onOpen?: () => void;
-  pinned?: boolean;
-  onTogglePin?: () => void;
-}
-
-function ArtifactChip({
-  href,
-  title,
-  children,
-  onOpen,
-  pinned,
-  onTogglePin,
-}: ArtifactChipProps) {
-  const action = onOpen ? (
-    <button
-      type="button"
-      title={title}
-      onClick={onOpen}
-      className={ARTIFACT_ACTION_CLASS}
-    >
-      <Icon name="FileText" size="xs" tone="subdued" />
-      <span className="truncate">{children}</span>
-    </button>
-  ) : (
-    <a
-      href={href}
-      title={title}
-      target="_blank"
-      rel="noreferrer"
-      className={ARTIFACT_ACTION_CLASS}
-    >
-      <Icon name="Paperclip" size="xs" tone="subdued" />
-      <span className="truncate">{children}</span>
-    </a>
-  );
-
-  return (
-    <span className={ARTIFACT_CHIP_CLASS}>
-      {action}
-      {onTogglePin ? (
-        <button
-          type="button"
-          title={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
-          aria-label={pinned ? "Unpin artifact" : "Pin artifact"}
-          aria-pressed={pinned}
-          onClick={onTogglePin}
-          className={ARTIFACT_PIN_CLASS}
-        >
-          <Icon
-            name={pinned ? "PinOff" : "Pin"}
-            size="xs"
-            tone={pinned ? "accent" : "subdued"}
-          />
-        </button>
-      ) : null}
-    </span>
-  );
 }
 
 /**
@@ -542,7 +444,6 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
     sessionId,
     messageId,
   } = useMarkdownOptions();
-  const { registry, anchorProtocols } = useHostExtensions();
 
   if (typeof href === "string" && href.startsWith(PROMPT_SCHEME)) {
     const promptText = parsePromptHref(href);
@@ -555,46 +456,6 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
     );
   }
 
-  const protocol = protocolOf(href);
-  if (registry && protocol && anchorProtocols.has(protocol) && href) {
-    const path = href.slice(protocol.length + "://".length);
-    const id = `anchor:${messageId ?? ""}:${node?.position?.start.offset ?? 0}`;
-    return (
-      <HostOwnedSurface
-        id={id}
-        surface="anchor"
-        slotKey={protocol}
-        props={{ href, protocol, path, label: anchorText(children) }}
-      />
-    );
-  }
-
-  const isArtifact =
-    artifactBaseUrl != null && typeof href === "string" && !isAbsoluteUrl(href);
-
-  if (isArtifact) {
-    const resolved = resolveUrl(href, artifactBaseUrl) ?? href;
-    const openable = onOpenArtifact != null && isViewableArtifact(href);
-    // The workspace-relative path is the stable identity used for pinning.
-    const path = artifactPath(href);
-    const label = artifactLabel(children, resolved);
-    return (
-      <ArtifactChip
-        href={resolved}
-        title={title}
-        onOpen={openable ? () => onOpenArtifact(resolved, label) : undefined}
-        pinned={pinnedPaths?.has(path)}
-        onTogglePin={
-          onTogglePinArtifact
-            ? () => onTogglePinArtifact(path, label)
-            : undefined
-        }
-      >
-        {children}
-      </ArtifactChip>
-    );
-  }
-
   const safetyBase =
     artifactBaseUrl ??
     (sessionId ? apiUrl(`/api/sessions/${sessionId}/files`) : undefined);
@@ -602,16 +463,39 @@ function MdAnchor({ href, title, children, node }: AnchorProps) {
     safetyBase != null && typeof href === "string" && isArtifactsLink(href)
       ? (resolveUrl(href, safetyBase) ?? href)
       : href;
-
-  return (
+  const link = (
     <Link href={fixedHref} title={title} variant="primary" size={size} external>
       {children}
     </Link>
   );
+  if (typeof href !== "string") return link;
+
+  // The workspace-relative path is the stable identity used for pinning.
+  const path = artifactPath(href);
+  return (
+    <ReferenceAnchor
+      href={href}
+      messageId={messageId ?? ""}
+      offset={node?.position?.start.offset ?? 0}
+      artifactBaseUrl={artifactBaseUrl}
+      title={title}
+      onOpenArtifact={onOpenArtifact}
+      pinned={pinnedPaths?.has(path)}
+      onTogglePin={
+        onTogglePinArtifact
+          ? (label) => onTogglePinArtifact(path, label)
+          : undefined
+      }
+      fallback={link}
+    >
+      {children}
+    </ReferenceAnchor>
+  );
 }
 
 function MdImage({ src, alt, title }: ImageProps) {
-  const { artifactBaseUrl } = useMarkdownOptions();
+  const { artifactBaseUrl, untrusted } = useMarkdownOptions();
+  if (untrusted) return alt;
   return (
     <img
       src={
@@ -627,11 +511,17 @@ function MdImage({ src, alt, title }: ImageProps) {
 }
 
 function MdCode({ className, children, node }: CodeProps) {
-  const { bundleId, onSendPrompt, sessionId, messageId, onCollapse } =
-    useMarkdownOptions();
+  const {
+    bundleId,
+    onSendPrompt,
+    sessionId,
+    messageId,
+    onCollapse,
+    untrusted,
+  } = useMarkdownOptions();
   const { registry, uiNames } = useHostExtensions();
 
-  const bundleMatch = className?.match(BUNDLE_UI_LANGUAGE);
+  const bundleMatch = untrusted ? null : className?.match(BUNDLE_UI_LANGUAGE);
   if (bundleMatch) {
     const name = bundleMatch[1];
     const body = String(children).replace(/\n$/, "");
@@ -754,6 +644,7 @@ export function Markdown({
   sessionId,
   messageId,
   onCollapse,
+  untrusted,
 }: MarkdownProps) {
   const { anchorProtocols } = useHostExtensions();
   const urlTransform = makeUrlTransform(anchorProtocols);
@@ -769,6 +660,7 @@ export function Markdown({
     sessionId,
     messageId,
     onCollapse,
+    untrusted,
   };
 
   return (

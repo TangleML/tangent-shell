@@ -232,6 +232,11 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     provider: "anthropic",
   },
   {
+    id: "anthropic/claude-fable-5-2",
+    label: "Claude Fable 5.2",
+    provider: "anthropic",
+  },
+  {
     id: "anthropic/claude-fable-5-1",
     label: "Claude Fable 5.1",
     provider: "anthropic",
@@ -270,7 +275,7 @@ export const AVAILABLE_MODELS: ModelOption[] = [
  * default value rather than a generic "Default" label. `DEFAULT_MODEL_ID` is a
  * `provider/model` string matching an {@link AVAILABLE_MODELS} entry.
  */
-export const DEFAULT_MODEL_ID = "openai/gpt-6.1-sol";
+export const DEFAULT_MODEL_ID = "anthropic/claude-fable-5-2";
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
 /** Author of a chat message. Chats assume multiple humans and agents. */
@@ -1443,6 +1448,12 @@ export interface ChatMessage {
    * memory bubble (icon + tonal background) and records which store changed.
    */
   memory?: { scope: MemoryHighlightScope };
+  /**
+   * Present when the Message is a slash command's result rather than a turn.
+   * It wakes no one; the Conversation's agent reads it with the next Message
+   * it is sent.
+   */
+  command?: ChatCommandRun;
   /** The {@link Run} that produced this Message, when one is attributable. */
   runId?: RunId;
   /** Whether this Message is the last of its Run. */
@@ -1624,6 +1635,14 @@ export interface ConversationHistoryPayload {
  */
 export type MessageDelivery = "auto" | "steer" | "followUp";
 
+/** A slash command as typed in the chat box, e.g. `/run a,b`. */
+export interface ChatCommandRun {
+  /** The command's name, without the slash. */
+  name: string;
+  /** What followed the name, trimmed. Absent when nothing did. */
+  args?: string;
+}
+
 /**
  * Payload sent by the client to post a new chat message. Carries no author: the
  * server resolves the sender from the socket's own identity, so a client cannot
@@ -1641,6 +1660,8 @@ export interface ChatMessagePayload {
   delivery?: MessageDelivery;
   /** Files the human attached, already uploaded into the session workspace. */
   attachments?: Attachment[];
+  /** Posts `content` as this slash command's result instead of as a turn. */
+  command?: ChatCommandRun;
 }
 
 /** Streamed terminal output from a Pi worker. Reserved/stub for Phase 2. */
@@ -1742,7 +1763,10 @@ export interface AgentQueuePayload {
   runId?: RunId;
 }
 
-/** Full sub-agent roster for a session, emitted on join and on reset. */
+/**
+ * Full sub-agent roster for a session, emitted on join and on reset: the live
+ * sub-agents plus finished ones nobody has dismissed yet.
+ */
 export interface SubagentRosterPayload {
   sessionId: string;
   subagents: SubagentInfo[];
@@ -1758,6 +1782,22 @@ export interface SubagentRosterPayload {
 export interface SubagentUpdatePayload {
   sessionId: string;
   subagent: SubagentInfo;
+}
+
+/**
+ * Sent (client -> server) to remove a finished (`completed` / `killed` /
+ * `error`) sub-agent from the session's roster for everyone. The server ignores
+ * a sub-agent that is still running.
+ */
+export interface SubagentDismissPayload {
+  sessionId: string;
+  agentId: string;
+}
+
+/** Broadcast (server -> client) once a sub-agent was dismissed from the roster. */
+export interface SubagentDismissedPayload {
+  sessionId: string;
+  agentId: string;
 }
 
 /**
@@ -1911,11 +1951,22 @@ export interface UiCommandPayload {
 export interface SessionStatusPayload {
   sessionId: string;
   status: SessionRunStatus;
+  /**
+   * Set when a run failed in the session's latest stretch of work, until it
+   * next starts working from a standstill.
+   */
+  failed?: boolean;
+  /**
+   * When the session last stopped working (ISO 8601), while it isn't working
+   * now, so a list view can tell a run finished or failed since someone looked.
+   */
+  endedAt?: string;
 }
 
 /**
- * Full snapshot of non-idle session statuses, sent to a socket right after it
- * subscribes to the lobby. Any session absent from `statuses` is `idle`.
+ * Full snapshot of non-idle session statuses, plus those that stopped working
+ * since the server started, sent to a socket right after it subscribes to the
+ * lobby. Any session absent from `statuses` is `idle`.
  */
 export interface SessionStatusSnapshotPayload {
   statuses: SessionStatusPayload[];
@@ -1941,6 +1992,8 @@ export const SocketEvents = {
   AgentQueue: "agent:queue",
   SubagentRoster: "subagent:roster",
   SubagentUpdate: "subagent:update",
+  SubagentDismiss: "subagent:dismiss",
+  SubagentDismissed: "subagent:dismissed",
   ParticipantPresence: "participant:presence",
   EnvironmentUpdate: "environment:update",
   MemorySuggestion: "memory:suggestion",

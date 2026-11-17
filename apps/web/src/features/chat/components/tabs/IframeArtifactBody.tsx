@@ -26,6 +26,10 @@ interface IframeArtifactBodyProps {
  * directly, so the server injects a bridge client into served HTML that posts
  * the callback to {@link usePageBridge}, which fires it with the app's
  * credentials on the page's behalf.
+ *
+ * The file route sends these same flags as a `Content-Security-Policy: sandbox`
+ * header, so a page opened in its own tab is just as confined; change both
+ * together.
  */
 export function IframeArtifactBody({
   sessionId,

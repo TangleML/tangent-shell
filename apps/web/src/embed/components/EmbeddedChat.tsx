@@ -3,22 +3,36 @@ import {
   PI_AGENT,
 } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
-import { useEffect } from "react";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import { type ReactNode, useEffect, useEffectEvent, useRef } from "react";
 
-import { ActiveTasksIndicator } from "@/features/chat/components/composer/ActiveTasksIndicator";
 import { AgentModelPicker } from "@/features/chat/components/composer/AgentModelPicker";
 import { BundlePanelLauncher } from "@/features/chat/components/composer/BundlePanelLauncher";
 import { ChatInput } from "@/features/chat/components/composer/ChatInput";
+import { ComposerFooter } from "@/features/chat/components/composer/ComposerFooter";
+import { FilesIndicator } from "@/features/chat/components/composer/FilesIndicator";
+import { SessionAgentsPill } from "@/features/chat/components/composer/SessionAgentsPill";
 import { ChatMessageList } from "@/features/chat/components/message/ChatMessageList";
 import { SubagentTabView } from "@/features/chat/components/tabs/SubagentTabView";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
+import { buildAssets } from "@/features/chat/model/assets";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
+import {
+  artifactReferences,
+  type ChatReference,
+} from "@/features/chat/model/references";
 import { useSession } from "@/features/sessions/hooks/useSession";
+import { HostOwnedSurface } from "@/shared/lib/HostOwnedSurface";
+import { useHostExtensions } from "@/shared/lib/hostSlots";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
 
-import type { TangentRuntime } from "../types";
+import type {
+  EmbedAgentPayload,
+  EmbedCommandPayload,
+  EmbedReferencePayload,
+  TangentRuntime,
+} from "../types";
 
 interface EmbeddedChatProps {
   sessionId: string;
@@ -31,7 +45,23 @@ interface EmbeddedChatProps {
   onOpenArtifact?: (url: string, title: string) => void;
   /** Fired when the user submits a prompt, so the host can react. */
   onSendPrompt?: (content: string) => void;
+  /** The host opens the sub-agent's thread, e.g. as a `<Chat agentId>` tab. */
+  onOpenAgent?: (agent: EmbedAgentPayload) => void;
+  /** A finished sub-agent was dismissed, so the host can close its tab. */
+  onRemoveAgent?: (id: string) => void;
+  /** The session's files, pins or host entries may have changed. */
+  onResourcesChange?: () => void;
+  /** The host's pipelines, documents and runs the composer's `#` can reference. */
+  references?: EmbedReferencePayload[];
+  /** The host's slash commands, offered by Prime's composer. */
+  commands?: EmbedCommandPayload[];
 }
+
+/**
+ * A host component registered under this name sits beside the agents and files
+ * pills, so a host can surface its own session state there (e.g. runs).
+ */
+const COMPOSER_PILL = "composer-pill";
 
 function isPrimeAgent(agentId: string | undefined): boolean {
   return !agentId || agentId === PI_AGENT.id;
@@ -49,13 +79,41 @@ export function EmbeddedChat({
   autoFocus,
   onOpenArtifact,
   onSendPrompt,
+  onOpenAgent,
+  onRemoveAgent,
+  onResourcesChange,
+  references: hostReferences = [],
+  commands,
 }: EmbeddedChatProps) {
   const chat = useSessionChat(sessionId);
   const { data: session } = useSession(sessionId);
   const { data: participants = [] } = useSessionParticipants(sessionId);
   const bundleId = session?.config?.id;
-  const { historyLoaded, primaryConversationId, rosterReady } = chat;
+  const {
+    historyLoaded,
+    primaryConversationId,
+    rosterReady,
+    resourcesVersion,
+  } = chat;
+  // The element is reused when the host shows another session, whose count
+  // starts elsewhere, so a change is one seen within the same session.
   const targetingPrime = isPrimeAgent(agentId);
+  const seenResources = useRef({ sessionId, version: resourcesVersion });
+  const announceResourcesChange = useEffectEvent(() => onResourcesChange?.());
+
+  useEffect(() => {
+    const seen = seenResources.current;
+    seenResources.current = { sessionId, version: resourcesVersion };
+    if (seen.sessionId !== sessionId || seen.version === resourcesVersion) {
+      return;
+    }
+    // Every chat of a session sees the change; only Prime's tells the host.
+    if (targetingPrime) announceResourcesChange();
+  }, [sessionId, resourcesVersion, targetingPrime]);
+  const references: ChatReference[] = [
+    ...hostReferences,
+    ...artifactReferences(chat.artifacts),
+  ];
 
   useEffect(() => {
     if (!targetingPrime) return;
@@ -87,6 +145,55 @@ export function EmbeddedChat({
     }
   };
 
+  const removeAgent = (id: string) => {
+    chat.dismissSubagent(id);
+    onRemoveAgent?.(id);
+  };
+
+  const { uiNames } = useHostExtensions();
+  const assets = buildAssets({
+    sessionId,
+    artifacts: chat.artifacts,
+    triggers: chat.triggers,
+  });
+
+  const renderPills = (selectedId?: string) => (
+    <>
+      <SessionAgentsPill
+        sessionId={sessionId}
+        selectedId={selectedId}
+        onOpenAgent={(agent) =>
+          onOpenAgent?.({
+            ...agent,
+            conversationId: chat.conversationForAgent(agent.id),
+          })
+        }
+        onRemoved={(agent) => onRemoveAgent?.(agent.id)}
+      />
+      <FilesIndicator
+        sessionId={sessionId}
+        assets={assets}
+        onOpen={(asset) => {
+          if (asset.kind !== "trigger")
+            onOpenArtifact?.(asset.url, asset.title);
+        }}
+        onUnpin={chat.unpinArtifact}
+      />
+      {uiNames.has(COMPOSER_PILL) && (
+        <HostOwnedSurface
+          id={`ui:composer:${selectedId ?? PI_AGENT.id}`}
+          surface="ui"
+          slotKey={COMPOSER_PILL}
+          props={{
+            name: COMPOSER_PILL,
+            kind: "composer",
+            props: { sessionId, agentId: selectedId ?? PI_AGENT.id },
+          }}
+        />
+      )}
+    </>
+  );
+
   if (!targetingPrime && agentId) {
     return (
       <SubagentChat
@@ -100,6 +207,9 @@ export function EmbeddedChat({
         onOpenArtifact={onOpenArtifact}
         onSendPrompt={onSendPrompt}
         onTogglePinArtifact={togglePinArtifact}
+        onRemove={() => removeAgent(agentId)}
+        pills={renderPills(agentId)}
+        references={references}
       />
     );
   }
@@ -112,11 +222,6 @@ export function EmbeddedChat({
     participants,
   );
 
-  const busySubagents = chat.subagents
-    .filter((s) => chat.isConversationBusy(s.conversationId))
-    .map((s) => ({ id: s.id, name: s.name, conversationId: s.conversationId }));
-  const armedTriggers = chat.triggers.filter((t) => t.enabled);
-
   return (
     <BlockStack fill grow align="stretch" inlineAlign="start">
       <ChatMessageList
@@ -124,7 +229,7 @@ export function EmbeddedChat({
         messages={chat.messagesFor(primaryConversationId)}
         currentAuthorId={chat.currentAuthorId}
         primaryConversationId={primaryConversationId}
-        activity={chat.getActivity(primaryConversationId)}
+        activity={chat.primeActivity}
         activityAuthorName={PI_AGENT.name}
         activityAuthorRole="prime"
         historyLoaded={historyLoaded}
@@ -135,24 +240,17 @@ export function EmbeddedChat({
         onTogglePinArtifact={togglePinArtifact}
         isMessageStreaming={chat.isMessageStreaming}
       />
-      <Box paddingInline="base" paddingBlock="sm">
-        <InlineStack align="space-between" gap="2">
-          <InlineStack>
-            <ActiveTasksIndicator
-              sessionId={sessionId}
-              busySubagents={busySubagents}
-              armedTriggers={armedTriggers}
-              onAbort={chat.abort}
-            />
-          </InlineStack>
+      <ComposerFooter
+        pills={renderPills()}
+        modelPicker={
           <AgentModelPicker
             model={primeModel?.model}
             thinkingDepth={primeModel?.thinkingDepth}
             onChange={(selection) => chat.setAgentModel(PI_AGENT.id, selection)}
             disabled={!chat.connected || !rosterReady}
           />
-        </InlineStack>
-      </Box>
+        }
+      />
       {bundleId ? (
         <BundlePanelLauncher
           bundleId={bundleId}
@@ -169,6 +267,11 @@ export function EmbeddedChat({
         agentBusy={chat.agentBusy}
         autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
+        references={references}
+        commands={commands}
+        onRunCommand={(command, args) =>
+          chat.runCommand(command, args, primaryConversationId)
+        }
         onAbort={() => chat.abort(primaryConversationId)}
         onSubmit={(content, { delivery, attachments }) => {
           chat.send(content, {
@@ -194,6 +297,9 @@ interface SubagentChatProps {
   onOpenArtifact?: (url: string, title: string) => void;
   onSendPrompt?: (content: string) => void;
   onTogglePinArtifact: (path: string, title: string) => void;
+  onRemove: () => void;
+  pills: ReactNode;
+  references: ChatReference[];
 }
 
 function SubagentChat({
@@ -207,6 +313,9 @@ function SubagentChat({
   onOpenArtifact,
   onSendPrompt,
   onTogglePinArtifact,
+  onRemove,
+  pills,
+  references,
 }: SubagentChatProps) {
   if (!rosterReady) {
     return <BlockStack fill grow align="stretch" />;
@@ -248,7 +357,7 @@ function SubagentChat({
       disabled={!chat.connected}
       isMessageStreaming={chat.isMessageStreaming}
       onAbort={() => chat.abort(conversationId)}
-      onRemove={() => chat.dismissSubagent(agentId)}
+      onRemove={onRemove}
       onSubmit={(content, { delivery, attachments }) => {
         chat.send(content, { conversationId, delivery, attachments });
         onSendPrompt?.(content);
@@ -260,7 +369,9 @@ function SubagentChat({
       pinnedPaths={chat.pinnedPaths}
       onTogglePinArtifact={onTogglePinArtifact}
       mentionCandidates={mentionCandidates}
+      references={references}
       autoFocus={autoFocus}
+      pills={pills}
     />
   );
 }

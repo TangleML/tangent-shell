@@ -3,7 +3,15 @@ import { z } from "zod";
 
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
-import type { UiCommandEmitter } from "../sockets/sessionRoster.ts";
+import {
+  pinAndBroadcast,
+  unpinAndBroadcast,
+} from "../sockets/chatArtifacts.ts";
+import {
+  dismissSubagent,
+  type SubagentDismissedEmitter,
+  type UiCommandEmitter,
+} from "../sockets/sessionRoster.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { mountSessionRecallRoutes } from "./internalSessionRecall.ts";
 import { loadSession } from "./sessions/utils.ts";
@@ -30,6 +38,13 @@ export const unpinArtifactSchema = z.object({
 });
 export type UnpinArtifactInput = z.infer<typeof unpinArtifactSchema>;
 
+/** Dismiss-subagent body: the finished sub-agent to drop from the roster. */
+export const dismissSubagentSchema = z.object({
+  sessionId: z.string(),
+  agentId: z.string().trim().min(1),
+});
+export type DismissSubagentInput = z.infer<typeof dismissSubagentSchema>;
+
 /**
  * `POST /rename`: applies a session rename and pushes the updated record to the
  * UI over the generic `ui:command` channel so the change is reflected promptly.
@@ -52,11 +67,6 @@ async function handleRename(
   res.json({ session });
 }
 
-/** Returns a trimmed title, falling back to the path when none was given. */
-function fallbackTitle(title: string | undefined, path: string): string {
-  return title?.trim() || path;
-}
-
 /**
  * `POST /pin-artifact`: pins an artifact (by workspace-relative path) for quick
  * access and broadcasts the updated list to the UI over the generic
@@ -71,12 +81,10 @@ async function handlePinArtifact(
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
 
-  const title = fallbackTitle(body.title, body.path);
-  const artifacts = await store.pinArtifact(session.id, {
+  const artifacts = await pinAndBroadcast(store, emitUiCommand, session.id, {
     path: body.path,
-    title,
+    title: body.title,
   });
-  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
   res.json({ artifacts });
 }
 
@@ -93,26 +101,65 @@ async function handleUnpinArtifact(
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
 
-  const artifacts = await store.unpinArtifact(session.id, body.path);
-  emitUiCommand(session.id, { kind: "artifacts.update", artifacts });
+  const artifacts = await unpinAndBroadcast(
+    store,
+    emitUiCommand,
+    session.id,
+    body.path,
+  );
   res.json({ artifacts });
+}
+
+/**
+ * `POST /dismiss-subagent`: drops a finished sub-agent from the roster, as the
+ * agents pill's remove button does, and tells the session's room. A running or
+ * unknown sub-agent is refused, so the caller knows nothing changed.
+ */
+async function handleDismissSubagent(
+  store: SessionStore,
+  emitSubagentDismissed: SubagentDismissedEmitter,
+  body: DismissSubagentInput,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
+
+  const outcome = await dismissSubagent(
+    store,
+    emitSubagentDismissed,
+    session.id,
+    body.agentId,
+  );
+  if (outcome === "unknown") {
+    res
+      .status(404)
+      .json({ error: "No such sub-agent in this session's agents list" });
+    return;
+  }
+  if (outcome === "running") {
+    res
+      .status(409)
+      .json({ error: "Only a finished sub-agent can be dismissed" });
+    return;
+  }
+  res.json({ ok: true });
 }
 
 /**
  * Internal API used only by the session extension running inside each Pi
  * process. It lets Prime rename the session (e.g. to a concise,
- * conversation-derived title), lets any agent pin/unpin artifacts for quick
- * access, and serves Prime's selector-scoped cross-session recall reads; the
- * server owns the session record and broadcasts changes to the room. Guarded
- * by the same bearer token as the other internal APIs so arbitrary local
- * callers can't mutate a session.
+ * conversation-derived title) and dismiss finished sub-agents, lets any agent
+ * pin/unpin artifacts for quick access, and serves Prime's selector-scoped
+ * cross-session recall reads; the server owns the session record and
+ * broadcasts changes to the room. Guarded by the same bearer token as the
+ * other internal APIs so arbitrary local callers can't mutate a session.
  */
 export function createInternalSessionRouter(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
+  emitSubagentDismissed: SubagentDismissedEmitter,
 ): Router {
   const router = Router();
-
   router.use(requireInternalToken);
 
   router.post(
@@ -147,6 +194,18 @@ export function createInternalSessionRouter(
         store,
         emitUiCommand,
         getValidated<UnpinArtifactInput>(req).body,
+        res,
+      ),
+  );
+
+  router.post(
+    "/dismiss-subagent",
+    validate({ body: dismissSubagentSchema }),
+    (req: Request, res: Response) =>
+      handleDismissSubagent(
+        store,
+        emitSubagentDismissed,
+        getValidated<DismissSubagentInput>(req).body,
         res,
       ),
   );

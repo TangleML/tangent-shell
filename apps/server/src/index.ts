@@ -71,7 +71,10 @@ import {
   PresenceTracker,
 } from "./sockets/presenceTracker.ts";
 import { roomFor } from "./sockets/rooms.ts";
-import { createUiCommandEmitter } from "./sockets/sessionRoster.ts";
+import {
+  createSubagentDismissedEmitter,
+  createUiCommandEmitter,
+} from "./sockets/sessionRoster.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
 import { SqliteBundleEditorStore } from "./store/sqliteBundleEditorStore.ts";
@@ -156,6 +159,8 @@ const onMemorySuggestion = createMemorySuggestionHandler(io);
 
 // Pushes generic agent->UI directives (e.g. session rename) to the room.
 const emitUiCommand = createUiCommandEmitter(io);
+// Tells a session's room a finished sub-agent left its roster.
+const emitSubagentDismissed = createSubagentDismissedEmitter(io);
 
 // Signals a session's room that its resource catalog changed, so open clients
 // refetch. Host resource CRUD has no ChatMessage to piggyback on.
@@ -238,12 +243,16 @@ const conversations = new ConversationRouter(
   correlations,
   admission,
 );
-// The one settle listener: release a wake held behind the Run, and — when it
-// settled `failed` — surface a `run-error` cause in its home Conversation so a
-// supervisor can react. A boot-stale row is settled by `failStaleRuns` writing
-// the store directly, not through `settle`, so it never reaches here.
-runs.useOnSettled((run) => {
+// The one settle listener: release a wake held behind the Run, tell list views
+// how the session's work ended, and — when it settled `failed` — surface a
+// `run-error` cause in its home Conversation so a supervisor can react. A
+// boot-stale row is settled by `failStaleRuns` writing the store directly, not
+// through `settle`, so it never reaches here.
+runs.useOnSettled((run, settlement) => {
   admission.release(run);
+  pi.recordSettled(run, settlement);
+  // A file an agent writes isn't announced, so a finished run may have added some.
+  emitResourcesUpdated(run.sessionId);
   if (run.status === "failed") {
     conversations.announceCause(run.sessionId, {
       kind: "run-error",
@@ -302,6 +311,7 @@ const pi = new PiAgentManager(
   hostResourcePreamble,
   (sessionId) => store.selectorsOf(sessionId),
 );
+pi.useOnDisposed((sessionId) => conversations.forgetSession(sessionId));
 pi.useTranscript(
   async (sessionId) => (await store.getMessages(sessionId)).length > 0,
 );
@@ -459,6 +469,7 @@ app.use(
       context: contextEngine,
     },
     remoteGateway,
+    emitUiCommand,
     bundleKb,
   ),
 );
@@ -548,7 +559,10 @@ app.use(
   createInternalResourcesRouter(store, resourceCatalog),
 );
 // Internal API for the session extension running inside each Pi process.
-app.use("/internal/session", createInternalSessionRouter(store, emitUiCommand));
+app.use(
+  "/internal/session",
+  createInternalSessionRouter(store, emitUiCommand, emitSubagentDismissed),
+);
 // Internal API for bundle extensions to open/close generic MCP relay channels
 // bound to their session (remote-runtime specifics stay in the bundle).
 app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
@@ -573,6 +587,7 @@ registerChatHandlers({
   onRemembered: onMemoryRemembered,
   triggerEngine,
   emitUiCommand,
+  emitSubagentDismissed,
   participantService,
   presence,
 });

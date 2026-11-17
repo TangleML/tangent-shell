@@ -8,9 +8,12 @@ import type {
 
 import type { AssetTab } from "@/features/chat/hooks/useAssetTabs";
 import type { AgentModelSelection } from "@/features/chat/hooks/useSessionChat";
+import type { Agent } from "@/features/chat/model/agents";
 import type { MentionCandidate } from "@/features/chat/model/mentions";
+import type { ChatReference } from "@/features/chat/model/references";
 import type { ChatMessage } from "@/features/chat/model/types";
 
+import { SessionAgentsPill } from "../composer/SessionAgentsPill";
 import { ArtifactTabView } from "./ArtifactTabView";
 import { SubagentTabView } from "./SubagentTabView";
 import { TriggerTabPanel } from "./TriggerTabPanel";
@@ -47,6 +50,8 @@ interface AssetTabContentProps {
   openArtifactTab: (url: string, title: string) => void;
   togglePinArtifact: (path: string, title: string) => void;
   mentionCandidates: MentionCandidate[];
+  references: ChatReference[];
+  openAgent: (agent: Agent) => void;
 }
 
 /**
@@ -79,6 +84,8 @@ export function AssetTabContent({
   openArtifactTab,
   togglePinArtifact,
   mentionCandidates,
+  references,
+  openAgent,
 }: AssetTabContentProps) {
   switch (tab.kind) {
     case "agent": {
@@ -99,7 +106,7 @@ export function AssetTabContent({
           activity={getActivity(conversationId)}
           status={info?.status ?? "completed"}
           busy={isConversationBusy(conversationId)}
-          disabled={!connected}
+          disabled={!connected || !info}
           isMessageStreaming={isMessageStreaming}
           model={model?.model}
           thinkingDepth={model?.thinkingDepth}
@@ -120,6 +127,15 @@ export function AssetTabContent({
           pinnedPaths={pinnedPaths}
           onTogglePinArtifact={togglePinArtifact}
           mentionCandidates={mentionCandidates}
+          references={references}
+          pills={
+            <SessionAgentsPill
+              sessionId={sessionId}
+              selectedId={tab.agentId}
+              onOpenAgent={openAgent}
+              onRemoved={(agent) => closeAsset(agent.id)}
+            />
+          }
         />
       );
     }

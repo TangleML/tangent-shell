@@ -24,7 +24,7 @@ import {
   presenceForStatus,
   sessionAgentFromParticipant,
 } from "./participantStore.ts";
-import type { ResourceStore } from "./resourceStore.ts";
+import { catalogPin, removePin, type ResourceStore } from "./resourceStore.ts";
 import {
   applySessionUpdate,
   type CreateSessionParams,
@@ -285,12 +285,7 @@ export class InMemorySessionStore implements SessionStore {
       ? existing.map((a) => (a.path === artifact.path ? next : a))
       : [...existing, next];
     this.artifacts.set(sessionId, updated);
-    await this.resources?.catalog({
-      sessionId,
-      kind: "artifact",
-      name: artifact.title,
-      uri: artifact.path,
-    });
+    if (this.resources) await catalogPin(this.resources, sessionId, artifact);
     return updated;
   }
 
@@ -301,7 +296,7 @@ export class InMemorySessionStore implements SessionStore {
     const existing = this.artifacts.get(sessionId) ?? [];
     const updated = existing.filter((a) => a.path !== path);
     this.artifacts.set(sessionId, updated);
-    await this.resources?.remove(sessionId, path);
+    if (this.resources) await removePin(this.resources, sessionId, path);
     return updated;
   }
 
@@ -373,6 +368,15 @@ export class InMemorySessionStore implements SessionStore {
       ...existing,
       presence: presenceForStatus(status),
       agent: { ...existing.agent, status },
+    });
+  }
+
+  async dismissAgent(sessionId: string, agentId: string): Promise<void> {
+    const existing = await this.participants.get(sessionId, agentId);
+    if (existing?.kind !== "agent" || !existing.agent) return;
+    await this.participants.put({
+      ...existing,
+      agent: { ...existing.agent, dismissedAt: new Date().toISOString() },
     });
   }
 

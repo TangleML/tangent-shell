@@ -245,7 +245,92 @@ await addResource(sessionId, {
 | `onOpenArtifact`     | `(url, title) => void` | The host decides how to open the resource.                |
 | `onSendPrompt`       | `(content) => void`    | Fired when the user submits a prompt.                     |
 | `onError`            | `(message) => void`    | Fired on a surfaced runtime error.                        |
+| `onOpenAgent`        | `(agent) => void`      | A sub-agent was chosen from Prime's agents pill.          |
+| `onRemoveAgent`      | `(id) => void`         | A finished sub-agent was dismissed from the pill.         |
+| `onResourcesChange`  | `() => void`           | The session's resources may have changed. See below.      |
+| `references`         | `EmbedReference[]`     | What the composer's `#` picker can reference. See below.  |
+| `commands`           | `EmbedCommand[]`       | The slash commands Prime's composer offers. See below.    |
 | `className`, `style` | —                      | Forwarded to the element; size it with `height`.          |
+
+Prime's composer shows an agents pill listing the session's spawned sub-agents
+with their live status. Wire `onOpenAgent` to place a `<Chat agentId>` (as you
+would for `<AgentList onOpen>`) and `onRemoveAgent` to close that tab.
+
+#### Keeping the host's own views current
+
+`onResourcesChange` fires when the session's resources may have changed: a file
+was pinned or unpinned (by an agent or a person), a host entry or memory was
+added or removed, or an agent finished a run, which is when the files it wrote
+show up. Refetch anything you built from `listResources` or the session's files
+when it fires. Only Prime's `<Chat>` fires it; a `<Chat agentId>` for a sub-agent
+of the same session stays quiet, so one change is announced once.
+
+#### Adding your own pill beside the agents pill
+
+Register a component as `uiComponents["composer-pill"]` on `<TangentProvider>`
+to place it beside the agents and files pills above every chat box. It renders
+with `kind: "composer"` and `props: { sessionId, agentId }`, so it can show the
+host's own state for that session, such as the runs it started.
+
+#### Referencing things with `#`
+
+Typing `#` in the composer lists the session's pinned files plus any
+`references` you pass, grouped by kind. Each kind shows a few items in the
+order you give them (so list the most recent first), and typing narrows the
+list, closest name matches first; a group with more says how many. Picking one inserts a readable token
+such as `#Churn-model`; on send it becomes the markdown link `[label](href)`, so
+the agent receives an address it can act on. Give each reference an `href` your
+agent understands (for example `pipeline://id/abc`) and register an anchor
+protocol for its scheme so the link shows as a chip in the transcript.
+
+```tsx
+<Chat
+  sessionId={sessionId}
+  references={[
+    { kind: "pipeline", label: "Churn model", href: "pipeline://id/abc" },
+    {
+      kind: "run",
+      label: "Churn model",
+      href: "run://id/r-7",
+      detail: "Succeeded",
+    },
+  ]}
+/>
+```
+
+#### Slash commands
+
+Typing `/` at the start of Prime's composer lists the `commands` you pass.
+Sending `/name` followed by anything else calls that command's `run` with the
+rest of the text, instead of sending a message to the agent. The markdown
+`run` returns is posted in the chat as the command's result for everyone, and
+the agent doesn't start; it's sent the result along with the next message it
+gets. Throw from `run` to keep the draft and show your message under it. Links
+in the result show as chips, the same as in a message; images show only their
+alt text and `tangent-ui` blocks show as code, since a result is text from a
+browser rather than from the agent. The agent is sent at most the first 20,000
+characters of a result. Name a command with up to 64 letters, digits, `-`, `_`,
+`.` or `:`.
+
+```tsx
+<Chat
+  sessionId={sessionId}
+  commands={[
+    {
+      name: "pipelines",
+      description: "Project pipelines",
+      run: async () =>
+        pipelines.map((p) => `- [${p.name}](pipeline://id/${p.id})`).join("\n"),
+    },
+    {
+      name: "run",
+      description: "Start pipelines by id",
+      argumentHint: "<ids>",
+      run: async (args) => startRuns(args.split(",")),
+    },
+  ]}
+/>
+```
 
 #### Autofocusing the composer
 
@@ -294,7 +379,7 @@ the active row.
 ### `<AgentList>`
 
 Renders Prime and the live sub-agent roster for a session. Wire `onOpen` to
-place a `<Chat agentId={agent.id}>` (or any host chrome); dismissing a killed
+place a `<Chat agentId={agent.id}>` (or any host chrome); dismissing a finished
 sub-agent surfaces through `onRemove`.
 
 ```tsx
@@ -313,7 +398,7 @@ sub-agent surfaces through `onRemove`.
 | `sessionId`          | `string`          | The session whose agents to render.                       |
 | `onOpen`             | `(agent) => void` | A card was clicked. `agent.conversationId` is the thread. |
 | `selectedId`         | `string`          | Highlighted row (Prime or a sub-agent id).                |
-| `onRemove`           | `(id) => void`    | A killed sub-agent was dismissed from the list.           |
+| `onRemove`           | `(id) => void`    | A finished sub-agent was dismissed from the list.         |
 | `instance`           | `string`          | Disambiguate multiple providers.                          |
 | `className`, `style` | —                 | Forwarded; size it with `height`.                         |
 
@@ -467,7 +552,7 @@ function EntityChip({ path, label }: AnchorProtocolProps) {
 
 The components a host passes receive typed props:
 
-- `HostUIComponentProps` — `{ name, kind: "message" | "panel", props, onSendPrompt?, onCollapse? }`
+- `HostUIComponentProps` — `{ name, kind: "message" | "panel" | "composer", props, onSendPrompt?, onCollapse? }`
 - `AnchorProtocolProps` — `{ href, protocol, path, label }`
 
 Host components render as light-DOM children projected into the chat via named

@@ -2,9 +2,12 @@ import {
   type AgentActivityPayload,
   type AgentModelPayload,
   type AgentSetModelPayload,
+  isTerminalStatus,
   type Session,
   type SessionStatusSnapshotPayload,
   SocketEvents,
+  type SubagentDismissedPayload,
+  type SubagentInfo,
   type ThinkingLevel,
   type UiCommand,
   type UiCommandPayload,
@@ -18,7 +21,7 @@ import {
 } from "../conversation/participantRegistry.ts";
 import { parseThinkingLevel } from "../pi/agentConfig.ts";
 import type { PiAgentManager } from "../pi/piAgentManager.ts";
-import type { SessionStore } from "../store/sessionStore.ts";
+import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 import { roomFor, SESSIONS_LOBBY } from "./rooms.ts";
 
 /**
@@ -131,6 +134,99 @@ export async function ensureSessionAgents(
   });
   const persistedAgents = await store.listAgents(session.id);
   connectors.revive(session.id, persistedAgents);
+}
+
+/** A finished sub-agent that stays in the roster until a user dismisses it. */
+export function isDismissible(agent: SessionAgent): boolean {
+  return (
+    agent.role === "subagent" &&
+    isTerminalStatus(agent.status) &&
+    !agent.dismissedAt
+  );
+}
+
+/** Tells a session's room that a sub-agent was dismissed from its roster. */
+export type SubagentDismissedEmitter = (
+  sessionId: string,
+  agentId: string,
+) => void;
+
+/** Builds the {@link SubagentDismissedEmitter} bound to the Socket.IO server. */
+export function createSubagentDismissedEmitter(
+  io: Server,
+): SubagentDismissedEmitter {
+  return (sessionId, agentId) => {
+    const payload: SubagentDismissedPayload = { sessionId, agentId };
+    io.to(roomFor(sessionId)).emit(SocketEvents.SubagentDismissed, payload);
+  };
+}
+
+/**
+ * Drops a finished sub-agent from the session's roster for everyone. `unknown`
+ * when the roster has no such sub-agent (dismissed ones included), `running`
+ * while it is still at work.
+ */
+export async function dismissSubagent(
+  store: SessionStore,
+  emitSubagentDismissed: SubagentDismissedEmitter,
+  sessionId: string,
+  agentId: string,
+): Promise<"dismissed" | "unknown" | "running"> {
+  const agents = await store.listAgents(sessionId);
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  if (!agent || agent.role !== "subagent" || agent.dismissedAt) {
+    return "unknown";
+  }
+  if (!isDismissible(agent)) return "running";
+
+  await store.dismissAgent(sessionId, agent.id);
+  emitSubagentDismissed(sessionId, agent.id);
+  return "dismissed";
+}
+
+/** The roster entry a persisted, no-longer-live sub-agent reads back as. */
+function finishedSubagentInfo(agent: SessionAgent): SubagentInfo {
+  const thinkingDepth = parseThinkingLevel(agent.thinkingDepth);
+  return {
+    id: agent.id,
+    conversationId: agent.homeConversationId,
+    name: agent.name,
+    status: agent.status,
+    connector: agent.connector,
+    ...(agent.template ? { template: agent.template } : {}),
+    ...(agent.model ? { model: agent.model } : {}),
+    ...(thinkingDepth ? { thinkingDepth } : {}),
+    createdAt: agent.createdAt,
+  };
+}
+
+export const MAX_FINISHED_SUBAGENTS = 50;
+
+/**
+ * Every live sub-agent plus the finished, undismissed ones connectors no longer
+ * hold, so a reload keeps them. A live entry wins over its persisted row. Of
+ * the finished ones only the latest are listed: the most recently created,
+ * since a row doesn't say when it finished.
+ */
+export async function subagentRoster(
+  store: SessionStore,
+  connectors: ConnectorRegistry,
+  sessionId: string,
+): Promise<SubagentInfo[]> {
+  const persisted = await store.listAgents(sessionId);
+  const dismissed = new Set(
+    persisted.filter((agent) => agent.dismissedAt).map((agent) => agent.id),
+  );
+  const live = connectors
+    .list(sessionId)
+    .filter((subagent) => !dismissed.has(subagent.id));
+  const liveIds = new Set(live.map((subagent) => subagent.id));
+  const finished = persisted
+    .filter((agent) => isDismissible(agent) && !liveIds.has(agent.id))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .slice(-MAX_FINISHED_SUBAGENTS)
+    .map(finishedSubagentInfo);
+  return [...live, ...finished];
 }
 
 /**

@@ -12,6 +12,8 @@
  */
 import { createContext, useContext } from "react";
 
+import { protocolOf } from "@/shared/lib/markdown/artifact";
+
 /** Which host map a slot resolves against. */
 export type HostSlotSurface = "ui" | "anchor";
 
@@ -87,4 +89,17 @@ export const HostExtensionsContext = createContext<HostExtensions>(
 
 export function useHostExtensions(): HostExtensions {
   return useContext(HostExtensionsContext);
+}
+
+/** Reads the anchor protocol an href uses, when a host renders that protocol. */
+export function useHostAnchorProtocol(): (
+  href: string | undefined,
+) => string | undefined {
+  const { registry, anchorProtocols } = useHostExtensions();
+  return (href) => {
+    const protocol = protocolOf(href);
+    return registry && protocol && anchorProtocols.has(protocol)
+      ? protocol
+      : undefined;
+  };
 }

@@ -2,7 +2,13 @@ import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTangentContext } from "./context";
-import type { HostSlotRecordLike, TangentChatElementLike } from "./types";
+import type {
+  EmbedAgent,
+  EmbedCommand,
+  EmbedReference,
+  HostSlotRecordLike,
+  TangentChatElementLike,
+} from "./types";
 
 export interface ChatProps {
   /** The session to render. Obtain a new one from `useTangent().newSession`. */
@@ -23,6 +29,29 @@ export interface ChatProps {
   onSendPrompt?: (content: string) => void;
   /** Fired on a runtime error surfaced by the chat. */
   onError?: (message: string) => void;
+  /**
+   * A sub-agent was chosen from Prime's agents pill; the host decides what
+   * opening it means, typically placing a `<Chat agentId={agent.id}>`.
+   */
+  onOpenAgent?: (agent: EmbedAgent) => void;
+  /** A finished sub-agent was dismissed from Prime's agents pill. */
+  onRemoveAgent?: (id: string) => void;
+  /**
+   * The session's resources may have changed: a pin, a host entry, memory, or
+   * the files an agent wrote during a run. Refetch what was built from them.
+   * Only Prime's chat fires it, not a sub-agent's.
+   */
+  onResourcesChange?: () => void;
+  /**
+   * What the composer's `#` picker can reference, alongside the session's own
+   * files. Each pick is sent as `[label](href)`.
+   */
+  references?: EmbedReference[];
+  /**
+   * The slash commands Prime's composer offers. Running one posts its result
+   * in the chat without starting the agent.
+   */
+  commands?: EmbedCommand[];
   /** Disambiguates the provider when a page mounts more than one. */
   instance?: string;
   className?: string;
@@ -42,6 +71,11 @@ export function Chat({
   onOpenArtifact,
   onSendPrompt,
   onError,
+  onOpenAgent,
+  onRemoveAgent,
+  onResourcesChange,
+  references,
+  commands,
   instance,
   className,
   style,
@@ -81,6 +115,16 @@ export function Chat({
 
   useEffect(() => {
     const element = ref.current as TangentChatElementLike | null;
+    if (element) element.references = references ?? [];
+  }, [references]);
+
+  useEffect(() => {
+    const element = ref.current as TangentChatElementLike | null;
+    if (element) element.commands = commands ?? [];
+  }, [commands]);
+
+  useEffect(() => {
+    const element = ref.current as TangentChatElementLike | null;
     if (element && initialPrompt != null) element.initialPrompt = initialPrompt;
   }, [initialPrompt]);
 
@@ -100,15 +144,35 @@ export function Chat({
     const handleError = (event: Event) => {
       onError?.((event as CustomEvent<{ message: string }>).detail.message);
     };
+    const handleOpenAgent = (event: Event) => {
+      onOpenAgent?.((event as CustomEvent<EmbedAgent>).detail);
+    };
+    const handleRemoveAgent = (event: Event) => {
+      onRemoveAgent?.((event as CustomEvent<{ id: string }>).detail.id);
+    };
+    const handleResourcesChange = () => onResourcesChange?.();
     element.addEventListener("open-artifact", handleArtifact);
     element.addEventListener("send-prompt", handleSend);
     element.addEventListener("error", handleError);
+    element.addEventListener("open-agent", handleOpenAgent);
+    element.addEventListener("remove-agent", handleRemoveAgent);
+    element.addEventListener("resources-change", handleResourcesChange);
     return () => {
       element.removeEventListener("open-artifact", handleArtifact);
       element.removeEventListener("send-prompt", handleSend);
       element.removeEventListener("error", handleError);
+      element.removeEventListener("open-agent", handleOpenAgent);
+      element.removeEventListener("remove-agent", handleRemoveAgent);
+      element.removeEventListener("resources-change", handleResourcesChange);
     };
-  }, [onOpenArtifact, onSendPrompt, onError]);
+  }, [
+    onOpenArtifact,
+    onSendPrompt,
+    onError,
+    onOpenAgent,
+    onRemoveAgent,
+    onResourcesChange,
+  ]);
 
   return (
     <tangent-chat

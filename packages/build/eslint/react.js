@@ -25,6 +25,7 @@ const TANGLE_UI_PRIMITIVES = [
   "Section",
   "Card",
   "ListRow",
+  "ListItem",
   "ScrollRegion",
   "Truncating",
   "HoverReveal",

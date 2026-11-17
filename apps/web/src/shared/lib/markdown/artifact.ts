@@ -7,9 +7,20 @@
 
 const ARTIFACTS_LINK = /^(?:\.\/)?artifacts\//i;
 
+// Read the way a browser and the file route do, so an encoded or backslashed
+// `..` counts as one.
+function hasParentStep(url: string): boolean {
+  return url
+    .split(/[?#]/, 1)[0]
+    .replace(/%2e/gi, ".")
+    .replace(/%2f|%5c|\\/gi, "/")
+    .split("/")
+    .includes("..");
+}
+
 /** True for a relative `artifacts/`-prefixed reference (the safety-net target). */
 export function isArtifactsLink(url: string): boolean {
-  return ARTIFACTS_LINK.test(url);
+  return ARTIFACTS_LINK.test(url) && !hasParentStep(url);
 }
 
 /** True for URLs we must not rewrite (absolute, anchor, or non-file schemes). */
@@ -21,6 +32,11 @@ export function isAbsoluteUrl(url: string): boolean {
   );
 }
 
+/** True for a path that stays among the session's files: relative, no `..` step. */
+export function isSessionFilePath(url: string): boolean {
+  return !isAbsoluteUrl(url) && !hasParentStep(url);
+}
+
 /**
  * Normalizes a relative artifact href into its workspace-relative path (e.g.
  * `./report.html` -> `report.html`). This is the stable identity used to pin
@@ -30,12 +46,16 @@ export function artifactPath(url: string): string {
   return url.replace(/^\.\//, "");
 }
 
-/** Resolves a relative artifact reference against the session's file base. */
+/**
+ * Resolves a relative artifact reference against the session's file base. One
+ * that steps out with `..` resolves to nothing.
+ */
 export function resolveUrl(
   url: string | undefined,
   base: string,
 ): string | undefined {
   if (!url || isAbsoluteUrl(url)) return url;
+  if (hasParentStep(url)) return undefined;
   return `${base}/${artifactPath(url)}`;
 }
 
@@ -77,6 +97,19 @@ export function isMarkdownArtifact(url: string): boolean {
   return path.split(".").pop()?.toLowerCase() === "md";
 }
 
+const TEXT_ARTIFACT_EXTENSIONS = new Set(["txt", "log", "csv", "json"]);
+
+/**
+ * True when an artifact URL points at plain text. These are fetched and shown
+ * in the app's own colors, since a text file in a frame takes the browser's
+ * dark-mode text but none of a background to read it on.
+ */
+export function isTextArtifact(url: string): boolean {
+  const path = url.split(/[?#]/, 1)[0];
+  const ext = path.split(".").pop()?.toLowerCase();
+  return ext != null && TEXT_ARTIFACT_EXTENSIONS.has(ext);
+}
+
 /**
  * True when an artifact URL points at a PDF document. These are rendered via an
  * un-sandboxed `<object>`: Chrome renders PDFs with a plugin that sandboxed
@@ -85,4 +118,11 @@ export function isMarkdownArtifact(url: string): boolean {
 export function isPdfArtifact(url: string): boolean {
   const path = url.split(/[?#]/, 1)[0];
   return path.split(".").pop()?.toLowerCase() === "pdf";
+}
+
+/** Extracts the scheme from a `proto://…` href (lowercased), else undefined. */
+export function protocolOf(href: string | undefined): string | undefined {
+  if (typeof href !== "string") return undefined;
+  const match = href.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  return match ? match[1].toLowerCase() : undefined;
 }

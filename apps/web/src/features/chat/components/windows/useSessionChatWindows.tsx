@@ -1,8 +1,6 @@
 import { useWindowStore, type WindowOptions } from "@tangent/windows";
 import { useEffect } from "react";
 
-import { AgentsWindow } from "./AgentsWindow";
-import { AgentsWindowHeader } from "./AgentsWindowHeader";
 import { AssetsWindow } from "./AssetsWindow";
 import { AssetsWindowHeader } from "./AssetsWindowHeader";
 import { ParticipantsWindow } from "./ParticipantsWindow";
@@ -22,20 +20,14 @@ const SHARED_OPTIONS = {
 } satisfies Partial<WindowOptions>;
 
 /**
- * Opens the SessionChat panels (Agents, Assets, Resources, Sessions) as docked
- * windows exactly once. Content reads live state from {@link
+ * Opens the SessionChat panels (Participants, Assets, Resources, Workflow,
+ * Sessions) as docked windows exactly once. Content reads live state from {@link
  * useSessionChatWindowsContext}, so opening once is enough — re-opening with the
  * same id would re-run `bringToFront` and churn the z-order every render.
  */
 export function useSessionChatWindows() {
   const store = useWindowStore();
   useEffect(() => {
-    store.openWindow(<AgentsWindow />, {
-      ...SHARED_OPTIONS,
-      id: "agents",
-      title: "Agents",
-      header: <AgentsWindowHeader />,
-    });
     store.openWindow(<ParticipantsWindow />, {
       ...SHARED_OPTIONS,
       id: "participants",

@@ -5,10 +5,11 @@ import type {
   SubagentStatus,
   ThinkingLevel,
 } from "@tangent/shared/contracts";
-import { Box } from "@tangent/ui-primitives/box";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
+import { BlockStack } from "@tangent/ui-primitives/layout";
+import type { ReactNode } from "react";
 
 import type { MentionCandidate } from "@/features/chat/model/mentions";
+import type { ChatReference } from "@/features/chat/model/references";
 import type { ChatMessage } from "@/features/chat/model/types";
 
 import {
@@ -16,6 +17,7 @@ import {
   type AgentModelPickerValue,
 } from "../composer/AgentModelPicker";
 import { ChatInput } from "../composer/ChatInput";
+import { ComposerFooter } from "../composer/ComposerFooter";
 import { ChatMessageList } from "../message/ChatMessageList";
 
 interface SubagentTabViewProps {
@@ -62,8 +64,11 @@ interface SubagentTabViewProps {
   onTogglePinArtifact: (path: string, title: string) => void;
   /** People/agents the `@mention` picker can address in this sub-agent's composer. */
   mentionCandidates: MentionCandidate[];
+  references: ChatReference[];
   /** Focuses this tab's composer once it becomes usable. */
   autoFocus?: boolean;
+  /** The session's pills, shown left of the model picker as on Prime's composer. */
+  pills: ReactNode;
 }
 
 /**
@@ -95,7 +100,9 @@ export function SubagentTabView({
   pinnedPaths,
   onTogglePinArtifact,
   mentionCandidates,
+  references,
   autoFocus,
+  pills,
 }: SubagentTabViewProps) {
   return (
     <BlockStack grow>
@@ -114,16 +121,17 @@ export function SubagentTabView({
         onTogglePinArtifact={onTogglePinArtifact}
         isMessageStreaming={isMessageStreaming}
       />
-      <Box paddingInline="base" paddingBlock="sm">
-        <InlineStack align="end">
+      <ComposerFooter
+        pills={pills}
+        modelPicker={
           <AgentModelPicker
             model={model}
             thinkingDepth={thinkingDepth}
             onChange={onSetModel}
             disabled={disabled}
           />
-        </InlineStack>
-      </Box>
+        }
+      />
       <ChatInput
         key={`${sessionId}:${agentId}`}
         sessionId={sessionId}
@@ -133,6 +141,7 @@ export function SubagentTabView({
         agentStatus={status}
         autoFocus={autoFocus}
         mentionCandidates={mentionCandidates}
+        references={references}
         onRemove={onRemove}
         onAbort={onAbort}
         onSubmit={onSubmit}

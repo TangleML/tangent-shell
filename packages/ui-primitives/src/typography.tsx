@@ -36,6 +36,8 @@ const textVariants = cva("", {
       weak: "text-muted-foreground/70",
       critical: "text-destructive",
       inverted: "text-background",
+      // Text on a primary-coloured surface, which follows that surface's theme.
+      "on-primary": "text-primary-foreground",
       // 'info' preserves the existing dotted-underline behavior used as inline help.
       info: "text-foreground underline decoration-dotted",
       warning: "text-warning",

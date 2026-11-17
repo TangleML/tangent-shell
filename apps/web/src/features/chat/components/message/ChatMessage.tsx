@@ -1,5 +1,4 @@
 import { BlockStack } from "@tangent/ui-primitives/layout";
-import { Paragraph } from "@tangent/ui-primitives/typography";
 import { useState } from "react";
 
 import {
@@ -12,6 +11,7 @@ import { Markdown } from "@/shared/lib/markdown/Markdown";
 import { cn } from "@/shared/lib/utils";
 
 import { AgentThinking } from "./AgentThinking";
+import { CommandResultMessage } from "./CommandResultMessage";
 import { MemoryMessage } from "./MemoryMessage";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageAvatar } from "./MessageAvatar";
@@ -20,6 +20,7 @@ import { MessageHeader } from "./MessageHeader";
 import { MessageLayout } from "./MessageLayout";
 import { originLabelFor } from "./messageOrigin";
 import { roleLabelFor } from "./messageRole";
+import { MessageText } from "./MessageText";
 import { ReportMessage } from "./ReportMessage";
 import { ThinkingOnlyMessage } from "./ThinkingOnlyMessage";
 
@@ -67,6 +68,18 @@ function ChatMessageContent({
       />
     );
 
+  if (message.command)
+    return (
+      <CommandResultMessage
+        sessionId={sessionId}
+        message={message}
+        command={message.command}
+        isOwn={isOwn}
+        onOpenArtifact={onOpenArtifact}
+        onCollapse={onCollapse}
+      />
+    );
+
   // A Message forwarded in from another Conversation renders as a report, not a
   // peer turn — the cross-conversation posts of 1.7 are attributed and set apart
   // rather than mixed into this thread's turns.
@@ -109,15 +122,17 @@ function ChatMessageContent({
     <MessageLayout
       variant={variant}
       avatar={
-        <MessageAvatar
-          kind={message.author.kind}
-          name={message.author.name}
-          agentRole={message.author.agentRole}
-        />
+        isOwn ? undefined : (
+          <MessageAvatar
+            kind={message.author.kind}
+            name={message.author.name}
+            agentRole={message.author.agentRole}
+          />
+        )
       }
       header={
         <MessageHeader
-          authorName={message.author.name}
+          authorName={isOwn ? "You" : message.author.name}
           roleLabel={roleLabel}
           createdAt={message.createdAt}
           content={message.content}
@@ -149,9 +164,14 @@ function ChatMessageContent({
           </Markdown>
         </BlockStack>
       ) : (
-        <Paragraph size="sm" wrap="pre-wrap">
-          {message.content}
-        </Paragraph>
+        <MessageText
+          content={message.content}
+          sessionId={sessionId}
+          messageId={message.id}
+          tone={isOwn ? "on-primary" : undefined}
+          pinnedPaths={pinnedPaths}
+          onOpenArtifact={onOpenArtifact}
+        />
       )}
       {attachments.length > 0 ? (
         <MessageAttachments sessionId={sessionId} attachments={attachments} />

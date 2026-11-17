@@ -47,6 +47,7 @@ function parseAgentPayload(raw: string | null): AgentPayload | undefined {
       autoRelayToPrime: orUndefined(p.autoRelayToPrime as boolean | null),
       purpose: orUndefined(p.purpose as string | null),
       status: (p.status as AgentPayload["status"]) ?? "active",
+      dismissedAt: orUndefined(p.dismissedAt as string | null),
     };
   } catch {
     return undefined;

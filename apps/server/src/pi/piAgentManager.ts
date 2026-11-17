@@ -9,6 +9,7 @@ import {
   capabilitiesForRole,
   type MessageDelivery,
   RESTORABLE_STATUSES,
+  type Run,
   type RunIngress,
   type SessionRunStatus,
   type SessionStatusPayload,
@@ -34,7 +35,11 @@ import type {
   MemorySpawnPlan,
   ResolvedMemory,
 } from "../memory/resolver.ts";
-import type { RunRegistry, SettledStatus } from "../runs/runRegistry.ts";
+import type {
+  RunRegistry,
+  SettledStatus,
+  Settlement,
+} from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import {
   type AgentConfig,
@@ -102,6 +107,10 @@ export type {
  * window resets the count); each attempt waits the matching
  * {@link RESTART_BACKOFF_MS} entry (the last value repeats for further attempts).
  */
+// Pi reports a retry in the same breath as the failed turn's end.
+const RETRY_NOTICE_GRACE_MS = 250;
+/** How many sessions with no agent running are remembered as having ended. */
+export const MAX_REMEMBERED_ENDS = 500;
 const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
@@ -137,6 +146,22 @@ interface SpawnExtras {
 /** The spawn env's capability list: the role's capabilities, comma-separated. */
 function capabilities(role: AgentDescriptor["role"]): string {
   return capabilitiesForRole(role).join(",");
+}
+
+/** How a session's latest Run ended, as the lobby reports it. */
+interface LastEnd {
+  endedAt: string;
+  /** A Run failed in this stretch of work. */
+  failed: boolean;
+  /** Nothing else in the session was still running when it ended. */
+  stretchOver: boolean;
+}
+
+/** Whether two lobby statuses would tell a list view the same thing. */
+function sameStatus(a: SessionStatusPayload, b: SessionStatusPayload): boolean {
+  return (
+    a.status === b.status && a.failed === b.failed && a.endedAt === b.endedAt
+  );
 }
 
 function appendPreambles(config: AgentConfig, preambles: string[]): string {
@@ -915,6 +940,8 @@ function buildAgentProcess(
     child,
     busy: false,
     aborted: false,
+    modelFailed: false,
+    pendingEnd: null,
     currentMessageId: null,
     startEmitted: false,
     accum: "",
@@ -966,10 +993,15 @@ export class PiAgentManager {
    */
   private readonly spawnProcess: typeof spawn;
   /**
-   * Last run status emitted per session, so {@link notifyStatus} only fires the
-   * handler when the status actually changes (busy flags toggle frequently).
+   * Last lobby status emitted per session, so {@link notifyStatus} only fires
+   * the handler when it actually changes (busy flags toggle frequently).
    */
-  private readonly lastStatus = new Map<string, SessionRunStatus>();
+  private readonly lastEmitted = new Map<string, SessionStatusPayload>();
+  /** How each session's latest Run ended, whichever connector ran it. */
+  private readonly lastEnd = new Map<string, LastEnd>();
+  /** Sessions being torn down, whose settling Runs the lobby shouldn't hear of. */
+  private readonly disposing = new Set<string>();
+  private onDisposed?: (sessionId: string) => void;
   /** Prime spawns awaiting memory resolution, so concurrent {@link ensure}
    * calls share one; cleared by {@link dispose} to cancel a pending spawn. */
   private readonly ensuring = new Map<string, Promise<void>>();
@@ -1018,17 +1050,70 @@ export class PiAgentManager {
     return "active";
   }
 
+  private statusPayload(sessionId: string): SessionStatusPayload {
+    const status = this.computeStatus(sessionId);
+    const payload: SessionStatusPayload = { sessionId, status };
+    const end = this.lastEnd.get(sessionId);
+    if (!end) return payload;
+    if (status !== "busy") payload.endedAt = end.endedAt;
+    // Work starting again from a standstill makes an earlier failure old news.
+    if (end.failed && (status !== "busy" || !end.stretchOver)) {
+      payload.failed = true;
+    }
+    return payload;
+  }
+
   /**
-   * Snapshot of every non-idle session's status, for seeding a socket that just
-   * subscribed to the lobby. Sessions absent from the result are `idle`.
+   * Snapshot of every non-idle session's status, plus any that stopped working
+   * since the server started, for seeding a socket that just subscribed to the
+   * lobby. Sessions absent from the result are `idle`.
    */
   getStatuses(): SessionStatusPayload[] {
-    const statuses: SessionStatusPayload[] = [];
-    for (const sessionId of this.sessions.keys()) {
-      const status = this.computeStatus(sessionId);
-      if (status !== "idle") statuses.push({ sessionId, status });
+    const sessionIds = new Set([
+      ...this.sessions.keys(),
+      ...this.lastEnd.keys(),
+    ]);
+    return [...sessionIds]
+      .map((sessionId) => this.statusPayload(sessionId))
+      .filter(({ status, endedAt }) => status !== "idle" || endedAt);
+  }
+
+  /**
+   * Records how a settled Run ended, whichever connector ran it, so the lobby
+   * can mark the session finished or failed. A failure stands until the
+   * session starts working again from a standstill, so one agent failing while
+   * another is still busy isn't lost. A Run superseded by its participant's
+   * next one ended no work, so it isn't recorded.
+   */
+  recordSettled(run: Run, { superseded }: Settlement): void {
+    const { sessionId } = run;
+    if (superseded || this.disposing.has(sessionId)) return;
+    this.lastEnd.set(sessionId, this.endingWith(run));
+    this.notifyStatus(sessionId);
+    this.forgetOldEnds();
+  }
+
+  /** Forgets the longest-ended sessions with no agent running, past the cap. */
+  private forgetOldEnds(): void {
+    if (this.lastEnd.size <= MAX_REMEMBERED_ENDS) return;
+    const idle = [...this.lastEnd]
+      .filter(([sessionId]) => this.computeStatus(sessionId) === "idle")
+      .sort(([, a], [, b]) => a.endedAt.localeCompare(b.endedAt));
+    for (const [sessionId] of idle.slice(0, -MAX_REMEMBERED_ENDS)) {
+      this.lastEnd.delete(sessionId);
+      this.lastEmitted.delete(sessionId);
     }
-    return statuses;
+  }
+
+  private endingWith(run: Run): LastEnd {
+    const { sessionId } = run;
+    const previous = this.lastEnd.get(sessionId);
+    const failedBefore = previous?.failed === true && !previous.stretchOver;
+    return {
+      endedAt: run.endedAt ?? new Date().toISOString(),
+      failed: run.status === "failed" || failedBefore,
+      stretchOver: this.runs.listForSession(sessionId).length === 0,
+    };
   }
 
   /**
@@ -1036,14 +1121,18 @@ export class PiAgentManager {
    * changed since the last emit. Called after every busy/lifecycle transition.
    */
   private notifyStatus(sessionId: string): void {
-    const status = this.computeStatus(sessionId);
-    if (this.lastStatus.get(sessionId) === status) return;
-    if (status === "idle") {
-      this.lastStatus.delete(sessionId);
+    const payload = this.statusPayload(sessionId);
+    const last = this.lastEmitted.get(sessionId) ?? {
+      sessionId,
+      status: "idle",
+    };
+    if (sameStatus(last, payload)) return;
+    if (payload.status === "idle" && !payload.endedAt) {
+      this.lastEmitted.delete(sessionId);
     } else {
-      this.lastStatus.set(sessionId, status);
+      this.lastEmitted.set(sessionId, payload);
     }
-    this.handlers.onSessionStatus(sessionId, status);
+    this.handlers.onSessionStatus(payload);
   }
 
   /** The session's full memory resolution, or SimpleMD-only if it can't load. */
@@ -1284,6 +1373,7 @@ export class PiAgentManager {
     existing.aborted = true;
     existing.intentionalKill = true;
     existing.child.kill();
+    this.clearCutTurn(sessionId, existing);
     // The killed process will never emit `agent_end`, so settle here: the turn
     // we cut was stopped, not finished.
     this.runs.settleOpenFor(sessionId, agentId, "cancelled");
@@ -1471,6 +1561,7 @@ export class PiAgentManager {
     agent.intentionalKill = true;
     session.agents.delete(agentId);
     agent.child.kill();
+    this.clearPendingEnd(agent);
     this.runs.settleOpenFor(sessionId, agentId, settledForKill(completed));
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     this.notifyStatus(sessionId);
@@ -1519,18 +1610,56 @@ export class PiAgentManager {
       .map(toSubagentInfo);
   }
 
-  /** Kills every agent in the session and clears its state. */
+  /**
+   * Kills every agent in the session and forgets it, lobby status included,
+   * without telling the lobby: the session is being deleted or the server is
+   * stopping.
+   */
   dispose(sessionId: string): void {
     this.ensuring.delete(sessionId);
     const session = this.sessions.get(sessionId);
-    if (!session) return;
     this.sessions.delete(sessionId);
-    for (const agent of session.agents.values()) {
-      agent.intentionalKill = true;
-      agent.child.kill();
+    this.disposing.add(sessionId);
+    for (const agent of session?.agents.values() ?? []) {
+      this.killQuietly(agent);
     }
-    rmSync(promptDir(sessionId), { recursive: true, force: true });
-    this.notifyStatus(sessionId);
+    this.cancelRuns(sessionId);
+    this.disposing.delete(sessionId);
+    this.lastEnd.delete(sessionId);
+    this.lastEmitted.delete(sessionId);
+    if (session) rmSync(promptDir(sessionId), { recursive: true, force: true });
+    this.onDisposed?.(sessionId);
+  }
+
+  /**
+   * Cancels every participant's open Run in the session, not only Pi's: a
+   * remote run left open would settle later and bring a deleted session back
+   * into the lobby.
+   */
+  private cancelRuns(sessionId: string): void {
+    for (const run of this.runs.listForSession(sessionId)) {
+      this.runs.settle(run.id, "cancelled");
+    }
+  }
+
+  /** A killed agent won't end its turn itself, so what it left showing goes. */
+  private clearCutTurn(sessionId: string, agent: AgentProcess): void {
+    this.clearPendingEnd(agent);
+    if (agent.lastActivity) this.emitActivity(sessionId, agent, null);
+  }
+
+  /** Kills an agent's process so its exit reads as stopped, not failed. */
+  private killQuietly(agent: AgentProcess): void {
+    agent.busy = false;
+    agent.currentMessageId = null;
+    agent.intentionalKill = true;
+    agent.child.kill();
+    this.clearPendingEnd(agent);
+  }
+
+  /** Registers the one listener told when a session is disposed. */
+  useOnDisposed(handler: (sessionId: string) => void): void {
+    this.onDisposed = handler;
   }
 
   /** Kills every managed process. Used on server shutdown. */
@@ -1710,6 +1839,7 @@ export class PiAgentManager {
       console.log(
         `[pi:${sessionId}:${agent.agentId}] process exited (code=${code}, signal=${signal})`,
       );
+      this.clearPendingEnd(agent);
       this.failInFlight(sessionId, agent, "Pi process exited unexpectedly.");
       this.handleChildExit(sessionId, agent);
     });
@@ -1833,7 +1963,14 @@ export class PiAgentManager {
         this.onToolExecutionStart(sessionId, agent, event),
       queue_update: ({ sessionId, descriptor, event }) =>
         this.onQueueUpdate(sessionId, descriptor, event),
-      agent_end: ({ sessionId, agent }) => this.onAgentEnd(sessionId, agent),
+      agent_end: ({ sessionId, agent, event }) =>
+        this.onAgentEnd(sessionId, agent, event),
+      auto_retry_start: ({ agent }) => this.clearPendingEnd(agent),
+      auto_retry_end: ({ sessionId, agent, event }) => {
+        if (event.success === false && agent.busy) {
+          this.finishRun(sessionId, agent);
+        }
+      },
     };
 
   /** Dispatches one parsed stdout line to the matching per-event handler. */
@@ -1865,6 +2002,7 @@ export class PiAgentManager {
         ingress: "reaction",
       });
     }
+    this.clearPendingEnd(agent);
     agent.busy = true;
     agent.aborted = false;
     agent.currentMessageId = null;
@@ -1946,6 +2084,9 @@ export class PiAgentManager {
       this.finalizeMessage(sessionId, agent, descriptor, event);
     }
 
+    // Only the latest message counts, so a call Pi retried and got through
+    // doesn't fail the run.
+    agent.modelFailed = event.message?.stopReason === "error";
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -2021,8 +2162,38 @@ export class PiAgentManager {
     });
   }
 
+  /**
+   * Pi ends the turn on a failed model call and only then says whether it is
+   * retrying, so that turn isn't final yet: the run stays open and the agent
+   * busy until Pi retries, gives up, or says nothing for a moment.
+   */
+  private onAgentEnd(
+    sessionId: string,
+    agent: AgentProcess,
+    event: PiStdoutEvent,
+  ): void {
+    const mayRetry =
+      agent.modelFailed && !agent.aborted && event.willRetry !== false;
+    if (!mayRetry) {
+      this.finishRun(sessionId, agent);
+      return;
+    }
+    this.clearPendingEnd(agent);
+    if (event.willRetry) return;
+    agent.pendingEnd = setTimeout(
+      () => this.finishRun(sessionId, agent),
+      RETRY_NOTICE_GRACE_MS,
+    );
+  }
+
+  private clearPendingEnd(agent: AgentProcess): void {
+    if (agent.pendingEnd) clearTimeout(agent.pendingEnd);
+    agent.pendingEnd = null;
+  }
+
   /** Ends a run: clears busy + the activity indicator. */
-  private onAgentEnd(sessionId: string, agent: AgentProcess): void {
+  private finishRun(sessionId: string, agent: AgentProcess): void {
+    this.clearPendingEnd(agent);
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
       JSON.stringify({
@@ -2033,6 +2204,7 @@ export class PiAgentManager {
     );
 
     const cancelled = agent.aborted;
+    const failed = agent.modelFailed;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -2040,16 +2212,19 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    agent.modelFailed = false;
 
-    this.notifyStatus(sessionId);
     // Emitted before the Run settles, so the run's last event still carries its
-    // id. An aborted run was cut short: that is a cancellation, not a finish.
+    // id. An aborted run was cut short: that is a cancellation, not a finish. A
+    // run whose last model call failed didn't finish either.
     this.emitActivity(sessionId, agent, null);
     this.runs.settleOpenFor(
       sessionId,
       agent.agentId,
-      cancelled ? "cancelled" : "completed",
+      cancelled ? "cancelled" : failed ? "failed" : "completed",
     );
+    // After settling, so the lobby hears once how the turn ended.
+    this.notifyStatus(sessionId);
   }
 
   /**
@@ -2103,6 +2278,7 @@ export class PiAgentManager {
     agent.lastFinalContent = "";
     agent.busy = false;
     agent.aborted = false;
+    agent.modelFailed = false;
     const descriptor = {
       agentId: agent.agentId,
       role: agent.role,
@@ -2110,9 +2286,9 @@ export class PiAgentManager {
       homeConversationId: agent.homeConversationId,
     };
     this.emit(sessionId, descriptor, { type: "error", messageId, message });
-    this.notifyStatus(sessionId);
     this.emitActivity(sessionId, agent, null);
     this.runs.settleOpenFor(sessionId, agent.agentId, "failed");
+    this.notifyStatus(sessionId);
   }
 
   /**

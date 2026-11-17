@@ -12,9 +12,9 @@ import {
   useSessionParticipants,
 } from "@/features/chat/hooks/useSessionParticipants";
 import { useSessionResources } from "@/features/chat/hooks/useSessionResources";
-import { type Agent, buildAgents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
+import { artifactReferences } from "@/features/chat/model/references";
 import { useSession } from "@/features/sessions/hooks/useSession";
 import { apiUrl } from "@/shared/lib/basePath";
 import { isViewableArtifact, resolveUrl } from "@/shared/lib/markdown/artifact";
@@ -46,6 +46,7 @@ export function useSessionChatModel(sessionId: string) {
     agentBusy,
     isConversationBusy,
     getActivity,
+    primeActivity,
     isMessageStreaming,
     currentAuthorId,
     send,
@@ -69,14 +70,12 @@ export function useSessionChatModel(sessionId: string) {
 
   const assets = buildAssets({ sessionId, artifacts, triggers });
 
-  // The Chat tab stands in for Prime's card, so map it back to Prime's id when
-  // deciding which agent card reads as selected.
-  const selectedAgentId =
-    activeTab === CHAT_TAB_VALUE ? PI_AGENT.id : activeTab;
+  // The Chat tab is Prime's thread, so map it back to Prime's id.
+  const activeAgentId = activeTab === CHAT_TAB_VALUE ? PI_AGENT.id : activeTab;
 
   // The Conversation currently in view — the roster's mute toggle acts on a
   // participant's Membership there, and the Resources panel surfaces for it.
-  const activeConversationId = conversationForAgent(selectedAgentId);
+  const activeConversationId = conversationForAgent(activeAgentId);
 
   const {
     data: participants = [],
@@ -106,28 +105,12 @@ export function useSessionChatModel(sessionId: string) {
     isError: resourcesError,
   } = useSessionResources(sessionId, resourceScope);
 
-  const agents = buildAgents(subagents);
-
   // Who a composer can @mention: Prime, the sub-agent roster, and invited
   // humans. The server re-resolves names to ids at write time.
   const mentionCandidates = buildMentionCandidates(subagents, participants);
-
-  // Prime's card selects the fixed Chat tab; sub-agent cards open (or focus) a
-  // closeable tab.
-  const openAgentTab = (agent: Agent) => {
-    if (agent.kind === "prime") {
-      setActiveTab(CHAT_TAB_VALUE);
-      return;
-    }
-    openAgent({ id: agent.id, name: agent.name });
-  };
+  const references = artifactReferences(artifacts);
 
   const primeMessages = messagesFor(primaryConversationId);
-
-  const busySubagents = subagents
-    .filter((s) => isConversationBusy(s.conversationId))
-    .map((s) => ({ id: s.id, name: s.name, conversationId: s.conversationId }));
-  const armedTriggers = triggers.filter((t) => t.enabled);
 
   // Opening an artifact from a chat chip mirrors opening it from the sidebar: a
   // viewable "page" asset keyed by its resolved URL, so both dedupe to one tab.
@@ -183,12 +166,12 @@ export function useSessionChatModel(sessionId: string) {
     openArtifactTab,
     togglePinArtifact,
     mentionCandidates,
+    references,
+    openAgent,
   };
 
   const windowsValue: SessionChatWindowsValue = {
     sessionId,
-    agents,
-    selectedAgentId,
     activeTab,
     assets,
     resources,
@@ -203,11 +186,6 @@ export function useSessionChatModel(sessionId: string) {
     onToggleMuteParticipant: (participantId, conversationId, muted) =>
       muteMembership({ participantId, conversationId, muted }),
     isTogglingMute,
-    onOpenAgent: openAgentTab,
-    onRemoveAgent: (agent) => {
-      dismissSubagent(agent.id);
-      closeAsset(agent.id);
-    },
     onOpenAsset: openAsset,
     onUnpinArtifact: unpinArtifact,
     onOpenResource: openResourceTab,
@@ -222,25 +200,22 @@ export function useSessionChatModel(sessionId: string) {
     connected,
     historyLoaded,
     agentBusy,
-    activity: getActivity(primaryConversationId),
+    activity: primeActivity,
     isMessageStreaming,
     memorySuggestions,
     confirmMemory,
     dismissMemory,
-    busySubagents,
-    armedTriggers,
-    subagents,
-    assets,
     primeModel,
     send,
     abort,
     openAgent,
-    openAsset,
+    closeAsset,
     setAgentModel,
     openArtifactTab,
     pinnedPaths,
     togglePinArtifact,
     mentionCandidates,
+    references,
   };
 
   return {

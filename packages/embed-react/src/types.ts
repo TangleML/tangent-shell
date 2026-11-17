@@ -34,8 +34,11 @@ export interface HostUIComponentProps {
   /** The component name it was registered under. */
   name: string;
   /** Which surface it renders on. */
-  kind: "message" | "panel";
-  /** JSON props (a `message` token's body, or `{}` for a `panel`). */
+  kind: "message" | "panel" | "composer";
+  /**
+   * JSON props: a `message` token's body, `{ sessionId, agentId }` for a
+   * `composer` pill, or `{}` for a `panel`.
+   */
   props: Record<string, unknown>;
   /** Sends a composed prompt to the chat, as if the user had typed it. */
   onSendPrompt?: (text: string) => void;
@@ -278,6 +281,8 @@ export interface TangentChatElementLike extends HTMLElement {
   initialPrompt?: string;
   /** Focuses the composer once it accepts input (`auto-focus` as an attribute). */
   autoFocus: boolean;
+  references?: EmbedReference[];
+  commands?: EmbedCommand[];
   /** Current host-slot records to project as light-DOM children. */
   getHostSlots?: () => HostSlotRecordLike[];
   /** Subscribes to host-slot changes; returns an unsubscribe. */
@@ -319,6 +324,40 @@ export interface TangentResourceListElementLike extends HTMLElement {
 export interface TangentParticipantListElementLike extends HTMLElement {
   sessionId: string;
   agentId: string;
+}
+
+/**
+ * Something the composer's `#` picker can reference. A pick is sent as the
+ * markdown link `[label](href)`, so use an `href` the agent can act on and
+ * register an anchor protocol for its scheme to show it as a chip. The picker
+ * keeps the order given within each kind, so list the most recent first.
+ */
+export interface EmbedReference {
+  kind: "pipeline" | "document" | "run";
+  label: string;
+  href: string;
+  /** Secondary text in the picker, e.g. a run's status. */
+  detail?: string;
+}
+
+/** A slash command the chat box offers, e.g. `/runs`. */
+export interface EmbedCommand {
+  /**
+   * Typed after the slash; lowercase, no spaces. Up to 64 letters, digits,
+   * `-`, `_`, `.` or `:` — a result under any other name is posted as an
+   * ordinary message.
+   */
+  name: string;
+  /** Shown beside the name in the picker. Keep it short. */
+  description: string;
+  /** What to type after the name, e.g. `<pipeline ids>`. */
+  argumentHint?: string;
+  /**
+   * Runs the command with what followed its name. The markdown it returns is
+   * posted in the chat for everyone, and the agent is sent it with the next
+   * message. Throw to keep the draft and show the error instead.
+   */
+  run: (args: string) => Promise<string> | string;
 }
 
 /** An agent row emitted by `<AgentList onOpen>`. */

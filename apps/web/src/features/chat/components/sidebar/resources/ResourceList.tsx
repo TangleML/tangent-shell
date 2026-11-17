@@ -1,16 +1,13 @@
 import type { Resource } from "@tangent/shared/contracts";
 import { Box } from "@tangent/ui-primitives/box";
-import { Icon } from "@tangent/ui-primitives/icon";
-import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
-import { Text } from "@tangent/ui-primitives/typography";
+import { BlockStack } from "@tangent/ui-primitives/layout";
 
 import {
   RESOURCE_ICON,
   resourceSubtitle,
 } from "@/features/chat/model/resources";
 import { EmptyState } from "@/shared/ui/patterns/empty-state";
-import { ListRow } from "@/shared/ui/patterns/list-row";
-import { Truncating } from "@/shared/ui/patterns/truncating";
+import { ListItem } from "@/shared/ui/patterns/list-item";
 
 interface ResourceListProps {
   resources: Resource[];
@@ -49,50 +46,19 @@ export function ResourceList({ resources, onOpen }: ResourceListProps) {
   return (
     <Box padding="sm">
       <BlockStack as="ul" gap="1">
-        {resources.map((resource) => {
-          const openable = onOpen && isOpenable(resource);
-          return (
-            <ListRow
-              key={resource.id}
-              as="li"
-              density="cozy"
-              gap="2"
-              hoverable={Boolean(openable)}
-              onClick={openable ? () => onOpen?.(resource) : undefined}
-              prefix={
-                <Box
-                  background="info-subtle"
-                  blockSize="full"
-                  paddingInline="sm"
-                >
-                  <InlineStack fill blockAlign="center" align="center">
-                    <Icon
-                      name={RESOURCE_ICON[resource.kind]}
-                      size="lg"
-                      tone="subdued"
-                    />
-                  </InlineStack>
-                </Box>
-              }
-            >
-              <BlockStack gap="0">
-                <Text size="xs" tone="subdued" truncate>
-                  {resourceSubtitle(resource)}
-                </Text>
-                <Truncating>
-                  <Text
-                    size="sm"
-                    weight="medium"
-                    truncate
-                    title={resource.name}
-                  >
-                    {resource.name}
-                  </Text>
-                </Truncating>
-              </BlockStack>
-            </ListRow>
-          );
-        })}
+        {resources.map((resource) => (
+          <ListItem
+            key={resource.id}
+            icon={RESOURCE_ICON[resource.kind]}
+            title={resource.name}
+            subtitle={resourceSubtitle(resource)}
+            onOpen={
+              onOpen && isOpenable(resource)
+                ? () => onOpen(resource)
+                : undefined
+            }
+          />
+        ))}
       </BlockStack>
     </Box>
   );
