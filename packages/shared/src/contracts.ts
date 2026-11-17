@@ -227,6 +227,11 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   { id: "openai/gpt-6.1-terra", label: "GPT-6.1 Terra", provider: "openai" },
   { id: "openai/gpt-6-luna", label: "GPT-6 Luna", provider: "openai" },
   {
+    id: "deepseek/deepseek-v4.1-flash",
+    label: "DeepSeek V4.1 Flash",
+    provider: "deepseek",
+  },
+  {
     id: "anthropic/claude-opus-5-5",
     label: "Claude Opus 5.5",
     provider: "anthropic",
