@@ -57,6 +57,7 @@ import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import { orchestratorIdentity } from "../conversation/participantRegistry.ts";
 import type { ResourceCatalog } from "../conversation/resourceCatalog.ts";
 import { catalogWorkspaceFiles } from "../conversation/workspaceFiles.ts";
+import { remoteCatalogConfig } from "../modelCatalog.ts";
 import {
   parseThinkingLevel,
   type ResolvedSessionConfig,
@@ -485,12 +486,12 @@ export class RemoteEnvironmentGateway {
     // Conversation, which arrives here as an ordinary delivery right after this
     // command. So the environment always spawns idle.
     const command: RemoteSpawnCommand = {
+      ...remoteCatalogConfig(config.model),
       sessionId,
       agentId,
       name: request.name,
       tools,
       systemPrompt: config.appendSystemPrompt,
-      model: config.model,
       thinkingDepth: config.thinkingDepth,
       template: request.template,
       autoRelayToPrime,

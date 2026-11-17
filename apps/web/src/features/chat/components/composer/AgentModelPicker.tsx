@@ -17,6 +17,8 @@ import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 
+import { useModelCatalog } from "@/shared/config/useModelCatalog";
+
 /** The model/thinking selection this picker reads and writes. */
 export interface AgentModelPickerValue {
   model?: string;
@@ -31,8 +33,8 @@ interface AgentModelPickerProps extends AgentModelPickerValue {
 }
 
 /** Resolves a model id to its display label, falling back to the raw id. */
-function modelLabel(model: string): string {
-  return AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
+function modelLabel(model: string, models = AVAILABLE_MODELS): string {
+  return models.find((m) => m.id === model)?.label ?? model;
 }
 
 /** Title-cases a thinking level for display. */
@@ -76,7 +78,24 @@ export function AgentModelPicker({
 }: AgentModelPickerProps) {
   // Show the real effective value even when the agent has no explicit selection
   // (it runs the server default), so the trigger never reads a generic "Default".
-  const effectiveModel = model ?? DEFAULT_MODEL_ID;
+  const { data: catalog, isLoading, isError } = useModelCatalog();
+  const models = catalog
+    ? catalog.models.map((m) => ({
+        id: m.tangentModelId,
+        label: m.label,
+        provider: m.tangentModelId.split("/")[0],
+      }))
+    : AVAILABLE_MODELS;
+  const effectiveModel = model ?? catalog?.defaults.tangent ?? DEFAULT_MODEL_ID;
+  const capabilities = catalog?.models.find(
+    (m) => m.tangentModelId === effectiveModel,
+  );
+  const thinkingLevels = capabilities
+    ? THINKING_LEVELS.filter(
+        (level) => capabilities.thinkingLevelMap[level] != null,
+      )
+    : THINKING_LEVELS;
+  disabled = disabled || isLoading || isError;
   const effectiveThinking = thinkingDepth ?? DEFAULT_THINKING_LEVEL;
 
   return (
@@ -85,7 +104,7 @@ export function AgentModelPicker({
         <DropdownMenuTrigger asChild>
           <Button variant="toolbar" size="xs" disabled={disabled}>
             <Icon name="Cpu" size="xs" tone="subdued" />
-            <Text size="xs">{modelLabel(effectiveModel)}</Text>
+            <Text size="xs">{modelLabel(effectiveModel, models)}</Text>
             <Icon name="ChevronDown" size="xs" tone="subdued" />
           </Button>
         </DropdownMenuTrigger>
@@ -95,7 +114,7 @@ export function AgentModelPicker({
               Model
             </Text>
           </Box>
-          {AVAILABLE_MODELS.map((option) => (
+          {models.map((option) => (
             <PickerRow
               key={option.id}
               label={option.label}
@@ -122,7 +141,7 @@ export function AgentModelPicker({
               Thinking depth
             </Text>
           </Box>
-          {THINKING_LEVELS.map((level) => (
+          {thinkingLevels.map((level) => (
             <PickerRow
               key={level}
               label={thinkingLabel(level)}

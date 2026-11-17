@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 
 import type { MessageDelivery } from "@tangent/shared/contracts.ts";
+import { parseModelCatalog } from "@tangent/shared/modelCatalog.ts";
 import type {
   RemoteAgentEvent,
   RemoteSpawnCommand,
@@ -79,11 +80,29 @@ export function buildPiArgs(
   return args;
 }
 
+function catalogEnv(
+  command: RemoteSpawnCommand,
+  options: PiLaunchOptions,
+): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.TANGENT_MODEL_CATALOG_JSON;
+  delete env.TANGENT_MODEL_CATALOG_TOKEN;
+  delete env.TANGENT_MODEL_CATALOG_URL;
+  delete env.TANGENT_MODEL_CATALOG_FILE;
+  if (!command.modelCatalog) return env;
+  if (!options.proxyUrl)
+    throw new Error("Deployment catalog requires a configured local proxy");
+  env.TANGENT_MODEL_CATALOG_JSON = JSON.stringify(
+    parseModelCatalog(command.modelCatalog),
+  );
+  return env;
+}
+
 export function piEnv(
   command: RemoteSpawnCommand,
   options: PiLaunchOptions,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  const env = catalogEnv(command, options);
   if (options.proxyUrl) env.PI_PROXY_URL = options.proxyUrl;
   if (options.proxyApiKey) env.PI_PROXY_API_KEY = options.proxyApiKey;
   if (options.hostApiUrl) {

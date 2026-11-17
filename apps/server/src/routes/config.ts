@@ -2,6 +2,7 @@ import type { PublicConfig } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 
 import { PUBLIC_URL } from "../config.ts";
+import { modelCatalog } from "../modelCatalog.ts";
 
 /**
  * Handles `GET /api/config`. Returns the public, non-sensitive client config —
@@ -16,6 +17,14 @@ function handleGetConfig(_req: Request, res: Response): void {
 /** Public REST router exposing non-sensitive client config (`GET /api/config`). */
 export function createConfigRouter(): Router {
   const router = Router();
+  router.get("/models", (_req, res) => {
+    res.setHeader("Cache-Control", "private, max-age=60");
+    if (!modelCatalog) {
+      res.status(404).json({ error: "No deployment catalog configured" });
+      return;
+    }
+    res.json(modelCatalog);
+  });
   router.get("/", (req: Request, res: Response) => handleGetConfig(req, res));
   return router;
 }

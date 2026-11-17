@@ -87,6 +87,8 @@ export type RemoteEnvEvent =
  * template/bundle machinery.
  */
 export interface RemoteSpawnCommand {
+  /** Trusted server catalog, delivered over the authenticated host connection. */
+  modelCatalog?: import("./modelCatalog.ts").ModelCatalog;
   sessionId: string;
   /** Server-assigned id; the remote environment must echo it on every event. */
   agentId: string;

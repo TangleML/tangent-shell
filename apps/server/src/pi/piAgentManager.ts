@@ -35,6 +35,11 @@ import type {
   MemorySpawnPlan,
   ResolvedMemory,
 } from "../memory/resolver.ts";
+import {
+  catalogSpawnEnv,
+  resolveCatalogModel,
+  withoutCatalogCredentials,
+} from "../modelCatalog.ts";
 import type {
   RunRegistry,
   SettledStatus,
@@ -358,7 +363,9 @@ function splitModel(selected: string | undefined): {
  * back to the server defaults ({@link PI_MODEL} / {@link PI_THINKING}).
  */
 function resolveModelArgs(config: AgentConfig): ModelArgs {
-  const { provider, model } = splitModel(config.model?.trim());
+  const { provider, model } = splitModel(
+    resolveCatalogModel(config.model?.trim()),
+  );
   return { provider, model, thinking: config.thinkingDepth ?? PI_THINKING };
 }
 
@@ -676,9 +683,12 @@ function spawnEnv(
   const pinsMemory = Object.keys(memoryEnv ?? {}).length > 0;
   const session = expandEnvPlaceholders(sanitizeSessionEnv(sessionEnv), ctx);
   return {
-    ...(pinsMemory ? withoutMemoryEnv(process.env) : process.env),
+    ...withoutCatalogCredentials(
+      pinsMemory ? withoutMemoryEnv(process.env) : process.env,
+    ),
     ...(pinsMemory ? withoutMemoryEnv(session) : session),
     ...(memoryEnv ?? {}),
+    ...catalogSpawnEnv(),
     TANGENT_SESSION_ID: grant.sessionId,
     TANGENT_AGENT_ID: descriptor.agentId,
     TANGENT_AGENT_ROLE: descriptor.role,
