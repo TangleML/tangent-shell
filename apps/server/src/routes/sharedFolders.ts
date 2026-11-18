@@ -33,9 +33,7 @@ async function handleCreate(
   body: CreateSharedFolderInput,
   res: Response,
 ): Promise<void> {
-  const user =
-    resolveUserIdentity(req.headers.cookie, req.headers.authorization) ??
-    undefined;
+  const user = resolveUserIdentity(req.headers) ?? undefined;
   const folder = await store.createSharedFolder({ name: body.name, user });
   const response: CreateSharedFolderResponse = { folder };
   res.status(201).json(response);

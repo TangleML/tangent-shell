@@ -74,10 +74,7 @@ async function canMintForSession(
  * session its caller could not already reach.
  */
 function resolveMintIdentity(req: Request): UserIdentity {
-  return (
-    resolveUserIdentity(req.headers.cookie, req.headers.authorization) ??
-    DEFAULT_USER
-  );
+  return resolveUserIdentity(req.headers) ?? DEFAULT_USER;
 }
 
 /** The authenticated, authorized caller a mint runs for. */
@@ -150,8 +147,9 @@ function resolveEnvironmentId(
 
 /**
  * Mints a scoped `/remote-env` token for a host. Authed by the embed JWT
- * (bearer) or the Oktasso cookie; the token binds the caller's email (`sub`) to
- * an `environmentId` — a pinned one when supplied and free, else a fresh one —
+ * (bearer), the auth header or the Oktasso cookie; the token binds the
+ * caller's email (`sub`) to an `environmentId` — a pinned one when supplied
+ * and free, else a fresh one —
  * and its scope: a `sessionId` for a browser embed (the caller must own the
  * session or hold a Membership in it, the same gate chat enforces), a `selector`
  * for a project host, or neither for a user-scoped host. The session-less paths

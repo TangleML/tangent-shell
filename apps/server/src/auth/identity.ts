@@ -1,6 +1,11 @@
+import type { IncomingHttpHeaders } from "node:http";
+
 import type { UserIdentity } from "@tangent/shared/contracts.ts";
 
-import { AUTH_JWT_TOKEN_COOKIE_NAME } from "../config.ts";
+import {
+  AUTH_JWT_TOKEN_COOKIE_NAME,
+  AUTH_JWT_TOKEN_HEADER_NAME,
+} from "../config.ts";
 
 /** Parses a raw `Cookie` header into a name->value map. */
 export function parseCookies(
@@ -74,28 +79,38 @@ function bearerToken(header: string | undefined): string | undefined {
   return match?.[1];
 }
 
+/** The JWT in the {@link AUTH_JWT_TOKEN_HEADER_NAME} header, if configured and sent. */
+function headerToken(headers: IncomingHttpHeaders): string | undefined {
+  if (!AUTH_JWT_TOKEN_HEADER_NAME) return undefined;
+  const value = headers[AUTH_JWT_TOKEN_HEADER_NAME];
+  return (Array.isArray(value) ? value[0] : value) || undefined;
+}
+
 /**
  * Resolves the current {@link UserIdentity} from an incoming request's
  * credentials. Prefers an `Authorization: Bearer` JWT (the embed passes one
- * cross-origin, where cookies are unavailable) and falls back to the Oktasso
- * JWT in {@link AUTH_JWT_TOKEN_COOKIE_NAME}. The payload is decoded without a
- * signature check and mapped from the email + name claims.
+ * cross-origin, where cookies are unavailable), then the JWT in the
+ * {@link AUTH_JWT_TOKEN_HEADER_NAME} header (for proxies that drop cookies),
+ * then the Oktasso JWT in {@link AUTH_JWT_TOKEN_COOKIE_NAME}. The payload is
+ * decoded without a signature check and mapped from the email + name claims.
  *
  * Returns `null` when no token resolves, the token is malformed, or it carries
- * no email. The cookie path additionally requires the cookie name to be
+ * no email. The header and cookie paths each require their name to be
  * configured; the bearer path does not. Name claims fall back across the OIDC
  * standard (`given_name` / `family_name`) and snake-case (`first_name` /
  * `last_name`) variants, defaulting to `""` when absent.
  */
 export function resolveUserIdentity(
-  cookieHeader: string | undefined,
-  authorizationHeader?: string | undefined,
+  headers: IncomingHttpHeaders,
 ): UserIdentity | null {
-  const bearer = bearerToken(authorizationHeader);
+  const bearer = bearerToken(headers.authorization);
   if (bearer) return identityFromToken(bearer);
+
+  const forwarded = headerToken(headers);
+  if (forwarded) return identityFromToken(forwarded);
 
   if (!AUTH_JWT_TOKEN_COOKIE_NAME) return null;
   return identityFromToken(
-    parseCookies(cookieHeader)[AUTH_JWT_TOKEN_COOKIE_NAME],
+    parseCookies(headers.cookie)[AUTH_JWT_TOKEN_COOKIE_NAME],
   );
 }

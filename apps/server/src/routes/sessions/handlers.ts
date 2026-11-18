@@ -371,11 +371,10 @@ export async function handleCreateSession(
     return;
   }
 
-  // Resolve the creator's identity from their bearer token or Oktasso JWT
-  // cookie so every agent spawned for the session knows who it's helping.
-  const user =
-    resolveUserIdentity(req.headers.cookie, req.headers.authorization) ??
-    undefined;
+  // Resolve the creator's identity from their bearer token, auth header or
+  // Oktasso JWT cookie so every agent spawned for the session knows who
+  // it's helping.
+  const user = resolveUserIdentity(req.headers) ?? undefined;
   const session = await deps.store.createSession({
     name: body.name,
     user,
@@ -426,10 +425,7 @@ export async function handleUploadFiles(
 
 /** Read-state key: the viewer's email, or `"local"` when no identity resolves. */
 function resolveUserKey(req: Request): string {
-  return (
-    resolveUserIdentity(req.headers.cookie, req.headers.authorization)?.email ??
-    "local"
-  );
+  return resolveUserIdentity(req.headers)?.email ?? "local";
 }
 
 /** Computes the requesting user's {@link SessionActivity} for one session. */

@@ -13,10 +13,7 @@ import type { BundleEditorStore } from "../store/bundleEditorStore.ts";
  * structured `email` / `first_name` / `last_name` fields.
  */
 function handleGetMe(req: Request, res: Response): void {
-  const identity = resolveUserIdentity(
-    req.headers.cookie,
-    req.headers.authorization,
-  );
+  const identity = resolveUserIdentity(req.headers);
   if (!identity) {
     res.status(401).json({ error: "Invalid or missing token" });
     return;

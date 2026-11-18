@@ -1,3 +1,5 @@
+import type { IncomingHttpHeaders } from "node:http";
+
 import {
   type AgentAbortPayload,
   type AgentSetModelPayload,
@@ -118,7 +120,7 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   // client never gets a say in who its messages are attributed to.
   const handshakeToken = socket.handshake.auth?.token;
   const author = resolveSocketAuthor(
-    socket.handshake.headers.cookie,
+    socket.handshake.headers,
     typeof handshakeToken === "string" ? handshakeToken : undefined,
   );
 
@@ -446,17 +448,17 @@ export async function mentionCandidates(
 /**
  * The chat identity of whoever is on the other end of a socket, read from the
  * handshake's bearer token (sent cross-origin by the embed) or the connection's
- * own cookie — never from anything in the message payload. Falls back to
- * {@link DEFAULT_USER} when no JWT resolves, so both sides agree on the id and a
- * message still renders as your own.
+ * own headers and cookie — never from anything in the message payload. Falls
+ * back to {@link DEFAULT_USER} when no JWT resolves, so both sides agree on the
+ * id and a message still renders as your own.
  */
 export function resolveSocketAuthor(
-  cookieHeader: string | undefined,
+  headers: IncomingHttpHeaders,
   authToken?: string | undefined,
 ) {
   const authorization = authToken ? `Bearer ${authToken}` : undefined;
   return humanAuthor(
-    resolveUserIdentity(cookieHeader, authorization) ?? DEFAULT_USER,
+    resolveUserIdentity({ ...headers, authorization }) ?? DEFAULT_USER,
   );
 }
 
