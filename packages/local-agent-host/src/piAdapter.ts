@@ -89,9 +89,7 @@ function catalogEnv(
   delete env.TANGENT_MODEL_CATALOG_TOKEN;
   delete env.TANGENT_MODEL_CATALOG_URL;
   delete env.TANGENT_MODEL_CATALOG_FILE;
-  if (!command.modelCatalog) return env;
-  if (!options.proxyUrl)
-    throw new Error("Deployment catalog requires a configured local proxy");
+  if (!command.modelCatalog || !options.proxyUrl) return env;
   env.TANGENT_MODEL_CATALOG_JSON = JSON.stringify(
     parseModelCatalog(command.modelCatalog),
   );

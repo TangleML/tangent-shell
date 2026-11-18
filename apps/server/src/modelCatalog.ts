@@ -7,7 +7,9 @@ import {
 
 function catalogUrl(value: string): URL {
   const parsed = new URL(value);
-  const loopback = ["localhost", "127.0.0.1"].includes(parsed.hostname);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
+    parsed.hostname,
+  );
   if (parsed.username || parsed.password)
     throw new Error("Catalog URL must not contain credentials");
   if (parsed.protocol === "https:") return parsed;

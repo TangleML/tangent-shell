@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { piEnv } from "@tangent/local-agent-host/piAdapter.ts";
+import localProvider from "@tangent/local-agent-host/resources/proxyProvider.ts";
 import { parseModelCatalog } from "@tangent/shared/modelCatalog.ts";
 
-import localProvider from "../../../packages/local-agent-host/resources/proxyProvider.ts";
-import { piEnv } from "../../../packages/local-agent-host/src/piAdapter.ts";
 import serverProvider from "./pi/extensions/proxyProvider.ts";
 
 const model = {
@@ -108,8 +108,9 @@ test("local hosts receive validated model data, not catalog-fetch credentials", 
     parseModelCatalog(fixture),
   );
   assert.equal(env.TANGENT_MODEL_CATALOG_TOKEN, undefined);
-  assert.throws(
-    () => piEnv(command, { ...options, proxyUrl: undefined }),
-    /configured local proxy/,
+  assert.equal(
+    piEnv(command, { ...options, proxyUrl: undefined })
+      .TANGENT_MODEL_CATALOG_JSON,
+    undefined,
   );
 });

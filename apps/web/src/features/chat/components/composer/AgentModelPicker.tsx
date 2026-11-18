@@ -2,6 +2,7 @@ import {
   AVAILABLE_MODELS,
   DEFAULT_MODEL_ID,
   DEFAULT_THINKING_LEVEL,
+  type ModelOption,
   THINKING_LEVELS,
   type ThinkingLevel,
 } from "@tangent/shared/contracts";
@@ -33,7 +34,7 @@ interface AgentModelPickerProps extends AgentModelPickerValue {
 }
 
 /** Resolves a model id to its display label, falling back to the raw id. */
-function modelLabel(model: string, models = AVAILABLE_MODELS): string {
+function modelLabel(model: string, models: ModelOption[]): string {
   return models.find((m) => m.id === model)?.label ?? model;
 }
 
@@ -95,14 +96,14 @@ export function AgentModelPicker({
         (level) => capabilities.thinkingLevelMap[level] != null,
       )
     : THINKING_LEVELS;
-  disabled = disabled || isLoading || isError;
+  const isDisabled = disabled || isLoading || isError;
   const effectiveThinking = thinkingDepth ?? DEFAULT_THINKING_LEVEL;
 
   return (
     <InlineStack gap="1" blockAlign="center" wrap="nowrap">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="toolbar" size="xs" disabled={disabled}>
+          <Button variant="toolbar" size="xs" disabled={isDisabled}>
             <Icon name="Cpu" size="xs" tone="subdued" />
             <Text size="xs">{modelLabel(effectiveModel, models)}</Text>
             <Icon name="ChevronDown" size="xs" tone="subdued" />
@@ -127,7 +128,7 @@ export function AgentModelPicker({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="toolbar" size="xs" disabled={disabled}>
+          <Button variant="toolbar" size="xs" disabled={isDisabled}>
             <Icon name="Brain" size="xs" tone="subdued" />
             <Text size="xs" tone="subdued">
               {thinkingLabel(effectiveThinking)}
