@@ -243,6 +243,14 @@ export const AUTH_JWT_TOKEN_COOKIE_NAME =
   process.env.AUTH_JWT_TOKEN_COOKIE_NAME ?? "";
 
 /**
+ * Name of a request header carrying the same JWT, for deployments behind a
+ * proxy that forwards it as a header but drops cookies. Empty disables it.
+ */
+export const AUTH_JWT_TOKEN_HEADER_NAME = (
+  process.env.AUTH_JWT_TOKEN_HEADER_NAME ?? ""
+).toLowerCase();
+
+/**
  * Origins allowed to embed the UI cross-origin (the host pages running
  * `@tangent/embed-react`). Comma-separated; drives both the `/api` CORS headers
  * and the Socket.IO handshake allowlist. Empty by default so a same-origin

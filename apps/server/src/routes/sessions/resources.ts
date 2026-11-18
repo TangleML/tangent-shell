@@ -115,10 +115,7 @@ async function handleAddResource(
   if (!session) return;
 
   const author =
-    body.kind === "host"
-      ? resolveUserIdentity(req.headers.cookie, req.headers.authorization)
-          ?.email
-      : undefined;
+    body.kind === "host" ? resolveUserIdentity(req.headers)?.email : undefined;
   const resource = await applyResourceInput(
     seedDeps(deps),
     session.id,

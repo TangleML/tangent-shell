@@ -142,6 +142,7 @@ the full list and defaults):
 | `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets         |
 | `TANGLE_TOKEN`                                    | Optional cookie string injected server-side for egress         |
 | `AUTH_JWT_TOKEN_COOKIE_NAME`                      | Optional auth cookie name for `/api/me`                        |
+| `AUTH_JWT_TOKEN_HEADER_NAME`                      | Optional auth header name, for proxies that drop cookies       |
 | `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                        |
 | `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh` |
 

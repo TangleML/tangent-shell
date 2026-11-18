@@ -48,8 +48,7 @@ export async function resolvePermissions(
   };
 }
 
-/** The caller's email from its bearer JWT or auth cookie, if any. */
+/** The caller's email from its bearer JWT, auth header or cookie, if any. */
 export function requestEmail(req: Request): string | undefined {
-  return resolveUserIdentity(req.headers.cookie, req.headers.authorization)
-    ?.email;
+  return resolveUserIdentity(req.headers)?.email;
 }
