@@ -1,11 +1,11 @@
 /**
- * Packs the tangent-acp-attach skill into a self-contained zip.
+ * Packs a skill (default tangent-acp-attach) into a self-contained zip.
  *
  * Expects `esbuild.mjs` to have run first (the root `package` script chains
  * them). Reads the repo-root `.env`, keeps only the keys the client reads for
  * Oktasso auth, writes that vendored config into the skill dir as both `.env`
  * and `sso.config`, and zips the SKILL.md, the bundled client, and both config
- * files into `tangent-acp-attach.zip`.
+ * files into `<skill-name>.zip`.
  *
  * The vendored config lets the extracted skill authenticate out of the box;
  * `sso.config` is a fallback for distribution channels that strip `.env`. Real
@@ -21,7 +21,16 @@ import { zipSync } from "fflate";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..");
-const skillDir = resolve(repoRoot, ".claude/skills/tangent-acp-attach");
+
+// Optional args: <skill-name> <bundle-file> [skill-dir]; defaults pack acp-attach.
+const [
+  skillName = "tangent-acp-attach",
+  bundleName = "tangent-acp-attach.mjs",
+  skillDirArg,
+] = process.argv.slice(2);
+const skillDir = skillDirArg
+  ? resolve(process.cwd(), skillDirArg)
+  : resolve(repoRoot, ".claude/skills", skillName);
 
 // The only variables the client reads for Oktasso auth. Unrelated secrets
 // (REMOTE_ENV_TOKEN, PI_PROXY_API_KEY, TANGLE_*, ...) are deliberately dropped.
@@ -63,21 +72,19 @@ const env = vendoredEnv();
 writeFileSync(resolve(skillDir, ".env"), env);
 writeFileSync(resolve(skillDir, "sso.config"), env);
 
-const bundle = readFileSync(
-  resolve(skillDir, "scripts/tangent-acp-attach.mjs"),
-);
+const bundle = readFileSync(resolve(skillDir, "scripts", bundleName));
 const skillMd = readFileSync(resolve(skillDir, "SKILL.md"));
 
 // Fixed mtime keeps repacks byte-identical; fflate adds no __MACOSX junk.
 const files = {
   "SKILL.md": new Uint8Array(skillMd),
-  "scripts/tangent-acp-attach.mjs": new Uint8Array(bundle),
+  [`scripts/${bundleName}`]: new Uint8Array(bundle),
   ".env": new Uint8Array(Buffer.from(env)),
   "sso.config": new Uint8Array(Buffer.from(env)),
 };
 const zipped = zipSync(files, { mtime: new Date(2020, 0, 1, 12) });
 
-const outPath = resolve(skillDir, "tangent-acp-attach.zip");
+const outPath = resolve(skillDir, `${skillName}.zip`);
 writeFileSync(outPath, zipped);
 
 console.log(`packed ${Object.keys(files).length} files -> ${outPath}`);
