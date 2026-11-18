@@ -172,7 +172,7 @@ export const PI_MODEL = process.env.PI_MODEL ?? DEFAULT_MODEL;
 /**
  * Default thinking depth Pi is spawned with via `--thinking` when an agent has
  * no explicit selection. One of Pi's levels: off, minimal, low, medium, high,
- * xhigh. Overridable per environment and per agent at runtime.
+ * xhigh, max. Overridable per environment and per agent at runtime.
  */
 export const PI_THINKING = process.env.PI_THINKING ?? DEFAULT_THINKING_LEVEL;
 

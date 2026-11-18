@@ -6,6 +6,12 @@ import {
   THINKING_LEVELS,
   type ThinkingLevel,
 } from "@tangent/shared/contracts";
+import {
+  findCatalogModel,
+  nearestThinkingLevel,
+  resolveCatalogSelection,
+  supportedThinkingLevels,
+} from "@tangent/shared/modelCatalog";
 import { Box } from "@tangent/ui-primitives/box";
 import { Button } from "@tangent/ui-primitives/button";
 import {
@@ -27,7 +33,10 @@ export interface AgentModelPickerValue {
 }
 
 interface AgentModelPickerProps extends AgentModelPickerValue {
-  /** Called with the single changed field (model or thinking depth). */
+  /**
+   * Called with the changed field. A model change also carries a thinking
+   * depth when the new model cannot run the current one.
+   */
   onChange: (selection: AgentModelPickerValue) => void;
   /** Disables the trigger (e.g. while disconnected). */
   disabled?: boolean;
@@ -87,17 +96,29 @@ export function AgentModelPicker({
         provider: m.tangentModelId.split("/")[0],
       }))
     : AVAILABLE_MODELS;
-  const effectiveModel = model ?? catalog?.defaults.tangent ?? DEFAULT_MODEL_ID;
-  const capabilities = catalog?.models.find(
-    (m) => m.tangentModelId === effectiveModel,
-  );
-  const thinkingLevels = capabilities
-    ? THINKING_LEVELS.filter(
-        (level) => capabilities.thinkingLevelMap[level] != null,
-      )
-    : THINKING_LEVELS;
+  const effectiveModel = catalog
+    ? resolveCatalogSelection(catalog, model)
+    : (model ?? DEFAULT_MODEL_ID);
+  const levelsFor = (id: string): readonly ThinkingLevel[] => {
+    const capabilities = catalog && findCatalogModel(catalog, id);
+    return capabilities
+      ? supportedThinkingLevels(capabilities)
+      : THINKING_LEVELS;
+  };
+  const thinkingLevels = levelsFor(effectiveModel);
   const isDisabled = disabled || isLoading || isError;
-  const effectiveThinking = thinkingDepth ?? DEFAULT_THINKING_LEVEL;
+  const effectiveThinking = nearestThinkingLevel(
+    thinkingDepth ?? DEFAULT_THINKING_LEVEL,
+    thinkingLevels,
+  );
+  const selectModel = (id: string) => {
+    const depth = nearestThinkingLevel(effectiveThinking, levelsFor(id));
+    onChange(
+      depth === effectiveThinking
+        ? { model: id }
+        : { model: id, thinkingDepth: depth },
+    );
+  };
 
   return (
     <InlineStack gap="1" blockAlign="center" wrap="nowrap">
@@ -120,7 +141,7 @@ export function AgentModelPicker({
               key={option.id}
               label={option.label}
               selected={option.id === effectiveModel}
-              onSelect={() => onChange({ model: option.id })}
+              onSelect={() => selectModel(option.id)}
             />
           ))}
         </DropdownMenuContent>

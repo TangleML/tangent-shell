@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { THINKING_LEVELS, type ThinkingLevel } from "./contracts.ts";
+
 const effort = z.enum([
   "none",
   "minimal",
@@ -103,4 +105,47 @@ export function parseModelCatalog(value: unknown): ModelCatalog {
   const catalog = catalogSchema.parse(value);
   validateReferences(catalog);
   return catalog;
+}
+
+/**
+ * Matches a stored selection to a catalog model. Selections predating the
+ * catalog are `provider/model` ids from {@link AVAILABLE_MODELS}, so the
+ * provider prefix is ignored and stale ids go through `replacements`.
+ */
+export function findCatalogModel(
+  catalog: ModelCatalog,
+  selected: string,
+): CatalogModel | undefined {
+  const trimmed = selected.trim();
+  const bare = trimmed.slice(trimmed.indexOf("/") + 1);
+  const id = catalog.replacements[bare] ?? bare;
+  return catalog.models.find((m) => m.id === id);
+}
+
+/** The `tangentModelId` to run, falling back to the catalog's Tangent default. */
+export function resolveCatalogSelection(
+  catalog: ModelCatalog,
+  selected: string | undefined,
+): string {
+  return (
+    (selected && findCatalogModel(catalog, selected)?.tangentModelId) ||
+    catalog.defaults.tangent
+  );
+}
+
+export function supportedThinkingLevels(model: CatalogModel): ThinkingLevel[] {
+  return THINKING_LEVELS.filter(
+    (level) => model.thinkingLevelMap[level] != null,
+  );
+}
+
+/** The supported level closest to `wanted`, preferring the shallower one on a tie. */
+export function nearestThinkingLevel(
+  wanted: ThinkingLevel,
+  supported: readonly ThinkingLevel[],
+): ThinkingLevel {
+  const index = THINKING_LEVELS.indexOf(wanted);
+  const distance = (level: ThinkingLevel) =>
+    Math.abs(THINKING_LEVELS.indexOf(level) - index);
+  return [...supported].sort((a, b) => distance(a) - distance(b))[0] ?? wanted;
 }

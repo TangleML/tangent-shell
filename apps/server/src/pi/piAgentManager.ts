@@ -38,6 +38,7 @@ import type {
 import {
   catalogSpawnEnv,
   resolveCatalogModel,
+  resolveCatalogThinking,
   withoutCatalogCredentials,
 } from "../modelCatalog.ts";
 import type {
@@ -363,10 +364,16 @@ function splitModel(selected: string | undefined): {
  * back to the server defaults ({@link PI_MODEL} / {@link PI_THINKING}).
  */
 function resolveModelArgs(config: AgentConfig): ModelArgs {
-  const { provider, model } = splitModel(
-    resolveCatalogModel(config.model?.trim()),
-  );
-  return { provider, model, thinking: config.thinkingDepth ?? PI_THINKING };
+  const selected = config.model?.trim();
+  const { provider, model } = splitModel(resolveCatalogModel(selected));
+  return {
+    provider,
+    model,
+    thinking: resolveCatalogThinking(
+      selected,
+      config.thinkingDepth ?? PI_THINKING,
+    ),
+  };
 }
 
 /**

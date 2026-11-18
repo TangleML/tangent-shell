@@ -1,8 +1,16 @@
 import { readFile } from "node:fs/promises";
 
 import {
+  THINKING_LEVELS,
+  type ThinkingLevel,
+} from "@tangent/shared/contracts.ts";
+import {
+  findCatalogModel,
   type ModelCatalog,
+  nearestThinkingLevel,
   parseModelCatalog,
+  resolveCatalogSelection,
+  supportedThinkingLevels,
 } from "@tangent/shared/modelCatalog.ts";
 
 function catalogUrl(value: string): URL {
@@ -45,17 +53,35 @@ export const modelCatalog = await loadConfiguredCatalog();
 
 export function resolveCatalogModel(selected?: string): string | undefined {
   if (!modelCatalog) return selected;
-  if (!selected) return modelCatalog.defaults.tangent;
-  const bare = bareModelId(selected);
-  const id = modelCatalog.replacements[bare] ?? bare;
-  const model = modelCatalog.models.find((m) => m.id === id);
-  return model?.tangentModelId ?? selected;
+  const resolved = resolveCatalogSelection(modelCatalog, selected);
+  if (selected && !findCatalogModel(modelCatalog, selected)) {
+    console.warn(
+      `[catalog] "${selected}" is not in the deployment catalog; using ${resolved}`,
+    );
+  }
+  return resolved;
 }
 
-function bareModelId(selected: string): string {
-  return selected.includes("/")
-    ? selected.slice(selected.indexOf("/") + 1)
-    : selected;
+function isThinkingLevel(value: string): value is ThinkingLevel {
+  return (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+/**
+ * Stored depths can predate the catalog, so the depth Pi is launched with is
+ * clamped to what the resolved catalog model supports.
+ */
+export function resolveCatalogThinking<T extends string | undefined>(
+  selected: string | undefined,
+  thinking: T,
+): T {
+  if (!modelCatalog || thinking === undefined || !isThinkingLevel(thinking))
+    return thinking;
+  const model = findCatalogModel(
+    modelCatalog,
+    selected || modelCatalog.defaults.tangent,
+  );
+  if (!model) return thinking;
+  return nearestThinkingLevel(thinking, supportedThinkingLevels(model)) as T;
 }
 
 export function withoutCatalogCredentials(
@@ -75,9 +101,13 @@ export function catalogSpawnEnv(): Record<string, string> {
     : {};
 }
 
-export function remoteCatalogConfig(selected?: string) {
+export function remoteCatalogConfig(
+  selected: string | undefined,
+  thinkingDepth: ThinkingLevel | undefined,
+) {
   return {
     ...(modelCatalog ? { modelCatalog } : {}),
     model: resolveCatalogModel(selected),
+    thinkingDepth: resolveCatalogThinking(selected, thinkingDepth),
   };
 }

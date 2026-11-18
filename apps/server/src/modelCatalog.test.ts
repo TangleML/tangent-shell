@@ -3,7 +3,13 @@ import test from "node:test";
 
 import { piEnv } from "@tangent/local-agent-host/piAdapter.ts";
 import localProvider from "@tangent/local-agent-host/resources/proxyProvider.ts";
-import { parseModelCatalog } from "@tangent/shared/modelCatalog.ts";
+import {
+  findCatalogModel,
+  nearestThinkingLevel,
+  parseModelCatalog,
+  resolveCatalogSelection,
+  supportedThinkingLevels,
+} from "@tangent/shared/modelCatalog.ts";
 
 import serverProvider from "./pi/extensions/proxyProvider.ts";
 
@@ -113,4 +119,41 @@ test("local hosts receive validated model data, not catalog-fetch credentials", 
       .TANGENT_MODEL_CATALOG_JSON,
     undefined,
   );
+});
+
+test("stored selections resolve through provider prefixes and replacements", () => {
+  const catalog = parseModelCatalog(fixture);
+  for (const selected of [
+    model.id,
+    model.tangentModelId,
+    `openai/${model.id}`,
+    "old-example",
+    "anthropic/old-example",
+  ]) {
+    assert.equal(findCatalogModel(catalog, selected)?.id, model.id, selected);
+    assert.equal(
+      resolveCatalogSelection(catalog, selected),
+      model.tangentModelId,
+    );
+  }
+  assert.equal(findCatalogModel(catalog, "openai/gone"), undefined);
+  assert.equal(
+    resolveCatalogSelection(catalog, "openai/gone"),
+    model.tangentModelId,
+  );
+  assert.equal(
+    resolveCatalogSelection(catalog, undefined),
+    model.tangentModelId,
+  );
+});
+
+test("thinking depth clamps to the nearest level the model supports", () => {
+  const supported = supportedThinkingLevels(
+    parseModelCatalog(fixture).models[0],
+  );
+  assert.deepEqual(supported, ["low", "high", "xhigh", "max"]);
+  assert.equal(nearestThinkingLevel("high", supported), "high");
+  assert.equal(nearestThinkingLevel("medium", supported), "low");
+  assert.equal(nearestThinkingLevel("off", supported), "low");
+  assert.equal(nearestThinkingLevel("minimal", []), "minimal");
 });
