@@ -9,6 +9,8 @@ import type {
   MembershipView,
   ParticipantView,
   ParticipantWithMemberships,
+  ReinstallBundleRequest,
+  ReinstallBundleResponse,
   RemoteEnvironmentInfo,
   Resource,
   Session,
@@ -69,6 +71,28 @@ export async function updateSession(
     }),
   );
   return data.session;
+}
+
+/**
+ * Reinstalls the session's stored bundle and restarts its agents. Surfaces the
+ * server's `error` text (e.g. the session is mid-run) rather than raw JSON.
+ */
+export async function reinstallSessionBundle(
+  id: string,
+  input: ReinstallBundleRequest,
+): Promise<ReinstallBundleResponse> {
+  const res = await apiFetch(`/api/sessions/${id}/bundle/reinstall`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => undefined)) as
+      | { error?: string }
+      | undefined;
+    throw new Error(body?.error ?? `Reinstall failed (status ${res.status})`);
+  }
+  return (await res.json()) as ReinstallBundleResponse;
 }
 
 /**

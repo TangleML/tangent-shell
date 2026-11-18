@@ -5,14 +5,20 @@ import { BlockStack } from "@tangent/ui-primitives/layout";
 import { useState } from "react";
 
 import {
+  SessionBundleReinstallConfirm,
   SessionDeleteConfirm,
   SessionRenameForm,
 } from "@/features/sessions/components/sessionActionForms";
+import {
+  type BundleUpdate,
+  useBundleUpdate,
+} from "@/features/sessions/hooks/useBundleUpdate";
 import { useDeleteSession } from "@/features/sessions/hooks/useDeleteSession";
+import { useReinstallBundle } from "@/features/sessions/hooks/useReinstallBundle";
 import { useUpdateSession } from "@/features/sessions/hooks/useUpdateSession";
 
 /** Which sub-view the actions popover currently shows. */
-type View = "menu" | "rename" | "delete";
+type View = "menu" | "rename" | "delete" | "bundle";
 
 interface SessionActionsMenuProps {
   session: Session;
@@ -23,10 +29,10 @@ interface SessionActionsMenuProps {
 }
 
 /**
- * Per-row actions for a session: rename, archive/unarchive, and delete. Fills
- * the row's actions popover, switching between a menu, an inline rename form,
- * and an inline delete confirmation — keeping all three in one anchored surface
- * without a separate dialog primitive. The popover unmounts it on close, so each
+ * Per-row actions for a session: rename, archive/unarchive, bundle
+ * update/reinstall, and delete. Fills the row's actions popover, switching
+ * between a menu and inline rename, bundle and delete views — keeping them in
+ * one anchored surface without a separate dialog primitive. The popover unmounts it on close, so each
  * open starts at the menu.
  */
 export function SessionActionsMenu({
@@ -38,6 +44,8 @@ export function SessionActionsMenu({
 
   const updateSession = useUpdateSession();
   const deleteSession = useDeleteSession();
+  const reinstallBundle = useReinstallBundle();
+  const bundleUpdate = useBundleUpdate(session);
 
   const toggleArchive = () => {
     updateSession.mutate({
@@ -69,6 +77,20 @@ export function SessionActionsMenu({
     );
   };
 
+  // Awaited like delete: closing the popover unmounts this mid-request, and a
+  // failure keeps the confirm open with the error shown.
+  const confirmReinstall = async () => {
+    try {
+      await reinstallBundle.mutateAsync({
+        id: session.id,
+        input: { version: bundleUpdate?.storedVersion },
+      });
+    } catch {
+      return;
+    }
+    onClose();
+  };
+
   // Awaited rather than a mutate callback, which React Query skips if closing
   // the popover unmounts this mid-request. A failure keeps the confirm open.
   const confirmDelete = async () => {
@@ -92,6 +114,19 @@ export function SessionActionsMenu({
     );
   }
 
+  if (view === "bundle" && bundleUpdate) {
+    return (
+      <SessionBundleReinstallConfirm
+        installedVersion={bundleUpdate.installedVersion}
+        storedVersion={bundleUpdate.storedVersion}
+        pending={reinstallBundle.isPending}
+        error={reinstallBundle.error?.message}
+        onConfirm={() => void confirmReinstall()}
+        onCancel={() => setView("menu")}
+      />
+    );
+  }
+
   if (view === "delete") {
     return (
       <SessionDeleteConfirm
@@ -109,6 +144,8 @@ export function SessionActionsMenu({
       onRename={() => setView("rename")}
       onToggleArchive={toggleArchive}
       onToggleAccess={toggleAccess}
+      bundleUpdate={bundleUpdate}
+      onBundle={() => setView("bundle")}
       onDelete={() => setView("delete")}
     />
   );
@@ -120,6 +157,8 @@ interface MenuViewProps {
   onRename: () => void;
   onToggleArchive: () => void;
   onToggleAccess: () => void;
+  bundleUpdate: BundleUpdate | undefined;
+  onBundle: () => void;
   onDelete: () => void;
 }
 
@@ -129,6 +168,8 @@ function MenuView({
   onRename,
   onToggleArchive,
   onToggleAccess,
+  bundleUpdate,
+  onBundle,
   onDelete,
 }: MenuViewProps) {
   const open = accessPolicy === "open";
@@ -168,6 +209,20 @@ function MenuView({
         />
         {archived ? "Unarchive" : "Archive"}
       </Button>
+      {bundleUpdate ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          align="start"
+          fullWidth
+          onClick={onBundle}
+        >
+          <Icon name="RefreshCw" size="xs" tone="subdued" />
+          {bundleUpdate.updateAvailable
+            ? `Update bundle to v${bundleUpdate.storedVersion}`
+            : "Reinstall bundle"}
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         tone="critical"

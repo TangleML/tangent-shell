@@ -87,6 +87,12 @@ export const createSessionSchema = z.object({
 });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 
+/** `POST /:id/bundle/reinstall` body; an empty body reinstalls what is stored. */
+export const reinstallBundleSchema = z
+  .object({ version: z.string().min(1).optional() })
+  .default({});
+export type ReinstallBundleInput = z.infer<typeof reinstallBundleSchema>;
+
 /** `DELETE /:id/resources` query: the resource uri to remove. */
 export const deleteResourceQuerySchema = z.object({
   uri: z.string().min(1),
