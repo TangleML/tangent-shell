@@ -13,6 +13,8 @@ import {
   supportedThinkingLevels,
 } from "@tangent/shared/modelCatalog.ts";
 
+import { TANGLE_API_URL } from "./config.ts";
+
 function catalogUrl(value: string): URL {
   const parsed = new URL(value);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
@@ -25,10 +27,32 @@ function catalogUrl(value: string): URL {
   throw new Error("Catalog URL requires HTTPS");
 }
 
+/**
+ * A catalog on the Tangle API origin is authenticated the way the rest of the
+ * server's Tangle egress is: `TANGLE_TOKEN` as a Cookie header. An explicit
+ * catalog token is a bearer for any other host.
+ */
+interface CatalogCredentialEnv {
+  TANGENT_MODEL_CATALOG_TOKEN?: string;
+  TANGLE_TOKEN?: string;
+}
+
+export function catalogRequestHeaders(
+  url: URL,
+  env: CatalogCredentialEnv,
+  tangleApiUrl = TANGLE_API_URL,
+): Record<string, string> {
+  if (env.TANGENT_MODEL_CATALOG_TOKEN)
+    return { Authorization: `Bearer ${env.TANGENT_MODEL_CATALOG_TOKEN}` };
+  if (env.TANGLE_TOKEN && url.origin === new URL(tangleApiUrl).origin)
+    return { cookie: env.TANGLE_TOKEN };
+  return {};
+}
+
 async function fetchCatalog(url: string): Promise<ModelCatalog> {
-  const token = process.env.TANGENT_MODEL_CATALOG_TOKEN;
-  const response = await fetch(catalogUrl(url), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const target = catalogUrl(url);
+  const response = await fetch(target, {
+    headers: catalogRequestHeaders(target, process.env),
     signal: AbortSignal.timeout(10000),
     redirect: "error",
   });

@@ -11,6 +11,7 @@ import {
   supportedThinkingLevels,
 } from "@tangent/shared/modelCatalog.ts";
 
+import { catalogRequestHeaders } from "./modelCatalog.ts";
 import serverProvider from "./pi/extensions/proxyProvider.ts";
 
 const model = {
@@ -156,4 +157,27 @@ test("thinking depth clamps to the nearest level the model supports", () => {
   assert.equal(nearestThinkingLevel("medium", supported), "low");
   assert.equal(nearestThinkingLevel("off", supported), "low");
   assert.equal(nearestThinkingLevel("minimal", []), "minimal");
+});
+
+test("a catalog on the Tangle API origin is fetched with the Tangle cookie", () => {
+  const tangle = "https://tangle.example.com";
+  const onTangle = new URL(`${tangle}/api/models`);
+  const elsewhere = new URL("https://other.example.com/models");
+  const cookie = "MINERVA_TOKEN=session";
+  assert.deepEqual(
+    catalogRequestHeaders(onTangle, { TANGLE_TOKEN: cookie }, tangle),
+    { cookie },
+  );
+  assert.deepEqual(
+    catalogRequestHeaders(elsewhere, { TANGLE_TOKEN: cookie }, tangle),
+    {},
+  );
+  assert.deepEqual(
+    catalogRequestHeaders(
+      onTangle,
+      { TANGLE_TOKEN: cookie, TANGENT_MODEL_CATALOG_TOKEN: "t" },
+      tangle,
+    ),
+    { Authorization: "Bearer t" },
+  );
 });

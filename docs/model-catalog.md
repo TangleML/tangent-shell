@@ -5,7 +5,10 @@ supply a schema-version-1 catalog through one of:
 
 - `TANGENT_MODEL_CATALOG_FILE`: absolute path to a trusted JSON configuration.
 - `TANGENT_MODEL_CATALOG_URL`: trusted HTTPS endpoint (loopback HTTP allowed).
-  `TANGENT_MODEL_CATALOG_TOKEN` optionally supplies its bearer credential.
+  When it is on the `TANGLE_API_URL` origin, the request carries `TANGLE_TOKEN`
+  as its Cookie header, exactly like the server's other Tangle API calls.
+  `TANGENT_MODEL_CATALOG_TOKEN` optionally supplies a bearer credential instead,
+  for catalogs served elsewhere.
 
 Use only one source. Configured failures fail startup rather than silently
 substituting another catalog. Catalog fetches have a ten-second timeout and
@@ -34,7 +37,8 @@ and currently zero-filled, not evidence of free inference.
 ## Test setup
 
 Start the server with `TANGENT_MODEL_CATALOG_FILE=/absolute/path/models.json`,
-or configure the URL and its deployment-managed bearer token. Verify:
+or configure the URL (plus `TANGLE_TOKEN` for a Tangle-hosted catalog, or a
+bearer token for another host). Verify:
 
 1. `/api/config/models` returns the expected version/defaults.
 2. The picker shows the catalog choices and supported thinking levels.
