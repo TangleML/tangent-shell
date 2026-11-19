@@ -53,6 +53,7 @@ import { createMcpRelayRouter } from "./routes/mcp.ts";
 import { createMeRouter } from "./routes/me.ts";
 import { createSessionsRouter } from "./routes/sessions/index.ts";
 import { createSharedFoldersRouter } from "./routes/sharedFolders.ts";
+import { handleGetVersion } from "./routes/version.ts";
 import { RunRegistry } from "./runs/runRegistry.ts";
 import {
   createAgentEventHandler,
@@ -423,6 +424,7 @@ app.get("/api/health", (req, res) => {
   );
   res.json({ ok: true, headers: req.headers, cookies });
 });
+app.get("/api/version", handleGetVersion);
 
 app.use(
   "/api/sessions",
