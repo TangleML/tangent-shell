@@ -14,7 +14,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: base — Node runtime, the CLI tools Pi needs, nginx, and Pi itself.
 # ---------------------------------------------------------------------------
-FROM node:24-bookworm-slim AS base
+FROM node:24-trixie-slim AS base
 
 # CLI tools the Pi agent's built-in tools (bash/grep/find) rely on at runtime,
 # plus nginx (reverse proxy) and gettext-base (envsubst, used to template the
