@@ -323,6 +323,43 @@ export class ParticipantService {
   }
 
   /**
+   * Materializes a Human Participant who turned up on their own — a session
+   * owner or an open-session guest that no {@link invite} ever added — so the
+   * roster lists everyone actually in the session, not only the invited. Keyed
+   * by email like {@link invite} and idempotent: an existing row (invited or
+   * already materialized) wins, so a prior display name and standing are left
+   * untouched. Gives them an inert Membership in the orchestrator's home
+   * Conversation — the thread every human reads — so the actor behind their
+   * messages is a real, listable Participant with somewhere it belongs.
+   */
+  async ensureHuman(
+    sessionId: string,
+    human: { id: string; displayName: string },
+  ): Promise<void> {
+    if (await this.participants.get(sessionId, human.id)) return;
+    await this.participants.put({
+      id: human.id,
+      sessionId,
+      kind: "human",
+      displayName: human.displayName,
+      capabilities: [],
+      presence: INVITED_PRESENCE,
+      connector: connectorFor("unresolved"),
+      revokedAt: undefined,
+      createdAt: new Date().toISOString(),
+    });
+    const conversationId =
+      await this.participantRegistry.orchestratorConversationId(sessionId);
+    await this.addMembership({
+      sessionId,
+      participantId: human.id,
+      conversationId,
+      reaction: INERT,
+    });
+    this.invalidate(sessionId);
+  }
+
+  /**
    * Records a Participant's live {@link Presence} and broadcasts it. A revoked or
    * absent Participant, or one already in this presence, is left alone.
    */

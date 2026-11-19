@@ -272,6 +272,44 @@ test("ensureAutomation is idempotent and materializes an inert member", async ()
   assert.equal(membership?.ingress, "reaction");
 });
 
+test("ensureHuman is idempotent and materializes an inert room member", async () => {
+  const { service, memberships, participantStore, sessions, session } =
+    await harness();
+
+  await service.ensureHuman(session.id, { id: "a@x", displayName: "Ada" });
+  await service.ensureHuman(session.id, { id: "a@x", displayName: "Renamed" });
+
+  const human = await participantStore.get(session.id, "a@x");
+  assert.equal(human?.kind, "human");
+  assert.equal(human?.presence, "away");
+  assert.equal(
+    human?.displayName,
+    "Ada",
+    "a second ensure leaves the first row's display name untouched",
+  );
+
+  const [prime] = await sessions.listAgents(session.id);
+  const membership = await memberships.memberIn(
+    session.id,
+    prime.homeConversationId,
+    "a@x",
+  );
+  assert.equal(membership?.reaction, "never");
+});
+
+test("ensureHuman leaves an invited human's row and standing alone", async () => {
+  const { service, participantStore, session } = await harness();
+  await service.invite(session.id, {
+    email: "a@x",
+    displayName: "Ada Invited",
+  });
+
+  await service.ensureHuman(session.id, { id: "a@x", displayName: "Ada" });
+
+  const human = await participantStore.get(session.id, "a@x");
+  assert.equal(human?.displayName, "Ada Invited");
+});
+
 test("muting preserves the reaction so unmute restores the exact standing", async () => {
   const { service, memberships, sessions, session } = await harness();
   const sub = await sessions.recordAgent(session.id, {
