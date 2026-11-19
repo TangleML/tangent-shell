@@ -503,7 +503,8 @@ app.use("/api/global-memory", createGlobalMemoryRouter(memory));
 app.use("/api/mcp", createMcpRelayRouter(mcpRelay, relayReport, correlations));
 // Returns the current user, derived from the Oktasso JWT cookie.
 app.use("/api/me", createMeRouter(bundleEditorStore));
-// Public, non-sensitive client config (e.g. the shell's public base URL).
+// Client config: the public shell URL, plus the installation-private model
+// catalog at /models (served only behind the deployment's auth gateway).
 app.use("/api/config", createConfigRouter());
 app.use(
   "/api/embed",

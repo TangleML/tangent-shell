@@ -21,6 +21,7 @@ import type {
   SubagentStatus,
   ThinkingLevel,
 } from "./contracts.ts";
+import type { ModelCatalog } from "./modelCatalog.ts";
 
 /**
  * Socket.IO namespace a remote environment connects to. Kept distinct from the
@@ -87,6 +88,8 @@ export type RemoteEnvEvent =
  * template/bundle machinery.
  */
 export interface RemoteSpawnCommand {
+  /** Trusted server catalog, delivered over the authenticated host connection. */
+  modelCatalog?: ModelCatalog;
   sessionId: string;
   /** Server-assigned id; the remote environment must echo it on every event. */
   agentId: string;

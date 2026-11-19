@@ -2,9 +2,16 @@ import {
   AVAILABLE_MODELS,
   DEFAULT_MODEL_ID,
   DEFAULT_THINKING_LEVEL,
+  type ModelOption,
   THINKING_LEVELS,
   type ThinkingLevel,
 } from "@tangent/shared/contracts";
+import {
+  findCatalogModel,
+  nearestThinkingLevel,
+  resolveCatalogSelection,
+  supportedThinkingLevels,
+} from "@tangent/shared/modelCatalog";
 import { Box } from "@tangent/ui-primitives/box";
 import { Button } from "@tangent/ui-primitives/button";
 import {
@@ -17,6 +24,8 @@ import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 
+import { useModelCatalog } from "@/shared/config/useModelCatalog";
+
 /** The model/thinking selection this picker reads and writes. */
 export interface AgentModelPickerValue {
   model?: string;
@@ -24,15 +33,18 @@ export interface AgentModelPickerValue {
 }
 
 interface AgentModelPickerProps extends AgentModelPickerValue {
-  /** Called with the single changed field (model or thinking depth). */
+  /**
+   * Called with the changed field. A model change also carries a thinking
+   * depth when the new model cannot run the current one.
+   */
   onChange: (selection: AgentModelPickerValue) => void;
   /** Disables the trigger (e.g. while disconnected). */
   disabled?: boolean;
 }
 
 /** Resolves a model id to its display label, falling back to the raw id. */
-function modelLabel(model: string): string {
-  return AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
+function modelLabel(model: string, models: ModelOption[]): string {
+  return models.find((m) => m.id === model)?.label ?? model;
 }
 
 /** Title-cases a thinking level for display. */
@@ -76,16 +88,45 @@ export function AgentModelPicker({
 }: AgentModelPickerProps) {
   // Show the real effective value even when the agent has no explicit selection
   // (it runs the server default), so the trigger never reads a generic "Default".
-  const effectiveModel = model ?? DEFAULT_MODEL_ID;
-  const effectiveThinking = thinkingDepth ?? DEFAULT_THINKING_LEVEL;
+  const { data: catalog, isLoading, isError } = useModelCatalog();
+  const models = catalog
+    ? catalog.models.map((m) => ({
+        id: m.tangentModelId,
+        label: m.label,
+        provider: m.tangentModelId.split("/")[0],
+      }))
+    : AVAILABLE_MODELS;
+  const effectiveModel = catalog
+    ? resolveCatalogSelection(catalog, model)
+    : (model ?? DEFAULT_MODEL_ID);
+  const levelsFor = (id: string): readonly ThinkingLevel[] => {
+    const capabilities = catalog && findCatalogModel(catalog, id);
+    return capabilities
+      ? supportedThinkingLevels(capabilities)
+      : THINKING_LEVELS;
+  };
+  const thinkingLevels = levelsFor(effectiveModel);
+  const isDisabled = disabled || isLoading || isError;
+  const effectiveThinking = nearestThinkingLevel(
+    thinkingDepth ?? DEFAULT_THINKING_LEVEL,
+    thinkingLevels,
+  );
+  const selectModel = (id: string) => {
+    const depth = nearestThinkingLevel(effectiveThinking, levelsFor(id));
+    onChange(
+      depth === effectiveThinking
+        ? { model: id }
+        : { model: id, thinkingDepth: depth },
+    );
+  };
 
   return (
     <InlineStack gap="1" blockAlign="center" wrap="nowrap">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="toolbar" size="xs" disabled={disabled}>
+          <Button variant="toolbar" size="xs" disabled={isDisabled}>
             <Icon name="Cpu" size="xs" tone="subdued" />
-            <Text size="xs">{modelLabel(effectiveModel)}</Text>
+            <Text size="xs">{modelLabel(effectiveModel, models)}</Text>
             <Icon name="ChevronDown" size="xs" tone="subdued" />
           </Button>
         </DropdownMenuTrigger>
@@ -95,12 +136,12 @@ export function AgentModelPicker({
               Model
             </Text>
           </Box>
-          {AVAILABLE_MODELS.map((option) => (
+          {models.map((option) => (
             <PickerRow
               key={option.id}
               label={option.label}
               selected={option.id === effectiveModel}
-              onSelect={() => onChange({ model: option.id })}
+              onSelect={() => selectModel(option.id)}
             />
           ))}
         </DropdownMenuContent>
@@ -108,7 +149,7 @@ export function AgentModelPicker({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="toolbar" size="xs" disabled={disabled}>
+          <Button variant="toolbar" size="xs" disabled={isDisabled}>
             <Icon name="Brain" size="xs" tone="subdued" />
             <Text size="xs" tone="subdued">
               {thinkingLabel(effectiveThinking)}
@@ -122,7 +163,7 @@ export function AgentModelPicker({
               Thinking depth
             </Text>
           </Box>
-          {THINKING_LEVELS.map((level) => (
+          {thinkingLevels.map((level) => (
             <PickerRow
               key={level}
               label={thinkingLabel(level)}

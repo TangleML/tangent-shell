@@ -228,6 +228,13 @@ export class LocalAgentBridge {
       );
       return;
     }
+    if (command.modelCatalog && !base.proxyUrl) {
+      this.fail(
+        hosted,
+        "This session uses a deployment model catalog, which needs a proxy URL configured on this host.",
+      );
+      return;
+    }
     const hostApi = await this.ensureHostApi();
     const launch = {
       ...base,

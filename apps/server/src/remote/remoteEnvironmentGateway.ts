@@ -57,6 +57,7 @@ import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import { orchestratorIdentity } from "../conversation/participantRegistry.ts";
 import type { ResourceCatalog } from "../conversation/resourceCatalog.ts";
 import { catalogWorkspaceFiles } from "../conversation/workspaceFiles.ts";
+import { remoteCatalogConfig } from "../modelCatalog.ts";
 import {
   parseThinkingLevel,
   type ResolvedSessionConfig,
@@ -467,14 +468,15 @@ export class RemoteEnvironmentGateway {
       request.autoRelayToPrime ?? config.autoRelayToPrime ?? true;
     const tools = [...config.tools];
 
+    const selection = remoteCatalogConfig(config.model, config.thinkingDepth);
     const subagent: RemoteSubagent = {
       agentId,
       homeConversationId,
       name: request.name,
       status: "active",
       template: request.template,
-      model: config.model,
-      thinkingDepth: config.thinkingDepth,
+      model: selection.model,
+      thinkingDepth: selection.thinkingDepth,
       createdAt: new Date().toISOString(),
       environmentId: environment.environmentId,
       autoRelayToPrime,
@@ -485,13 +487,12 @@ export class RemoteEnvironmentGateway {
     // Conversation, which arrives here as an ordinary delivery right after this
     // command. So the environment always spawns idle.
     const command: RemoteSpawnCommand = {
+      ...selection,
       sessionId,
       agentId,
       name: request.name,
       tools,
       systemPrompt: config.appendSystemPrompt,
-      model: config.model,
-      thinkingDepth: config.thinkingDepth,
       template: request.template,
       autoRelayToPrime,
     };
