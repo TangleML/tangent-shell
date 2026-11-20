@@ -21,6 +21,7 @@ import {
 } from "@/features/chat/model/references";
 import { uploadFiles } from "@/features/sessions/api/sessionsApi";
 
+import { useQuoteScope } from "../quote/quoteScope";
 import { ComposerShell } from "./ComposerShell";
 import { KilledAgentNotice } from "./KilledAgentNotice";
 import { QueuedFollowUps } from "./QueuedFollowUps";
@@ -118,8 +119,20 @@ export function ChatInput({
   // Tracks the previous busy state so we can detect the run-end transition and
   // flush the queue exactly once when the agent stops.
   const wasBusyRef = useRef(agentBusy);
-
+  // Quoting a message drops its excerpt into this composer's draft.
+  const quoteScope = useQuoteScope();
   const busy = disabled || uploading || runningCommand;
+  // The quote action stays hidden while nothing can take a quote: a killed
+  // agent has no composer, and a send or command in flight clears the draft
+  // when it finishes, which would drop an excerpt quoted meanwhile.
+  const composerReady = agentStatus !== "killed" && !busy;
+  const setComposerReady = quoteScope?.setComposerReady;
+
+  useEffect(() => {
+    if (!setComposerReady) return;
+    setComposerReady(composerReady);
+    return () => setComposerReady(false);
+  }, [setComposerReady, composerReady]);
   const canSubmit = !busy && (value.trim().length > 0 || files.length > 0);
 
   function handleValueChange(next: string) {
@@ -292,6 +305,8 @@ export function ChatInput({
         }
       }
       commands={onRunCommand ? commands : undefined}
+      insertion={quoteScope?.insertion}
+      onInsertionApplied={quoteScope?.consumeInsertion}
     >
       {commandError ? (
         <Text size="xs" tone="critical" role="alert">

@@ -19,6 +19,7 @@ import {
 import { ChatInput } from "../composer/ChatInput";
 import { ComposerFooter } from "../composer/ComposerFooter";
 import { ChatMessageList } from "../message/ChatMessageList";
+import { ConversationQuoting } from "../quote/ConversationQuoting";
 
 interface SubagentTabViewProps {
   sessionId: string;
@@ -105,47 +106,49 @@ export function SubagentTabView({
   pills,
 }: SubagentTabViewProps) {
   return (
-    <BlockStack grow>
-      <ChatMessageList
-        sessionId={sessionId}
-        messages={messages}
-        currentAuthorId={currentAuthorId}
-        primaryConversationId={primaryConversationId}
-        activity={activity}
-        activityAuthorName={name}
-        activityAuthorRole="subagent"
-        historyLoaded={historyLoaded}
-        bundleId={bundleId}
-        onOpenArtifact={onOpenArtifact}
-        pinnedPaths={pinnedPaths}
-        onTogglePinArtifact={onTogglePinArtifact}
-        isMessageStreaming={isMessageStreaming}
-      />
-      <ComposerFooter
-        pills={pills}
-        modelPicker={
-          <AgentModelPicker
-            model={model}
-            thinkingDepth={thinkingDepth}
-            onChange={onSetModel}
-            disabled={disabled}
-          />
-        }
-      />
-      <ChatInput
-        key={`${sessionId}:${agentId}`}
-        sessionId={sessionId}
-        agentId={agentId}
-        disabled={disabled}
-        agentBusy={busy}
-        agentStatus={status}
-        autoFocus={autoFocus}
-        mentionCandidates={mentionCandidates}
-        references={references}
-        onRemove={onRemove}
-        onAbort={onAbort}
-        onSubmit={onSubmit}
-      />
-    </BlockStack>
+    <ConversationQuoting>
+      <BlockStack grow>
+        <ChatMessageList
+          sessionId={sessionId}
+          messages={messages}
+          currentAuthorId={currentAuthorId}
+          primaryConversationId={primaryConversationId}
+          activity={activity}
+          activityAuthorName={name}
+          activityAuthorRole="subagent"
+          historyLoaded={historyLoaded}
+          bundleId={bundleId}
+          onOpenArtifact={onOpenArtifact}
+          pinnedPaths={pinnedPaths}
+          onTogglePinArtifact={onTogglePinArtifact}
+          isMessageStreaming={isMessageStreaming}
+        />
+        <ComposerFooter
+          pills={pills}
+          modelPicker={
+            <AgentModelPicker
+              model={model}
+              thinkingDepth={thinkingDepth}
+              onChange={onSetModel}
+              disabled={disabled}
+            />
+          }
+        />
+        <ChatInput
+          key={`${sessionId}:${agentId}`}
+          sessionId={sessionId}
+          agentId={agentId}
+          disabled={disabled}
+          agentBusy={busy}
+          agentStatus={status}
+          autoFocus={autoFocus}
+          mentionCandidates={mentionCandidates}
+          references={references}
+          onRemove={onRemove}
+          onAbort={onAbort}
+          onSubmit={onSubmit}
+        />
+      </BlockStack>
+    </ConversationQuoting>
   );
 }
