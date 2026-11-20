@@ -22,6 +22,11 @@ import {
   mentionToken,
 } from "@/features/chat/model/mentions";
 import {
+  appendQuoteToDraft,
+  type QuoteInsertion,
+  shouldApplyInsertion,
+} from "@/features/chat/model/quoting";
+import {
   type ChatReference,
   groupReferences,
   type PickedReferences,
@@ -129,6 +134,13 @@ interface ComposerShellProps {
   references?: ComposerReferences;
   /** What the `/` picker can run; omitted disables it. */
   commands?: readonly ChatCommand[];
+  /**
+   * A quoted excerpt to append to the draft. Applied once per `id`, never
+   * sent: the user still edits and submits it themselves.
+   */
+  insertion?: QuoteInsertion | null;
+  /** Reports the applied insertion so it is never replayed into a new composer. */
+  onInsertionApplied?: (id: string) => void;
   children?: ReactNode;
 }
 
@@ -161,6 +173,8 @@ export function ComposerShell({
   mentionCandidates = [],
   references,
   commands = [],
+  insertion,
+  onInsertionApplied,
   children,
 }: ComposerShellProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +182,8 @@ export function ComposerShell({
   const autoFocusedRef = useRef(false);
   const submittedFromKeyboardRef = useRef(false);
   const refocusWhenFreeRef = useRef(false);
+  const insertedRef = useRef<string | null>(null);
+  const caretRef = useRef<number | null>(null);
   const autocomplete = useComposerAutocomplete({
     value,
     onValueChange,
@@ -184,6 +200,24 @@ export function ComposerShell({
     // Embedded in a host page — don't scroll the host to reach the composer.
     textarea.focus({ preventScroll: true });
   }, [autoFocus, busy]);
+
+  useEffect(() => {
+    if (!shouldApplyInsertion(insertion, insertedRef.current)) return;
+    insertedRef.current = insertion.id;
+    const next = appendQuoteToDraft(value, insertion.text);
+    caretRef.current = next.length;
+    onValueChange(next);
+    textareaRef.current?.focus({ preventScroll: true });
+    onInsertionApplied?.(insertion.id);
+  }, [insertion, value, onValueChange, onInsertionApplied]);
+
+  // The caret lands after the quote once the controlled value has rendered.
+  useEffect(() => {
+    const caret = caretRef.current;
+    if (caret === null) return;
+    caretRef.current = null;
+    textareaRef.current?.setSelectionRange(caret, caret);
+  }, [value]);
 
   // Submitting can disable the textarea for a moment, as a slash command
   // does, which drops focus; give it back unless it has gone somewhere else.

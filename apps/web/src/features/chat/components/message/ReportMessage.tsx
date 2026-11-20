@@ -4,6 +4,7 @@ import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types
 import { apiUrl } from "@/shared/lib/basePath";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 
+import { QuotableMessage } from "../quote/QuotableMessage";
 import { CalloutMessage } from "./CalloutMessage";
 import { MessageAttachments } from "./MessageAttachments";
 
@@ -46,25 +47,27 @@ export function ReportMessage({
       content={message.content}
       onCollapse={onCollapse}
     >
-      {isAgent ? (
-        <Markdown
-          artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
-          bundleId={bundleId}
-          onSendPrompt={onSendPrompt}
-          onOpenArtifact={onOpenArtifact}
-          pinnedPaths={pinnedPaths}
-          onTogglePinArtifact={onTogglePinArtifact}
-          sessionId={sessionId}
-          messageId={message.id}
-          onCollapse={onCollapse}
-        >
-          {message.content}
-        </Markdown>
-      ) : (
-        <Paragraph size="sm" wrap="pre-wrap">
-          {message.content}
-        </Paragraph>
-      )}
+      <QuotableMessage messageId={message.id}>
+        {isAgent ? (
+          <Markdown
+            artifactBaseUrl={apiUrl(`/api/sessions/${sessionId}/files`)}
+            bundleId={bundleId}
+            onSendPrompt={onSendPrompt}
+            onOpenArtifact={onOpenArtifact}
+            pinnedPaths={pinnedPaths}
+            onTogglePinArtifact={onTogglePinArtifact}
+            sessionId={sessionId}
+            messageId={message.id}
+            onCollapse={onCollapse}
+          >
+            {message.content}
+          </Markdown>
+        ) : (
+          <Paragraph size="sm" wrap="pre-wrap">
+            {message.content}
+          </Paragraph>
+        )}
+      </QuotableMessage>
       {attachments.length > 0 ? (
         <MessageAttachments sessionId={sessionId} attachments={attachments} />
       ) : null}
