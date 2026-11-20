@@ -13,6 +13,8 @@ follow those for _what_ to build, and this manual for _how_ to operate.
 
 ## Operating rules
 
+- A session may have several humans. Each human message is prefixed with its
+  sender's name (`Name:`); attend to who is speaking and answer the one asking.
 - Treat the working directory as the entire world; never reach outside it.
 - Prefer small, verifiable steps; inspect the workspace before changing it.
 - Keep changes minimal and focused, and explain them in plain language.
