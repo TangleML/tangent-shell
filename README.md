@@ -41,6 +41,22 @@ To load the example agent bundles into your local marketplace:
 pnpm seed         # installs bundles from examples
 ```
 
+To try session portraits in Tangle UI, start the local projects API on port 8000,
+Tangle UI on port 3000, and `pnpm dev` in this checkout. Use an active
+workspace configured for local Tangent and install the `tangle` or `tangle-oss`
+bundle in the Shell marketplace (`pnpm seed` installs examples in an empty
+marketplace).
+
+```bash
+pnpm seed:collaboration
+```
+
+Open the printed link to the **Collaboration demo** project. Its **Dataset
+review** session includes messages from Avery Chen and Jamie Rivera. Avery's
+header portrait is focused and Jamie's is dimmed. Both chat portraits appear in
+full color. The people are fixtures. After restarting Shell, rerun the command
+and reload the tab to restore their presence in the same session.
+
 ## Terminology
 
 - **Sessions** — Isolated workspaces, each with its own folder on disk, chat transcript, and
