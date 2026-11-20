@@ -32,6 +32,7 @@ export function CommandResultMessage({
 
   return (
     <CalloutMessage
+      author={message.author}
       icon="SquareSlash"
       title={`${who} ran /${name}${args ? ` ${args}` : ""}`}
       createdAt={message.createdAt}

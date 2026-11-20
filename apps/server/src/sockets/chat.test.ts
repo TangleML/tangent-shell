@@ -259,9 +259,9 @@ test("joining an archived session loads its triggers without waking it", async (
       list: () => [],
     },
     participantService: {
-      get: async () => undefined,
       membershipsOf: async () => [],
-      ensureHuman: async () => {},
+      ensureHuman: async () => ({ kind: "human" }),
+      setPresence: async () => {},
     },
   } as unknown as ChatHandlerDeps;
   registerChatHandlers(deps);
@@ -345,9 +345,8 @@ test("closing the last browser socket detaches presence without cancelling the s
     },
     triggerEngine: { sync: () => {}, list: () => [] },
     participantService: {
-      get: async () => ({ id: "human" }),
       membershipsOf: async () => [],
-      ensureHuman: async () => {},
+      ensureHuman: async () => ({ kind: "human" }),
       setPresence: async (_sessionId: string, _id: string, state: string) => {
         presence.push(state);
       },
@@ -366,13 +365,9 @@ test("closing the last browser socket detaches presence without cancelling the s
 /** A join over mock deps that records who was materialized and marked present. */
 function joinHarness(target: Session) {
   const io = new EventEmitter();
-  const socket = Object.assign(new EventEmitter(), {
-    handshake: { headers: {}, auth: {} },
-    join: async () => {},
-  });
   const ensured: { id: string; displayName: string }[] = [];
   const present: string[] = [];
-  const roster = new Map<string, { id: string }>();
+  const roster = new Map<string, ChatAuthor & { revokedAt?: string }>();
   const deps = {
     io,
     presence: new PresenceTracker(),
@@ -391,14 +386,15 @@ function joinHarness(target: Session) {
     connectors: { revive: () => {}, list: () => [] },
     triggerEngine: { sync: () => {}, list: () => [] },
     participantService: {
-      get: async (_sessionId: string, id: string) => roster.get(id),
       membershipsOf: async () => [],
       ensureHuman: async (
         _sessionId: string,
         human: { id: string; displayName: string },
       ) => {
         ensured.push(human);
-        roster.set(human.id, { id: human.id });
+        const participant = roster.get(human.id) ?? humanAuthor(DEFAULT_USER);
+        roster.set(human.id, participant);
+        return participant;
       },
       setPresence: async (_sessionId: string, _id: string, state: string) => {
         present.push(state);
@@ -406,12 +402,21 @@ function joinHarness(target: Session) {
     },
   } as unknown as ChatHandlerDeps;
   registerChatHandlers(deps);
-  const run = async () => {
+  let tabCount = 0;
+  const connect = () => {
+    const socket = Object.assign(new EventEmitter(), {
+      id: `tab-${++tabCount}`,
+      handshake: { headers: {}, auth: {} },
+      join: async () => {},
+    });
     io.emit("connection", socket);
-    socket.emit(SocketEvents.ChatJoin, { sessionId: target.id });
+    return socket;
+  };
+  const run = async () => {
+    connect().emit(SocketEvents.ChatJoin, { sessionId: target.id });
     await new Promise<void>((resolve) => setImmediate(resolve));
   };
-  return { run, ensured, present };
+  return { connect, run, roster, ensured, present };
 }
 
 test("an authorized human is materialized on join and marked present", async () => {
@@ -432,6 +437,53 @@ test("a restricted session's uninvited visitor is not materialized", async () =>
 
   assert.deepEqual(h.ensured, []);
   assert.deepEqual(h.present, []);
+});
+
+test("session-only invitees and revoked people cannot publish focus", async () => {
+  const restricted = joinHarness(session(OWNER));
+  const open = joinHarness(session());
+  restricted.roster.set(DEFAULT_USER.email, humanAuthor(DEFAULT_USER));
+  open.roster.set(DEFAULT_USER.email, {
+    ...humanAuthor(DEFAULT_USER),
+    revokedAt: "2026-11-19",
+  });
+  for (const h of [restricted, open]) {
+    const socket = h.connect();
+    socket.emit(SocketEvents.ChatJoin, { sessionId: "s1" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    socket.emit(SocketEvents.ChatFocus, { sessionId: "s1", focused: true });
+    assert.deepEqual(h.present, []);
+  }
+});
+
+test("socket focus follows authorized joins, duplicate tabs, and disconnects during joins", async () => {
+  const h = joinHarness(session());
+  const first = h.connect();
+  const second = h.connect();
+  const sessionId = "s1";
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+  first.emit(SocketEvents.ChatJoin, { sessionId });
+  first.emit(SocketEvents.ChatFocus, { sessionId, focused: false });
+  await settle();
+  assert.deepEqual(h.present, ["away"]);
+
+  second.emit(SocketEvents.ChatFocus, { sessionId, focused: true });
+  await settle();
+  assert.deepEqual(h.present, ["away"]);
+
+  second.emit(SocketEvents.ChatJoin, { sessionId, focused: true });
+  await settle();
+  first.emit(SocketEvents.ChatFocus, { sessionId, focused: true });
+  second.emit("disconnect");
+  first.emit(SocketEvents.ChatFocus, { sessionId, focused: false });
+  first.emit("disconnect");
+
+  const closing = h.connect();
+  closing.emit(SocketEvents.ChatJoin, { sessionId });
+  closing.emit("disconnect");
+  await settle();
+  assert.deepEqual(h.present, ["away", "connected", "away", "detached"]);
 });
 
 /**
@@ -508,9 +560,9 @@ function rosterDeps(
     connectors: { revive: () => {}, list: () => live },
     triggerEngine: { sync: () => {}, list: () => [] },
     participantService: {
-      get: async () => undefined,
       membershipsOf: async () => [],
-      ensureHuman: async () => {},
+      ensureHuman: async () => ({ kind: "human" }),
+      setPresence: async () => {},
     },
   } as unknown as ChatHandlerDeps;
 }

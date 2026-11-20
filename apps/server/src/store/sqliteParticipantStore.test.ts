@@ -121,6 +121,28 @@ test("updatePresence moves only the presence column", async () => {
   assert.deepEqual(got?.capabilities, ["orchestrator"]);
 });
 
+test("a server restart detaches focused and background people while preserving agent presence", async () => {
+  const { store, sessionId } = await withSession();
+  await store.put(participant(sessionId, { id: "active", kind: "human" }));
+  await store.put(
+    participant(sessionId, {
+      id: "background",
+      kind: "human",
+      presence: "away",
+    }),
+  );
+  await store.put(participant(sessionId, { id: "agent" }));
+
+  store.resetHumanPresence();
+
+  assert.equal((await store.get(sessionId, "active"))?.presence, "detached");
+  assert.equal(
+    (await store.get(sessionId, "background"))?.presence,
+    "detached",
+  );
+  assert.equal((await store.get(sessionId, "agent"))?.presence, "connected");
+});
+
 test("revoke stamps revokedAt and clears capabilities, keeping the row", async () => {
   const { store, sessionId } = await withSession();
   await store.put(

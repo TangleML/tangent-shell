@@ -9,7 +9,6 @@ import {
 import { Text } from "@tangent/ui-primitives/typography";
 
 import { UserAvatar } from "@/features/user/components/UserAvatar";
-import { UserInitialsBadge } from "@/features/user/components/UserInitialsBadge";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 import { useMyPermissions } from "@/features/user/hooks/useMyPermissions";
 import { userFullName, userRoleLabel } from "@/features/user/model/userDisplay";
@@ -32,10 +31,7 @@ export function CurrentUserAvatar() {
           aria-label={fullName}
           className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <UserAvatar
-            email={user.email}
-            fallback={<UserInitialsBadge user={user} />}
-          />
+          <UserAvatar email={user.email} name={fullName} />
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" align="end">

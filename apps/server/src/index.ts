@@ -96,6 +96,8 @@ const db = openDb();
 // writes each agent here, and the participant registry reads it alongside the
 // humans and automations the participant service invites.
 const participants = new SqliteParticipantStore(db);
+// A restarted server has no browser sockets until clients reconnect.
+participants.resetHumanPresence();
 // The resource catalog every content path mirrors into: a pinned artifact, a
 // message attachment, a memory write. Additive for now — the existing stores
 // stay authoritative and this table tracks them so a resource is citable.
@@ -407,7 +409,6 @@ const participantService = new ParticipantService(
   emitParticipantPresence,
 );
 
-// Refcounts each participant's live sockets so presence follows the person.
 const presence = new PresenceTracker();
 
 // Surfaces applied memory writes as a highlighted message in Prime's thread,

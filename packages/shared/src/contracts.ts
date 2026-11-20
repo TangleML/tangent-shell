@@ -1134,11 +1134,7 @@ export type ParticipantKind = "human" | "agent" | "automation";
  */
 export type Capability = "orchestrator" | "supervisor";
 
-/**
- * Whether a Participant is reachable right now: `connected`, `away`, or
- * `detached` — the same "the far end is gone" state 1.4 gave attached
- * connectors. A stored default until presence lifecycle (2.2) makes it live.
- */
+/** A human is away when all of their open session tabs are unfocused. */
 export type Presence = "connected" | "away" | "detached";
 
 /**
@@ -1679,6 +1675,13 @@ export interface UserPermissions {
 /** Payload sent by the client when joining a session's chat room. */
 export interface ChatJoinPayload {
   sessionId: string;
+  /** Clients predating tab focus reporting are treated as focused. */
+  focused?: boolean;
+}
+
+export interface ChatFocusPayload {
+  sessionId: string;
+  focused: boolean;
 }
 
 /**
@@ -2055,6 +2058,7 @@ export interface SessionStatusSnapshotPayload {
 /** Socket.IO event names shared by client and server. */
 export const SocketEvents = {
   ChatJoin: "chat:join",
+  ChatFocus: "chat:focus",
   ChatHistory: "chat:history",
   ChatMessage: "chat:message",
   ConversationSubscribe: "conversation:subscribe",

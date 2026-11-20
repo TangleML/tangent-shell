@@ -122,7 +122,7 @@ test("GET participants lists the roster, including Prime", async () => {
   assert.ok(json.participants.map((p) => p.id).includes("prime"));
 });
 
-test("POST invite then GET shows the human as away", async () => {
+test("POST invite then GET shows the human as detached", async () => {
   const { call, sessionId } = await serve();
 
   const invited = await call<{
@@ -133,7 +133,7 @@ test("POST invite then GET shows the human as away", async () => {
   });
   assert.equal(invited.status, 201);
   assert.equal(invited.json.participant.kind, "human");
-  assert.equal(invited.json.participant.presence, "away");
+  assert.equal(invited.json.participant.presence, "detached");
 
   const list = await call<{
     participants: {

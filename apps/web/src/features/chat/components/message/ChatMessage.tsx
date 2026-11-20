@@ -121,15 +121,7 @@ function ChatMessageContent({
   return (
     <MessageLayout
       variant={variant}
-      avatar={
-        isOwn ? undefined : (
-          <MessageAvatar
-            kind={message.author.kind}
-            name={message.author.name}
-            agentRole={message.author.agentRole}
-          />
-        )
-      }
+      avatar={<MessageAvatar author={message.author} />}
       header={
         <MessageHeader
           authorName={isOwn ? "You" : message.author.name}

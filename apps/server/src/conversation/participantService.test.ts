@@ -77,7 +77,7 @@ async function harness() {
   };
 }
 
-test("invite creates an away human keyed by email, with memberships", async () => {
+test("invite creates a detached human keyed by email, with memberships", async () => {
   const { service, session } = await harness();
 
   const participant = await service.invite(session.id, {
@@ -87,7 +87,7 @@ test("invite creates an away human keyed by email, with memberships", async () =
 
   assert.equal(participant.id, "a@shopify.com");
   assert.equal(participant.kind, "human");
-  assert.equal(participant.presence, "away");
+  assert.equal(participant.presence, "detached");
   const memberships = await service.membershipsOf(session.id, "a@shopify.com");
   assert.deepEqual(
     memberships.map((m) => m.conversationId),
@@ -160,7 +160,7 @@ test("re-inviting a revoked human clears the revocation", async () => {
 
   const participant = await service.get(session.id, "a@shopify.com");
   assert.equal(participant?.revokedAt, undefined);
-  assert.equal(participant?.presence, "away");
+  assert.equal(participant?.presence, "detached");
 });
 
 test("join then leave adds and removes a single membership", async () => {
@@ -281,7 +281,7 @@ test("ensureHuman is idempotent and materializes an inert room member", async ()
 
   const human = await participantStore.get(session.id, "a@x");
   assert.equal(human?.kind, "human");
-  assert.equal(human?.presence, "away");
+  assert.equal(human?.presence, "detached");
   assert.equal(
     human?.displayName,
     "Ada",

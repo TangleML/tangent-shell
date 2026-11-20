@@ -1,67 +1,38 @@
+// local primitive
+
 import { Icon } from "@tangent/ui-primitives/icon";
-import { cva } from "class-variance-authority";
+import { useContext } from "react";
 
-import type { AgentRole } from "@/features/chat/model/types";
-import { cn } from "@/shared/lib/utils";
-
-// Role-keyed avatar styling. The `agent`/`subagent` roles reuse the same
-// `message-surface` tokens as the agent `MessageBubble`, so a theme can
-// fine-tune those colors in one place and the badge follows the bubble.
-const messageAvatarVariants = cva(
-  "flex size-6 shrink-0 items-center justify-center rounded-full",
-  {
-    variants: {
-      role: {
-        human: "bg-secondary text-secondary-foreground",
-        agent:
-          "bg-message-surface text-message-surface-foreground border border-message-surface-border",
-        subagent:
-          "bg-message-surface text-message-surface-foreground border border-message-surface-border",
-      },
-    },
-    defaultVariants: {
-      role: "human",
-    },
-  },
-);
-
-type MessageAvatarRole = "human" | "agent" | "subagent";
-
-function avatarRole(
-  kind: "human" | "agent",
-  agentRole?: AgentRole,
-): MessageAvatarRole {
-  if (kind !== "agent") return "human";
-  return agentRole === "subagent" ? "subagent" : "agent";
-}
-
-const AVATAR_ICONS: Record<MessageAvatarRole, "User" | "Crown" | "Bot"> = {
-  human: "User",
-  agent: "Crown",
-  subagent: "Bot",
-};
+import { MessageAuthorNamesContext } from "@/features/chat/model/messageAuthorNamesContext";
+import type { ChatAuthor } from "@/features/chat/model/types";
+import { UserAvatarWithTooltip } from "@/features/user/components/UserAvatar";
 
 interface MessageAvatarProps {
-  kind: "human" | "agent";
-  name: string;
-  agentRole?: AgentRole;
+  author: Omit<ChatAuthor, "id"> & { id?: string };
 }
 
-/**
- * MessageAvatar — small circular badge conveying the message sender's kind
- * (human, prime agent, sub-agent). Styles a raw `<div>` (the sanctioned escape
- * hatch, like `StatusDot`/`UserAvatar`), so it is exempt from
- * tangle-ui/no-classname-on-primitives.
- */
-export function MessageAvatar({ kind, name, agentRole }: MessageAvatarProps) {
-  const role = avatarRole(kind, agentRole);
+export function MessageAvatar({ author }: MessageAvatarProps) {
+  const authorNames = useContext(MessageAuthorNamesContext);
+  if (author.kind === "human") {
+    return (
+      <UserAvatarWithTooltip
+        email={author.id}
+        name={author.name}
+        displayName={author.id ? authorNames.get(author.id) : undefined}
+        size="sm"
+      />
+    );
+  }
   return (
     <div
-      title={name}
-      aria-label={name}
-      className={cn(messageAvatarVariants({ role }))}
+      title={author.name}
+      aria-label={author.name}
+      className="flex size-6 shrink-0 items-center justify-center rounded-full border border-message-surface-border bg-message-surface text-message-surface-foreground"
     >
-      <Icon name={AVATAR_ICONS[role]} size="xs" />
+      <Icon
+        name={author.agentRole === "subagent" ? "Bot" : "Crown"}
+        size="xs"
+      />
     </div>
   );
 }
