@@ -9,6 +9,7 @@
     "dev": "SESSIONS_ROOT=\"$PWD/.sessions\" SESSIONS_DB=\"$PWD/.sessions/tangent.db\" AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" GLOBAL_MEMORY_DIR=\"$PWD/.memory\" turbo run dev",
     "tangle:token": "tsx scripts/print-tangle-token.ts",
     "seed": "node scripts/pack-bundle.mjs && AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" SEED_BUNDLES_DIR=\"$PWD/examples\" pnpm --filter @tangent/server seed",
+    "seed:collaboration": "tsx apps/server/src/seedCollaboration.ts",
     "build": "turbo run build",
     "build:acp-skill": "pnpm --filter tangent-acp-attach-cli build",
     "package:acp-skill": "pnpm --filter tangent-acp-attach-cli package",
