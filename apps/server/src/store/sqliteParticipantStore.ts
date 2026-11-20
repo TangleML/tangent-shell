@@ -7,7 +7,7 @@ import {
   type ParticipantKind,
   type Presence,
 } from "@tangent/shared/contracts.ts";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, ne } from "drizzle-orm";
 
 import type { Db } from "./db/client.ts";
 import { type ParticipantRow, participants } from "./db/schema.ts";
@@ -165,24 +165,47 @@ export class SqliteParticipantStore implements ParticipantStore {
       .run();
   }
 
+  resetHumanPresence(): void {
+    this.db
+      .update(participants)
+      .set({ presence: "detached" })
+      .where(
+        and(
+          eq(participants.kind, "human"),
+          ne(participants.presence, "detached"),
+        ),
+      )
+      .run();
+  }
+
   async updatePresence(
     sessionId: string,
     id: string,
     presence: Presence,
-  ): Promise<void> {
-    this.db
+  ): Promise<boolean> {
+    const result = this.db
       .update(participants)
       .set({ presence })
       .where(
-        and(eq(participants.sessionId, sessionId), eq(participants.id, id)),
+        and(
+          eq(participants.sessionId, sessionId),
+          eq(participants.id, id),
+          isNull(participants.revokedAt),
+          ne(participants.presence, presence),
+        ),
       )
       .run();
+    return result.changes > 0;
   }
 
   async revoke(sessionId: string, id: string): Promise<void> {
     this.db
       .update(participants)
-      .set({ revokedAt: new Date().toISOString(), capabilities: "[]" })
+      .set({
+        revokedAt: new Date().toISOString(),
+        capabilities: "[]",
+        presence: "detached",
+      })
       .where(
         and(eq(participants.sessionId, sessionId), eq(participants.id, id)),
       )

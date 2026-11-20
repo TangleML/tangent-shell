@@ -36,10 +36,13 @@ export class InMemoryParticipantStore implements ParticipantStore {
     sessionId: string,
     id: string,
     presence: Presence,
-  ): Promise<void> {
-    const existing = this.participants.get(keyFor(sessionId, id));
-    if (!existing) return;
-    this.participants.set(keyFor(sessionId, id), { ...existing, presence });
+  ): Promise<boolean> {
+    const key = keyFor(sessionId, id);
+    const existing = this.participants.get(key);
+    if (!existing || existing.revokedAt || existing.presence === presence)
+      return false;
+    this.participants.set(key, { ...existing, presence });
+    return true;
   }
 
   async revoke(sessionId: string, id: string): Promise<void> {
@@ -48,6 +51,7 @@ export class InMemoryParticipantStore implements ParticipantStore {
     this.participants.set(keyFor(sessionId, id), {
       ...existing,
       capabilities: [],
+      presence: "detached",
       revokedAt: new Date().toISOString(),
     });
   }

@@ -98,9 +98,15 @@ class SessionChatRoom {
     const socket = createSocket();
     this.socket = socket;
     this.wire(socket);
+    window.addEventListener("focus", this.reportFocus);
+    window.addEventListener("blur", this.reportFocus);
+    document.addEventListener("visibilitychange", this.reportFocus);
   }
 
   disconnect(): void {
+    window.removeEventListener("focus", this.reportFocus);
+    window.removeEventListener("blur", this.reportFocus);
+    document.removeEventListener("visibilitychange", this.reportFocus);
     this.socket?.removeAllListeners();
     this.socket?.disconnect();
     this.socket = null;
@@ -108,6 +114,15 @@ class SessionChatRoom {
       queryKey: AgentStatusQueryKeys.Session(this.sessionId),
     });
   }
+
+  private reportFocus = (): void => {
+    if (this.socket?.connected) {
+      this.socket.emit(SocketEvents.ChatFocus, {
+        sessionId: this.sessionId,
+        focused: tabIsFocused(),
+      });
+    }
+  };
 
   send(
     content: string,
@@ -327,7 +342,10 @@ class SessionChatRoom {
         connected: true,
         resourcesVersion: prev.resourcesVersion,
       }));
-      socket.emit(SocketEvents.ChatJoin, { sessionId });
+      socket.emit(SocketEvents.ChatJoin, {
+        sessionId,
+        focused: tabIsFocused(),
+      });
     });
 
     socket.on("disconnect", () => {
@@ -345,6 +363,9 @@ class SessionChatRoom {
     });
 
     socket.on(SocketEvents.ChatHistory, (history: ChatMessage[]) => {
+      void queryClient.invalidateQueries({
+        queryKey: SessionQueryKeys.Participants(sessionId),
+      });
       this.patch({
         messagesByConversation: groupByConversation(history),
         historyLoaded: true,
@@ -669,6 +690,10 @@ class SessionChatRoom {
       this.resourcesChanged();
     });
   }
+}
+
+function tabIsFocused(): boolean {
+  return document.visibilityState === "visible" && document.hasFocus();
 }
 
 const rooms = new Map<string, SessionChatRoom>();

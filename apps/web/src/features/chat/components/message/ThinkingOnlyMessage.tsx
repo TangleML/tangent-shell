@@ -33,13 +33,7 @@ export function ThinkingOnlyMessage({
     <MessageLayout
       variant={variant}
       selectable={open}
-      avatar={
-        <MessageAvatar
-          kind={message.author.kind}
-          name={message.author.name}
-          agentRole={message.author.agentRole}
-        />
-      }
+      avatar={<MessageAvatar author={message.author} />}
       header={
         <InlineStack align="start" blockAlign="center" gap="2" wrap="nowrap">
           <Text size="xs" weight="medium" tone="subdued">

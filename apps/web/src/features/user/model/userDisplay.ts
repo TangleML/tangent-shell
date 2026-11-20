@@ -1,15 +1,13 @@
 import type { UserIdentity, UserPermissions } from "@tangent/shared/contracts";
 
-/**
- * The user's initials for an avatar badge: first letter of the first name plus
- * first letter of the last name, uppercased (e.g. `John Smith` -> `JS`).
- * Resilient to missing name parts; falls back to `?` when both are empty.
- */
-export function userInitials(user: UserIdentity): string {
-  const first = user.first_name.trim().charAt(0);
-  const last = user.last_name.trim().charAt(0);
-  const initials = `${first}${last}`.toUpperCase();
-  return initials || "?";
+export function userInitials(name: string): string {
+  const display = name.includes("@")
+    ? name.split("@")[0].replace(/[._-]+/g, " ")
+    : name;
+  const words = display.trim().split(/\s+/);
+  const first = Array.from(words[0] ?? "")[0] ?? "";
+  const last = words.length > 1 ? Array.from(words[words.length - 1])[0] : "";
+  return (first + last).toUpperCase() || "?";
 }
 
 /** The user's full name, falling back to their email when both names are empty. */

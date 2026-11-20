@@ -4,11 +4,14 @@ import { Text } from "@tangent/ui-primitives/typography";
 import type { ReactNode } from "react";
 
 import { formatMessageTime } from "@/features/chat/model/messageTime";
+import type { ChatAuthor } from "@/features/chat/model/types";
 import { Surface, type SurfaceTone } from "@/shared/ui/patterns/surface";
 
 import { MessageActions } from "./MessageActions";
+import { MessageAvatar } from "./MessageAvatar";
 
 interface CalloutMessageProps {
+  author: ChatAuthor;
   icon: IconName;
   /** Says where it came from, e.g. `Report from Scout`; the time follows. */
   title: string;
@@ -25,6 +28,7 @@ interface CalloutMessageProps {
  * came from, for one no member wrote in this thread.
  */
 export function CalloutMessage({
+  author,
   icon,
   title,
   tone,
@@ -37,6 +41,7 @@ export function CalloutMessage({
     <Surface tone={tone}>
       <BlockStack gap="1">
         <InlineStack gap="2" wrap="nowrap">
+          {author.kind === "human" && <MessageAvatar author={author} />}
           <Icon name={icon} size="xs" tone="subdued" />
           <Text size="xs" weight="medium" tone="subdued" truncate>
             {`${title} · ${formatMessageTime(createdAt)}`}

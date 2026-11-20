@@ -1,29 +1,48 @@
 // local primitive
 
-import type { ReactNode } from "react";
-
 import { useGravatar } from "@/features/user/hooks/useGravatar";
+import { userInitials } from "@/features/user/model/userDisplay";
+import { cn } from "@/shared/lib/utils";
 
 interface UserAvatarProps {
-  email: string;
-  fallback: ReactNode;
+  email?: string;
+  name: string;
+  label?: string;
+  size?: "sm" | "md";
 }
 
-/**
- * UserAvatar — resolves a Gravatar image for `email` and renders it as a
- * circular avatar. While the lookup is in flight or when no Gravatar exists,
- * it renders `fallback` (typically an initials badge). Styles a raw `<img>`
- * (the sanctioned escape hatch), so it is exempt from
- * `tangle-ui/no-classname-on-primitives`.
- */
-export function UserAvatar({ email, fallback }: UserAvatarProps) {
-  const url = useGravatar(email);
-  if (!url) return <>{fallback}</>;
+export function UserAvatar({
+  email,
+  name,
+  label = name,
+  size = "md",
+}: UserAvatarProps) {
+  const url = useGravatar(email?.includes("@") ? email : "");
+  const frame = cn(
+    "shrink-0 rounded-full",
+    size === "sm" ? "size-6" : "size-8",
+  );
+  if (!url) {
+    return (
+      <span
+        role="img"
+        aria-label={label}
+        title={label}
+        className={cn(
+          frame,
+          "inline-flex items-center justify-center bg-secondary text-xs font-medium text-secondary-foreground",
+        )}
+      >
+        {userInitials(name)}
+      </span>
+    );
+  }
   return (
     <img
       src={url}
-      alt=""
-      className="size-8 shrink-0 rounded-full object-cover"
+      alt={label}
+      title={label}
+      className={cn(frame, "object-cover")}
     />
   );
 }

@@ -7,6 +7,7 @@ import {
   type ArtifactUnpinPayload,
   type ChatAuthor,
   type ChatCommandRun,
+  type ChatFocusPayload,
   type ChatJoinPayload,
   type ChatMessage,
   type ChatMessagePayload,
@@ -124,21 +125,13 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
     typeof handshakeToken === "string" ? handshakeToken : undefined,
   );
 
-  // (sessionId\0participantId) pairs whose presence this socket is holding up,
-  // so the last of a person's tabs to close is what marks them detached.
-  const tracked = new Set<string>();
-
-  socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) => {
-    void handleChatJoin(socket, deps, author, payload, tracked);
-  });
+  wireSessionPresence(socket, deps, author);
 
   socket.on(
     SocketEvents.ConversationSubscribe,
     (payload: ConversationSubscribePayload) =>
       void handleConversationSubscribe(socket, deps, author, payload),
   );
-
-  socket.on("disconnect", () => markAbsent(deps, tracked));
 
   socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
     handleChatMessage(socket, deps, author, payload),
@@ -234,11 +227,12 @@ async function handleChatJoin(
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   payload: ChatJoinPayload,
-  tracked: Set<string>,
+  onJoined: (eligible: boolean) => void,
 ): Promise<void> {
   const { store, pi, connectors, triggerEngine } = deps;
   const session = await store.getSession(payload?.sessionId);
   if (!session) {
+    onJoined(false);
     socket.emit("error", { message: "Session not found" });
     return;
   }
@@ -250,16 +244,15 @@ async function handleChatJoin(
   await wakeOnJoin(deps, session);
 
   const authorized = await joinAuthorized(socket, deps, author, session);
-  // A human authorized to see the session — its owner, or an open-session guest
-  // — is listed on the roster even when no invite added them, so the attribution
-  // their messages carry has a Participant behind it. Done before presence so
-  // the connected transition it broadcasts lands on a row that already exists.
-  if (author.kind === "human" && authorized.size > 0)
-    await deps.participantService.ensureHuman(session.id, {
+  if (author.kind === "human" && authorized.size > 0) {
+    const participant = await deps.participantService.ensureHuman(session.id, {
       id: author.id,
       displayName: author.name,
     });
-  await markPresent(deps, author, session.id, tracked);
+    onJoined(participant.kind === "human" && !participant.revokedAt);
+  } else {
+    onJoined(false);
+  }
   socket.emit(
     SocketEvents.ChatHistory,
     await authorizedHistory(store, session.id, authorized),
@@ -485,50 +478,57 @@ export function resolveSocketAuthor(
   );
 }
 
-/** Key of the presence a socket holds for one participant in one session. */
-function presenceKey(sessionId: string, participantId: string): string {
-  return `${sessionId}\u0000${participantId}`;
-}
-
-/**
- * Marks a connecting human present, once they are a Participant of this session
- * — invited, or materialized on join by {@link handleChatJoin}. Only their first
- * live socket transitions them to `connected`; a human the join did not
- * materialize (a restricted session's uninvited visitor) has no presence.
- */
-async function markPresent(
+function wireSessionPresence(
+  socket: Socket,
   deps: ChatHandlerDeps,
   author: ChatAuthor,
-  sessionId: string | undefined,
-  tracked: Set<string>,
-): Promise<void> {
-  if (author.kind !== "human" || !sessionId) return;
-  const participant = await deps.participantService.get(sessionId, author.id);
-  if (!participant) return;
-  const key = presenceKey(sessionId, author.id);
-  if (tracked.has(key)) return;
-  tracked.add(key);
-  if (deps.presence.arrive(sessionId, author.id))
-    await deps.participantService.setPresence(
+): void {
+  const sessions = new Map<string, { focused: boolean; joined: boolean }>();
+
+  function update(sessionId: string, focused: boolean | null): void {
+    const presence = deps.presence.update(
       sessionId,
       author.id,
-      "connected",
+      socket.id,
+      focused,
     );
-}
-
-/** Marks a disconnecting socket's participants detached once their last tab closes. */
-function markAbsent(deps: ChatHandlerDeps, tracked: Set<string>): void {
-  for (const key of tracked) {
-    const sep = key.indexOf("\u0000");
-    const sessionId = key.slice(0, sep);
-    const participantId = key.slice(sep + 1);
-    if (deps.presence.depart(sessionId, participantId))
-      void deps.participantService.setPresence(
-        sessionId,
-        participantId,
-        "detached",
-      );
+    if (presence)
+      void deps.participantService.setPresence(sessionId, author.id, presence);
   }
+
+  socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) => {
+    const sessionId = payload?.sessionId;
+    if (!sessionId) {
+      socket.emit("error", { message: "Session not found" });
+      return;
+    }
+    const tab = { focused: payload.focused !== false, joined: false };
+    sessions.set(sessionId, tab);
+    void handleChatJoin(socket, deps, author, payload, (eligible) => {
+      // The socket may disconnect or rejoin while authorization is in flight.
+      if (sessions.get(sessionId) !== tab) return;
+      if (!eligible) {
+        sessions.delete(sessionId);
+        update(sessionId, null);
+        return;
+      }
+      tab.joined = true;
+      update(sessionId, tab.focused);
+    });
+  });
+
+  socket.on(SocketEvents.ChatFocus, (payload: ChatFocusPayload) => {
+    if (typeof payload?.focused !== "boolean") return;
+    const tab = sessions.get(payload.sessionId);
+    if (!tab) return;
+    tab.focused = payload.focused;
+    if (tab.joined) update(payload.sessionId, tab.focused);
+  });
+
+  socket.on("disconnect", () => {
+    for (const sessionId of sessions.keys()) update(sessionId, null);
+    sessions.clear();
+  });
 }
 
 /**

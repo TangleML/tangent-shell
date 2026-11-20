@@ -3,35 +3,24 @@ import { test } from "node:test";
 
 import { PresenceTracker } from "./presenceTracker.ts";
 
-test("arrive is true only on the first socket, depart only on the last", () => {
+test("a person is focused if any of their open tabs is focused", () => {
   const tracker = new PresenceTracker();
-
-  assert.equal(tracker.arrive("s", "p"), true, "first socket connects them");
-  assert.equal(tracker.arrive("s", "p"), false, "a second tab is not a change");
-  assert.equal(tracker.depart("s", "p"), false, "one tab remains open");
-  assert.equal(tracker.depart("s", "p"), true, "the last tab detaches them");
+  assert.equal(tracker.update("s", "p", "a", false), "away");
+  assert.equal(tracker.update("s", "p", "a", false), undefined);
+  assert.equal(tracker.update("s", "p", "b", true), "connected");
+  assert.equal(tracker.update("s", "p", "a", true), undefined);
+  assert.equal(tracker.update("s", "p", "b", false), undefined);
+  assert.equal(tracker.update("s", "p", "a", null), "away");
+  assert.equal(tracker.update("s", "p", "b", null), "detached");
+  assert.equal(tracker.update("s", "p", "b", null), undefined);
 });
 
-test("presence is refcounted per (session, participant)", () => {
+test("focus is independent across people and sessions", () => {
   const tracker = new PresenceTracker();
-
-  assert.equal(tracker.arrive("s1", "p"), true);
-  assert.equal(
-    tracker.arrive("s2", "p"),
-    true,
-    "a different session is separate",
-  );
-  assert.equal(tracker.depart("s1", "p"), true);
-  assert.equal(tracker.arrive("s1", "p"), true, "and reconnects independently");
-});
-
-test("departing an untracked participant does not underflow the count", () => {
-  const tracker = new PresenceTracker();
-
-  assert.equal(tracker.depart("s", "ghost"), true);
-  assert.equal(
-    tracker.arrive("s", "ghost"),
-    true,
-    "the next arrive is still first",
-  );
+  assert.equal(tracker.update("s1", "p", "tab1", true), "connected");
+  assert.equal(tracker.update("s2", "p", "tab1", false), "away");
+  assert.equal(tracker.update("s1", "q", "tab2", false), "away");
+  assert.equal(tracker.update("s1", "p", "tab1", null), "detached");
+  assert.equal(tracker.update("s2", "p", "tab1", true), "connected");
+  assert.equal(tracker.update("s1", "q", "tab2", null), "detached");
 });

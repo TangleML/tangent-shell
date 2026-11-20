@@ -34,7 +34,9 @@ export function AgentActivityBubble({
     <MessageLayout
       variant="agent"
       avatar={
-        <MessageAvatar kind="agent" name={authorName} agentRole={authorRole} />
+        <MessageAvatar
+          author={{ kind: "agent", name: authorName, agentRole: authorRole }}
+        />
       }
     >
       <InlineStack gap="2" blockAlign="start" wrap="nowrap">
