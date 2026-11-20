@@ -9,6 +9,7 @@ interface UserAvatarProps {
   name: string;
   title?: string;
   size?: "sm" | "md";
+  muted?: boolean;
 }
 
 export function UserAvatar({
@@ -16,10 +17,11 @@ export function UserAvatar({
   name,
   title,
   size = "md",
+  muted = false,
 }: UserAvatarProps) {
   const url = useGravatar(email?.includes("@") ? email : "");
   const frame = cn(
-    "shrink-0 rounded-full",
+    "shrink-0 rounded-full bg-secondary",
     size === "sm" ? "size-6" : "size-8",
   );
   if (!url) {
@@ -30,7 +32,8 @@ export function UserAvatar({
         title={title}
         className={cn(
           frame,
-          "inline-flex items-center justify-center bg-secondary text-xs font-medium text-secondary-foreground",
+          "inline-flex items-center justify-center text-xs font-medium",
+          muted ? "text-muted-foreground" : "text-secondary-foreground",
         )}
       >
         {userInitials(name)}
@@ -42,7 +45,7 @@ export function UserAvatar({
       src={url}
       alt={name}
       title={title}
-      className={cn(frame, "object-cover")}
+      className={cn(frame, "object-cover", muted && "grayscale")}
     />
   );
 }

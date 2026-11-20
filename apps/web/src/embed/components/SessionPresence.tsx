@@ -12,7 +12,6 @@ import { Text } from "@tangent/ui-primitives/typography";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
 import { UserAvatar } from "@/features/user/components/UserAvatar";
-import { cn } from "@/shared/lib/utils";
 
 export function SessionPresence({ sessionId }: { sessionId: string }) {
   const { connected, currentAuthorId, historyLoaded } =
@@ -34,22 +33,22 @@ export function SessionPresence({ sessionId }: { sessionId: string }) {
     <div className="my-auto flex min-w-0 items-center gap-2">
       <ul
         aria-label="People in this session"
-        className="flex max-w-[min(40vw,20rem)] -space-x-1.5 items-center overflow-x-auto p-0.5"
+        className="isolate flex max-w-[min(40vw,20rem)] -space-x-1.5 items-center overflow-x-auto p-0.5"
       >
-        {viewers.map(({ id, displayName, presence }) => {
+        {viewers.map(({ id, displayName, presence }, index) => {
           const away = presence === "away";
-          const status = away ? "Tab unfocused" : "Tab focused";
           return (
-            <li key={id} className="flex shrink-0 focus-within:z-10">
+            <li
+              key={id}
+              className="flex shrink-0"
+              style={{ zIndex: viewers.length - index }}
+            >
               <Tooltip>
                 <TooltipTrigger
-                  aria-label={`${displayName} (${status})`}
-                  className={cn(
-                    "flex cursor-help rounded-full ring-2 ring-background focus-visible:outline-2 focus-visible:outline-ring",
-                    away && "opacity-55 grayscale",
-                  )}
+                  aria-label={`${displayName} (${away ? "away" : "active"})`}
+                  className="flex cursor-help rounded-full ring-2 ring-background focus-visible:outline-2 focus-visible:outline-ring"
                 >
-                  <UserAvatar email={id} name={displayName} />
+                  <UserAvatar email={id} name={displayName} muted={away} />
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={6}>
                   <BlockStack gap="0.5">
@@ -61,9 +60,6 @@ export function SessionPresence({ sessionId }: { sessionId: string }) {
                         {id}
                       </Text>
                     )}
-                    <Text size="xs" tone="on-primary">
-                      {status}
-                    </Text>
                   </BlockStack>
                 </TooltipContent>
               </Tooltip>
