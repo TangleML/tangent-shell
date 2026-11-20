@@ -128,26 +128,88 @@ See [`apps/web/src/shared/ui/DESIGN_SYSTEM.md`](apps/web/src/shared/ui/DESIGN_SY
 Key environment variables (see [`apps/server/src/config.ts`](apps/server/src/config.ts) for
 the full list and defaults):
 
-| Variable                                          | Purpose                                                        |
-| ------------------------------------------------- | -------------------------------------------------------------- |
-| `PORT`                                            | HTTP server port                                               |
-| `SESSIONS_ROOT`                                   | Root directory for per-session workspaces                      |
-| `SESSIONS_DB`                                     | SQLite metadata database file                                  |
-| `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                     |
-| `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)       |
-| `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                            |
-| `PI_BIN`                                          | Path to the `pi` agent executable                              |
-| `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                |
-| `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                              |
-| `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets         |
-| `TANGLE_TOKEN`                                    | Optional cookie string injected server-side for egress         |
-| `AUTH_JWT_TOKEN_COOKIE_NAME`                      | Optional auth cookie name for `/api/me`                        |
-| `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                        |
-| `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh` |
+| Variable                                          | Purpose                                                                     |
+| ------------------------------------------------- | --------------------------------------------------------------------------- |
+| `PORT`                                            | HTTP server port                                                            |
+| `SESSIONS_ROOT`                                   | Root directory for per-session workspaces                                   |
+| `SESSIONS_DB`                                     | SQLite metadata database file                                               |
+| `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                                  |
+| `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)                    |
+| `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                                         |
+| `PI_BIN`                                          | Path to the `pi` agent executable                                           |
+| `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                             |
+| `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                                           |
+| `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets                      |
+| `TANGLE_TOKEN`                                    | Optional cookie string injected server-side for egress                      |
+| `AUTH_JWT_TOKEN_COOKIE_NAME`                      | Optional auth cookie name for `/api/me`                                     |
+| `EMBED_ALLOWED_ORIGINS`                           | Comma-separated exact embed host origins for Express API and Socket.IO CORS |
+| `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                                     |
+| `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh`              |
 
 Bundle UI extensions should call logical egress targets such as
 `{ target: "tangle", path: "/api/..." }`; the server resolves the actual base URL from
 `TANGLE_API_URL` at runtime.
+
+### Cross-origin embed configuration
+
+Reuse `EMBED_ALLOWED_ORIGINS` for host pages on a different origin from the API:
+
+```bash
+export EMBED_ALLOWED_ORIGINS='https://host.example, http://localhost:3000'
+```
+
+Entries are trimmed and empty entries ignored. Matching is exact: use the browser's
+origin (scheme, host, and port when non-default), not the API URL or a page URL.
+Do not include paths, trailing slashes, or wildcards. `http://localhost:3000` and
+`http://localhost:3001` are different origins. Inject this variable into the **server
+process environment** at runtime through your process manager or container platform;
+editing a template or a frontend build variable is not enough. Restart the server
+(or redeploy it) after changes, since configuration is read at startup.
+
+Unset or empty means Express emits no cross-origin permission headers; same-origin
+requests still work. Socket.IO instead reflects origins when this list is empty,
+retaining its local-development default. A nonempty list controls both policies.
+Neither policy replaces authorization. API CORS allows `Authorization` and
+`Content-Type` headers, but does not enable credentialed cookie requests or reflect
+additional requested headers. Static `/embed/**` assets have a separate wildcard
+policy in the fullstack nginx configuration; a successful module import does not
+prove API access. See [Egress and Security](docs/server/egress-and-security.md).
+
+### Troubleshooting `/api/embed/remote-env-token`
+
+Start with the browser's exact host `Origin` and the effective server environment
+and deployed revision. Probe the preflight without any token, cookie, or secret:
+
+```bash
+curl --include --request OPTIONS \
+  'https://api.example/api/embed/remote-env-token' \
+  --header 'Origin: https://host.example' \
+  --header 'Access-Control-Request-Method: POST' \
+  --header 'Access-Control-Request-Headers: authorization,content-type'
+```
+
+Use your deployment's API URL and host origin. A `204` alone is **not** CORS success:
+unlisted origins also receive `204`, without permissions. For an allowed origin,
+check `Access-Control-Allow-Origin` exactly echoes it, `Vary: Origin` is present,
+`Access-Control-Allow-Methods` includes `POST`, and `Access-Control-Allow-Headers`
+includes the requested headers. Requests with credentials mode `include` or extra
+headers require permissions this middleware does not grant; do not broaden the
+policy without evidence that these are needed.
+
+Compare the same probe against the direct backend and public ingress. Do not add
+`--location` (`-L`): inspect redirects, statuses, and headers before following them.
+Then inspect the **actual POST** in browser developer tools: its origin, requested
+headers, credentials mode, response status, and permission headers. An allowed
+preflight does not establish that JSON parsing, session authorization, token
+configuration, or the ingress succeeds on the POST. Keep shared traces redacted:
+exclude authorization values, tokens, cookies, secrets, and sensitive bodies.
+
+The reported production token-endpoint failure remains an unresolved deployment
+blocker: no browser trace or deployment evidence establishes its root cause.
+Local regression tests cover middleware and route behavior, not the deployed
+browser request. Confirm the effective allowlist and deployed revision, compare
+backend and ingress responses, and reproduce the original browser flow before
+claiming resolution.
 
 ### Common commands
 

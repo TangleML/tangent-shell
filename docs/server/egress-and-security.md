@@ -173,8 +173,42 @@ restart.
   (see [triggers.md](./triggers.md)). This is fault isolation + a hard timeout,
   **not** a sandbox against deliberately malicious code; handlers are trusted
   bundle-author code (same trust model as Pi tool extensions).
-- **CORS** — Socket.IO is configured with `cors: { origin: true }` to ease local
-  dev where the UI is proxied by Vite (same-origin in practice).
+
+### Cross-origin policies
+
+`EMBED_ALLOWED_ORIGINS` is an existing server-runtime setting: trimmed,
+comma-separated exact origins, with empty entries removed. Use scheme, host, and
+port when non-default; paths, trailing slashes, and wildcards do not match a
+browser's origin. Configuration is read at startup, so restart after changes.
+
+These policies are distinct:
+
+| Surface                                      | Nonempty `EMBED_ALLOWED_ORIGINS`                      | Empty or unset list                                     |
+| -------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| Express API                                  | Echoes only an exactly listed request origin          | Emits no cross-origin permissions                       |
+| Socket.IO CORS (including polling handshake) | Uses the same origin list                             | Reflects origins (`origin: true`) for local development |
+| Fullstack nginx static `/embed/**` assets    | Independent wildcard `Access-Control-Allow-Origin: *` | Same wildcard policy                                    |
+
+The [Express middleware](../../apps/server/src/middleware/embedCors.ts) is mounted
+before JSON parsing and the `/api/embed` router, with the error handler mounted
+last in [the production registration](../../apps/server/src/index.ts). Permissions
+therefore survive parser, validation, and authorization errors for listed origins.
+Allowed responses include `Vary: Origin`, methods
+`GET,POST,PATCH,PUT,DELETE,OPTIONS`, and headers `Authorization, Content-Type`.
+The middleware does not emit `Access-Control-Allow-Credentials` or reflect
+unsupported requested headers. All `OPTIONS` requests short-circuit with `204`,
+even without permission headers: status alone does not establish browser access.
+
+CORS controls browser HTTP response access, not authorization. An unlisted origin
+is not an HTTP authorization denial, and non-browser callers can still reach the
+API. Socket.IO CORS is not WebSocket-origin enforcement or WebSocket authentication;
+connector credentials and existing session access checks remain separate boundaries.
+Static module imports likewise do not establish API or socket authorization.
+
+See the [token-endpoint troubleshooting guide](../../README.md#troubleshooting-apiembedremote-env-token)
+for redacted preflight probes and backend-versus-ingress comparison. The reported
+production failure's root cause is unknown without browser and deployment evidence;
+local tests do not verify that deployment.
 
 ---
 

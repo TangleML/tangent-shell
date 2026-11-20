@@ -25,9 +25,9 @@ This emits `apps/web/dist/embed/v1/tangent-elements.js` (+ hashed chunks).
 
 ## Same-origin (simplest, no CORS wall)
 
-Server auth/CORS hardening is deferred, so cross-origin `/api` calls are blocked
-by the browser today. To validate the elements end to end, serve the harness and
-the runtime from the **same** origin as the Tangent API.
+Same-origin hosting needs no cross-origin API permissions. To validate the elements
+end to end without configuring an allowlist, serve the harness and runtime from the
+**same** origin as the Tangent API.
 
 The straightforward path is the fullstack Docker image, where nginx serves
 `/embed/**`, `/api/**`, and static files on one port:
@@ -50,11 +50,23 @@ and point it at the Tangent origin:
 http://localhost:3000/?origin=https://tangent.example
 ```
 
-This works once the deferred server hardening lands (Bearer JWT verification,
-per-request session authorization, and a CORS allowlist that also sets
-`Access-Control-Allow-Origin` on `/api/**` and the Socket.IO handshake). Until
-then the runtime module import succeeds (nginx sets CORS on `/embed/**`) but the
-first `/api/sessions` call is blocked cross-origin.
+Set `EMBED_ALLOWED_ORIGINS` in the server's runtime environment to the harness's
+exact origin, for example `http://localhost:3000` (use the actual serving port),
+then restart the server. The variable accepts trimmed, comma-separated origins
+and drives Express API and Socket.IO CORS; do not include paths, trailing slashes,
+or wildcards. The `origin` query parameter selects the **Tangent API** origin,
+not the host origin to allowlist.
+
+With an empty list, Express grants no cross-origin permissions, while Socket.IO
+retains its origin-reflecting development default. The fullstack nginx wildcard
+CORS headers on static `/embed/**` assets are separate: a successful runtime module
+import does not prove `/api/**` access. CORS is not authorization; existing identity
+and session access checks still apply. API CORS permits `Authorization` and
+`Content-Type`, not credentialed cookie requests or arbitrary custom headers.
+
+For token-endpoint failures, inspect both preflight and actual POST responses using
+the [configuration and troubleshooting guide](../../../README.md#troubleshooting-apiembedremote-env-token).
+Local harness checks do not verify a production deployment.
 
 ## What to validate (shadow-DOM spike)
 
