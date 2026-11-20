@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 
 import {
   humanAuthor,
@@ -6,6 +6,7 @@ import {
   type Session,
   sourceFromAuthor,
 } from "@tangent/shared/contracts.ts";
+import Database from "better-sqlite3";
 
 import { SESSIONS_DB } from "./config.ts";
 import { orchestratorConversationFor } from "./conversation/participantRegistry.ts";
@@ -144,9 +145,7 @@ async function findOrCreateSession(projectId: string): Promise<Session> {
   return session;
 }
 
-async function main(): Promise<void> {
-  if (!existsSync(SESSIONS_DB))
-    throw new Error("Run this command in the checkout serving local Tangent.");
+async function seedCollaboration(): Promise<void> {
   const project = await findOrCreateProject();
   const session = await findOrCreateSession(project.id);
   const db = openDb();
@@ -201,6 +200,34 @@ async function main(): Promise<void> {
   console.log(
     `http://localhost:3000/tangent/${encodeURIComponent(project.id)}?session=${encodeURIComponent(session.id)}`,
   );
+}
+
+async function main(): Promise<void> {
+  if (!existsSync(SESSIONS_DB))
+    throw new Error("Run this command in the checkout serving local Tangent.");
+
+  // The OS releases this SQLite lock on exit, even if the seed is interrupted.
+  // Keep it separate so the running Shell can still write sessions.
+  const lock = new Database(
+    `${realpathSync(SESSIONS_DB)}.collaboration-seed-lock`,
+    {
+      timeout: 0,
+    },
+  );
+  try {
+    try {
+      lock.exec("BEGIN EXCLUSIVE");
+    } catch (error) {
+      if (error instanceof Database.SqliteError && error.code === "SQLITE_BUSY")
+        throw new Error("Another collaboration seed is already in progress.", {
+          cause: error,
+        });
+      throw error;
+    }
+    await seedCollaboration();
+  } finally {
+    lock.close();
+  }
 }
 
 main().catch((error: unknown) => {

@@ -45,7 +45,8 @@ To try session portraits in Tangle UI, start the local projects API on port 8000
 Tangle UI on port 3000, and `pnpm dev` in this checkout. Use an active
 workspace configured for local Tangent and install the `tangle` or `tangle-oss`
 bundle in the Shell marketplace (`pnpm seed` installs examples in an empty
-marketplace).
+marketplace). In Tangle UI, turn on **Projects** and **Tangent** under
+**Settings → Beta Features**.
 
 ```bash
 pnpm seed:collaboration
