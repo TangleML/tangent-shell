@@ -201,7 +201,10 @@ export function ComposerShell({
     textarea.focus({ preventScroll: true });
   }, [autoFocus, busy]);
 
+  // A quote that arrives while busy waits, so a send finishing later can't
+  // clear it along with the draft it was appended to.
   useEffect(() => {
+    if (busy) return;
     if (!shouldApplyInsertion(insertion, insertedRef.current)) return;
     insertedRef.current = insertion.id;
     const next = appendQuoteToDraft(value, insertion.text);
@@ -209,7 +212,7 @@ export function ComposerShell({
     onValueChange(next);
     textareaRef.current?.focus({ preventScroll: true });
     onInsertionApplied?.(insertion.id);
-  }, [insertion, value, onValueChange, onInsertionApplied]);
+  }, [busy, insertion, value, onValueChange, onInsertionApplied]);
 
   // The caret lands after the quote once the controlled value has rendered.
   useEffect(() => {

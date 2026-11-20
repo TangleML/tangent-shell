@@ -121,8 +121,11 @@ export function ChatInput({
   const wasBusyRef = useRef(agentBusy);
   // Quoting a message drops its excerpt into this composer's draft.
   const quoteScope = useQuoteScope();
-  // A killed agent has no composer, so the quote action must stay hidden.
-  const composerReady = agentStatus !== "killed";
+  const busy = disabled || uploading || runningCommand;
+  // The quote action stays hidden while nothing can take a quote: a killed
+  // agent has no composer, and a send or command in flight clears the draft
+  // when it finishes, which would drop an excerpt quoted meanwhile.
+  const composerReady = agentStatus !== "killed" && !busy;
   const setComposerReady = quoteScope?.setComposerReady;
 
   useEffect(() => {
@@ -130,8 +133,6 @@ export function ChatInput({
     setComposerReady(composerReady);
     return () => setComposerReady(false);
   }, [setComposerReady, composerReady]);
-
-  const busy = disabled || uploading || runningCommand;
   const canSubmit = !busy && (value.trim().length > 0 || files.length > 0);
 
   function handleValueChange(next: string) {
