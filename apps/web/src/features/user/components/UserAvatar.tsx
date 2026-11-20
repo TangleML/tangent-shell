@@ -7,14 +7,14 @@ import { cn } from "@/shared/lib/utils";
 interface UserAvatarProps {
   email?: string;
   name: string;
-  label?: string;
+  title?: string;
   size?: "sm" | "md";
 }
 
 export function UserAvatar({
   email,
   name,
-  label = name,
+  title,
   size = "md",
 }: UserAvatarProps) {
   const url = useGravatar(email?.includes("@") ? email : "");
@@ -26,8 +26,8 @@ export function UserAvatar({
     return (
       <span
         role="img"
-        aria-label={label}
-        title={label}
+        aria-label={name}
+        title={title}
         className={cn(
           frame,
           "inline-flex items-center justify-center bg-secondary text-xs font-medium text-secondary-foreground",
@@ -40,8 +40,8 @@ export function UserAvatar({
   return (
     <img
       src={url}
-      alt={label}
-      title={label}
+      alt={name}
+      title={title}
       className={cn(frame, "object-cover")}
     />
   );

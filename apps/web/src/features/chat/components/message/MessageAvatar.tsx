@@ -11,7 +11,14 @@ interface MessageAvatarProps {
 
 export function MessageAvatar({ author }: MessageAvatarProps) {
   if (author.kind === "human") {
-    return <UserAvatar email={author.id} name={author.name} size="sm" />;
+    return (
+      <UserAvatar
+        email={author.id}
+        name={author.name}
+        title={author.name}
+        size="sm"
+      />
+    );
   }
   return (
     <div
