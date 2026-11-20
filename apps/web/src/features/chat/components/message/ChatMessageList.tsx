@@ -3,10 +3,12 @@ import { Box } from "@tangent/ui-primitives/box";
 import { BlockStack } from "@tangent/ui-primitives/layout";
 import { Spinner } from "@tangent/ui-primitives/spinner";
 import { Paragraph } from "@tangent/ui-primitives/typography";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Virtualizer } from "virtua";
 
 import { useChatScroll } from "@/features/chat/hooks/useChatScroll";
+import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
+import { MessageAuthorNamesContext } from "@/features/chat/model/messageAuthorNamesContext";
 import {
   isEmptyMessage,
   isThinkingOnly,
@@ -159,6 +161,21 @@ export function ChatMessageList({
   onTogglePinArtifact,
   isMessageStreaming,
 }: ChatMessageListProps) {
+  const { data: participants } = useSessionParticipants(sessionId);
+  const authorNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const person of participants ?? []) {
+      if (
+        person.kind === "human" &&
+        person.displayName &&
+        person.displayName !== person.id
+      ) {
+        names.set(person.id, person.displayName);
+      }
+    }
+    return names;
+  }, [participants]);
+
   // Collapse state is ephemeral per view (not URL or server). Thinking-only
   // messages collapse by default once they finish streaming; `expandedIds`
   // records the user overriding that default, while `collapsedIds` records the
@@ -250,35 +267,37 @@ export function ChatMessageList({
           {rows.length === 0 ? (
             <EmptyThread historyLoaded={historyLoaded} />
           ) : (
-            <Virtualizer ref={virtualizerRef} onScroll={onScroll}>
-              {rows.map((row, index) => {
-                const isLast = index === rows.length - 1;
-                return (
-                  <Box
-                    key={row.key}
-                    paddingBlockStart={index === 0 ? "base" : undefined}
-                    paddingBlockEnd={isLast ? "base" : "lg"}
-                  >
-                    <RowContent
-                      row={row}
-                      sessionId={sessionId}
-                      currentAuthorId={currentAuthorId}
-                      primaryConversationId={primaryConversationId}
-                      activityAuthorName={activityAuthorName}
-                      activityAuthorRole={activityAuthorRole}
-                      bundleId={bundleId}
-                      onSendPrompt={onSendPrompt}
-                      onOpenArtifact={onOpenArtifact}
-                      pinnedPaths={pinnedPaths}
-                      onTogglePinArtifact={onTogglePinArtifact}
-                      isMessageStreaming={isMessageStreaming}
-                      onCollapse={collapse}
-                      onExpand={expand}
-                    />
-                  </Box>
-                );
-              })}
-            </Virtualizer>
+            <MessageAuthorNamesContext value={authorNames}>
+              <Virtualizer ref={virtualizerRef} onScroll={onScroll}>
+                {rows.map((row, index) => {
+                  const isLast = index === rows.length - 1;
+                  return (
+                    <Box
+                      key={row.key}
+                      paddingBlockStart={index === 0 ? "base" : undefined}
+                      paddingBlockEnd={isLast ? "base" : "lg"}
+                    >
+                      <RowContent
+                        row={row}
+                        sessionId={sessionId}
+                        currentAuthorId={currentAuthorId}
+                        primaryConversationId={primaryConversationId}
+                        activityAuthorName={activityAuthorName}
+                        activityAuthorRole={activityAuthorRole}
+                        bundleId={bundleId}
+                        onSendPrompt={onSendPrompt}
+                        onOpenArtifact={onOpenArtifact}
+                        pinnedPaths={pinnedPaths}
+                        onTogglePinArtifact={onTogglePinArtifact}
+                        isMessageStreaming={isMessageStreaming}
+                        onCollapse={collapse}
+                        onExpand={expand}
+                      />
+                    </Box>
+                  );
+                })}
+              </Virtualizer>
+            </MessageAuthorNamesContext>
           )}
         </div>
         {showJump ? (

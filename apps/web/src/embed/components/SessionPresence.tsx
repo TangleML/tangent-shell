@@ -1,17 +1,10 @@
 // local primitive
 
-import { BlockStack } from "@tangent/ui-primitives/layout";
 import { Separator } from "@tangent/ui-primitives/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@tangent/ui-primitives/tooltip";
-import { Text } from "@tangent/ui-primitives/typography";
 
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
-import { UserAvatar } from "@/features/user/components/UserAvatar";
+import { UserAvatarWithTooltip } from "@/features/user/components/UserAvatar";
 
 export function SessionPresence({ sessionId }: { sessionId: string }) {
   const { connected, currentAuthorId, historyLoaded } =
@@ -43,26 +36,13 @@ export function SessionPresence({ sessionId }: { sessionId: string }) {
               className="flex shrink-0"
               style={{ zIndex: viewers.length - index }}
             >
-              <Tooltip>
-                <TooltipTrigger
-                  aria-label={`${displayName} (${away ? "away" : "active"})`}
-                  className="flex cursor-help rounded-full ring-2 ring-background focus-visible:outline-2 focus-visible:outline-ring"
-                >
-                  <UserAvatar email={id} name={displayName} muted={away} />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={6}>
-                  <BlockStack gap="0.5">
-                    <Text size="sm" weight="semibold" tone="on-primary">
-                      {displayName}
-                    </Text>
-                    {id.includes("@") && id !== displayName && (
-                      <Text size="xs" tone="on-primary">
-                        {id}
-                      </Text>
-                    )}
-                  </BlockStack>
-                </TooltipContent>
-              </Tooltip>
+              <UserAvatarWithTooltip
+                email={id}
+                name={displayName}
+                label={`${displayName} (${away ? "away" : "active"})`}
+                muted={away}
+                className="ring-2 ring-background"
+              />
             </li>
           );
         })}

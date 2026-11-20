@@ -1,21 +1,24 @@
 // local primitive
 
 import { Icon } from "@tangent/ui-primitives/icon";
+import { useContext } from "react";
 
+import { MessageAuthorNamesContext } from "@/features/chat/model/messageAuthorNamesContext";
 import type { ChatAuthor } from "@/features/chat/model/types";
-import { UserAvatar } from "@/features/user/components/UserAvatar";
+import { UserAvatarWithTooltip } from "@/features/user/components/UserAvatar";
 
 interface MessageAvatarProps {
   author: Omit<ChatAuthor, "id"> & { id?: string };
 }
 
 export function MessageAvatar({ author }: MessageAvatarProps) {
+  const authorNames = useContext(MessageAuthorNamesContext);
   if (author.kind === "human") {
     return (
-      <UserAvatar
+      <UserAvatarWithTooltip
         email={author.id}
         name={author.name}
-        title={author.name}
+        displayName={author.id ? authorNames.get(author.id) : undefined}
         size="sm"
       />
     );
