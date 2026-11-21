@@ -26,11 +26,21 @@ export interface OpenRunInput {
   cursor?: string;
   /**
    * The human whose prompt opened this Run, when a human woke the participant.
-   * A routing hint (not attribution): remote tools called during the Run target
-   * this person's host environment. Absent for an agent/automation wake, which
-   * inherits the participant's last human audience instead.
+   * Becomes the Run's identity set on its own: remote tools called during the
+   * Run target this person's host, and calls made on someone's behalf act as
+   * them. Absent for an agent/automation wake, which inherits the participant's
+   * last identity set instead.
    */
   audienceParticipantId?: string;
+}
+
+/**
+ * The humans behind a participant's current work, oldest first. The most
+ * recent is the acting default: the one a remote tool routes to and an egress
+ * call acts for unless another member is named.
+ */
+export interface RunIdentity {
+  participants: string[];
 }
 
 /** The terminal states {@link RunRegistry.settle} accepts. */
@@ -66,9 +76,9 @@ export class RunRegistry {
   private readonly byParticipant = new Map<string, Run>();
   /** The same runs by id, so a client-supplied run id resolves directly. */
   private readonly byId = new Map<RunId, Run>();
-  /** The last human audience each participant had, by `(session, participant)`, so
-   * an agent/automation wake inherits it rather than routing to nobody. */
-  private readonly lastAudience = new Map<string, string>();
+  /** Each participant's identity set, by `(session, participant)`. Kept across
+   * Runs so an agent/automation wake inherits it rather than routing to nobody. */
+  private readonly identities = new Map<string, RunIdentity>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
   private onSettled?: (run: Run, settlement: Settlement) => void;
@@ -133,9 +143,9 @@ export class RunRegistry {
   }
 
   /**
-   * Records the human whose prompt this Run serves. A human wake sets it; an
-   * agent/automation wake (no audience) keeps the participant's last human
-   * audience, so a follow-on turn still routes to the same person.
+   * Records the human whose prompt opens this Run as its whole identity set. An
+   * agent/automation wake (no audience) keeps the participant's last set, so a
+   * follow-on turn still acts for the same people.
    */
   private stampAudience(
     sessionId: string,
@@ -143,34 +153,57 @@ export class RunRegistry {
     audienceParticipantId: string | undefined,
   ): void {
     if (!audienceParticipantId) return;
-    this.lastAudience.set(
-      keyFor(sessionId, participantId),
-      audienceParticipantId,
-    );
+    this.identities.set(keyFor(sessionId, participantId), {
+      participants: [audienceParticipantId],
+    });
   }
 
   /**
-   * Seeds a participant's audience without opening a Run — used when a sub-agent
-   * inherits the audience of whoever asked Prime to spawn it, so its first turn
-   * already routes to that person.
+   * Adds a human who wrote into a Run already in flight (a steer or follow-up)
+   * to its identity set, as the most recent member. A member who writes again
+   * moves to the end rather than appearing twice.
+   */
+  join(sessionId: string, participantId: string, humanId: string): void {
+    const key = keyFor(sessionId, participantId);
+    const current = this.identities.get(key)?.participants ?? [];
+    this.identities.set(key, {
+      participants: [...current.filter((id) => id !== humanId), humanId],
+    });
+  }
+
+  /**
+   * Seeds a participant's identity set without opening a Run — used when a
+   * sub-agent inherits the set of whoever asked Prime to spawn it, so its first
+   * turn already acts for those people.
    */
   recordAudience(
     sessionId: string,
     participantId: string,
-    audienceParticipantId: string,
+    participants: readonly string[],
   ): void {
-    this.lastAudience.set(
-      keyFor(sessionId, participantId),
-      audienceParticipantId,
-    );
+    if (participants.length === 0) return;
+    this.identities.set(keyFor(sessionId, participantId), {
+      participants: [...participants],
+    });
   }
 
   /**
-   * The human whose prompt this participant is working for: the last human
-   * audience it had. Undefined when no human has ever woken it.
+   * The humans this participant is working for, oldest first; empty when no
+   * human has ever woken it.
+   */
+  participantsFor(sessionId: string, participantId: string): string[] {
+    return [
+      ...(this.identities.get(keyFor(sessionId, participantId))?.participants ??
+        []),
+    ];
+  }
+
+  /**
+   * The human whose prompt this participant is acting for: the most recent
+   * member of its identity set. Undefined when no human has ever woken it.
    */
   audienceFor(sessionId: string, participantId: string): string | undefined {
-    return this.lastAudience.get(keyFor(sessionId, participantId));
+    return this.participantsFor(sessionId, participantId).at(-1);
   }
 
   /** An open Run by id. Settled Runs live only in the store. */

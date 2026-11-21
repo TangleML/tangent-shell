@@ -4,9 +4,12 @@ import { test } from "node:test";
 import { DEFAULT_USER } from "@tangent/shared/contracts.ts";
 import type { Request, Response } from "express";
 
-import { ScopedTokenCredential } from "../connectors/credentials.ts";
-import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
-import { handleMintRemoteEnvToken } from "./embed.ts";
+// A bearer token identifies a caller only in an embed deployment.
+process.env.EMBED_ALLOWED_ORIGINS = "https://host.example";
+const { ScopedTokenCredential } = await import("../connectors/credentials.ts");
+const { InMemorySessionStore } =
+  await import("../store/inMemorySessionStore.ts");
+const { handleMintRemoteEnvToken } = await import("./embed.ts");
 
 class TestResponse {
   statusCode = 200;

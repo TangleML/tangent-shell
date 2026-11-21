@@ -5,7 +5,10 @@ import type { BundleEditor } from "@tangent/shared/contracts.ts";
 import type { Request, RequestHandler, Response } from "express";
 
 import type { BundleEditorStore } from "../store/bundleEditorStore.ts";
-import { requireAdmin, requireBundleEditor } from "./requireRole.ts";
+
+// A bearer token identifies a caller only in an embed deployment.
+process.env.EMBED_ALLOWED_ORIGINS = "https://host.example";
+const { requireAdmin, requireBundleEditor } = await import("./requireRole.ts");
 
 const ADMINS: ReadonlySet<string> = new Set(["admin@example.com"]);
 

@@ -8,6 +8,17 @@ import {
 
 import { nestedRoots } from "./memory/paths.ts";
 
+const HEADER_NAME = /^[a-z0-9-]*$/;
+
+/** Reads a header-name setting, lowercased; empty means the feature is off. */
+function readHeaderName(name: string): string {
+  const value = (process.env[name] ?? "").trim().toLowerCase();
+  if (!HEADER_NAME.test(value)) {
+    throw new Error(`${name} must be a header name (letters, digits, dashes)`);
+  }
+  return value;
+}
+
 function readAbsoluteUrl(name: string, fallback: string): string {
   const value = process.env[name] ?? fallback;
   try {
@@ -246,9 +257,20 @@ export const AUTH_JWT_TOKEN_COOKIE_NAME =
  * Name of a request header carrying the same JWT, for deployments behind a
  * proxy that forwards it as a header but drops cookies. Empty disables it.
  */
-export const AUTH_JWT_TOKEN_HEADER_NAME = (
-  process.env.AUTH_JWT_TOKEN_HEADER_NAME ?? ""
-).toLowerCase();
+export const AUTH_JWT_TOKEN_HEADER_NAME = readHeaderName(
+  "AUTH_JWT_TOKEN_HEADER_NAME",
+);
+
+/**
+ * Name of the header a trusting front proxy stamps the participant's identity
+ * assertion into on every inbound request, including the Socket.IO polling
+ * handshake. When set it outranks every other identity source, because the
+ * proxy that sets it also strips any copy a client sent. Empty by default, so a
+ * deployment without such a proxy trusts no header.
+ */
+export const TRUSTED_IDENTITY_HEADER = readHeaderName(
+  "TRUSTED_IDENTITY_HEADER",
+);
 
 /**
  * Origins allowed to embed the UI cross-origin (the host pages running

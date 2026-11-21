@@ -263,7 +263,8 @@ async function handleSpawn(
     return;
   }
 
-  const audienceParticipantId = runs.audienceFor(body.sessionId, PI_AGENT.id);
+  const participants = runs.participantsFor(body.sessionId, PI_AGENT.id);
+  const audienceParticipantId = participants.at(-1);
   try {
     const spawnResult = connector.spawn(body.sessionId, {
       name: body.name,
@@ -278,9 +279,7 @@ async function handleSpawn(
       audienceParticipantId,
     });
     const { info } = spawnResult;
-    if (audienceParticipantId) {
-      runs.recordAudience(body.sessionId, info.id, audienceParticipantId);
-    }
+    runs.recordAudience(body.sessionId, info.id, participants);
     await store.recordAgent(body.sessionId, subagentRecord(body, spawnResult));
     // Watch the sub-agent's thread before its first task runs, so any cause it
     // surfaces wakes the orchestrator to re-assess. Best-effort inside.

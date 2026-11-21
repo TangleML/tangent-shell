@@ -70,6 +70,38 @@ sequenceDiagram
 
 ---
 
+## Who a request is from
+
+[`resolveIdentity`](../../server/src/auth/identity.ts) reads the caller of an
+HTTP request or Socket.IO handshake from the first configured source that
+carries a token, in trust order:
+
+1. `TRUSTED_IDENTITY_HEADER` — a participant identity assertion stamped by a
+   trusting front proxy. It outranks everything because the proxy that sets it
+   also strips any copy a client sent; without such a proxy leave it empty.
+2. `Authorization: Bearer` (or the handshake `auth.token`) — honoured only when
+   `EMBED_ALLOWED_ORIGINS` is non-empty, the one deployment where a cross-origin
+   host has to carry its own token.
+3. `AUTH_JWT_TOKEN_HEADER_NAME`, then `AUTH_JWT_TOKEN_COOKIE_NAME`.
+
+No source is signature-checked here; the claims (`email` or `sub`, names) are
+read as presented, and the backend is the only verifier. Tokens from the first
+two sources are also kept, per participant, in the in-memory
+[identity assertion cache](../../server/src/auth/identityAssertions.ts) along
+with their `exp`, fed by every `/api` request and socket handshake and dropped
+once expired. The web client refreshes it by calling `GET /api/me` before a chat
+message when its last request is more than 30 minutes old.
+
+A Run carries an identity set: the ordered list of humans who wrote into the
+turn ([`RunRegistry`](../../server/src/runs/runRegistry.ts)). A human message
+that opens a Run sets it to `[author]`; one that steers or follows up a Run in
+flight appends the author (or moves them to the end); an agent or automation
+wake inherits the participant's last set; a sub-agent inherits its spawner's.
+The most recent member is the acting default — the person remote tools route
+to.
+
+---
+
 ## The egress allowlist proxy
 
 Agents and sandboxed bundle-UI components must never hold outbound credentials

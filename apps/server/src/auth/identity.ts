@@ -5,6 +5,8 @@ import type { UserIdentity } from "@tangent/shared/contracts.ts";
 import {
   AUTH_JWT_TOKEN_COOKIE_NAME,
   AUTH_JWT_TOKEN_HEADER_NAME,
+  EMBED_ALLOWED_ORIGINS,
+  TRUSTED_IDENTITY_HEADER,
 } from "../config.ts";
 
 /** Parses a raw `Cookie` header into a name->value map. */
@@ -27,8 +29,8 @@ export function parseCookies(
 
 /**
  * Decodes a JWT's payload segment WITHOUT verifying its signature. Returns
- * `null` for any malformed token. Signature verification is intentionally
- * skipped for now.
+ * `null` for any malformed token. The server never verifies: a token is
+ * trusted for where it arrived from, and the backend is the only verifier.
  */
 export function decodeJwtPayload(
   token: string,
@@ -58,16 +60,14 @@ function pickString(
 }
 
 /** Maps a decoded JWT (no signature check) onto a {@link UserIdentity}. */
-function identityFromToken(token: string | undefined): UserIdentity | null {
-  if (!token) return null;
-
+function identityFromToken(token: string): UserIdentity | null {
   const payload = decodeJwtPayload(token);
-  if (!payload || typeof payload.email !== "string" || !payload.email) {
-    return null;
-  }
+  if (!payload) return null;
+  const email = pickString(payload, ["email", "sub"]);
+  if (!email) return null;
 
   return {
-    email: payload.email,
+    email,
     first_name: pickString(payload, ["first_name", "given_name"]),
     last_name: pickString(payload, ["last_name", "family_name"]),
   };
@@ -79,38 +79,109 @@ function bearerToken(header: string | undefined): string | undefined {
   return match?.[1];
 }
 
-/** The JWT in the {@link AUTH_JWT_TOKEN_HEADER_NAME} header, if configured and sent. */
-function headerToken(headers: IncomingHttpHeaders): string | undefined {
-  if (!AUTH_JWT_TOKEN_HEADER_NAME) return undefined;
-  const value = headers[AUTH_JWT_TOKEN_HEADER_NAME];
+function headerValue(
+  headers: IncomingHttpHeaders,
+  name: string,
+): string | undefined {
+  if (!name) return undefined;
+  const value = headers[name];
   return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
+/** Where a request's identity came from, in order of precedence. */
+export type IdentitySource =
+  | "trusted-header"
+  | "bearer"
+  | "auth-header"
+  | "cookie";
+
+/** An identity together with the raw token it was read from. */
+export interface ResolvedIdentity {
+  identity: UserIdentity;
+  token: string;
+  source: IdentitySource;
+}
+
+/** The deployment settings that decide which identity sources are honoured. */
+export interface IdentityConfig {
+  trustedHeader: string;
+  bearerAllowed: boolean;
+  authHeader: string;
+  cookieName: string;
+}
+
+const DEFAULT_CONFIG: IdentityConfig = {
+  trustedHeader: TRUSTED_IDENTITY_HEADER,
+  bearerAllowed: EMBED_ALLOWED_ORIGINS.length > 0,
+  authHeader: AUTH_JWT_TOKEN_HEADER_NAME,
+  cookieName: AUTH_JWT_TOKEN_COOKIE_NAME,
+};
+
+type SourceReader = (
+  headers: IncomingHttpHeaders,
+  config: IdentityConfig,
+) => string | undefined;
+
+/** Each source's token, in precedence order. */
+const SOURCES: ReadonlyArray<[IdentitySource, SourceReader]> = [
+  [
+    "trusted-header",
+    (headers, config) => headerValue(headers, config.trustedHeader),
+  ],
+  [
+    "bearer",
+    (headers, config) =>
+      config.bearerAllowed ? bearerToken(headers.authorization) : undefined,
+  ],
+  ["auth-header", (headers, config) => headerValue(headers, config.authHeader)],
+  [
+    "cookie",
+    (headers, config) =>
+      config.cookieName
+        ? parseCookies(headers.cookie)[config.cookieName]
+        : undefined,
+  ],
+];
+
+/** The first configured source that carries a token, highest precedence first. */
+function presentedToken(
+  headers: IncomingHttpHeaders,
+  config: IdentityConfig,
+): { token: string; source: IdentitySource } | null {
+  for (const [source, read] of SOURCES) {
+    const token = read(headers, config);
+    if (token) return { token, source };
+  }
+  return null;
+}
+
 /**
- * Resolves the current {@link UserIdentity} from an incoming request's
- * credentials. Prefers an `Authorization: Bearer` JWT (the embed passes one
- * cross-origin, where cookies are unavailable), then the JWT in the
- * {@link AUTH_JWT_TOKEN_HEADER_NAME} header (for proxies that drop cookies),
- * then the Oktasso JWT in {@link AUTH_JWT_TOKEN_COOKIE_NAME}. The payload is
- * decoded without a signature check and mapped from the email + name claims.
+ * Resolves who an incoming request is from, and from which source. The
+ * precedence is a trust order: the trusted identity header, when configured,
+ * is set by a front proxy that strips any client copy, so it wins outright; an
+ * `Authorization: Bearer` token is honoured only when cross-origin embed hosts
+ * are configured, because that is the one deployment where a client has to
+ * carry its own token; then the forwarded auth header and the auth cookie.
  *
- * Returns `null` when no token resolves, the token is malformed, or it carries
- * no email. The header and cookie paths each require their name to be
- * configured; the bearer path does not. Name claims fall back across the OIDC
- * standard (`given_name` / `family_name`) and snake-case (`first_name` /
- * `last_name`) variants, defaulting to `""` when absent.
+ * Every source is decoded without a signature check and mapped from the
+ * `email` (or `sub`) and name claims. Returns `null` when no configured
+ * source carries a token, or the token it carries is malformed or anonymous.
  */
+export function resolveIdentity(
+  headers: IncomingHttpHeaders,
+  config: IdentityConfig = DEFAULT_CONFIG,
+): ResolvedIdentity | null {
+  const presented = presentedToken(headers, config);
+  if (!presented) return null;
+  const identity = identityFromToken(presented.token);
+  if (!identity) return null;
+  return { identity, ...presented };
+}
+
+/** The current {@link UserIdentity}, by the same precedence as {@link resolveIdentity}. */
 export function resolveUserIdentity(
   headers: IncomingHttpHeaders,
+  config: IdentityConfig = DEFAULT_CONFIG,
 ): UserIdentity | null {
-  const bearer = bearerToken(headers.authorization);
-  if (bearer) return identityFromToken(bearer);
-
-  const forwarded = headerToken(headers);
-  if (forwarded) return identityFromToken(forwarded);
-
-  if (!AUTH_JWT_TOKEN_COOKIE_NAME) return null;
-  return identityFromToken(
-    parseCookies(headers.cookie)[AUTH_JWT_TOKEN_COOKIE_NAME],
-  );
+  return resolveIdentity(headers, config)?.identity ?? null;
 }
