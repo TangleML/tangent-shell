@@ -1,6 +1,11 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import {
+  type AgentCallerResolver,
+  assertedSessionAndAgent,
+  enforceAgentCaller,
+} from "../auth/agentCaller.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
@@ -86,10 +91,14 @@ async function handleCall(
 export function createInternalRemoteToolsRouter(
   gateway: RemoteEnvironmentGateway,
   runs: RunRegistry,
+  agents?: AgentCallerResolver,
 ): Router {
   const router = Router();
 
-  router.use(requireInternalToken);
+  router.use(
+    requireInternalToken,
+    enforceAgentCaller(agents, assertedSessionAndAgent()),
+  );
 
   router.get(
     "/list",

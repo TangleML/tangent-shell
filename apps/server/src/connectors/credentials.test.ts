@@ -3,11 +3,13 @@ import { createHmac } from "node:crypto";
 import { test } from "node:test";
 
 import {
+  AgentTokenCredential,
   BearerCredential,
   type ConnectorCredential,
   deniedCredential,
   HandshakeTokenCredential,
   InheritedTokenCredential,
+  mintAgentTokenCredential,
   mintSecretCredential,
   PeerBearerCredential,
   ScopedTokenCredential,
@@ -222,5 +224,33 @@ test("minting is refused when the scoped signing secret is unset", () => {
   assert.throws(
     () => new ScopedTokenCredential("").mint(SCOPED_INPUT),
     /not configured/,
+  );
+});
+
+test("an agent token credential answers only to its own token, in its own header", () => {
+  const credential = mintAgentTokenCredential();
+  const token = credential.spawnEnv().TANGENT_AGENT_TOKEN;
+
+  assert.ok(token && token.length >= 48);
+  assert.equal(credential.configured, true);
+  assert.equal(credential.verify({ agentToken: token }), true);
+  assert.equal(credential.verify({ agentToken: `${token}x` }), false);
+  assert.equal(credential.verify({ agentToken: token.slice(1) }), false);
+  assert.equal(credential.verify({ authorization: `Bearer ${token}` }), false);
+  assert.equal(credential.verify({}), false);
+  assert.equal(new AgentTokenCredential("").verify({ agentToken: "" }), false);
+});
+
+test("every minted agent token is distinct", () => {
+  const a = mintAgentTokenCredential();
+  const b = mintAgentTokenCredential();
+
+  assert.notEqual(
+    a.spawnEnv().TANGENT_AGENT_TOKEN,
+    b.spawnEnv().TANGENT_AGENT_TOKEN,
+  );
+  assert.equal(
+    a.verify({ agentToken: b.spawnEnv().TANGENT_AGENT_TOKEN }),
+    false,
   );
 });

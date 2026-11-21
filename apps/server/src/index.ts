@@ -546,6 +546,7 @@ app.use(
     reactors,
     contextEngine,
     memberships,
+    pi,
   ),
 );
 // Internal API a bundle tool uses to drive external sub-agent tabs: register a
@@ -555,11 +556,11 @@ app.use(
   createInternalExternalAgentsRouter(externalGateway),
 );
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
-app.use("/internal/egress", createInternalEgressRouter());
+app.use("/internal/egress", createInternalEgressRouter(pi));
 // Internal API for the triggers extension running inside each Pi process.
 app.use(
   "/internal/triggers",
-  createInternalTriggersRouter(store, triggers, triggerEngine),
+  createInternalTriggersRouter(store, triggers, triggerEngine, pi),
 );
 // Internal API for the memory extension running inside each Pi process.
 app.use(
@@ -575,21 +576,24 @@ app.use(
 // Internal API for the resources extension running inside each Pi process.
 app.use(
   "/internal/resources",
-  createInternalResourcesRouter(store, resourceCatalog),
+  createInternalResourcesRouter(store, resourceCatalog, pi),
 );
 // Internal API for the session extension running inside each Pi process.
 app.use(
   "/internal/session",
-  createInternalSessionRouter(store, emitUiCommand, emitSubagentDismissed),
+  createInternalSessionRouter(store, emitUiCommand, emitSubagentDismissed, pi),
 );
 // Internal API for bundle extensions to open/close generic MCP relay channels
 // bound to their session (remote-runtime specifics stay in the bundle).
-app.use("/internal/mcp-relay", createInternalMcpRelayRouter(mcpRelay, store));
+app.use(
+  "/internal/mcp-relay",
+  createInternalMcpRelayRouter(mcpRelay, store, pi),
+);
 // Internal API for the remote-tools extension: list and invoke the RPC tools a
 // connected remote environment offers, without spawning a browser sub-agent.
 app.use(
   "/internal/remote-tools",
-  createInternalRemoteToolsRouter(remoteGateway, runs),
+  createInternalRemoteToolsRouter(remoteGateway, runs, pi),
 );
 
 // Mounted last: async failures from any handler above land here with a

@@ -12,6 +12,9 @@ import {
 /** Env var a spawned Pi child reads its inherited credential from. */
 const INHERITED_TOKEN_VAR = "TANGENT_INTERNAL_TOKEN";
 
+/** Env var a spawned Pi child reads its own per-process token from. */
+const AGENT_TOKEN_VAR = "TANGENT_AGENT_TOKEN";
+
 /** Bytes of entropy in a minted per-subject secret. */
 const MINTED_SECRET_BYTES = 24;
 
@@ -31,6 +34,7 @@ export interface CredentialPresentation {
   authorization?: string;
   /** The Socket.IO handshake's `auth.token`. */
   token?: string;
+  agentToken?: string;
 }
 
 /**
@@ -342,6 +346,42 @@ export class MintedSecretCredential extends BearerCredential {
 /** Mints a credential for one subject, with a fresh secret. */
 export function mintSecretCredential(): MintedSecretCredential {
   return new MintedSecretCredential(
+    randomBytes(MINTED_SECRET_BYTES).toString("hex"),
+  );
+}
+
+/**
+ * A secret minted for one Pi process rather than shared by every child: handed
+ * down through the spawn environment like the inherited token, but presented
+ * back in its own header so a route can tell which agent is calling, not just
+ * that some agent is. Where the inherited token answers "is this a Pi child",
+ * this one answers "which".
+ */
+export class AgentTokenCredential implements ConnectorCredential {
+  readonly scheme: CredentialScheme = "minted-secret";
+  private readonly token: string;
+
+  constructor(token: string) {
+    this.token = token;
+  }
+
+  get configured(): boolean {
+    return this.token.length > 0;
+  }
+
+  verify(presented: CredentialPresentation): boolean {
+    if (!this.configured || !presented.agentToken) return false;
+    return macEqual(presented.agentToken, this.token);
+  }
+
+  spawnEnv(): Record<string, string> {
+    return { [AGENT_TOKEN_VAR]: this.token };
+  }
+}
+
+/** Mints the per-process credential one Pi child is spawned with. */
+export function mintAgentTokenCredential(): AgentTokenCredential {
+  return new AgentTokenCredential(
     randomBytes(MINTED_SECRET_BYTES).toString("hex"),
   );
 }

@@ -35,6 +35,19 @@ This keeps arbitrary local processes from driving a session's agents, mutating
 memory or triggers, renaming sessions, or making egress calls. The token never
 leaves the host (the URL defaults to loopback on `PORT`).
 
+The shared token says a caller is _some_ Pi child; it cannot say which. Each
+spawn therefore also mints a per-process `TANGENT_AGENT_TOKEN`
+([`AgentTokenCredential`](../../server/src/connectors/credentials.ts)), held
+only by that process and the agent manager. An extension presents it as
+`x-tangent-agent-token`, and [`agentCaller.ts`](../../server/src/auth/agentCaller.ts)
+resolves it (constant-time, live agents only) to the `(sessionId, agentId)` it
+was minted for. A respawn mints a new token; a kill forgets the old one. Where
+an internal route takes a `sessionId` or a caller-naming `agentId` in its body
+or query, a request whose token resolves to a different agent is refused with
+`403 { code: "agent_mismatch" }`. A request without the header, or with a token
+no live agent holds, is handled as before, so older extensions keep working
+while the header rolls out.
+
 ```mermaid
 sequenceDiagram
   autonumber

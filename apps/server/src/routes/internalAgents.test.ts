@@ -26,6 +26,10 @@ const { InMemoryParticipantStore } =
 import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
+import {
+  AGENT_TOKEN_HEADER,
+  type AgentCallerResolver,
+} from "../auth/agentCaller.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
@@ -56,7 +60,7 @@ function spawned(id: string, conversationId: string): SpawnedSubagent {
 }
 
 /** A running internal-agents API over in-memory stores and stubbed connectors. */
-async function serve() {
+async function serve(agents?: AgentCallerResolver) {
   const store = new InMemorySessionStore(new InMemoryParticipantStore());
   const reactors = new ReactorRegistry(new InMemoryReactorStore());
 
@@ -95,25 +99,31 @@ async function serve() {
       participants,
       runs,
       reactors,
+      undefined,
+      undefined,
+      agents,
     ),
   );
 
   const server = app.listen(0);
   cleanups.push(() => server.close());
   const { port } = server.address() as AddressInfo;
-  const base = `http://127.0.0.1:${port}/internal/agents`;
+  return { store, reactors, killed, post: poster(port) };
+}
 
-  const post = (route: string, body: unknown) =>
+/** Posts JSON to the served API as a Pi child, optionally naming itself. */
+function poster(port: number) {
+  const base = `http://127.0.0.1:${port}/internal/agents`;
+  return (route: string, body: unknown, agentToken?: string) =>
     fetch(`${base}${route}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${TOKEN}`,
+        ...(agentToken ? { [AGENT_TOKEN_HEADER]: agentToken } : {}),
       },
       body: JSON.stringify(body),
     });
-
-  return { store, reactors, killed, post };
 }
 
 /** Serves the internal agents API over `store`, with `live` as the connectors' roster. */
@@ -254,5 +264,70 @@ test("list_subagents includes finished sub-agents nobody has dismissed", async (
       ["sub-live", "active"],
       ["sub-done", "completed"],
     ],
+  );
+});
+
+/** A resolver whose one live token belongs to `worker` in `sessionId`. */
+function workerResolver(sessionId: string): AgentCallerResolver {
+  return {
+    resolveAgentToken: (token) =>
+      token === "worker-token" ? { sessionId, agentId: "worker" } : undefined,
+  };
+}
+
+test("an agent token must match the session a request names", async () => {
+  const store = new InMemorySessionStore(new InMemoryParticipantStore());
+  const session = await store.createSession({ name: "S" });
+  const { killed, post } = await serve(workerResolver(session.id));
+
+  const other = await post(
+    "/kill",
+    { sessionId: "another-session", agentId: "worker" },
+    "worker-token",
+  );
+  assert.equal(other.status, 403);
+  assert.deepEqual(
+    ((await other.json()) as { code: string }).code,
+    "agent_mismatch",
+  );
+  assert.deepEqual(killed, []);
+
+  const own = await post(
+    "/kill",
+    { sessionId: session.id, agentId: "worker" },
+    "worker-token",
+  );
+  assert.equal(own.status, 200);
+  assert.deepEqual(killed, ["worker"]);
+});
+
+test("a report must come from the sub-agent it is attributed to", async () => {
+  const store = new InMemorySessionStore(new InMemoryParticipantStore());
+  const session = await store.createSession({ name: "S" });
+  const { post } = await serve(workerResolver(session.id));
+
+  const forged = await post(
+    "/report",
+    { sessionId: session.id, agentId: "other-worker", text: "done" },
+    "worker-token",
+  );
+  assert.equal(forged.status, 403);
+
+  const absent = await post("/report", {
+    sessionId: session.id,
+    agentId: "other-worker",
+    text: "done",
+  });
+  assert.notEqual(absent.status, 403, "no token keeps the old behaviour");
+
+  const unknown = await post(
+    "/report",
+    { sessionId: session.id, agentId: "other-worker", text: "done" },
+    "stale-token",
+  );
+  assert.notEqual(
+    unknown.status,
+    403,
+    "an unknown token keeps the old behaviour",
   );
 });
