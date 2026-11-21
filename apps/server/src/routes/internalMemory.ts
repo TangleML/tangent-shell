@@ -1,6 +1,10 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import {
+  assertedSessionAndAgent,
+  enforceAgentCaller,
+} from "../auth/agentCaller.ts";
 import type { MemoryResolver, ResolvedMemory } from "../memory/resolver.ts";
 import type { AgentRole, MemoryEffect } from "../memory/types.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
@@ -23,7 +27,7 @@ const callBodySchema = z.object({
 type CallBody = z.infer<typeof callBodySchema>;
 
 /** The live agents whose spawn-time memory a call runs against. */
-type MemoryCallers = Pick<PiAgentManager, "memoryCaller">;
+type MemoryCallers = Pick<PiAgentManager, "memoryCaller" | "resolveAgentToken">;
 
 /** Everything `/call` needs to resolve a caller and apply its effects. */
 export interface MemoryCallDeps {
@@ -134,7 +138,10 @@ async function handleCall(
 export function createInternalMemoryRouter(deps: MemoryCallDeps): Router {
   const router = Router();
 
-  router.use(requireInternalToken);
+  router.use(
+    requireInternalToken,
+    enforceAgentCaller(deps.agents, assertedSessionAndAgent()),
+  );
 
   router.post(
     "/call",
