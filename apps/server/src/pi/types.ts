@@ -12,6 +12,7 @@ import type {
   UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
+import type { AgentTokenCredential } from "../connectors/credentials.ts";
 import type { ResolvedMemory } from "../memory/resolver.ts";
 import type { AgentConfig, ResolvedSessionConfig } from "./agentConfig.ts";
 
@@ -138,6 +139,7 @@ export interface AgentProcess {
   role: AgentRole;
   name: string;
   template?: string;
+  credential: AgentTokenCredential;
   /**
    * The Conversation this agent posts into. Minted fresh when the agent is
    * spawned (Prime's resolved from the store, a sub-agent's from its spawner) so

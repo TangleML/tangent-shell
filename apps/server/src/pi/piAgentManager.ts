@@ -20,6 +20,7 @@ import {
   type UserIdentity,
 } from "@tangent/shared/contracts.ts";
 
+import type { AgentCaller } from "../auth/agentCaller.ts";
 import {
   INTERNAL_URL,
   PI_BIN,
@@ -30,7 +31,11 @@ import {
   PI_THINKING,
   UPLOADS_DIRNAME,
 } from "../config.ts";
-import { piCredential } from "../connectors/credentials.ts";
+import {
+  type AgentTokenCredential,
+  mintAgentTokenCredential,
+  piCredential,
+} from "../connectors/credentials.ts";
 import type {
   MemoryResolver,
   MemorySpawnPlan,
@@ -708,6 +713,7 @@ function withoutMemoryEnv<T extends string | undefined>(
 function spawnEnv(
   grant: SpawnGrant,
   descriptor: AgentDescriptor,
+  credential: AgentTokenCredential,
   ctx: PlaceholderContext,
   sessionEnv?: Record<string, string>,
   memoryEnv?: Record<string, string>,
@@ -729,6 +735,7 @@ function spawnEnv(
     TANGENT_SESSION_RECALL: grant.recall ? "1" : "0",
     TANGENT_INTERNAL_URL: INTERNAL_URL,
     ...piCredential.spawnEnv(),
+    ...credential.spawnEnv(),
   };
 }
 
@@ -847,6 +854,7 @@ interface PiLaunch {
 interface SpawnSpec {
   grant: SpawnGrant;
   descriptor: AgentDescriptor & { template?: string };
+  credential: AgentTokenCredential;
   session: SessionAgents;
   config: AgentConfig;
   supervision: { restartCount: number } | undefined;
@@ -876,6 +884,7 @@ function buildLaunch(spec: SpawnSpec): PiLaunch {
     env: spawnEnv(
       grant,
       descriptor,
+      spec.credential,
       { rootPath: session.rootPath },
       session.env,
       memoryPlan?.env,
@@ -1078,6 +1087,7 @@ function buildAgentProcess(
     template?: string;
     autoRelayToPrime?: boolean;
   },
+  credential: AgentTokenCredential,
   config: AgentConfig,
   child: ChildProcessWithoutNullStreams,
   supervision?: { restartCount: number; lastRestartAt: number | null },
@@ -1087,6 +1097,7 @@ function buildAgentProcess(
     role: descriptor.role,
     name: descriptor.name,
     template: descriptor.template,
+    credential,
     homeConversationId: descriptor.homeConversationId,
     status: "active",
     createdAt: new Date().toISOString(),
@@ -1933,6 +1944,22 @@ export class PiAgentManager {
     return Boolean(this.sessions.get(sessionId)?.agents.has(agentId));
   }
 
+  /**
+   * The live agent whose spawn-time token this is, or `undefined` for a token
+   * no running process holds: a killed or respawned agent's token stops
+   * resolving the moment its slot is dropped or re-minted.
+   */
+  resolveAgentToken(agentToken: string): AgentCaller | undefined {
+    for (const [sessionId, session] of this.sessions) {
+      for (const agent of session.agents.values()) {
+        if (agent.credential.verify({ agentToken })) {
+          return { sessionId, agentId: agent.agentId };
+        }
+      }
+    }
+    return undefined;
+  }
+
   /** The memory a live agent was spawned with, and its role; `undefined` when
    * the agent isn't running here. */
   memoryCaller(
@@ -2101,6 +2128,7 @@ export class PiAgentManager {
     return {
       grant,
       descriptor,
+      credential: mintAgentTokenCredential(),
       session,
       config,
       supervision,
@@ -2175,7 +2203,13 @@ export class PiAgentManager {
     const child = this.trySpawnChild(grant, descriptor, session, launch);
     if (!child) return undefined;
 
-    const agent = buildAgentProcess(descriptor, config, child, supervision);
+    const agent = buildAgentProcess(
+      descriptor,
+      spec.credential,
+      config,
+      child,
+      supervision,
+    );
     agent.resumeNoticePending =
       descriptor.role === "prime" && session.hasTranscript === true;
     session.agents.set(descriptor.agentId, agent);

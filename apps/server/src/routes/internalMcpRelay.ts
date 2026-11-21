@@ -1,6 +1,10 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import {
+  type AgentCallerResolver,
+  enforceAgentCaller,
+} from "../auth/agentCaller.ts";
 import { canIssueChannelUrl, channelUrl } from "../mcp/channelUrl.ts";
 import type { RelayRegistry } from "../mcp/relayRegistry.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
@@ -71,10 +75,11 @@ function handleClose(
 export function createInternalMcpRelayRouter(
   registry: RelayRegistry,
   store: SessionStore,
+  agents?: AgentCallerResolver,
 ): Router {
   const router = Router();
 
-  router.use(requireInternalToken);
+  router.use(requireInternalToken, enforceAgentCaller(agents));
 
   router.post(
     "/open",
