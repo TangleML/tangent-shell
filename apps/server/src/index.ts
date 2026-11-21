@@ -7,7 +7,10 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
-import { rememberIdentityAssertion } from "./auth/identityAssertions.ts";
+import {
+  identityAssertions,
+  rememberIdentityAssertion,
+} from "./auth/identityAssertions.ts";
 import { EMBED_ALLOWED_ORIGINS, MAX_JSON_BODY_BYTES, PORT } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { AdmissionEngine } from "./conversation/admission.ts";
@@ -33,6 +36,7 @@ import {
   type ConversationEventSink,
   PiAgentManager,
 } from "./pi/piAgentManager.ts";
+import { TriggerDelegations } from "./pi/triggers/triggerDelegation.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
@@ -435,7 +439,10 @@ const triggerEngine = new TriggerEngine(
   triggers,
   conversations,
   participantService,
+  runs,
 );
+// Mints the backend delegations a trigger fires under, when configured.
+const triggerDelegations = new TriggerDelegations();
 
 app.get("/api/health", (req, res) => {
   const cookies = Object.fromEntries(
@@ -560,11 +567,18 @@ app.use(
   createInternalExternalAgentsRouter(externalGateway),
 );
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
-app.use("/internal/egress", createInternalEgressRouter(pi));
+app.use(
+  "/internal/egress",
+  createInternalEgressRouter(pi, { runs, assertions: identityAssertions }),
+);
 // Internal API for the triggers extension running inside each Pi process.
 app.use(
   "/internal/triggers",
-  createInternalTriggersRouter(store, triggers, triggerEngine, pi),
+  createInternalTriggersRouter(store, triggers, triggerEngine, pi, {
+    runs,
+    delegations: triggerDelegations,
+    assertions: identityAssertions,
+  }),
 );
 // Internal API for the memory extension running inside each Pi process.
 app.use(

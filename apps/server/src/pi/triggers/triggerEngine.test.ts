@@ -11,8 +11,12 @@ import type { StoredTrigger, TriggerManager } from "./triggerManager.ts";
 
 const SESSION_ENV = { STUDIO_ENGINE_URL: "http://127.0.0.1:8100" };
 
-function engineFor(target: StoredTrigger["target"]) {
+function engineFor(
+  target: StoredTrigger["target"],
+  identity: Pick<StoredTrigger, "participantId" | "delegationToken"> = {},
+) {
   const ensured: PrimeSpawnOptions[] = [];
+  const seeded: unknown[] = [];
   const stored = {
     id: "t1",
     name: "engine-step",
@@ -20,6 +24,7 @@ function engineFor(target: StoredTrigger["target"]) {
     enabled: true,
     prompt: "{{body.prompt}}",
     target,
+    ...identity,
   } as unknown as StoredTrigger;
   const store = {
     listAgents: async () => [],
@@ -46,8 +51,14 @@ function engineFor(target: StoredTrigger["target"]) {
     pi,
     triggers,
     conversations,
+    undefined,
+    {
+      recordAudience: (...args: unknown[]) => {
+        seeded.push(args);
+      },
+    },
   );
-  return { engine, ensured };
+  return { engine, ensured, seeded };
 }
 
 test("a Prime-target firing revives Prime with the session's env", async () => {
@@ -64,4 +75,36 @@ test("a sub-agent-target firing revives Prime with the session's env", async () 
   } as StoredTrigger["target"]);
   await engine.fire("s1", "/tmp/s1", "t1", { body: { prompt: "go" } });
   assert.deepEqual(ensured[0]?.env, SESSION_ENV);
+});
+
+test("a firing makes the target act for the trigger's creator, under its delegation", async () => {
+  const delegated = engineFor(
+    { type: "subagent", agentId: "sub-1", spec: { name: "step" } },
+    { participantId: "alice@x", delegationToken: "delegation-token" },
+  );
+  await delegated.engine.fire("s1", "/tmp/s1", "t1", {
+    body: { prompt: "go" },
+  });
+  assert.deepEqual(delegated.seeded, [
+    [
+      "s1",
+      "sub-1",
+      ["alice@x"],
+      { participantId: "alice@x", token: "delegation-token" },
+    ],
+  ]);
+
+  const bound = engineFor({ type: "prime" }, { participantId: "alice@x" });
+  await bound.engine.fire("s1", "/tmp/s1", "t1", { body: { prompt: "go" } });
+  assert.equal(bound.seeded.length, 1);
+  assert.deepEqual((bound.seeded[0] as unknown[]).slice(2), [
+    ["alice@x"],
+    undefined,
+  ]);
+
+  const anonymous = engineFor({ type: "prime" });
+  await anonymous.engine.fire("s1", "/tmp/s1", "t1", {
+    body: { prompt: "go" },
+  });
+  assert.deepEqual(anonymous.seeded, []);
 });

@@ -2,9 +2,16 @@ import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import {
+  agentCallerFrom,
   type AgentCallerResolver,
   enforceAgentCaller,
 } from "../auth/agentCaller.ts";
+import {
+  chooseEgressIdentity,
+  describeTurnIdentity,
+  type EgressIdentityDeps,
+  ParticipantNotInTurnError,
+} from "../auth/egressIdentity.ts";
 import {
   EgressDeniedError,
   type EgressInput,
@@ -20,7 +27,8 @@ import { getValidated, validate } from "../middleware/validate.ts";
  * manual `typeof` guard); `init` stays permissive — it's a structural
  * {@link EgressRequestInit} passed straight through to {@link resolveEgress},
  * so we type it via `z.custom` rather than re-describing its shape, keeping the
- * validated value assignable without an `as` cast.
+ * validated value assignable without an `as` cast. `onBehalfOf` names a member
+ * of the caller's identity set to act as instead of the most recent one.
  */
 const egressInputSchema = z.union([
   z.string().min(1),
@@ -33,32 +41,53 @@ const egressInputSchema = z.union([
 const egressBodySchema = z.object({
   input: egressInputSchema,
   init: z.custom<EgressRequestInit>().optional(),
+  onBehalfOf: z.string().min(1).optional(),
 });
 type EgressBody = z.infer<typeof egressBodySchema>;
 
+/** Maps a failed proxy call to its status and stable code. */
+function sendEgressError(err: unknown, res: Response): void {
+  if (err instanceof EgressDeniedError) {
+    res.status(403).json({ error: err.message, code: err.code });
+    return;
+  }
+  if (err instanceof ParticipantNotInTurnError) {
+    res.status(403).json({ error: err.message, code: err.code });
+    return;
+  }
+  if (err instanceof EgressUpstreamError) {
+    res.status(502).json({ error: err.message, code: err.code });
+    return;
+  }
+  res
+    .status(502)
+    .json({ error: "egress request failed", code: "egress_failed" });
+}
+
 /**
- * Resolves the requested destination against the egress allowlist, mapping a
- * denied destination to `403` and any other failure to `502`.
+ * Resolves the requested destination against the egress allowlist as the
+ * caller's chosen participant, and reports who the call ran as. A backend
+ * status is preserved in the envelope (an upstream 401 is a 200 here), so the
+ * applied identity rides along with it either way.
  */
 async function handleEgress(
-  input: EgressInput,
-  init: EgressRequestInit | undefined,
+  identity: EgressIdentityDeps,
+  req: Request,
   res: Response,
 ): Promise<void> {
+  const { input, init, onBehalfOf } = getValidated<EgressBody>(req).body;
   try {
-    const result = await resolveEgress(input, init, "agent");
-    res.json(result);
-  } catch (err) {
-    if (err instanceof EgressDeniedError) {
-      res.status(403).json({ error: err.message });
-      return;
-    }
-    res.status(502).json({
-      error:
-        err instanceof EgressUpstreamError
-          ? err.message
-          : "egress request failed",
+    const chosen = chooseEgressIdentity(
+      identity,
+      agentCallerFrom(req),
+      onBehalfOf,
+    );
+    const result = await resolveEgress(input as EgressInput, init, "agent", {
+      identityToken: chosen.token,
     });
+    res.json({ ...result, appliedIdentity: chosen.applied });
+  } catch (err) {
+    sendEgressError(err, res);
   }
 }
 
@@ -67,7 +96,9 @@ async function handleEgress(
  * process (e.g. the Tangle API tool). It is the agent-side counterpart to the
  * public bundle-UI `host.fetch` proxy: the request is validated against the
  * same {@link resolveEgress} allowlist and the server injects any credentials,
- * so the agent never holds them.
+ * so the agent never holds them. When the calling agent is known, the call is
+ * made on behalf of the human behind its turn; the agent never sets the
+ * identity header itself.
  *
  * Guarded by the bearer token shared with the spawned processes via env (the
  * same `INTERNAL_TOKEN` the orchestrator/memory extensions present), so
@@ -75,19 +106,21 @@ async function handleEgress(
  */
 export function createInternalEgressRouter(
   agents?: AgentCallerResolver,
+  identity: EgressIdentityDeps = {
+    runs: { participantsFor: () => [], delegationFor: () => undefined },
+  },
 ): Router {
   const router = Router();
 
   router.use(requireInternalToken, enforceAgentCaller(agents));
 
-  router.post(
-    "/",
-    validate({ body: egressBodySchema }),
-    (req: Request, res: Response) => {
-      const { input, init } = getValidated<EgressBody>(req).body;
-      return handleEgress(input, init, res);
-    },
+  router.post("/", validate({ body: egressBodySchema }), (req, res) =>
+    handleEgress(identity, req, res),
   );
+
+  router.get("/identity", (req: Request, res: Response) => {
+    res.json(describeTurnIdentity(identity, agentCallerFrom(req)));
+  });
 
   return router;
 }

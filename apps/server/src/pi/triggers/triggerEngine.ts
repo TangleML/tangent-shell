@@ -18,6 +18,7 @@ import {
   orchestratorIdentity,
 } from "../../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../../conversation/participantService.ts";
+import type { RunRegistry } from "../../runs/runRegistry.ts";
 import { roomFor } from "../../sockets/rooms.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SubagentSpawnRequest } from "../agentConfig.ts";
@@ -91,6 +92,7 @@ export class TriggerEngine {
   private readonly triggers: TriggerManager;
   private readonly conversations: ConversationRouter;
   private readonly participants: ParticipantService | undefined;
+  private readonly runs: Pick<RunRegistry, "recordAudience"> | undefined;
 
   constructor(
     io: Server,
@@ -99,6 +101,7 @@ export class TriggerEngine {
     triggers: TriggerManager,
     conversations: ConversationRouter,
     participants?: ParticipantService,
+    runs?: Pick<RunRegistry, "recordAudience">,
   ) {
     this.io = io;
     this.store = store;
@@ -106,6 +109,29 @@ export class TriggerEngine {
     this.triggers = triggers;
     this.conversations = conversations;
     this.participants = participants;
+    this.runs = runs;
+  }
+
+  /**
+   * Makes the firing's turn act for the trigger's creator: the target's
+   * identity set becomes that one person, under the trigger's delegation when
+   * the backend issued one. A trigger nobody created (a bundle's) acts as the
+   * instance, as before.
+   */
+  private actFor(
+    sessionId: string,
+    agentId: string,
+    stored: StoredTrigger,
+  ): void {
+    if (!stored.participantId) return;
+    this.runs?.recordAudience(
+      sessionId,
+      agentId,
+      [stored.participantId],
+      stored.delegationToken
+        ? { participantId: stored.participantId, token: stored.delegationToken }
+        : undefined,
+    );
   }
 
   /** Seeds a bundle's triggers into a new session and arms its schedules. */
@@ -267,6 +293,7 @@ export class TriggerEngine {
       await orchestratorIdentity(this.store, sessionId);
     await this.ensurePrime(sessionId, rootPath, primaryConversationId);
     await this.ensureTriggerParticipant(sessionId, stored);
+    this.actFor(sessionId, orchestratorId, stored);
     await this.conversations.post({
       sessionId,
       conversationId: primaryConversationId,
@@ -291,6 +318,7 @@ export class TriggerEngine {
   ): Promise<void> {
     const { agentId } = await this.ensureSubagent(sessionId, rootPath, stored);
     await this.ensureTriggerParticipant(sessionId, stored);
+    this.actFor(sessionId, agentId, stored);
     await this.conversations.post({
       sessionId,
       conversationId: await homeConversationFor(this.store, sessionId, agentId),

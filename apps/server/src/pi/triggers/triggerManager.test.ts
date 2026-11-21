@@ -50,3 +50,36 @@ test("reconcileBundle refreshes, adds and drops bundle triggers, sparing runtime
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a trigger's participant and delegation persist, and stay off the wire", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "tangent-triggers-"));
+  try {
+    const triggers = new TriggerManager();
+    const created = triggers.create("s1", root, {
+      name: "nightly",
+      kind: "schedule",
+      prompt: "p",
+      schedule: { every: "1h" },
+    });
+    triggers.setDelegation("s1", created.id, {
+      participantId: "alice@x",
+      delegationId: "d1",
+      delegationToken: "delegation-token",
+    });
+
+    const reloaded = new TriggerManager();
+    reloaded.register("s1", root);
+    const stored = reloaded.getStored("s1", created.id);
+    assert.equal(stored?.participantId, "alice@x");
+    assert.equal(stored?.delegationId, "d1");
+    assert.equal(stored?.delegationToken, "delegation-token");
+    const wire = JSON.stringify(reloaded.get("s1", created.id));
+    assert.equal(wire.includes("delegation-token"), false);
+    assert.equal(wire.includes("alice@x"), false);
+
+    reloaded.setDelegation("s1", created.id, { participantId: "bob@x" });
+    assert.equal(reloaded.getStored("s1", created.id)?.delegationId, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
