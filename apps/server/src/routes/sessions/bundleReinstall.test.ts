@@ -12,16 +12,17 @@ import type {
 import type { Request, Response } from "express";
 import { zipSync } from "fflate";
 
-import { installBundle } from "../../pi/config/bundleLoader.ts";
 import type { PiAgentManager, SessionReload } from "../../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { AgentBundleStore } from "../../store/agentBundleStore.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
-import {
-  type BundleReinstallDeps,
-  BUSY_MESSAGE,
-  handleReinstallBundle,
-} from "./bundleReinstall.ts";
+import type { BundleReinstallDeps } from "./bundleReinstall.ts";
+
+// A bearer token identifies a caller only in an embed deployment.
+process.env.EMBED_ALLOWED_ORIGINS = "https://host.example";
+const { installBundle } = await import("../../pi/config/bundleLoader.ts");
+const { BUSY_MESSAGE, handleReinstallBundle } =
+  await import("./bundleReinstall.ts");
 
 class TestResponse {
   statusCode = 200;

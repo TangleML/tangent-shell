@@ -9,6 +9,7 @@ import { after, test } from "node:test";
 // config at load time.
 const ROOT = mkdtempSync(path.join(tmpdir(), "bundle-editors-rest-"));
 process.env.SESSIONS_ROOT = ROOT;
+process.env.EMBED_ALLOWED_ORIGINS = "https://host.example";
 
 const express = (await import("express")).default;
 const { createBundleEditorsRouter } = await import("./bundleEditors.ts");

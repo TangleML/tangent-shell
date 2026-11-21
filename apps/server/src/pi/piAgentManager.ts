@@ -1726,7 +1726,8 @@ export class PiAgentManager {
    *
    * A message that finds the agent idle opens a Run with `ingress`; one that
    * finds it mid-run joins the Run in flight, because Pi folds a steer or
-   * follow-up into the turn it is already taking.
+   * follow-up into the turn it is already taking — and a human who does so
+   * joins the Run's identity set as its most recent member.
    */
   sendToAgent(options: SendToAgentOptions): void {
     if (this.holdDuringMaintenance(options)) return;
@@ -1749,10 +1750,24 @@ export class PiAgentManager {
       return;
     }
 
-    if (!agent.busy) this.openRunFor(agent, options);
-
+    this.attachToRun(agent, options);
     this.writePrompt(sessionId, agent, text, options.delivery ?? "auto");
     this.notifyStatus(sessionId);
+  }
+
+  /** Opens a Run for a message that finds its agent idle; a human's message
+   * that finds it busy joins the Run in flight instead. */
+  private attachToRun(agent: AgentProcess, options: SendToAgentOptions): void {
+    if (!agent.busy) {
+      this.openRunFor(agent, options);
+      return;
+    }
+    if (!options.audienceParticipantId) return;
+    this.runs.join(
+      options.sessionId,
+      options.agentId,
+      options.audienceParticipantId,
+    );
   }
 
   /** Opens the Run a message starts when it finds its agent idle. */

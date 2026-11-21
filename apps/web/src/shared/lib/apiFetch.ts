@@ -1,4 +1,5 @@
 import { apiUrl, getAuthToken } from "@/shared/lib/basePath";
+import { identityFreshness } from "@/shared/lib/identityRefresh";
 
 /**
  * Central HTTP client for the Tangent REST API. Resolves the path against the
@@ -13,5 +14,6 @@ export async function apiFetch(
   const token = await Promise.resolve(getAuthToken());
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  identityFreshness.noteRequest();
   return fetch(apiUrl(path), { ...init, headers });
 }

@@ -1735,3 +1735,34 @@ test("each spawn mints its own agent token; a respawn rotates it and a kill forg
   pi.killAgent("s1", info.id);
   assert.equal(pi.resolveAgentToken(workerToken), undefined);
 });
+
+test("a human message into a busy agent joins the run's identity set", async () => {
+  const { pi, runs } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+
+  pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "start",
+    audienceParticipantId: "alice@x",
+  });
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), ["alice@x"]);
+
+  pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "also this",
+    delivery: "steer",
+    audienceParticipantId: "bob@x",
+  });
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), [
+    "alice@x",
+    "bob@x",
+  ]);
+
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "agent" });
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), [
+    "alice@x",
+    "bob@x",
+  ]);
+});
