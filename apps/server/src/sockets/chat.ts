@@ -26,6 +26,7 @@ import {
 import type { Server, Socket } from "socket.io";
 
 import { resolveUserIdentity } from "../auth/identity.ts";
+import { rememberAssertion } from "../auth/identityAssertions.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import {
@@ -460,19 +461,20 @@ export async function mentionCandidates(
 
 /**
  * The chat identity of whoever is on the other end of a socket, read from the
- * handshake's bearer token (sent cross-origin by the embed) or the connection's
- * own headers and cookie — never from anything in the message payload. Falls
- * back to {@link DEFAULT_USER} when no JWT resolves, so both sides agree on the
- * id and a message still renders as your own.
+ * connection's own headers (the trusted identity header a front proxy stamps,
+ * the forwarded auth header, the auth cookie) or the handshake's bearer token
+ * (sent cross-origin by the embed) — never from anything in the message
+ * payload. Falls back to {@link DEFAULT_USER} when no JWT resolves, so both
+ * sides agree on the id and a message still renders as your own.
  */
 export function resolveSocketAuthor(
   headers: IncomingHttpHeaders,
   authToken?: string | undefined,
 ) {
   const authorization = authToken ? `Bearer ${authToken}` : undefined;
-  return humanAuthor(
-    resolveUserIdentity({ ...headers, authorization }) ?? DEFAULT_USER,
-  );
+  const presented = { ...headers, authorization };
+  rememberAssertion(presented);
+  return humanAuthor(resolveUserIdentity(presented) ?? DEFAULT_USER);
 }
 
 /** Key of the presence a socket holds for one participant in one session. */

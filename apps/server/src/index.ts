@@ -7,6 +7,7 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
+import { rememberIdentityAssertion } from "./auth/identityAssertions.ts";
 import {
   EMBED_ALLOWED_ORIGINS,
   MAX_JSON_BODY_BYTES,
@@ -123,6 +124,9 @@ const app = express();
 // /api; runs before body parsing so preflight OPTIONS short-circuit cheaply.
 app.use(createEmbedCors(EMBED_ALLOWED_ORIGINS));
 app.use(express.json({ limit: MAX_JSON_BODY_BYTES }));
+// Every authenticated request refreshes the participant's identity assertion,
+// so a later call made on their behalf carries the newest one.
+app.use("/api", rememberIdentityAssertion);
 
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {

@@ -60,7 +60,10 @@ function spawned(id: string, conversationId: string): SpawnedSubagent {
 }
 
 /** A running internal-agents API over in-memory stores and stubbed connectors. */
-async function serve(agents?: AgentCallerResolver) {
+async function serve(
+  agents?: AgentCallerResolver,
+  identitySet: readonly string[] = [],
+) {
   const store = new InMemorySessionStore(new InMemoryParticipantStore());
   const reactors = new ReactorRegistry(new InMemoryReactorStore());
 
@@ -79,9 +82,14 @@ async function serve(agents?: AgentCallerResolver) {
     postToConversation: async () => ({ woke: [], refused: [] }),
   } as unknown as ConversationRouter;
 
+  const seeded: { agentId: string; participants: readonly string[] }[] = [];
   const runs = {
-    audienceFor: () => undefined,
-    recordAudience: () => {},
+    participantsFor: () => [...identitySet],
+    recordAudience: (
+      _sessionId: string,
+      agentId: string,
+      inherited: readonly string[],
+    ) => seeded.push({ agentId, participants: inherited }),
   } as unknown as RunRegistry;
 
   const a2a = {} as unknown as A2aPeerGateway;
@@ -108,7 +116,7 @@ async function serve(agents?: AgentCallerResolver) {
   const server = app.listen(0);
   cleanups.push(() => server.close());
   const { port } = server.address() as AddressInfo;
-  return { store, reactors, killed, post: poster(port) };
+  return { store, reactors, killed, seeded, post: poster(port) };
 }
 
 /** Posts JSON to the served API as a Pi child, optionally naming itself. */
@@ -330,4 +338,15 @@ test("a report must come from the sub-agent it is attributed to", async () => {
     ((await unknown.json()) as { code: string }).code,
     "agent_unknown",
   );
+});
+
+test("a spawned sub-agent inherits the orchestrator's whole identity set", async () => {
+  const { store, seeded, post } = await serve(undefined, ["alice@x", "bob@x"]);
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/spawn", { sessionId: session.id, name: "worker" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(seeded, [
+    { agentId: "worker", participants: ["alice@x", "bob@x"] },
+  ]);
 });

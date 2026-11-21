@@ -124,6 +124,7 @@ export interface SentPrompt {
   streamingBehavior: "steer" | "followUp";
   ingress: RunIngress;
   audienceParticipantId?: string;
+  audienceParticipants?: readonly string[];
   /** The Run it opened by finding the agent idle. */
   runId?: RunId;
 }

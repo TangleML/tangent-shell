@@ -15,6 +15,7 @@ import { after, test } from "node:test";
 // config at load time, so `createSession`'s mkdir never touches the repo.
 const ROOT = mkdtempSync(path.join(tmpdir(), "resources-rest-"));
 process.env.SESSIONS_ROOT = ROOT;
+process.env.EMBED_ALLOWED_ORIGINS = "https://host.example";
 process.env.GLOBAL_MEMORY_DIR = path.join(ROOT, "global-memory");
 
 const express = (await import("express")).default;

@@ -1780,8 +1780,9 @@ export class PiAgentManager {
    *
    * A message that finds the agent idle opens a Run with `ingress`; one that
    * finds it mid-run joins the Run in flight, because Pi folds a steer or
-   * follow-up into the run it is already taking. Pi's answer to the prompt
-   * corrects either guess (see {@link onPromptAnswered}).
+   * follow-up into the run it is already taking — and a human who does so
+   * joins the Run's identity set as its most recent member. Pi's answer to the
+   * prompt corrects either guess (see {@link onPromptAnswered}).
    */
   sendToAgent(options: SendToAgentOptions): void {
     if (this.holdDuringMaintenance(options)) return;
@@ -1808,10 +1809,14 @@ export class PiAgentManager {
       streamingBehavior: streamingBehavior(options.delivery ?? "auto"),
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
+      audienceParticipants: options.audienceParticipants,
     });
   }
 
-  /** Writes a prompt, opening its Run when it finds the agent idle. */
+  /**
+   * Writes a prompt, opening its Run when it finds the agent idle. A human's
+   * prompt that finds it busy joins the Run in flight instead.
+   */
   private deliverPrompt(
     sessionId: string,
     agent: AgentProcess,
@@ -1826,8 +1831,23 @@ export class PiAgentManager {
     }
     // Opened now rather than on Pi's answer, so admission sees the agent busy.
     if (!agent.busy) prompt.runId = this.openRun(sessionId, agent, prompt);
+    else this.joinRun(sessionId, agent, prompt);
     this.writePrompt(sessionId, agent, text, prompt);
     this.notifyStatus(sessionId);
+  }
+
+  /**
+   * Adds the human behind a prompt that found its agent busy to the open Run's
+   * identity set, as its most recent member. An agent's or automation's prompt
+   * adds nobody.
+   */
+  private joinRun(
+    sessionId: string,
+    agent: AgentProcess,
+    prompt: SentPrompt,
+  ): void {
+    if (!prompt.audienceParticipantId) return;
+    this.runs.join(sessionId, agent.agentId, prompt.audienceParticipantId);
   }
 
   /** Opens a Run for an agent, for the prompt it serves when there is one. */
@@ -1842,6 +1862,7 @@ export class PiAgentManager {
       homeConversationId: agent.homeConversationId,
       ingress: prompt?.ingress ?? "reaction",
       audienceParticipantId: prompt?.audienceParticipantId,
+      audienceParticipants: prompt?.audienceParticipants,
     }).id;
   }
 
