@@ -19,6 +19,23 @@ function readHeaderName(name: string): string {
   return value;
 }
 
+/** Headers the egress proxy owns outright; none may double as the identity header. */
+const RESERVED_EGRESS_HEADERS = new Set([
+  "accept",
+  "content-type",
+  "cookie",
+  "authorization",
+]);
+
+/** Reads an absolute URL path setting (`/a/b`, no query); empty means off. */
+function readUrlPath(name: string): string {
+  const value = (process.env[name] ?? "").trim().replace(/\/+$/, "");
+  if (value && !/^\/[^?#]*$/.test(value)) {
+    throw new Error(`${name} must be an absolute URL path without a query`);
+  }
+  return value;
+}
+
 function readAbsoluteUrl(name: string, fallback: string): string {
   const value = process.env[name] ?? fallback;
   try {
@@ -294,6 +311,26 @@ export const ADMIN_EMAILS: ReadonlySet<string> = new Set(
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean),
 );
+
+/**
+ * Name of the header the egress proxy forwards a participant's identity
+ * assertion (or a trigger's delegation token) in, so the backend acts as that
+ * person rather than as the instance. Empty by default: nothing is forwarded
+ * and every egress call reports `appliedIdentity.kind = "instance"`.
+ */
+export const EGRESS_IDENTITY_HEADER = readHeaderName("EGRESS_IDENTITY_HEADER");
+if (RESERVED_EGRESS_HEADERS.has(EGRESS_IDENTITY_HEADER)) {
+  throw new Error(
+    `EGRESS_IDENTITY_HEADER must not be one of ${[...RESERVED_EGRESS_HEADERS].join(", ")}`,
+  );
+}
+
+/**
+ * Backend path (under {@link TANGLE_API_URL}) that mints and revokes the
+ * delegation tokens a trigger acts under once its creator's assertion has
+ * expired. Empty by default, which creates triggers without a delegation.
+ */
+export const EGRESS_DELEGATION_PATH = readUrlPath("EGRESS_DELEGATION_PATH");
 
 /**
  * Base URL of the Tangle API reached by the bundle-UI/agent egress allowlist.

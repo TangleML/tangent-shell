@@ -73,18 +73,29 @@ export function App() {
 
 Loads the runtime once and owns the shared configuration.
 
-| Prop              | Type                                                  | Notes                                                                                      |
-| ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `baseUrl`         | `string`                                              | Tangent origin. API + socket + channel URL derive from this.                               |
-| `getToken`        | `() => string \| undefined \| Promise<...>`           | Bearer token for API/socket auth. Held in memory, never in URLs.                           |
-| `colorScheme`     | `"light" \| "dark" \| "system"`                       | Defaults to `light`.                                                                       |
-| `tokens`          | `Record<string, string>`                              | Unstable escape hatch for one-off token overrides.                                         |
-| `socketUrl`       | `string`                                              | Override the Socket.IO origin (defaults to the API origin).                                |
-| `socketPath`      | `string`                                              | Override the Socket.IO path (defaults to `/socket.io`).                                    |
-| `channelUrl`      | `string`                                              | Override the runtime URL (defaults to `${baseUrl}/embed/v1/...`).                          |
-| `instance`        | `string`                                              | Disambiguate when a page mounts more than one provider.                                    |
-| `uiComponents`    | `Record<string, ComponentType<HostUIComponentProps>>` | Host-owned UI components by name — replace bundle UI. See [Host-owned UI](#host-owned-ui). |
-| `anchorProtocols` | `Record<string, ComponentType<AnchorProtocolProps>>`  | Host renderers for custom link protocols. See [Host-owned UI](#host-owned-ui).             |
+| Prop              | Type                                                  | Notes                                                                                                     |
+| ----------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `baseUrl`         | `string`                                              | Tangent origin. API + socket + channel URL derive from this.                                              |
+| `getToken`        | `() => string \| undefined \| Promise<...>`           | Bearer token for API/socket auth. Held in memory, never in URLs. See [Identity tokens](#identity-tokens). |
+| `colorScheme`     | `"light" \| "dark" \| "system"`                       | Defaults to `light`.                                                                                      |
+| `tokens`          | `Record<string, string>`                              | Unstable escape hatch for one-off token overrides.                                                        |
+| `socketUrl`       | `string`                                              | Override the Socket.IO origin (defaults to the API origin).                                               |
+| `socketPath`      | `string`                                              | Override the Socket.IO path (defaults to `/socket.io`).                                                   |
+| `channelUrl`      | `string`                                              | Override the runtime URL (defaults to `${baseUrl}/embed/v1/...`).                                         |
+| `instance`        | `string`                                              | Disambiguate when a page mounts more than one provider.                                                   |
+| `uiComponents`    | `Record<string, ComponentType<HostUIComponentProps>>` | Host-owned UI components by name — replace bundle UI. See [Host-owned UI](#host-owned-ui).                |
+| `anchorProtocols` | `Record<string, ComponentType<AnchorProtocolProps>>`  | Host renderers for custom link protocols. See [Host-owned UI](#host-owned-ui).                            |
+
+### Identity tokens
+
+Tangent reads the caller's identity from the `getToken` bearer only when the
+host's origin is listed in the server's `EMBED_ALLOWED_ORIGINS`; the claims are
+read without a signature check. When the deployment forwards identity to its
+backend on behalf of participants (`EGRESS_IDENTITY_HEADER`), that same token
+is what gets forwarded, so a cross-origin host should return a backend-issued
+identity assertion for the current user rather than an unsigned token it built
+itself. An unsigned token still identifies the user in the chat; it just cannot
+make the backend act as them.
 
 ### `useTangent()`
 

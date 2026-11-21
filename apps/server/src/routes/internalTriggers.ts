@@ -3,13 +3,23 @@ import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import {
+  agentCallerFrom,
   type AgentCallerResolver,
   enforceAgentCaller,
 } from "../auth/agentCaller.ts";
+import {
+  type IdentityAssertionCache,
+  identityAssertions,
+} from "../auth/identityAssertions.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
+import type {
+  TriggerDelegation,
+  TriggerDelegations,
+} from "../pi/triggers/triggerDelegation.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../pi/triggers/triggerManager.ts";
+import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { loadSession } from "./sessions/utils.ts";
 
@@ -106,18 +116,66 @@ async function resolveTarget(
   return { ok: true, session, triggerId };
 }
 
+/** What a trigger needs to act for the person who asked for it. */
+export interface TriggerIdentityDeps {
+  runs: Pick<RunRegistry, "audienceFor">;
+  delegations: TriggerDelegations;
+  assertions?: IdentityAssertionCache;
+}
+
+/**
+ * Binds a new trigger to the human behind the creating agent's turn: their id
+ * always, plus a backend delegation when they hold a live assertion and
+ * delegations are configured. A failed registration still leaves the trigger
+ * bound to the person, without a delegation.
+ */
+async function bindCreator(
+  identity: TriggerIdentityDeps | undefined,
+  triggers: TriggerManager,
+  req: Request,
+  sessionId: string,
+  triggerId: string,
+): Promise<void> {
+  const caller = agentCallerFrom(req);
+  if (!identity || !caller) return;
+  const participantId = identity.runs.audienceFor(sessionId, caller.agentId);
+  if (!participantId) return;
+  const delegation = await delegate(identity, triggerId, participantId);
+  triggers.setDelegation(sessionId, triggerId, delegation ?? { participantId });
+}
+
+/** A backend delegation for the person, when they still hold a live assertion. */
+async function delegate(
+  identity: TriggerIdentityDeps,
+  triggerId: string,
+  participantId: string,
+): Promise<TriggerDelegation | undefined> {
+  const assertion = (identity.assertions ?? identityAssertions).get(
+    participantId,
+  );
+  if (!assertion) return undefined;
+  return identity.delegations.register(
+    triggerId,
+    participantId,
+    assertion.token,
+  );
+}
+
 async function handleCreate(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
-  body: CreateTriggerInput,
+  identity: TriggerIdentityDeps | undefined,
+  req: Request,
   res: Response,
 ): Promise<void> {
+  const body = getValidated<CreateTriggerInput>(req).body;
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
   triggers.register(session.id, session.rootPath);
   try {
     const trigger = triggers.create(session.id, session.rootPath, body);
+    await bindCreator(identity, triggers, req, session.id, trigger.id);
     // Eagerly spawn the dedicated sub-agent so it exists before the first firing.
     await triggerEngine.provision(session.id, session.rootPath, trigger.id);
     triggerEngine.afterChange(session.id, session.rootPath);
@@ -164,6 +222,7 @@ async function handleDelete(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
+  identity: TriggerIdentityDeps | undefined,
   body: MutateInput,
   res: Response,
 ): Promise<void> {
@@ -172,12 +231,17 @@ async function handleDelete(
     res.status(target.status).json({ error: target.message });
     return;
   }
+  const delegationId = triggers.getStored(
+    target.session.id,
+    target.triggerId,
+  )?.delegationId;
   if (!triggers.remove(target.session.id, target.triggerId)) {
     res.status(404).json({ error: "Trigger not found" });
     return;
   }
   triggerEngine.afterChange(target.session.id, target.session.rootPath);
   res.json({ ok: true });
+  if (delegationId) await identity?.delegations.revoke(delegationId);
 }
 
 /**
@@ -192,6 +256,7 @@ export function createInternalTriggersRouter(
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
   agents?: AgentCallerResolver,
+  identity?: TriggerIdentityDeps,
 ): Router {
   const router = Router();
 
@@ -201,13 +266,7 @@ export function createInternalTriggersRouter(
     "/create",
     validate({ body: createTriggerSchema }),
     (req: Request, res: Response) =>
-      handleCreate(
-        store,
-        triggers,
-        triggerEngine,
-        getValidated<CreateTriggerInput>(req).body,
-        res,
-      ),
+      handleCreate(store, triggers, triggerEngine, identity, req, res),
   );
   router.get(
     "/list",
@@ -240,6 +299,7 @@ export function createInternalTriggersRouter(
         store,
         triggers,
         triggerEngine,
+        identity,
         getValidated<MutateInput>(req).body,
         res,
       ),

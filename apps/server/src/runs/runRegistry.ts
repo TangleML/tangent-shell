@@ -41,6 +41,16 @@ export interface OpenRunInput {
  */
 export interface RunIdentity {
   participants: string[];
+  delegation?: RunDelegation;
+}
+
+/**
+ * A standing grant one participant gave a trigger: the token egress forwards
+ * for them once the Run was opened by that trigger rather than by a message.
+ */
+export interface RunDelegation {
+  participantId: string;
+  token: string;
 }
 
 /** The terminal states {@link RunRegistry.settle} accepts. */
@@ -158,6 +168,14 @@ export class RunRegistry {
     });
   }
 
+  /** The delegation the participant's current identity set acts under, if any. */
+  delegationFor(
+    sessionId: string,
+    participantId: string,
+  ): RunDelegation | undefined {
+    return this.identities.get(keyFor(sessionId, participantId))?.delegation;
+  }
+
   /**
    * Adds a human who wrote into a Run already in flight (a steer or follow-up)
    * to its identity set, as the most recent member. A member who writes again
@@ -165,25 +183,32 @@ export class RunRegistry {
    */
   join(sessionId: string, participantId: string, humanId: string): void {
     const key = keyFor(sessionId, participantId);
-    const current = this.identities.get(key)?.participants ?? [];
+    const current = this.identities.get(key);
     this.identities.set(key, {
-      participants: [...current.filter((id) => id !== humanId), humanId],
+      ...current,
+      participants: [
+        ...(current?.participants ?? []).filter((id) => id !== humanId),
+        humanId,
+      ],
     });
   }
 
   /**
-   * Seeds a participant's identity set without opening a Run — used when a
-   * sub-agent inherits the set of whoever asked Prime to spawn it, so its first
-   * turn already acts for those people.
+   * Seeds a participant's identity set without opening a Run — when a sub-agent
+   * inherits the set of whoever asked Prime to spawn it, or when a trigger fires
+   * for the person who created it, so the turn that follows already acts for
+   * those people (under the trigger's delegation, when it has one).
    */
   recordAudience(
     sessionId: string,
     participantId: string,
     participants: readonly string[],
+    delegation?: RunDelegation,
   ): void {
     if (participants.length === 0) return;
     this.identities.set(keyFor(sessionId, participantId), {
       participants: [...participants],
+      ...(delegation ? { delegation } : {}),
     });
   }
 

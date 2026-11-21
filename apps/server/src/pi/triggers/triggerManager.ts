@@ -46,6 +46,9 @@ export interface StoredTrigger {
   target: TriggerTarget;
   /** Secret embedded in the callback URL (callback kind only). */
   secret?: string;
+  participantId?: string;
+  delegationId?: string;
+  delegationToken?: string;
   createdAt: string;
   updatedAt: string;
   lastFiredAt?: string;
@@ -390,6 +393,29 @@ export class TriggerManager {
     const stored = state?.triggers.get(triggerId);
     if (!state || !stored || stored.target.type !== "subagent") return;
     stored.target = { ...stored.target, agentId, agentName };
+    stored.updatedAt = new Date().toISOString();
+    this.persist(state);
+  }
+
+  /**
+   * Records who a trigger acts for and, when the backend issued one, the
+   * delegation it fires under. Neither reaches the wire contract.
+   */
+  setDelegation(
+    sessionId: string,
+    triggerId: string,
+    delegation: {
+      participantId: string;
+      delegationId?: string;
+      delegationToken?: string;
+    },
+  ): void {
+    const state = this.sessions.get(sessionId);
+    const stored = state?.triggers.get(triggerId);
+    if (!state || !stored) return;
+    stored.participantId = delegation.participantId;
+    stored.delegationId = delegation.delegationId;
+    stored.delegationToken = delegation.delegationToken;
     stored.updatedAt = new Date().toISOString();
     this.persist(state);
   }

@@ -174,6 +174,60 @@ Allowlist properties:
   contain credentials and are not returned to callers. Backend HTTP statuses
   and response bodies are preserved in the egress response envelope.
 
+### Acting on behalf of a participant
+
+By default every call the proxy makes carries the instance's own credential, so
+the backend attributes agent work to whoever created the instance. When
+`EGRESS_IDENTITY_HEADER` is set, `POST /internal/egress` also forwards the
+identity of the human behind the calling agent's turn, and the backend acts as
+that person (read and write, never admin).
+
+The trust chain, link by link:
+
+1. A trusting front proxy authenticates the browser and stamps a participant
+   identity assertion into `TRUSTED_IDENTITY_HEADER` on every request, stripping
+   any copy the client sent. The server reads it unverified and keeps the latest
+   one per participant in the identity assertion cache, with its expiry.
+2. A chat message opens or joins a Run, and the Run's identity set records who
+   wrote into the turn (see [Who a request is from](#who-a-request-is-from)).
+3. The agent's tool extension calls `POST /internal/egress` presenting its own
+   `x-tangent-agent-token`. The token resolves to the agent, the agent to its
+   open Run, the Run to its identity set.
+4. The route picks the acting participant — `onBehalfOf` when the body names a
+   member of the set, else the most recent member — takes their cached
+   assertion (or the turn's trigger delegation), and
+   [`resolveEgress`](../../server/src/bundleUi/egressAllowlist.ts) sends it
+   under `EGRESS_IDENTITY_HEADER` after dropping any caller copy. The backend
+   verifies it and acts as that person.
+
+The response envelope says who the call ran as:
+`appliedIdentity: { kind: "participant", id }`, or
+`{ kind: "instance", reason }` with `not_configured`, `no_participant`,
+`assertion_expired` or `unknown_caller`. Proxy errors carry a stable `code`:
+`egress_denied` and `participant_not_in_turn` (403), `upstream_timeout`,
+`upstream_unreachable` and `egress_failed` (502). `GET /internal/egress/identity`
+returns the caller's set with each member's assertion expiry and the acting
+member, so a tool can tell the user who it is about to act as.
+
+What agents can and cannot do: an agent can act as a participant who wrote into
+its turn, and can choose among them with `onBehalfOf`; it cannot name anyone
+else, cannot set the identity header itself (a caller copy is always dropped),
+and never sees the assertion, which stays in the server's cache. The identity
+set is most-recent-wins: when two people write into one turn the later writer
+is the default, and either can be named explicitly. The bundle-UI proxy
+(`POST /api/agent-bundles/ui-egress`) never forwards an identity.
+
+Triggers outlive assertions. When an agent creates a trigger during a turn with
+an acting participant who still holds a live assertion, and
+`EGRESS_DELEGATION_PATH` is set, the server calls
+`POST <TANGLE_API_URL><EGRESS_DELEGATION_PATH>` with that assertion and body
+`{ scope: "trigger:<id>" }` and stores the returned delegation (`participantId`,
+`delegationId`, `delegationToken`) on the trigger. A firing opens its Run with
+identity set `[participantId]` and forwards the delegation token instead of an
+assertion; deleting the trigger revokes the delegation with a best-effort
+`DELETE`. A registration that fails is logged and the trigger is created bound
+to the person but without a delegation, so its firings act as the instance.
+
 ### Saved pipeline authoring
 
 Bundle tools can submit a complete definition through the internal egress route
@@ -186,10 +240,12 @@ pipeline in the UI is an optional step after confirmed persistence.
 Configure `TANGLE_API_URL` and the established trusted authentication in the
 deployment wrapper (`TANGLE_TOKEN` for cookie-based deployments, or the
 deployment's authenticated network path). `GET /api/users/me` identifies the
-backend caller. The proxy does not impersonate session participants, so every
-agent write runs as that one identity: anyone who can message an agent in a
-session can have it create or overwrite pipelines that identity may write,
-including pipelines other owners have shared with it for editing.
+backend caller. Without `EGRESS_IDENTITY_HEADER` the proxy does not act for
+session participants, so every agent write runs as that one identity: anyone
+who can message an agent in a session can have it create or overwrite pipelines
+that identity may write, including pipelines other owners have shared with it
+for editing. With it configured, a write runs as the participant behind the
+turn (see [Acting on behalf of a participant](#acting-on-behalf-of-a-participant)).
 
 A failed or timed-out response does not prove that a write was rolled back.
 Read the original `file_path` and compare the persisted definition before

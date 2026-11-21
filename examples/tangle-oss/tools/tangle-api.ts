@@ -14,6 +14,11 @@
  * holds the token. The Tangle base URL is read from `TANGLE_API_URL`
  * (defaulting to the local dev server); it must match the server's allowlist
  * origin or the call is denied.
+ *
+ * The process's own `TANGENT_AGENT_TOKEN` is presented so the proxy knows which
+ * agent is calling and can act as the human behind its turn. Each write tool
+ * reports who the call ran as (`appliedIdentity`) and accepts an optional
+ * `on_behalf_of` naming another participant of the turn.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -21,6 +26,7 @@ import { Type } from "typebox";
 
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
+const AGENT_TOKEN = process.env.TANGENT_AGENT_TOKEN ?? "";
 const TANGLE_API_URL = process.env.TANGLE_API_URL ?? "https://api.example.com";
 
 interface EgressInit {
@@ -30,18 +36,24 @@ interface EgressInit {
   query?: Record<string, string | number | boolean>;
 }
 
+type AppliedIdentity =
+  | { kind: "participant"; id: string }
+  | { kind: "instance"; reason: string };
+
 interface EgressResponse {
   ok: boolean;
   status: number;
   headers: Record<string, string>;
   json?: unknown;
   text?: string;
+  appliedIdentity?: AppliedIdentity;
 }
 
 /** Calls the server-side egress proxy for one allowlisted Tangle request. */
 async function egress(
   path: string,
   init: EgressInit = {},
+  onBehalfOf?: string,
 ): Promise<EgressResponse> {
   const input = `${TANGLE_API_URL}${path}`;
   const response = await fetch(`${INTERNAL_URL}/internal/egress`, {
@@ -49,8 +61,13 @@ async function egress(
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${INTERNAL_TOKEN}`,
+      ...(AGENT_TOKEN ? { "x-tangent-agent-token": AGENT_TOKEN } : {}),
     },
-    body: JSON.stringify({ input, init }),
+    body: JSON.stringify({
+      input,
+      init,
+      ...(onBehalfOf ? { onBehalfOf } : {}),
+    }),
   });
 
   if (!response.ok) {
@@ -66,17 +83,36 @@ function textResult(text: string) {
   return { content: [{ type: "text", text }], details: {} };
 }
 
+/** One line saying who the backend saw the call come from. */
+function describeIdentity(applied: AppliedIdentity | undefined): string {
+  if (!applied) return "";
+  return applied.kind === "participant"
+    ? `Acted as ${applied.id}.`
+    : `Acted as the instance (${applied.reason}).`;
+}
+
 /** Renders an egress response as readable text for the agent. */
-function renderResult(res: EgressResponse) {
+function renderResult(res: EgressResponse, withIdentity = false) {
   const body =
     res.json !== undefined
       ? JSON.stringify(res.json, null, 2)
       : (res.text ?? "");
   const status = res.ok ? "" : ` (HTTP ${res.status})`;
+  const identity = withIdentity ? describeIdentity(res.appliedIdentity) : "";
   return textResult(
-    `${status}${status ? "\n" : ""}${body || `HTTP ${res.status}`}`,
+    [status.trim(), body || `HTTP ${res.status}`, identity]
+      .filter(Boolean)
+      .join("\n"),
   );
 }
+
+const ON_BEHALF_OF = Type.Optional(
+  Type.String({
+    description:
+      "Act as this participant of the current turn (their email) instead of " +
+      "the most recent one.",
+  }),
+);
 
 const enc = encodeURIComponent;
 
@@ -172,13 +208,19 @@ export default function (pi: ExtensionAPI) {
           description: "Optional run annotations (key/value).",
         }),
       ),
+      on_behalf_of: ON_BEHALF_OF,
     }),
     async execute(_id, params) {
       const body: Record<string, unknown> = { root_task: params.root_task };
       if (params.components) body.components = params.components;
       if (params.annotations) body.annotations = params.annotations;
       return renderResult(
-        await egress("/api/pipeline_runs/", { method: "POST", body }),
+        await egress(
+          "/api/pipeline_runs/",
+          { method: "POST", body },
+          params.on_behalf_of,
+        ),
+        true,
       );
     },
   });
@@ -190,12 +232,16 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Cancel a Tangle pipeline run by id",
     parameters: Type.Object({
       id: Type.String({ description: "Pipeline run id to cancel." }),
+      on_behalf_of: ON_BEHALF_OF,
     }),
     async execute(_id, params) {
       return renderResult(
-        await egress(`/api/pipeline_runs/${enc(params.id)}/cancel`, {
-          method: "POST",
-        }),
+        await egress(
+          `/api/pipeline_runs/${enc(params.id)}/cancel`,
+          { method: "POST" },
+          params.on_behalf_of,
+        ),
+        true,
       );
     },
   });
@@ -211,6 +257,7 @@ export default function (pi: ExtensionAPI) {
       id: Type.String({ description: "Pipeline run id." }),
       key: Type.String({ description: "Annotation key." }),
       value: Type.Optional(Type.String({ description: "Annotation value." })),
+      on_behalf_of: ON_BEHALF_OF,
     }),
     async execute(_id, params) {
       const query: Record<string, string> = {};
@@ -219,7 +266,9 @@ export default function (pi: ExtensionAPI) {
         await egress(
           `/api/pipeline_runs/${enc(params.id)}/annotations/${enc(params.key)}`,
           { method: "PUT", query },
+          params.on_behalf_of,
         ),
+        true,
       );
     },
   });
