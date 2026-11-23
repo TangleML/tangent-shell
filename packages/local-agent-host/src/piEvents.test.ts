@@ -41,6 +41,7 @@ test("streams one assistant message as start, deltas, then end", () => {
     },
     { type: "message_end", message: assistant("Hello") },
     { type: "agent_end" },
+    { type: "agent_settled" },
   ]);
 
   assert.deepEqual(out, [
@@ -52,6 +53,20 @@ test("streams one assistant message as start, deltas, then end", () => {
     { type: "delta", messageId: "msg-1", delta: "lo" },
     { type: "end", messageId: "msg-1", content: "Hello", thinking: "hmm" },
     { type: "activity", activity: { kind: "thinking", label: "Thinking..." } },
+    { type: "activity", activity: null },
+  ]);
+});
+
+test("the activity stays up between a run's turns until pi settles", () => {
+  const out = run([
+    { type: "agent_start" },
+    { type: "agent_end" },
+    { type: "agent_start" },
+    { type: "agent_end" },
+  ]);
+
+  assert.ok(out.every((event) => event.type !== "activity" || event.activity));
+  assert.deepEqual(run([{ type: "agent_settled" }]), [
     { type: "activity", activity: null },
   ]);
 });

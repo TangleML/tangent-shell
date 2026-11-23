@@ -195,8 +195,9 @@ const TRANSLATORS: Record<string, Translator> = {
   ],
   agent_end: (state) => {
     resetMessage(state);
-    return [activity(null)];
+    return [];
   },
+  agent_settled: () => [activity(null)],
 };
 
 /**

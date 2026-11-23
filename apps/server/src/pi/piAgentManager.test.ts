@@ -1610,18 +1610,28 @@ test("a prompt Pi rejects fails the Run it opened", async () => {
   assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
 });
 
-test("a turn that starts before Pi answers a prompt isn't that prompt's", async () => {
+test("a turn that starts before Pi answers a prompt takes over the prompt's Run", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
   const child = h.spawns[0].child;
-  sendPrime(h, "work", { audienceParticipantId: "alice", ingress: "tool" });
-  const provisional = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  sendPrime(h, "/ext-command");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
 
   emitPi(child, { type: "agent_start" });
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, runId);
 
-  const current = h.runs.current("s1", PRIME_AGENT_ID);
-  assert.notEqual(current?.id, provisional);
-  assert.equal(current?.ingress, "reaction");
+  answer(child, "handled");
+  assert.equal(
+    h.runs.current("s1", PRIME_AGENT_ID)?.id,
+    runId,
+    "the prompt's answer no longer settles the turn's Run",
+  );
+
+  settle(child);
+  await flush();
+  assert.equal((await h.runStore.getRun(runId))?.status, "completed");
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
 });
 
 test("a prompt answered by an older Pi, with no disposition, keeps its Run", async () => {
@@ -1682,6 +1692,28 @@ test("a prompt sent while an abort lands waits for Pi to settle", async () => {
   const next = h.runs.current("s1", PRIME_AGENT_ID);
   assert.ok(next && next.id !== runId, "and opens its own Run");
   assert.equal(h.runs.audienceFor("s1", PRIME_AGENT_ID), "bob");
+});
+
+test("an abort that leaves no run frees the agent once Pi answers it", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  startTurn(child);
+  sendPrime(h, "/slow-command");
+  const [, late] = promptIds(child);
+  settle(child);
+
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  answer(child, "handled", late);
+  emitPi(child, { type: "response", command: "abort", success: true });
+  await flush();
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.deepEqual(h.pi.getStatuses().map(ended), [
+    { sessionId: "s1", status: "active" },
+  ]);
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
 });
 
 test("a prompt held during an abort that found no run is written on its answer", async () => {

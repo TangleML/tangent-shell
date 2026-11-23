@@ -154,8 +154,9 @@ its command `id` until that answer arrives:
   starts. A rejected prompt (`success: false`) is the same, except that a Run it
   opened settles as `failed`.
 
-A turn that starts before its prompt is answered isn't that prompt's (an
-extension's, say), and gets a Run of its own. A Pi run lasts from its `started`
+A turn that starts before an idle prompt is answered isn't that prompt's (an
+extension's, say), and takes over the Run the prompt opened, which the prompt
+then queues into. A Pi run lasts from its `started`
 answer to `agent_settled`, however many turns it takes (a retry, compaction, or
 a follow-up queued as a turn ended), and so does its Run; it settles `failed`
 when its last model call failed. With older Pi, which sends no disposition, the
@@ -172,7 +173,7 @@ parsed and routed through `eventHandlers`, keyed by the Pi RPC `type`:
 
 | Pi event `type`        | Handler                | Effect                                                                                                     |
 | ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `agent_start`          | `onAgentStart`         | Open a Run if none belongs to the turn; reset message state; emit `activity: "Thinking..."`.               |
+| `agent_start`          | `onAgentStart`         | Open a Run if none is open; reset message state; emit `activity: "Thinking..."`.                           |
 | `message_start`        | `onMessageStart`       | Open a fresh in-flight assistant message (ignore non-assistant).                                           |
 | `message_update`       | `onMessageDelta`       | Accumulate + relay a text/`thinking` delta; lazily emit `start` on the first one.                          |
 | `message_end`          | `onMessageEnd`         | Finalize the message into its own bubble; record its token/cost `usage`; relay sub-agent replies to Prime. |
@@ -180,7 +181,7 @@ parsed and routed through `eventHandlers`, keyed by the Pi RPC `type`:
 | `queue_update`         | `onQueueUpdate`        | Relay the pending steer/follow-up queue as a `queue` event (drives the composer's queued-nudge indicator). |
 | `agent_end`            | `onAgentEnd`           | Reset message state. The run may go on to another turn.                                                    |
 | `agent_settled`        | `onAgentSettled`       | Clear `busy` + activity; settle the Run; write prompts held during an abort.                               |
-| `response`             | `onResponse`           | Follow a prompt to its disposition (see above); end an abort.                                              |
+| `response`             | `onResponse`           | Follow a prompt to its disposition (see above); end an abort, freeing an agent it left with no run.        |
 
 Unmapped types (`turn_*`, `auto_retry_*`, `extension_ui_request`, etc.) carry no
 chat-visible signal and are ignored. Error-shaped lines are always logged;

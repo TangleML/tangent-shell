@@ -3,7 +3,12 @@ import { test } from "node:test";
 
 import type { RemoteSpawnCommand } from "@tangent/shared/remoteSubagent.ts";
 
-import { buildPiArgs, piEnv, type PiLaunchOptions } from "./piAdapter.ts";
+import {
+  buildPiArgs,
+  piEnv,
+  type PiLaunchOptions,
+  promptCommand,
+} from "./piAdapter.ts";
 
 const command: RemoteSpawnCommand = {
   sessionId: "session-1",
@@ -71,4 +76,19 @@ test("piEnv omits the host API env when no API is set", () => {
 
   assert.equal("TANGENT_HOST_API_URL" in env, false);
   assert.equal("TANGENT_SESSION_ID" in env, false);
+});
+
+test("every prompt tells pi how to queue it, steering only when asked", () => {
+  assert.deepEqual(
+    (["auto", "followUp", "steer"] as const).map(
+      (delivery) => promptCommand("id-1", "hi", delivery).streamingBehavior,
+    ),
+    ["followUp", "followUp", "steer"],
+  );
+  assert.deepEqual(promptCommand("id-1", "hi", "auto"), {
+    id: "id-1",
+    type: "prompt",
+    message: "hi",
+    streamingBehavior: "followUp",
+  });
 });

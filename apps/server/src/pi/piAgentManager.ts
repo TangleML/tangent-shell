@@ -2345,10 +2345,11 @@ export class PiAgentManager {
   /** Begins a turn: marks the agent busy and shows the "thinking" indicator. */
   private onAgentStart(sessionId: string, agent: AgentProcess): void {
     // A turn no prompt started (an extension's, say) still gets a Run, so no
-    // stream is unattributable. Pi answers `started` before a prompt's turn, so
-    // a Run whose prompt is unanswered isn't this turn's.
+    // stream is unattributable.
     const current = this.runs.current(sessionId, agent.agentId);
-    if (!current || this.awaitsAnswer(agent, current.id)) {
+    if (current) {
+      this.adoptRun(agent, current.id);
+    } else {
       this.openRun(sessionId, agent);
     }
     agent.busy = true;
@@ -2537,9 +2538,16 @@ export class PiAgentManager {
     });
   }
 
-  /** Whether a Run was opened by a prompt Pi has yet to answer. */
-  private awaitsAnswer(agent: AgentProcess, runId: RunId): boolean {
-    return [...agent.sent.values()].some((prompt) => prompt.runId === runId);
+  /**
+   * Pi answers `started` before a prompt's turn, so a turn that starts while
+   * the prompt that opened its Run is unanswered isn't that prompt's, which
+   * will queue into it. The turn takes over the Run, so the prompt's answer
+   * can no longer settle it.
+   */
+  private adoptRun(agent: AgentProcess, runId: RunId): void {
+    for (const prompt of agent.sent.values()) {
+      if (prompt.runId === runId) prompt.runId = undefined;
+    }
   }
 
   /** Applies Pi's answer to a command: a prompt's disposition, or an abort. */
@@ -2550,7 +2558,7 @@ export class PiAgentManager {
   ): void {
     // Pi answers an abort once idle, which covers one that found no run.
     if (event.command === "abort") {
-      this.releaseHeldPrompts(sessionId, agent);
+      this.onAbortAnswered(sessionId, agent);
       return;
     }
     const prompt =
@@ -2618,6 +2626,18 @@ export class PiAgentManager {
     agent.busy = agent.sent.size > 0;
     if (opened) this.runs.settle(current.id, status);
     this.notifyStatus(sessionId);
+  }
+
+  /**
+   * Frees an agent the abort left with no run, whose forgotten prompts' answers
+   * would otherwise never clear `busy`, then writes the prompts held meanwhile.
+   */
+  private onAbortAnswered(sessionId: string, agent: AgentProcess): void {
+    if (!this.runs.current(sessionId, agent.agentId)) {
+      agent.busy = agent.sent.size > 0;
+      this.notifyStatus(sessionId);
+    }
+    this.releaseHeldPrompts(sessionId, agent);
   }
 
   /** Ends an abort, writing the prompts held while it landed. */
