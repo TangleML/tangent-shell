@@ -100,9 +100,15 @@ A Run carries an identity set: the ordered list of humans who wrote into the
 turn ([`RunRegistry`](../../server/src/runs/runRegistry.ts)). A human message
 that opens a Run sets it to `[author]`; one that steers or follows up a Run in
 flight appends the author (or moves them to the end); an agent or automation
-wake inherits the participant's last set; a sub-agent inherits its spawner's.
-The most recent member is the acting default — the person remote tools route
-to.
+wake opens a Run that inherits the participants of the Run before it; a
+sub-agent's first Run inherits its spawner's. The set lives and dies with its
+Run — only the participant list is handed on to the next wake, so between Runs
+the participant is read as acting for the people its last Run acted for. The
+most recent member is the acting default — the person remote tools route to.
+
+The cache keeps the assertion that is worth most: a bearer token never
+replaces one the trusted header asserted for the same participant, and no
+token replaces one that expires later than it does.
 
 ---
 

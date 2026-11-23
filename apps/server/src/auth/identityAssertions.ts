@@ -10,22 +10,39 @@ import {
 } from "./identity.ts";
 import { normalizeEmail } from "./permissions.ts";
 
+/** The sources whose token the backend will accept as a participant assertion. */
+export type AssertingSource = Extract<
+  IdentitySource,
+  "trusted-header" | "bearer"
+>;
+
 /** The latest identity assertion seen for one participant. */
 export interface IdentityAssertion {
   token: string;
   expiresAt?: Date;
+  source: AssertingSource;
 }
 
-/** The sources whose token the backend will accept as a participant assertion. */
-const ASSERTING_SOURCES: ReadonlySet<IdentitySource> = new Set([
-  "trusted-header",
-  "bearer",
-]);
+function isAssertingSource(source: IdentitySource): source is AssertingSource {
+  return source === "trusted-header" || source === "bearer";
+}
 
 function expiryOf(token: string): Date | undefined {
   const exp = decodeJwtPayload(token)?.exp;
   if (typeof exp !== "number" || !Number.isFinite(exp)) return undefined;
   return new Date(exp * 1000);
+}
+
+function outranks(
+  held: IdentityAssertion,
+  incoming: IdentityAssertion,
+): boolean {
+  if (held.source === "trusted-header" && incoming.source === "bearer") {
+    return true;
+  }
+  return Boolean(
+    held.expiresAt && incoming.expiresAt && incoming.expiresAt < held.expiresAt,
+  );
 }
 
 /**
@@ -41,18 +58,30 @@ export class IdentityAssertionCache {
     this.now = now;
   }
 
-  /** Remembers `token` for `email`, replacing whatever was held. */
-  record(email: string, token: string): void {
+  /**
+   * Remembers `token` for `email`. A bearer token never replaces one the front
+   * proxy asserted, and no token replaces one that outlives it: an embed host
+   * re-sending an older token must not shorten what the server can act with.
+   */
+  record(email: string, token: string, source: AssertingSource): void {
     this.sweep();
     const expiresAt = expiryOf(token);
     if (expiresAt && expiresAt <= this.now()) return;
-    this.byEmail.set(normalizeEmail(email), { token, expiresAt });
+    const key = normalizeEmail(email);
+    const held = this.byEmail.get(key);
+    if (held && outranks(held, { token, expiresAt, source })) return;
+    this.byEmail.set(key, { token, expiresAt, source });
   }
 
   /** Remembers a resolved identity when its source is one the backend verifies. */
   recordResolved(resolved: ResolvedIdentity | null): void {
-    if (!resolved || !ASSERTING_SOURCES.has(resolved.source)) return;
-    this.record(resolved.identity.email, resolved.token);
+    if (!resolved || !isAssertingSource(resolved.source)) return;
+    this.record(resolved.identity.email, resolved.token, resolved.source);
+  }
+
+  /** Forgets `email`'s assertion, e.g. once the backend has refused it. */
+  evict(email: string): void {
+    this.byEmail.delete(normalizeEmail(email));
   }
 
   /** The live assertion for `email`, or `undefined` once it has expired. */

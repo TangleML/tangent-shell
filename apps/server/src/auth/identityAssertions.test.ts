@@ -24,8 +24,8 @@ function clockedCache() {
 test("the latest token per participant is kept, with its decoded expiry", () => {
   const { cache } = clockedCache();
   const exp = Math.floor(T0 / 1000) + 3600;
-  cache.record("Alice@X", jwt({ email: "alice@x", exp }));
-  cache.record("alice@x", jwt({ email: "alice@x", exp: exp + 60 }));
+  cache.record("Alice@X", jwt({ email: "alice@x", exp }), "bearer");
+  cache.record("alice@x", jwt({ email: "alice@x", exp: exp + 60 }), "bearer");
 
   const held = cache.get("alice@x");
   assert.equal(held?.expiresAt?.toISOString(), "2026-01-01T13:01:00.000Z");
@@ -37,8 +37,8 @@ test("the latest token per participant is kept, with its decoded expiry", () => 
 test("an expired assertion is evicted, and one already expired is never kept", () => {
   const { cache, advance } = clockedCache();
   const exp = Math.floor(T0 / 1000) + 60;
-  cache.record("alice@x", jwt({ email: "alice@x", exp }));
-  cache.record("bob@x", jwt({ email: "bob@x", exp: exp - 120 }));
+  cache.record("alice@x", jwt({ email: "alice@x", exp }), "bearer");
+  cache.record("bob@x", jwt({ email: "bob@x", exp: exp - 120 }), "bearer");
 
   assert.equal(cache.get("bob@x"), undefined);
   assert.ok(cache.get("alice@x"));
@@ -48,11 +48,55 @@ test("an expired assertion is evicted, and one already expired is never kept", (
 
 test("a token without exp is kept until a newer one replaces it", () => {
   const { cache, advance } = clockedCache();
-  cache.record("alice@x", jwt({ email: "alice@x" }));
+  cache.record("alice@x", jwt({ email: "alice@x" }), "bearer");
   advance(10 * 24 * 3600 * 1000);
   const held = cache.get("alice@x");
   assert.equal(held?.expiresAt, undefined);
   assert.equal(held?.token, jwt({ email: "alice@x" }));
+});
+
+test("a bearer token never replaces one the trusted header asserted", () => {
+  const { cache } = clockedCache();
+  const exp = Math.floor(T0 / 1000) + 3600;
+  const asserted = jwt({ email: "alice@x", exp });
+  cache.record("alice@x", asserted, "trusted-header");
+
+  cache.record("alice@x", jwt({ email: "alice@x", exp: exp + 3600 }), "bearer");
+  assert.equal(cache.get("alice@x")?.token, asserted);
+  assert.equal(cache.get("alice@x")?.source, "trusted-header");
+
+  const reasserted = jwt({ email: "alice@x", exp: exp + 1 });
+  cache.record("alice@x", reasserted, "trusted-header");
+  assert.equal(cache.get("alice@x")?.token, reasserted);
+});
+
+test("a token expiring before the held one does not replace it", () => {
+  const { cache, advance } = clockedCache();
+  const exp = Math.floor(T0 / 1000) + 3600;
+  const longer = jwt({ email: "alice@x", exp });
+  cache.record("alice@x", longer, "bearer");
+
+  cache.record("alice@x", jwt({ email: "alice@x", exp: exp - 60 }), "bearer");
+  assert.equal(cache.get("alice@x")?.token, longer);
+
+  cache.record("alice@x", jwt({ email: "alice@x", exp }), "bearer");
+  assert.equal(cache.get("alice@x")?.token, longer);
+
+  advance(3600_000);
+  cache.record("alice@x", jwt({ email: "alice@x", exp: exp + 60 }), "bearer");
+  assert.equal(
+    cache.get("alice@x")?.token,
+    jwt({ email: "alice@x", exp: exp + 60 }),
+  );
+});
+
+test("evict forgets a participant's assertion", () => {
+  const { cache } = clockedCache();
+  cache.record("alice@x", jwt({ email: "alice@x" }), "trusted-header");
+
+  cache.evict("ALICE@x");
+  assert.equal(cache.get("alice@x"), undefined);
+  cache.evict("nobody@x");
 });
 
 test("only the trusted header and an accepted bearer feed the cache", () => {

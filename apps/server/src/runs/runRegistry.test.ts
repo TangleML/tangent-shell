@@ -368,3 +368,68 @@ test("a spawned sub-agent inherits its spawner's identity set", async () => {
     "bob@x",
   ]);
 });
+
+test("joining an idle participant is a no-op: the message opens a run instead", async () => {
+  const h = await newRegistry();
+
+  h.runs.join(h.sessionId, "prime", "bob@x");
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), []);
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.settleOpenFor(h.sessionId, "prime", "completed");
+  h.runs.join(h.sessionId, "prime", "bob@x");
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), ["alice@x"]);
+});
+
+test("recordAudience replaces the open run's identity set, and the next wake inherits it", async () => {
+  const h = await newRegistry();
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "tool",
+    audienceParticipantId: "alice@x",
+  });
+
+  h.runs.recordAudience(h.sessionId, "sub-1", ["bob@x", "carol@x"]);
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-1"), [
+    "bob@x",
+    "carol@x",
+  ]);
+
+  h.runs.settleOpenFor(h.sessionId, "sub-1", "completed");
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "tool",
+  });
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-1"), [
+    "bob@x",
+    "carol@x",
+  ]);
+});
+
+test("a run superseded by the next one hands its identity set on like a settled one", async () => {
+  const h = await newRegistry();
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.join(h.sessionId, "prime", "bob@x");
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "tool",
+  });
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), [
+    "alice@x",
+    "bob@x",
+  ]);
+});
