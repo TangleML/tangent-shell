@@ -325,9 +325,9 @@ test("a report must come from the sub-agent it is attributed to", async () => {
     { sessionId: session.id, agentId: "other-worker", text: "done" },
     "stale-token",
   );
-  assert.notEqual(
-    unknown.status,
-    403,
-    "an unknown token keeps the old behaviour",
+  assert.equal(unknown.status, 401, "an unknown token is refused");
+  assert.equal(
+    ((await unknown.json()) as { code: string }).code,
+    "agent_unknown",
   );
 });

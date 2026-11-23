@@ -38,6 +38,8 @@ function run(
 ): Outcome {
   const outcome: Outcome = { passed: false };
   const req = {
+    method: "POST",
+    path: "/internal/test",
     headers: request.headers ?? {},
     body: request.body,
     query: request.query ?? {},
@@ -116,20 +118,36 @@ test("the default assertion reads only the session, from body or query", () => {
   assert.equal(run(guard, { headers, body: {} }).passed, true);
 });
 
-test("a missing or unknown token leaves the request alone", () => {
+test("a missing token leaves the request alone", () => {
   const guard = enforceAgentCaller(resolver, assertedSessionAndAgent());
-  const body = { sessionId: "s9", agentId: "someone" };
+  const absent = run(guard, { body: { sessionId: "s9", agentId: "someone" } });
 
-  const absent = run(guard, { body });
   assert.equal(absent.passed, true);
   assert.equal(absent.caller, undefined);
+});
+
+test("a token no live agent holds is refused as agent_unknown and logged without the token", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const guard = enforceAgentCaller(resolver, assertedSessionAndAgent());
 
   const stale = run(guard, {
-    headers: { [AGENT_TOKEN_HEADER]: "stale" },
-    body,
+    headers: { [AGENT_TOKEN_HEADER]: "stale-secret" },
+    body: { sessionId: "s9", agentId: "someone" },
   });
-  assert.equal(stale.passed, true);
-  assert.equal(stale.caller, undefined);
+  assert.equal(stale.passed, false);
+  assert.equal(stale.status, 401);
+  assert.equal((stale.body as { code: string }).code, "agent_unknown");
+
+  const logged = warn.mock.calls.map((c) => c.arguments.join(" ")).join("\n");
+  assert.match(logged, /session s9/);
+  assert.match(logged, /agent someone/);
+  assert.doesNotMatch(logged, /stale-secret/);
+
+  const anonymous = run(guard, {
+    headers: { [AGENT_TOKEN_HEADER]: "stale-secret" },
+    body: {},
+  });
+  assert.equal(anonymous.status, 401);
 });
 
 test("the caller field can be named, and a guard without a resolver is a pass-through", () => {

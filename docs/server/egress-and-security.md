@@ -44,9 +44,10 @@ resolves it (constant-time, live agents only) to the `(sessionId, agentId)` it
 was minted for. A respawn mints a new token; a kill forgets the old one. Where
 an internal route takes a `sessionId` or a caller-naming `agentId` in its body
 or query, a request whose token resolves to a different agent is refused with
-`403 { code: "agent_mismatch" }`. A request without the header, or with a token
-no live agent holds, is handled as before, so older extensions keep working
-while the header rolls out.
+`403 { code: "agent_mismatch" }`; one whose token no live agent holds is
+refused with `401 { code: "agent_unknown" }` and logged. A request without the
+header is handled as before, so older extensions keep working while the header
+rolls out.
 
 ```mermaid
 sequenceDiagram

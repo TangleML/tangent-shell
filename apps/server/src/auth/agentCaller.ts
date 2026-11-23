@@ -22,10 +22,6 @@ export interface AssertedIds {
   agentId?: string;
 }
 
-interface RequestWithAgentCaller extends Request {
-  agentCaller?: AgentCaller;
-}
-
 function headerValue(
   headers: IncomingHttpHeaders,
   name: string,
@@ -50,7 +46,7 @@ export function agentCallerOf(
 
 /** The caller {@link enforceAgentCaller} resolved for this request, if any. */
 export function agentCallerFrom(req: Request): AgentCaller | undefined {
-  return (req as RequestWithAgentCaller).agentCaller;
+  return req.agentCaller;
 }
 
 function stringField(source: unknown, key: string): string | undefined {
@@ -86,12 +82,20 @@ function mismatches(caller: AgentCaller, asserted: AssertedIds): boolean {
   return asserted.agentId !== undefined && asserted.agentId !== caller.agentId;
 }
 
+function describeAsserted(asserted: AssertedIds): string {
+  const parts = [
+    asserted.sessionId && `session ${asserted.sessionId}`,
+    asserted.agentId && `agent ${asserted.agentId}`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : "no session or agent";
+}
+
 /**
  * Holds a request to the identity its agent token proves. A request that
- * asserts a session or agent other than the token's is refused; one with no
- * token, or a token no live agent holds, passes through unchanged so routes
- * keep working for extensions that do not send one yet. With no resolver to
- * ask, every request passes.
+ * asserts a session or agent other than the token's is refused, as is one
+ * whose token no live agent holds. One with no token at all passes through
+ * unchanged so routes keep working for extensions that do not send one yet.
+ * With no resolver to ask, every request passes.
  */
 export function enforceAgentCaller(
   resolver: AgentCallerResolver | undefined,
@@ -99,9 +103,20 @@ export function enforceAgentCaller(
 ): RequestHandler {
   if (!resolver) return (_req, _res, next) => next();
   return function guard(req: Request, res: Response, next: NextFunction): void {
-    const caller = agentCallerOf(req.headers, resolver);
-    if (!caller) {
+    const token = headerValue(req.headers, AGENT_TOKEN_HEADER);
+    if (!token) {
       next();
+      return;
+    }
+    const caller = resolver.resolveAgentToken(token);
+    if (!caller) {
+      console.warn(
+        `[agent-caller] refused ${req.method} ${req.path}: the agent token names no live agent (asserted ${describeAsserted(asserted(req))})`,
+      );
+      res.status(401).json({
+        error: "The agent token names no live agent.",
+        code: "agent_unknown",
+      });
       return;
     }
     if (mismatches(caller, asserted(req))) {
@@ -111,7 +126,7 @@ export function enforceAgentCaller(
       });
       return;
     }
-    (req as RequestWithAgentCaller).agentCaller = caller;
+    req.agentCaller = caller;
     next();
   };
 }
