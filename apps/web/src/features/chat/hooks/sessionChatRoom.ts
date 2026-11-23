@@ -12,6 +12,7 @@ import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
   type Attachment,
+  type ChatAnswer,
   type ChatCommandRun,
   type ChatMessage,
   type ChatMessagePayload,
@@ -130,6 +131,19 @@ class SessionChatRoom {
         options?.conversationId ?? this.snapshot.primaryConversationId,
       delivery: options?.delivery ?? "auto",
       ...(hasAttachments ? { attachments } : {}),
+    };
+    socket.emit(SocketEvents.ChatMessage, payload);
+  }
+
+  /** Answers one of Prime's pending questions; the server renders the text. */
+  answer(questionId: string, answer: ChatAnswer): void {
+    const socket = this.socket;
+    if (!socket) throw new Error("The chat isn't connected.");
+    const payload: ChatMessagePayload = {
+      sessionId: this.sessionId,
+      content: "",
+      inReplyTo: questionId,
+      answer,
     };
     socket.emit(SocketEvents.ChatMessage, payload);
   }

@@ -1,6 +1,7 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import type { QuestionRegistry } from "../conversation/questions.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import {
@@ -44,6 +45,75 @@ export const dismissSubagentSchema = z.object({
   agentId: z.string().trim().min(1),
 });
 export type DismissSubagentInput = z.infer<typeof dismissSubagentSchema>;
+
+const questionItemSchema = z.object({
+  id: z.string().trim().min(1).max(40).optional(),
+  header: z.string().trim().min(1),
+  question: z.string().trim().min(1),
+  options: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1),
+        description: z.string().trim().optional(),
+      }),
+    )
+    .default([]),
+  multiSelect: z.boolean().optional(),
+});
+
+/** Ask-question body: Prime's `ask_question` call, before semantic checks. */
+export const askQuestionSchema = z.object({
+  sessionId: z.string(),
+  questions: z.array(questionItemSchema).min(1).max(4),
+  peopleOnly: z.boolean().optional(),
+  expiresInSeconds: z.number().int().positive().optional(),
+  idempotencyKey: z.string().trim().min(1).max(120).optional(),
+});
+export type AskQuestionInput = z.infer<typeof askQuestionSchema>;
+
+export const cancelQuestionSchema = z.object({
+  sessionId: z.string(),
+  questionId: z.string().trim().min(1),
+});
+export type CancelQuestionInput = z.infer<typeof cancelQuestionSchema>;
+
+async function handleAskQuestion(
+  store: SessionStore,
+  questions: QuestionRegistry,
+  body: AskQuestionInput,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
+  const outcome = await questions.ask({
+    ...body,
+    sessionId: session.id,
+    questions: body.questions.map((item, index) => ({
+      ...item,
+      id: item.id ?? `q${index + 1}`,
+    })),
+  });
+  if (!outcome.ok) {
+    res.status(400).json({ error: outcome.error });
+    return;
+  }
+  res.json(outcome);
+}
+
+async function handleCancelQuestion(
+  store: SessionStore,
+  questions: QuestionRegistry,
+  body: CancelQuestionInput,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
+  if (!(await questions.cancel(session.id, body.questionId))) {
+    res.status(404).json({ error: "No such pending question" });
+    return;
+  }
+  res.json({ ok: true });
+}
 
 /**
  * `POST /rename`: applies a session rename and pushes the updated record to the
@@ -158,6 +228,7 @@ export function createInternalSessionRouter(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
   emitSubagentDismissed: SubagentDismissedEmitter,
+  questions?: QuestionRegistry,
 ): Router {
   const router = Router();
   router.use(requireInternalToken);
@@ -209,6 +280,31 @@ export function createInternalSessionRouter(
         res,
       ),
   );
+
+  if (questions) {
+    router.post(
+      "/ask-question",
+      validate({ body: askQuestionSchema }),
+      (req: Request, res: Response) =>
+        handleAskQuestion(
+          store,
+          questions,
+          getValidated<AskQuestionInput>(req).body,
+          res,
+        ),
+    );
+    router.post(
+      "/cancel-question",
+      validate({ body: cancelQuestionSchema }),
+      (req: Request, res: Response) =>
+        handleCancelQuestion(
+          store,
+          questions,
+          getValidated<CancelQuestionInput>(req).body,
+          res,
+        ),
+    );
+  }
 
   mountSessionRecallRoutes(router, store);
 

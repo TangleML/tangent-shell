@@ -84,6 +84,8 @@ export const PRIME_TRIGGER_TOOLS = [
 export const PRIME_SESSION_TOOLS = [
   "rename_session",
   "dismiss_subagent",
+  "ask_question",
+  "cancel_question",
 ] as const;
 
 /**

@@ -162,7 +162,8 @@ export class CorrelationEngine {
    * Derives who asked (the author), who was asked (the first mention), and the
    * asking participant's open Run. No-op for a Message without one. */
   openFromMessage(message: ChatMessage): OutstandingCorrelation | undefined {
-    if (!message.correlationId) return undefined;
+    // A question is held by the question registry for its own, much longer TTL.
+    if (!message.correlationId || message.question) return undefined;
     return this.open({
       id: message.correlationId,
       sessionId: message.sessionId,

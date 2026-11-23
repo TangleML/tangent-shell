@@ -150,6 +150,99 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "ask_question",
+    label: "Ask Question",
+    description:
+      "Ask the people in this chat 1 to 4 structured questions when you need " +
+      "their decision to continue, instead of asking in prose. Each question " +
+      "has a short header (max 12 chars), the question, and 2 to 6 options " +
+      "(or none for free text); people can always answer in their own words " +
+      "too. Put your recommended option first and end its label with " +
+      '" (Recommended)". Your turn ends when you call this: do not call other ' +
+      "tools in the same step, and do not repeat the question in prose. The " +
+      "answer arrives later as the next message. A plain message from a " +
+      "person replaces pending questions.",
+    promptSnippet: "Ask people structured questions; ends your turn",
+    parameters: Type.Object({
+      questions: Type.Array(
+        Type.Object({
+          id: Type.Optional(
+            Type.String({ description: "Stable id, unique in this call." }),
+          ),
+          header: Type.String({
+            maxLength: 12,
+            description: "Short chip label, e.g. 'Scope'.",
+          }),
+          question: Type.String({ description: "The full question." }),
+          options: Type.Optional(
+            Type.Array(
+              Type.Object({
+                label: Type.String(),
+                description: Type.Optional(Type.String()),
+              }),
+              { maxItems: 6, description: "0 (free text) or 2 to 6 choices." },
+            ),
+          ),
+          multiSelect: Type.Optional(
+            Type.Boolean({ description: "Allow picking several options." }),
+          ),
+        }),
+        { minItems: 1, maxItems: 4 },
+      ),
+      peopleOnly: Type.Optional(
+        Type.Boolean({
+          description:
+            "Only a person should answer, not an orchestrator acting for one.",
+        }),
+      ),
+      expiresInSeconds: Type.Optional(
+        Type.Integer({
+          minimum: 60,
+          maximum: 604800,
+          description: "Close unanswered after this long (default 24 h).",
+        }),
+      ),
+      idempotencyKey: Type.Optional(
+        Type.String({
+          description: "Retry key; the same key reuses the question.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const data = (await callApi("POST", "ask-question", {
+        sessionId: SESSION_ID,
+        ...params,
+      })) as { question: { id: string; expiresAt: string } };
+      return {
+        ...textResult(
+          `Asked question ${data.question.id}. Your turn ends now; the answer ` +
+            "arrives as the next message.",
+        ),
+        terminate: true,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "cancel_question",
+    label: "Cancel Question",
+    description:
+      "Withdraw a question you asked with ask_question that no longer needs " +
+      "an answer.",
+    promptSnippet: "Withdraw a pending question",
+    parameters: Type.Object({
+      questionId: Type.String({ description: "The id ask_question returned." }),
+    }),
+    async execute(_toolCallId, params) {
+      await callApi("POST", "cancel-question", {
+        sessionId: SESSION_ID,
+        questionId: params.questionId,
+      });
+      return textResult(`Cancelled question ${params.questionId}.`);
+    },
+  });
+
+  pi.registerTool({
     name: "rename_session",
     label: "Rename Session",
     description:

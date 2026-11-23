@@ -5,6 +5,7 @@ import {
   type AgentSetModelPayload,
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
+  type ChatAnswer,
   type ChatAuthor,
   type ChatCommandRun,
   type ChatJoinPayload,
@@ -33,6 +34,7 @@ import {
   participantForConversation,
 } from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
+import type { QuestionRegistry } from "../conversation/questions.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import { type PiAgentManager, PRIME_AGENT_ID } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
@@ -77,6 +79,7 @@ export interface ChatHandlerDeps {
   emitSubagentDismissed: SubagentDismissedEmitter;
   participantService: ParticipantService;
   presence: PresenceTracker;
+  questions?: QuestionRegistry;
 }
 
 /**
@@ -540,7 +543,62 @@ export async function handleChatMessage(
     socket.emit("error", { message: "Session not found" });
     return;
   }
+  const { inReplyTo, answer } = payload;
+  if (inReplyTo && answer) {
+    await postAnswer(socket, deps, author, session, {
+      ...payload,
+      inReplyTo,
+      answer,
+    });
+    return;
+  }
   await postChatMessage(deps, author, session, payload);
+}
+
+/**
+ * Posts a structured answer into the question's Conversation. Prime reads the
+ * server-rendered text, so what it is told matches what was validated.
+ */
+async function postAnswer(
+  socket: Socket,
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+  session: Session,
+  payload: ChatMessagePayload & { inReplyTo: string; answer: ChatAnswer },
+): Promise<void> {
+  const { questions, store, pi, connectors, conversations } = deps;
+  if (!questions) return;
+  const check = await questions.checkAnswer(
+    session.id,
+    payload.inReplyTo,
+    payload.answer,
+  );
+  if (!check.ok) {
+    socket.emit("error", { message: check.error });
+    return;
+  }
+  if (!pi.hasAgent(session.id, PRIME_AGENT_ID)) {
+    await ensureSessionAgents(store, pi, connectors, session);
+  }
+  await conversations.post({
+    sessionId: session.id,
+    conversationId: check.pending.conversationId,
+    author,
+    content: check.content,
+    inReplyTo: payload.inReplyTo,
+    answer: cleanAnswer(payload.answer),
+  });
+}
+
+/** Keeps only the answer fields the contract defines. */
+function cleanAnswer(answer: ChatAnswer): ChatAnswer {
+  return {
+    answers: answer.answers.map(({ id, selected, other }) => ({
+      id,
+      selected,
+      ...(other?.trim() ? { other: other.trim() } : {}),
+    })),
+  };
 }
 
 async function postChatMessage(

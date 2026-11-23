@@ -22,6 +22,7 @@ import { MessageLayout } from "./MessageLayout";
 import { originLabelFor } from "./messageOrigin";
 import { roleLabelFor } from "./messageRole";
 import { MessageText } from "./MessageText";
+import { QuestionMessage } from "./QuestionMessage";
 import { ReportMessage } from "./ReportMessage";
 import { ThinkingOnlyMessage } from "./ThinkingOnlyMessage";
 
@@ -65,6 +66,16 @@ function ChatMessageContent({
       <MemoryMessage
         sessionId={sessionId}
         message={message}
+        onCollapse={onCollapse}
+      />
+    );
+
+  if (message.question)
+    return (
+      <QuestionMessage
+        sessionId={sessionId}
+        message={message}
+        question={message.question}
         onCollapse={onCollapse}
       />
     );
