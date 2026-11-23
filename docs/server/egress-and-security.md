@@ -86,7 +86,10 @@ carries a token, in trust order:
 3. `AUTH_JWT_TOKEN_HEADER_NAME`, then `AUTH_JWT_TOKEN_COOKIE_NAME`.
 
 No source is signature-checked here; the claims (`email` or `sub`, names) are
-read as presented, and the backend is the only verifier. Tokens from the first
+read as presented, and the backend is the only verifier. When a token has no
+`email` claim the server uses `sub` as the participant id, so an identity
+assertion issuer must put the participant's email in `sub`: an opaque subject
+would be shown and compared as if it were an email. Tokens from the first
 two sources are also kept, per participant, in the in-memory
 [identity assertion cache](../../server/src/auth/identityAssertions.ts) along
 with their `exp`, fed by every `/api` request and socket handshake and dropped

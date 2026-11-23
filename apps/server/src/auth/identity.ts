@@ -156,8 +156,11 @@ function presentedToken(
  * carry its own token; then the forwarded auth header and the auth cookie.
  *
  * Every source is decoded without a signature check and mapped from the
- * `email` (or `sub`) and name claims. Returns `null` when no configured
- * source carries a token, or the token it carries is malformed or anonymous.
+ * `email` (or `sub`) and name claims. A token without an `email` claim uses
+ * `sub` as the participant id, so an identity assertion issuer must put the
+ * participant's email in `sub`; an opaque subject would be shown and compared
+ * as if it were an email. Returns `null` when no configured source carries a
+ * token, or the token it carries is malformed or anonymous.
  */
 export function resolveIdentity(
   headers: IncomingHttpHeaders,
