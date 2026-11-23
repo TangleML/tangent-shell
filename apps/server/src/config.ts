@@ -8,13 +8,15 @@ import {
 
 import { nestedRoots } from "./memory/paths.ts";
 
-const HEADER_NAME = /^[a-z0-9-]*$/;
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9a-z-]*$/;
 
 /** Reads a header-name setting, lowercased; empty means the feature is off. */
-function readHeaderName(name: string): string {
+export function readHeaderName(name: string): string {
   const value = (process.env[name] ?? "").trim().toLowerCase();
   if (!HEADER_NAME.test(value)) {
-    throw new Error(`${name} must be a header name (letters, digits, dashes)`);
+    throw new Error(
+      `${name} must be a header name (RFC 7230 token characters only)`,
+    );
   }
   return value;
 }

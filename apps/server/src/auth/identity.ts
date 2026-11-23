@@ -8,6 +8,7 @@ import {
   EMBED_ALLOWED_ORIGINS,
   TRUSTED_IDENTITY_HEADER,
 } from "../config.ts";
+import { headerValue } from "./headers.ts";
 
 /** Parses a raw `Cookie` header into a name->value map. */
 export function parseCookies(
@@ -77,15 +78,6 @@ function identityFromToken(token: string): UserIdentity | null {
 function bearerToken(header: string | undefined): string | undefined {
   const match = /^Bearer\s+(.+)$/i.exec((header ?? "").trim());
   return match?.[1];
-}
-
-function headerValue(
-  headers: IncomingHttpHeaders,
-  name: string,
-): string | undefined {
-  if (!name) return undefined;
-  const value = headers[name];
-  return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
 /** Where a request's identity came from, in order of precedence. */

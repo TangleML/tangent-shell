@@ -2,6 +2,8 @@ import type { IncomingHttpHeaders } from "node:http";
 
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
+import { headerValue } from "./headers.ts";
+
 /** Header a Pi process presents its own spawn-time token in. */
 export const AGENT_TOKEN_HEADER = "x-tangent-agent-token";
 
@@ -20,14 +22,6 @@ export interface AgentCallerResolver {
 export interface AssertedIds {
   sessionId?: string;
   agentId?: string;
-}
-
-function headerValue(
-  headers: IncomingHttpHeaders,
-  name: string,
-): string | undefined {
-  const value = headers[name];
-  return (Array.isArray(value) ? value[0] : value) || undefined;
 }
 
 /**
