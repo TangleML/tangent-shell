@@ -30,6 +30,7 @@ import {
   MAX_REMEMBERED_ENDS,
   PiAgentManager,
   PRIME_AGENT_ID,
+  type SendToAgentOptions,
   SessionMaintenanceError,
 } from "./piAgentManager.ts";
 import type { ConversationEventSink } from "./types.ts";
@@ -449,9 +450,51 @@ function emitPi(child: FakeChild, event: Record<string, unknown>): void {
   child.stdout.emit("data", Buffer.from(`${JSON.stringify(event)}\n`));
 }
 
-/** Drives a full Pi turn: one assistant message from `agent_start` to `agent_end`. */
-function runTurn(child: FakeChild, text: string): void {
+/** The RPC commands written to an agent's stdin, oldest first. */
+function commands(
+  child: FakeChild,
+): { id: string; type: string; streamingBehavior?: string }[] {
+  return child.writes.map((line) => JSON.parse(line));
+}
+
+/** The ids of the prompts written to an agent's stdin, oldest first. */
+function promptIds(child: FakeChild): string[] {
+  return commands(child)
+    .filter((command) => command.type === "prompt")
+    .map((command) => command.id);
+}
+
+/** Answers a prompt as Pi does, by default the last one written. */
+function answer(
+  child: FakeChild,
+  disposition: "started" | "queued" | "handled",
+  id = promptIds(child).at(-1),
+): void {
+  emitPi(child, {
+    type: "response",
+    id,
+    command: "prompt",
+    success: true,
+    data: { disposition },
+  });
+}
+
+/** Starts Pi's run for the last prompt written. */
+function startTurn(child: FakeChild): void {
+  answer(child, "started");
   emitPi(child, { type: "agent_start" });
+}
+
+/** Ends Pi's last turn and, with it, its run. */
+function settle(child: FakeChild, aborted = false): void {
+  emitPi(child, { type: "agent_end" });
+  emitPi(child, { type: "agent_settled", aborted });
+}
+
+/** Drives a full Pi run for the last prompt: one assistant message, from its
+ * `started` answer to `agent_settled`. */
+function runTurn(child: FakeChild, text: string): void {
+  startTurn(child);
   emitPi(child, { type: "message_start", message: { role: "assistant" } });
   emitPi(child, {
     type: "message_update",
@@ -461,7 +504,21 @@ function runTurn(child: FakeChild, text: string): void {
     type: "message_end",
     message: { role: "assistant", content: text },
   });
-  emitPi(child, { type: "agent_end" });
+  settle(child);
+}
+
+/** Sends Prime a message in session `s1`. */
+function sendPrime(
+  h: ReturnType<typeof makeManager>,
+  text: string,
+  options: Partial<SendToAgentOptions> = {},
+): void {
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text,
+    ...options,
+  });
 }
 
 /** Yields to the microtask queue so write-through persistence has landed. */
@@ -475,7 +532,7 @@ function runTurnWithUsage(
   text: string,
   usage: Record<string, unknown>,
 ): void {
-  emitPi(child, { type: "agent_start" });
+  startTurn(child);
   emitPi(child, { type: "message_start", message: { role: "assistant" } });
   emitPi(child, {
     type: "message_update",
@@ -485,7 +542,7 @@ function runTurnWithUsage(
     type: "message_end",
     message: { role: "assistant", content: text, usage },
   });
-  emitPi(child, { type: "agent_end" });
+  settle(child);
 }
 
 test("an assistant turn's usage is recorded against its agent and run", async () => {
@@ -583,9 +640,10 @@ test("aborting a run settles it as cancelled, not completed", async () => {
   });
   const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
   assert.ok(runId);
+  startTurn(h.spawns[0].child);
 
   assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), true);
-  emitPi(h.spawns[0].child, { type: "agent_end" });
+  settle(h.spawns[0].child, true);
   await flush();
 
   assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
@@ -1118,14 +1176,19 @@ function ended(status: SessionStatusPayload | undefined) {
   return rest;
 }
 
-/** Drives a Pi turn whose last model call failed. */
-function failTurn(child: FakeChild): void {
-  emitPi(child, { type: "agent_start" });
+/** Ends a model call as failed. */
+function failCall(child: FakeChild): void {
   emitPi(child, {
     type: "message_end",
     message: { role: "assistant", content: "", stopReason: "error" },
   });
-  emitPi(child, { type: "agent_end", willRetry: false });
+}
+
+/** Drives a Pi run whose last model call failed. */
+function failTurn(child: FakeChild): void {
+  startTurn(child);
+  failCall(child);
+  settle(child);
 }
 
 test("a failed turn tells the lobby once, and stays failed until the session works again", async () => {
@@ -1161,7 +1224,7 @@ test("a failure while another agent is still working survives until the session 
     text: "go",
     ingress: "tool",
   });
-  emitPi(worker, { type: "agent_start" });
+  startTurn(worker);
   h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
 
   failTurn(prime);
@@ -1171,7 +1234,7 @@ test("a failure while another agent is still working survives until the session 
     { sessionId: "s1", status: "busy", failed: true },
   ]);
 
-  emitPi(worker, { type: "agent_end" });
+  settle(worker);
   await flush();
 
   assert.deepEqual(h.pi.getStatuses().map(ended), [
@@ -1265,8 +1328,8 @@ test("a session that stops working says when, until it works again", async () =>
   const child = h.spawns[0].child;
 
   h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
-  emitPi(child, { type: "agent_start" });
-  emitPi(child, { type: "agent_end" });
+  startTurn(child);
+  settle(child);
   await flush();
 
   assert.deepEqual(h.pi.getStatuses().map(ended), [
@@ -1307,34 +1370,26 @@ test("disposing a deleted session forgets its lobby status without announcing it
   assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
 });
 
-test("a turn whose last model call failed settles its run as failed", async () => {
+test("a run whose last model call failed settles as failed", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
   const child = h.spawns[0].child;
 
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  sendPrime(h, "hello");
   const failedRun = h.runs.current("s1", PRIME_AGENT_ID)?.id;
-  emitPi(child, { type: "agent_start" });
-  emitPi(child, {
-    type: "message_end",
-    message: { role: "assistant", content: "", stopReason: "error" },
-  });
-  emitPi(child, { type: "agent_end", willRetry: false });
+  failTurn(child);
   await flush();
 
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+  sendPrime(h, "again");
   const retriedRun = h.runs.current("s1", PRIME_AGENT_ID)?.id;
-  emitPi(child, { type: "agent_start" });
-  emitPi(child, {
-    type: "message_end",
-    message: { role: "assistant", content: "", stopReason: "error" },
-  });
+  startTurn(child);
+  failCall(child);
   emitPi(child, { type: "message_start", message: { role: "assistant" } });
   emitPi(child, {
     type: "message_end",
     message: { role: "assistant", content: "got through", stopReason: "stop" },
   });
-  emitPi(child, { type: "agent_end" });
+  settle(child);
   await flush();
 
   assert.ok(failedRun && retriedRun);
@@ -1346,31 +1401,29 @@ test("a turn whose last model call failed settles its run as failed", async () =
   );
 });
 
-/** A model call that failed, ending the turn the way Pi does before a retry. */
-function failCall(child: FakeChild): void {
-  emitPi(child, { type: "agent_start" });
-  emitPi(child, {
-    type: "message_end",
-    message: { role: "assistant", content: "", stopReason: "error" },
-  });
-  emitPi(child, { type: "agent_end" });
-}
-
-test("a failed call Pi retries keeps the run open, and a retry that gets through completes it", async () => {
+test("a retry stays in the Run, and one that gets through completes it", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
   const child = h.spawns[0].child;
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  sendPrime(h, "hello");
   const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
 
+  startTurn(child);
   failCall(child);
+  emitPi(child, { type: "agent_end", willRetry: true });
   emitPi(child, { type: "auto_retry_start" });
+  emitPi(child, { type: "agent_start" });
   await flush();
 
   assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, run);
   assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
 
-  runTurn(child, "got through");
+  emitPi(child, { type: "auto_retry_end", success: true });
+  emitPi(child, {
+    type: "message_end",
+    message: { role: "assistant", content: "got through", stopReason: "stop" },
+  });
+  settle(child);
   await flush();
 
   assert.ok(run);
@@ -1382,13 +1435,17 @@ test("a retry Pi gives up on fails the run", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
   const child = h.spawns[0].child;
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  sendPrime(h, "hello");
   const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
 
+  startTurn(child);
   failCall(child);
+  emitPi(child, { type: "agent_end", willRetry: true });
   emitPi(child, { type: "auto_retry_start" });
+  emitPi(child, { type: "agent_start" });
   failCall(child);
   emitPi(child, { type: "auto_retry_end", success: false });
+  settle(child);
   await flush();
 
   assert.ok(run);
@@ -1396,60 +1453,20 @@ test("a retry Pi gives up on fails the run", async () => {
   assert.equal(h.pi.getStatuses()[0]?.failed, true);
 });
 
-test("a failed call Pi says nothing more about is final after a moment", async () => {
-  mock.timers.enable({ apis: ["setTimeout"] });
-  const h = makeManager();
-  await h.pi.ensure("s1", "/tmp/s1");
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
-  const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
-
-  failCall(h.spawns[0].child);
-
-  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, run);
-
-  mock.timers.tick(250);
-  await flush();
-
-  assert.ok(run);
-  assert.equal((await h.runStore.getRun(run))?.status, "failed");
-});
-
-test("a failed call Pi says it will retry keeps the run open without waiting", async () => {
-  const h = makeManager();
-  await h.pi.ensure("s1", "/tmp/s1");
-  const child = h.spawns[0].child;
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
-  const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
-
-  emitPi(child, { type: "agent_start" });
-  emitPi(child, {
-    type: "message_end",
-    message: { role: "assistant", content: "", stopReason: "error" },
-  });
-  emitPi(child, { type: "agent_end", willRetry: true });
-  await flush();
-
-  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, run);
-  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
-
-  runTurn(child, "got through");
-  await flush();
-
-  assert.ok(run);
-  assert.equal((await h.runStore.getRun(run))?.status, "completed");
-});
-
 test("stopping the agent while Pi waits to retry cancels the run, not fails it", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
   const child = h.spawns[0].child;
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  sendPrime(h, "hello");
   const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
 
+  startTurn(child);
   failCall(child);
+  emitPi(child, { type: "agent_end", willRetry: true });
   emitPi(child, { type: "auto_retry_start" });
   assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), true);
   emitPi(child, { type: "auto_retry_end", success: false });
+  emitPi(child, { type: "agent_settled", aborted: true });
   await flush();
 
   assert.ok(run);
@@ -1457,17 +1474,231 @@ test("stopping the agent while Pi waits to retry cancels the run, not fails it",
   assert.equal(h.pi.getStatuses()[0]?.failed, undefined);
 });
 
-test("a prompt sent while a failed call may still be retried joins the same run", async () => {
-  mock.timers.enable({ apis: ["setTimeout"] });
+test("a prompt sent between a run's turns joins that run", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const child = h.spawns[0].child;
+  sendPrime(h, "hello");
   const run = h.runs.current("s1", PRIME_AGENT_ID)?.id;
 
-  failCall(h.spawns[0].child);
-  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "again" });
+  startTurn(child);
+  failCall(child);
+  emitPi(child, { type: "agent_end", willRetry: true });
+  sendPrime(h, "again");
+  answer(child, "queued");
+  emitPi(child, { type: "agent_start" });
 
   assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, run);
+});
+
+test("every prompt tells Pi how to queue it, even one that finds the agent idle", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+
+  sendPrime(h, "work");
+  startTurn(child);
+  sendPrime(h, "also", { delivery: "steer" });
+
+  assert.deepEqual(
+    commands(child).map((command) => command.streamingBehavior),
+    ["followUp", "steer"],
+  );
+});
+
+test("a prompt Pi starts after its run settles opens its own Run", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work", { audienceParticipantId: "alice" });
+  startTurn(child);
+  const first = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  sendPrime(h, "late", { audienceParticipantId: "bob", ingress: "tool" });
+  const [, late] = promptIds(child);
+  settle(child);
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.deepEqual(
+    h.pi.getStatuses(),
+    [{ sessionId: "s1", status: "busy" }],
+    "the late prompt is still to be answered",
+  );
+
+  answer(child, "started", late);
+  emitPi(child, { type: "agent_start" });
+
+  const second = h.runs.current("s1", PRIME_AGENT_ID);
+  assert.ok(first && second);
+  assert.notEqual(second.id, first);
+  assert.equal(second.ingress, "tool");
+  assert.equal(h.runs.audienceFor("s1", PRIME_AGENT_ID), "bob");
+  await flush();
+  assert.equal((await h.runStore.getRun(first))?.status, "completed");
+});
+
+test("a follow-up queued as a turn ends joins the Run, which lasts until Pi settles", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  startTurn(child);
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+
+  sendPrime(h, "late");
+  answer(child, "queued");
+  emitPi(child, { type: "agent_end" });
+  emitPi(child, { type: "agent_start" });
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, runId);
+
+  settle(child);
+  await flush();
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.equal((await h.runStore.getRun(runId))?.status, "completed");
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
+});
+
+test("an idle prompt Pi handles settles its Run and frees the agent", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  sendPrime(h, "/ext-command");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+
+  answer(h.spawns[0].child, "handled");
+  await flush();
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
+  assert.equal((await h.runStore.getRun(runId))?.status, "completed");
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
+});
+
+test("a prompt Pi handles mid-run leaves the run in flight alone", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  startTurn(child);
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  sendPrime(h, "/ext-command");
+  answer(child, "handled");
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, runId);
+  assert.deepEqual(h.pi.getStatuses(), [{ sessionId: "s1", status: "busy" }]);
+});
+
+test("a prompt Pi rejects fails the Run it opened", async () => {
+  mock.method(console, "error", () => {});
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+
+  emitPi(child, {
+    type: "response",
+    id: promptIds(child)[0],
+    command: "prompt",
+    success: false,
+    error: "No API key found",
+  });
+  await flush();
+
+  assert.equal((await h.runStore.getRun(runId))?.status, "failed");
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
+});
+
+test("a turn that starts before Pi answers a prompt isn't that prompt's", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work", { audienceParticipantId: "alice", ingress: "tool" });
+  const provisional = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  emitPi(child, { type: "agent_start" });
+
+  const current = h.runs.current("s1", PRIME_AGENT_ID);
+  assert.notEqual(current?.id, provisional);
+  assert.equal(current?.ingress, "reaction");
+});
+
+test("a prompt answered by an older Pi, with no disposition, keeps its Run", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  emitPi(child, {
+    type: "response",
+    id: promptIds(child)[0],
+    command: "prompt",
+    success: true,
+  });
+  emitPi(child, { type: "agent_start" });
+
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, runId);
+});
+
+test("aborting clears Pi's queue before aborting its run", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  startTurn(child);
+  sendPrime(h, "next");
+
+  h.pi.abort("s1", PRIME_AGENT_ID);
+
+  assert.deepEqual(
+    commands(child)
+      .slice(-2)
+      .map((command) => command.type),
+    ["clear_queue", "abort"],
+  );
+});
+
+test("a prompt sent while an abort lands waits for Pi to settle", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  startTurn(child);
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+  assert.ok(runId);
+
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  sendPrime(h, "after", { audienceParticipantId: "bob" });
+  assert.equal(promptIds(child).length, 1, "the prompt is held");
+
+  settle(child, true);
+  emitPi(child, { type: "response", command: "abort", success: true });
+  await flush();
+
+  assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
+  assert.equal(promptIds(child).length, 2, "the prompt is written once");
+  const next = h.runs.current("s1", PRIME_AGENT_ID);
+  assert.ok(next && next.id !== runId, "and opens its own Run");
+  assert.equal(h.runs.audienceFor("s1", PRIME_AGENT_ID), "bob");
+});
+
+test("a prompt held during an abort that found no run is written on its answer", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "/ext-command");
+  const [command] = promptIds(child);
+
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  sendPrime(h, "after");
+  answer(child, "handled", command);
+  assert.equal(promptIds(child).length, 1);
+
+  emitPi(child, { type: "response", command: "abort", success: true });
+  assert.equal(promptIds(child).length, 2);
+  assert.ok(h.runs.current("s1", PRIME_AGENT_ID));
 });
 
 /** A bundle config with one Prime prompt and the given sub-agent templates. */

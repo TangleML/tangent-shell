@@ -10,6 +10,7 @@ import {
   type MessageDelivery,
   RESTORABLE_STATUSES,
   type Run,
+  type RunId,
   type RunIngress,
   type SessionRunStatus,
   type SessionStatusPayload,
@@ -74,6 +75,7 @@ import {
   type ConversationEventSink,
   type PiStdoutEvent,
   PRIME_AGENT_ID,
+  type SentPrompt,
   type SessionAgents,
 } from "./types.ts";
 import {
@@ -108,6 +110,8 @@ export type {
   SubagentUpdateHandler,
 } from "./types.ts";
 
+/** How many sessions with no agent running are remembered as having ended. */
+export const MAX_REMEMBERED_ENDS = 500;
 /**
  * Supervisor retry budget for auto-respawning a crashed Pi process. At most
  * {@link MAX_RESTARTS} respawns are attempted within a rolling
@@ -115,10 +119,6 @@ export type {
  * window resets the count); each attempt waits the matching
  * {@link RESTART_BACKOFF_MS} entry (the last value repeats for further attempts).
  */
-// Pi reports a retry in the same breath as the failed turn's end.
-const RETRY_NOTICE_GRACE_MS = 250;
-/** How many sessions with no agent running are remembered as having ended. */
-export const MAX_REMEMBERED_ENDS = 500;
 const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
@@ -1011,14 +1011,46 @@ function settledForKill(completed: boolean): SettledStatus {
 }
 
 /**
- * Maps a delivery mode to Pi's `streamingBehavior` for a mid-run message: only
- * an explicit steer nudges before the next LLM call; everything else (including
- * `"auto"`) queues as a follow-up so nothing is dropped.
+ * Maps a delivery mode to Pi's `streamingBehavior`, which applies only to a
+ * message that lands mid-run: only an explicit steer nudges before the next LLM
+ * call; everything else (including `"auto"`) queues as a follow-up so nothing
+ * is dropped.
  */
-function busyStreamingBehavior(
+function streamingBehavior(
   delivery: MessageDelivery,
-): "steer" | "followUp" {
+): SentPrompt["streamingBehavior"] {
   return delivery === "steer" ? "steer" : "followUp";
+}
+
+const DISPOSITIONS = ["started", "queued", "handled"] as const;
+
+/** What Pi (0.99.0 and later) says it did with a prompt, from its response. */
+function readDisposition(
+  data: unknown,
+): (typeof DISPOSITIONS)[number] | undefined {
+  if (typeof data !== "object" || data === null || !("disposition" in data)) {
+    return undefined;
+  }
+  const { disposition } = data;
+  return DISPOSITIONS.find((known) => known === disposition);
+}
+
+/**
+ * Forgets the prompts Pi queued, or is about to, as it clears its queue, so
+ * their answers are ignored.
+ */
+function forgetQueuedPrompts(agent: AgentProcess): void {
+  for (const [id, prompt] of agent.sent) {
+    if (!prompt.runId) agent.sent.delete(id);
+  }
+}
+
+/** Removes and returns the prompt a Pi `response` answers. */
+function takeSent(agent: AgentProcess, id: unknown): SentPrompt | undefined {
+  if (typeof id !== "string") return undefined;
+  const prompt = agent.sent.get(id);
+  agent.sent.delete(id);
+  return prompt;
 }
 
 /** Builds a fresh roster entry around a just-spawned child, defaulting the
@@ -1043,9 +1075,10 @@ function buildAgentProcess(
     config,
     child,
     busy: false,
+    sent: new Map(),
+    heldPrompts: [],
     aborted: false,
     modelFailed: false,
-    pendingEnd: null,
     currentMessageId: null,
     startEmitted: false,
     accum: "",
@@ -1077,8 +1110,9 @@ export class PiAgentManager {
   private readonly memory: MemoryResolver;
   /**
    * The Runs this manager's agents work under. Pi is the authority on its own
-   * run boundaries (`agent_start` opens, `agent_end` settles), so it opens and
-   * settles them rather than having them inferred from the event stream.
+   * run boundaries (a run ends at `agent_settled`, however many turns it took),
+   * so the manager opens and settles them rather than having them inferred
+   * from the event stream.
    */
   private readonly runs: RunRegistry;
   /**
@@ -1508,8 +1542,8 @@ export class PiAgentManager {
     existing.intentionalKill = true;
     existing.child.kill();
     this.clearCutTurn(sessionId, existing);
-    // The killed process will never emit `agent_end`, so settle here: the turn
-    // we cut was stopped, not finished.
+    // The killed process will never emit `agent_settled`, so settle here: the
+    // turn we cut was stopped, not finished.
     this.runs.settleOpenFor(sessionId, existing.agentId, "cancelled");
 
     const agent = this.spawnAgent(
@@ -1715,7 +1749,8 @@ export class PiAgentManager {
    *
    * A message that finds the agent idle opens a Run with `ingress`; one that
    * finds it mid-run joins the Run in flight, because Pi folds a steer or
-   * follow-up into the turn it is already taking.
+   * follow-up into the run it is already taking. Pi's answer to the prompt
+   * corrects either guess (see {@link onPromptAnswered}).
    */
   sendToAgent(options: SendToAgentOptions): void {
     if (this.holdDuringMaintenance(options)) return;
@@ -1738,69 +1773,88 @@ export class PiAgentManager {
       return;
     }
 
-    if (!agent.busy) this.openRunFor(agent, options);
-
-    this.writePrompt(sessionId, agent, text, options.delivery ?? "auto");
-    this.notifyStatus(sessionId);
-  }
-
-  /** Opens the Run a message starts when it finds its agent idle. */
-  private openRunFor(agent: AgentProcess, options: SendToAgentOptions): void {
-    this.runs.open({
-      sessionId: options.sessionId,
-      participantId: options.agentId,
-      homeConversationId: agent.homeConversationId,
+    this.deliverPrompt(sessionId, agent, text, {
+      streamingBehavior: streamingBehavior(options.delivery ?? "auto"),
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
     });
   }
 
+  /** Writes a prompt, opening its Run when it finds the agent idle. */
+  private deliverPrompt(
+    sessionId: string,
+    agent: AgentProcess,
+    text: string,
+    prompt: SentPrompt,
+  ): void {
+    // Pi would keep a prompt that lands while an abort finishes queued until
+    // some later prompt starts a run.
+    if (agent.aborted) {
+      agent.heldPrompts.push({ text, prompt });
+      return;
+    }
+    // Opened now rather than on Pi's answer, so admission sees the agent busy.
+    if (!agent.busy) prompt.runId = this.openRun(sessionId, agent, prompt);
+    this.writePrompt(sessionId, agent, text, prompt);
+    this.notifyStatus(sessionId);
+  }
+
+  /** Opens a Run for an agent, for the prompt it serves when there is one. */
+  private openRun(
+    sessionId: string,
+    agent: AgentProcess,
+    prompt?: SentPrompt,
+  ): RunId {
+    return this.runs.open({
+      sessionId,
+      participantId: agent.agentId,
+      homeConversationId: agent.homeConversationId,
+      ingress: prompt?.ingress ?? "reaction",
+      audienceParticipantId: prompt?.audienceParticipantId,
+    }).id;
+  }
+
   /**
-   * Writes a prompt to an agent's stdin, marking it busy. A prompt that arrives
-   * mid-stream carries a `streamingBehavior` (steer / follow-up); that field is
-   * only valid while streaming, so an idle agent gets a plain prompt.
+   * Writes a prompt to an agent's stdin, marking it busy. Every prompt carries
+   * a `streamingBehavior`: Pi ignores it when idle, and rejects a prompt without
+   * one while a run is in flight, which the manager can't always see.
    */
   private writePrompt(
     sessionId: string,
     agent: AgentProcess,
     text: string,
-    delivery: MessageDelivery,
+    prompt: SentPrompt,
   ): void {
-    const wasBusy = agent.busy;
+    const id = randomUUID();
     const message = agent.resumeNoticePending
       ? `${RESUME_NOTICE}\n\n${text}`
       : text;
     agent.resumeNoticePending = false;
     if (agent.role === "prime") this.markTranscript(sessionId);
-    const command: Record<string, unknown> = {
-      id: randomUUID(),
-      type: "prompt",
-      message,
-      ...(wasBusy
-        ? { streamingBehavior: busyStreamingBehavior(delivery) }
-        : {}),
-    };
 
     console.log(
       `[pi:${sessionId}:${agent.agentId}] prompt`,
       JSON.stringify({
         role: agent.role,
-        wasBusy,
-        delivery,
+        wasBusy: agent.busy,
+        streamingBehavior: prompt.streamingBehavior,
         textLength: message.length,
       }),
     );
 
+    agent.sent.set(id, prompt);
     agent.busy = true;
-    agent.child.stdin.write(`${JSON.stringify(command)}\n`);
+    agent.child.stdin.write(
+      `${JSON.stringify({ id, type: "prompt", message, streamingBehavior: prompt.streamingBehavior })}\n`,
+    );
   }
 
   /**
    * Cancels a participant's in-progress Run by sending Pi's `abort` RPC command
-   * on stdin. The process stays alive and emits `agent_end`, which settles the
-   * Run as `cancelled` and resets state through the normal event flow. Returns
-   * false when there is nothing to cancel (unknown or idle agent), so the caller
-   * can tell a refusal from a cancellation. `aborted` is flagged so a
+   * on stdin. The process stays alive and emits `agent_settled`, which settles
+   * the Run as `cancelled` and resets state through the normal event flow.
+   * Returns false when there is nothing to cancel (unknown or idle agent), so
+   * the caller can tell a refusal from a cancellation. `aborted` is flagged so a
    * half-finished sub-agent reply is not relayed back to Prime.
    */
   abort(sessionId: string, agentId: string): boolean {
@@ -1808,13 +1862,18 @@ export class PiAgentManager {
     if (!agent || !agent.busy) return false;
 
     agent.aborted = true;
+    // Pi keeps its queue across an abort and would fold it into the next
+    // prompt's run, so it is cleared too.
+    forgetQueuedPrompts(agent);
     console.log(
       `[pi:${sessionId}:${agentId}] abort`,
       JSON.stringify({ role: agent.role }),
     );
-    agent.child.stdin.write(
-      `${JSON.stringify({ id: randomUUID(), type: "abort" })}\n`,
-    );
+    for (const type of ["clear_queue", "abort"]) {
+      agent.child.stdin.write(
+        `${JSON.stringify({ id: randomUUID(), type })}\n`,
+      );
+    }
     return true;
   }
 
@@ -1833,7 +1892,6 @@ export class PiAgentManager {
     agent.intentionalKill = true;
     session.agents.delete(agentId);
     agent.child.kill();
-    this.clearPendingEnd(agent);
     this.runs.settleOpenFor(sessionId, agentId, settledForKill(completed));
     this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     this.notifyStatus(sessionId);
@@ -1924,7 +1982,6 @@ export class PiAgentManager {
 
   /** A killed agent won't end its turn itself, so what it left showing goes. */
   private clearCutTurn(sessionId: string, agent: AgentProcess): void {
-    this.clearPendingEnd(agent);
     if (agent.lastActivity) this.emitActivity(sessionId, agent, null);
   }
 
@@ -1934,7 +1991,6 @@ export class PiAgentManager {
     agent.currentMessageId = null;
     agent.intentionalKill = true;
     agent.child.kill();
-    this.clearPendingEnd(agent);
   }
 
   /** Registers the one listener told when a session is disposed. */
@@ -2139,7 +2195,6 @@ export class PiAgentManager {
       console.log(
         `[pi:${sessionId}:${agent.agentId}] process exited (code=${code}, signal=${signal})`,
       );
-      this.clearPendingEnd(agent);
       this.failInFlight(sessionId, agent, "Pi process exited unexpectedly.");
       this.handleChildExit(sessionId, agent);
     });
@@ -2241,7 +2296,7 @@ export class PiAgentManager {
 
   /**
    * Per-event-type handlers, keyed by the Pi RPC `type`. Unmapped types
-   * (turn_* / response / extension_ui_request etc.) carry no chat-visible
+   * (turn_* / auto_retry_* / extension_ui_request etc.) carry no chat-visible
    * signal and are ignored. Defined as a field so dispatch stays a single
    * table lookup.
    */
@@ -2263,14 +2318,11 @@ export class PiAgentManager {
         this.onToolExecutionStart(sessionId, agent, event),
       queue_update: ({ sessionId, descriptor, event }) =>
         this.onQueueUpdate(sessionId, descriptor, event),
-      agent_end: ({ sessionId, agent, event }) =>
-        this.onAgentEnd(sessionId, agent, event),
-      auto_retry_start: ({ agent }) => this.clearPendingEnd(agent),
-      auto_retry_end: ({ sessionId, agent, event }) => {
-        if (event.success === false && agent.busy) {
-          this.finishRun(sessionId, agent);
-        }
-      },
+      agent_end: ({ sessionId, agent }) => this.onAgentEnd(sessionId, agent),
+      agent_settled: ({ sessionId, agent, event }) =>
+        this.onAgentSettled(sessionId, agent, event),
+      response: ({ sessionId, agent, event }) =>
+        this.onResponse(sessionId, agent, event),
     };
 
   /** Dispatches one parsed stdout line to the matching per-event handler. */
@@ -2290,21 +2342,16 @@ export class PiAgentManager {
     handler?.({ sessionId, agent, descriptor: toDescriptor(agent), event });
   }
 
-  /** Begins a run: marks the agent busy and shows the "thinking" indicator. */
+  /** Begins a turn: marks the agent busy and shows the "thinking" indicator. */
   private onAgentStart(sessionId: string, agent: AgentProcess): void {
-    // A turn we did not initiate (Pi starting work off its own queue) still gets
-    // a Run, so no stream is unattributable.
-    if (!this.runs.current(sessionId, agent.agentId)) {
-      this.runs.open({
-        sessionId,
-        participantId: agent.agentId,
-        homeConversationId: agent.homeConversationId,
-        ingress: "reaction",
-      });
+    // A turn no prompt started (an extension's, say) still gets a Run, so no
+    // stream is unattributable. Pi answers `started` before a prompt's turn, so
+    // a Run whose prompt is unanswered isn't this turn's.
+    const current = this.runs.current(sessionId, agent.agentId);
+    if (!current || this.awaitsAnswer(agent, current.id)) {
+      this.openRun(sessionId, agent);
     }
-    this.clearPendingEnd(agent);
     agent.busy = true;
-    agent.aborted = false;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -2490,38 +2537,102 @@ export class PiAgentManager {
     });
   }
 
-  /**
-   * Pi ends the turn on a failed model call and only then says whether it is
-   * retrying, so that turn isn't final yet: the run stays open and the agent
-   * busy until Pi retries, gives up, or says nothing for a moment.
-   */
-  private onAgentEnd(
+  /** Whether a Run was opened by a prompt Pi has yet to answer. */
+  private awaitsAnswer(agent: AgentProcess, runId: RunId): boolean {
+    return [...agent.sent.values()].some((prompt) => prompt.runId === runId);
+  }
+
+  /** Applies Pi's answer to a command: a prompt's disposition, or an abort. */
+  private onResponse(
     sessionId: string,
     agent: AgentProcess,
     event: PiStdoutEvent,
   ): void {
-    const mayRetry =
-      agent.modelFailed && !agent.aborted && event.willRetry !== false;
-    if (!mayRetry) {
-      this.finishRun(sessionId, agent);
+    // Pi answers an abort once idle, which covers one that found no run.
+    if (event.command === "abort") {
+      this.releaseHeldPrompts(sessionId, agent);
       return;
     }
-    this.clearPendingEnd(agent);
-    if (event.willRetry) return;
-    agent.pendingEnd = setTimeout(
-      () => this.finishRun(sessionId, agent),
-      RETRY_NOTICE_GRACE_MS,
-    );
+    const prompt =
+      event.command === "prompt" ? takeSent(agent, event.id) : undefined;
+    if (prompt) this.onPromptAnswered(sessionId, agent, prompt, event);
   }
 
-  private clearPendingEnd(agent: AgentProcess): void {
-    if (agent.pendingEnd) clearTimeout(agent.pendingEnd);
-    agent.pendingEnd = null;
+  /**
+   * Follows a prompt to where Pi put it: a run of its own, the queue of the run
+   * in flight, or nowhere, when an extension command or input handler handled
+   * it or Pi rejected it. Pi before 0.99.0 doesn't say which, so the agent's
+   * state when the prompt was written stands in.
+   */
+  private onPromptAnswered(
+    sessionId: string,
+    agent: AgentProcess,
+    prompt: SentPrompt,
+    event: PiStdoutEvent,
+  ): void {
+    if (!event.success) {
+      console.error(
+        `[pi:${sessionId}:${agent.agentId}] prompt rejected: ${String(event.error)}`,
+      );
+      this.dropPrompt(sessionId, agent, prompt, "failed");
+      return;
+    }
+    const disposition =
+      readDisposition(event.data) ?? (prompt.runId ? "started" : "queued");
+    if (disposition === "handled") {
+      this.dropPrompt(sessionId, agent, prompt, "completed");
+    } else if (disposition === "started") {
+      this.onPromptStarted(sessionId, agent, prompt);
+    }
   }
 
-  /** Ends a run: clears busy + the activity indicator. */
-  private finishRun(sessionId: string, agent: AgentProcess): void {
-    this.clearPendingEnd(agent);
+  /**
+   * The prompt starts Pi's next run, so that run is its Run. A prompt written
+   * while the manager thought the agent busy, whose run had already settled,
+   * gets one of its own rather than an unattributed one.
+   */
+  private onPromptStarted(
+    sessionId: string,
+    agent: AgentProcess,
+    prompt: SentPrompt,
+  ): void {
+    const current = this.runs.current(sessionId, agent.agentId);
+    if (prompt.runId && current?.id === prompt.runId) return;
+    this.openRun(sessionId, agent, prompt);
+  }
+
+  /**
+   * Settles the Run a prompt opened when Pi started nothing for it, and frees
+   * the agent once no other Run or answer is outstanding.
+   */
+  private dropPrompt(
+    sessionId: string,
+    agent: AgentProcess,
+    prompt: SentPrompt,
+    status: SettledStatus,
+  ): void {
+    const current = this.runs.current(sessionId, agent.agentId);
+    const opened = current !== undefined && current.id === prompt.runId;
+    if (current && !opened) return;
+    // Freed before the Run settles, so a wake released on settle finds it idle.
+    agent.busy = agent.sent.size > 0;
+    if (opened) this.runs.settle(current.id, status);
+    this.notifyStatus(sessionId);
+  }
+
+  /** Ends an abort, writing the prompts held while it landed. */
+  private releaseHeldPrompts(sessionId: string, agent: AgentProcess): void {
+    agent.aborted = false;
+    for (const { text, prompt } of agent.heldPrompts.splice(0)) {
+      this.deliverPrompt(sessionId, agent, text, prompt);
+    }
+  }
+
+  /**
+   * Ends a turn. Pi's run, and so the Run, may go on to another: a retry,
+   * compaction, or a follow-up queued as the turn ended.
+   */
+  private onAgentEnd(sessionId: string, agent: AgentProcess): void {
     console.log(
       `[pi:${sessionId}:${agent.agentId}] agent_end`,
       JSON.stringify({
@@ -2530,15 +2641,28 @@ export class PiAgentManager {
         aborted: agent.aborted,
       }),
     );
-
-    const cancelled = agent.aborted;
-    const failed = agent.modelFailed;
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
     agent.thinkingAccum = "";
     agent.lastFinalContent = "";
-    agent.busy = false;
+  }
+
+  /**
+   * Ends Pi's run, which can span several turns. Clears busy + the activity
+   * indicator, and settles the Run.
+   */
+  private onAgentSettled(
+    sessionId: string,
+    agent: AgentProcess,
+    event: PiStdoutEvent,
+  ): void {
+    const cancelled = agent.aborted || event.aborted === true;
+    const failed = agent.modelFailed;
+    // A prompt Pi has yet to answer may still start a run.
+    agent.busy = agent.sent.size > 0;
+    // Cleared before the Run settles, so a wake released on settle goes to Pi
+    // and opens its own Run ahead of the prompts held during the abort.
     agent.aborted = false;
     agent.modelFailed = false;
 
@@ -2551,8 +2675,9 @@ export class PiAgentManager {
       agent.agentId,
       cancelled ? "cancelled" : failed ? "failed" : "completed",
     );
-    // After settling, so the lobby hears once how the turn ended.
+    // After settling, so the lobby hears once how the run ended.
     this.notifyStatus(sessionId);
+    this.releaseHeldPrompts(sessionId, agent);
   }
 
   /**

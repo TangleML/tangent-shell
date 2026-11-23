@@ -173,28 +173,25 @@ streamed output.
 **Server → agent (stdin):** `sendToAgent` writes a JSON command line to the
 child's stdin:
 
-```767:789:apps/server/src/pi/piAgentManager.ts
-    const command: Record<string, unknown> = {
-      id: randomUUID(),
-      type: "prompt",
-      message: text,
-    };
-    // `streamingBehavior` is only valid while the agent is streaming; when idle,
-    // send a plain prompt.
-    if (agent.busy) {
-      command.streamingBehavior = busyStreamingBehavior(delivery);
-    }
-    ...
-    agent.child.stdin.write(`${JSON.stringify(command)}\n`);
+```1845:1849:apps/server/src/pi/piAgentManager.ts
+    agent.sent.set(id, prompt);
+    agent.busy = true;
+    agent.child.stdin.write(
+      `${JSON.stringify({ id, type: "prompt", message, streamingBehavior: prompt.streamingBehavior })}\n`,
+    );
 ```
 
-(`abort` uses the same channel: `apps/server/src/pi/piAgentManager.ts:849`.)
+Every prompt carries `streamingBehavior`, which Pi ignores when idle, and is
+tracked by its `id` until Pi answers what it did with it (see
+[orchestrator.md](./orchestrator.md#prompt-dispositions-and-runs)). (`abort`
+uses the same channel: `apps/server/src/pi/piAgentManager.ts:1860`.)
 
 **Agent → server (stdout):** `wireChildStreams` attaches a JSONL reader to the
 child's stdout; each line is parsed and dispatched through `eventHandlers` by Pi
 event `type` (`agent_start`, `message_update`, `message_end`,
-`tool_execution_start`, `agent_end`, etc.) — see `handleStdoutLine`
-(`piAgentManager.ts:1133`) and the dispatch table (`piAgentManager.ts:1111`).
+`tool_execution_start`, `agent_end`, `agent_settled`, `response`, etc.) — see
+`handleStdoutLine` (`piAgentManager.ts:2329`) and the dispatch table
+(`piAgentManager.ts:2303`).
 
 **This is the mechanism behind agent-to-agent messaging.** When Prime calls
 `message_subagent`, the chain is: Pi-RPC carries Prime's tool call out on Prime's

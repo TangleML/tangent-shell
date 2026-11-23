@@ -807,7 +807,7 @@ export class RemoteEnvironmentGateway {
    * Clears the sub-agent's ephemeral activity indicator. The protocol has no
    * run-end event, so a settled run never streams the `activity: null` that a
    * local agent's {@link import("../pi/piAgentManager.ts").PiAgentManager}
-   * emits on `agent_end` — without it a last tool activity (e.g.
+   * emits on `agent_settled` — without it a last tool activity (e.g.
    * "Running send_to_prime") lingers as a busy spinner after the agent stops.
    */
   private clearActivity(sessionId: string, subagent: RemoteSubagent): void {

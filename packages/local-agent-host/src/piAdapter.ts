@@ -135,7 +135,6 @@ export class PiAgent {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly callbacks: PiAgentCallbacks;
   private readonly state = createStreamState();
-  private busy = false;
   private exited = false;
 
   constructor(
@@ -159,16 +158,18 @@ export class PiAgent {
     );
   }
 
-  /** Sends a prompt; mid-run it steers or queues according to `delivery`. */
+  /**
+   * Sends a prompt; mid-run it steers or queues according to `delivery`. Pi
+   * ignores `streamingBehavior` when idle and rejects a mid-run prompt without
+   * it, and a run can go on past `agent_end`, so it is always sent.
+   */
   prompt(text: string, delivery: MessageDelivery): void {
-    const streamingBehavior = delivery === "steer" ? "steer" : "followUp";
     this.write({
       id: randomUUID(),
       type: "prompt",
       message: text,
-      ...(this.busy ? { streamingBehavior } : {}),
+      streamingBehavior: delivery === "steer" ? "steer" : "followUp",
     });
-    this.busy = true;
   }
 
   kill(): void {
@@ -186,7 +187,6 @@ export class PiAgent {
       this.callbacks.onLog(`unparseable ${line}`);
       return;
     }
-    if (event.type === "agent_end") this.busy = false;
     try {
       for (const out of translatePiEvent(this.state, event, randomUUID)) {
         this.callbacks.onEvent(out);
@@ -200,7 +200,6 @@ export class PiAgent {
   private finish(reason: string): void {
     if (this.exited) return;
     this.exited = true;
-    this.busy = false;
     this.callbacks.onExit(reason);
   }
 }
