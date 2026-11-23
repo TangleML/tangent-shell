@@ -701,13 +701,14 @@ export function releaseSessionChatRoom(sessionId: string): void {
   if (room.refCount > 0) return;
   room.disconnect();
   rooms.delete(sessionId);
-  subscribeFns.delete(sessionId);
 }
 
 /**
  * Stable `useSyncExternalStore` subscribe for a session. Identity is cached
  * per `sessionId` so a re-render does not flap acquire/release (which would
- * tear down the socket).
+ * tear down the socket). It outlives the room: a new identity after the last
+ * release (StrictMode's mount, unmount, mount) makes React resubscribe, which
+ * releases the room again and loops until "Maximum update depth exceeded".
  */
 export function subscribeToSessionChat(
   sessionId: string,
