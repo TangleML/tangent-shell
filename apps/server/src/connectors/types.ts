@@ -40,6 +40,11 @@ export interface DeliveryRequest {
    * agent/automation delivery.
    */
   audienceParticipantId?: string;
+  /**
+   * The identity set the sending agent's Run carried, when this delivery
+   * relays one agent's words to another. Seeds the Run it opens.
+   */
+  audienceParticipants?: readonly string[];
 }
 
 /** What became of a delivery. `reason` is set only when it was refused. */

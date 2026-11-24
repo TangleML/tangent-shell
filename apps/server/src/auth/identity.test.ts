@@ -126,3 +126,37 @@ test("sub stands in for email, and the default config follows the environment", 
   // an identity under the default configuration.
   assert.equal(resolveIdentity({ authorization: `Bearer ${BEARER}` }), null);
 });
+
+test("a token past its exp identifies nobody, and no lower source steps in", () => {
+  const now = Date.parse("2026-01-01T12:00:00Z");
+  const expired = jwt({ email: "late@x", exp: now / 1000 - 1 });
+  const live = jwt({ email: "live@x", exp: now / 1000 + 1 });
+
+  assert.equal(
+    resolveIdentity(
+      { authorization: `Bearer ${expired}`, cookie: `auth_token=${COOKIE}` },
+      ALL_ON,
+      now,
+    ),
+    null,
+  );
+  assert.equal(
+    resolveIdentity({ authorization: `Bearer ${live}` }, ALL_ON, now)?.identity
+      .email,
+    "live@x",
+  );
+  assert.equal(
+    resolveIdentity({ authorization: `Bearer ${live}` }, ALL_ON, now + 1000),
+    null,
+    "exp is an instant, not a grace period",
+  );
+  assert.equal(
+    resolveIdentity(
+      { authorization: `Bearer ${jwt({ email: "odd@x", exp: "soon" })}` },
+      ALL_ON,
+      now,
+    )?.identity.email,
+    "odd@x",
+    "an unreadable exp is ignored rather than treated as expired",
+  );
+});

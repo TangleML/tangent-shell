@@ -86,25 +86,51 @@ carries a token, in trust order:
 3. `AUTH_JWT_TOKEN_HEADER_NAME`, then `AUTH_JWT_TOKEN_COOKIE_NAME`.
 
 No source is signature-checked here; the claims (`email` or `sub`, names) are
-read as presented, and the backend is the only verifier. When a token has no
-`email` claim the server uses `sub` as the participant id, so an identity
-assertion issuer must put the participant's email in `sub`: an opaque subject
-would be shown and compared as if it were an email. Tokens from the first
-two sources are also kept, per participant, in the in-memory
-[identity assertion cache](../../server/src/auth/identityAssertions.ts) along
-with their `exp`, fed by every `/api` request and socket handshake and dropped
-once expired. The web client refreshes it by calling `GET /api/me` before a chat
-message when its last request is more than 30 minutes old.
+read as presented, and the backend is the only verifier. A token whose `exp`
+has passed identifies nobody, on HTTP and on the socket handshake alike: the
+request or connection falls back to the anonymous default user rather than to a
+lower-ranked source. When a token has no `email` claim the server uses `sub` as
+the participant id, so an identity assertion issuer must put the participant's
+email in `sub`: an opaque subject would be shown and compared as if it were an
+email.
+
+Tokens from the first two sources are also kept, per participant, in the
+in-memory [identity assertion cache](../../server/src/auth/identityAssertions.ts)
+along with their `exp`, and dropped once expired. The two sources enter it
+differently:
+
+- A proxy-stamped assertion is recorded from every `/api` request and socket
+  handshake, before any route runs: the proxy already authenticated the person.
+- A bearer token is recorded only after a session has admitted its holder as
+  that person: when a socket join or subscribe resolves to at least one
+  authorized Conversation (`sockets/chat.ts`), or when `GET /api/sessions/:id`
+  is called for a session the caller may read — open, their own, or one they
+  hold a Membership in (`routes/sessions/identityProbe.ts`). No other HTTP
+  route records a bearer; `GET /api/me` in particular does not. It must also
+  carry an `exp` no more than 65 minutes out, the lifetime the backend mints
+  assertions for; a bearer without `exp`, or with a longer one, is never kept.
+  Until then the email it claims is only a claim, and recording it would let
+  anyone who can reach `/api` park a token under someone else's address.
+
+The web client keeps the assertion fresh by probing before a chat message when
+its last request is more than 30 minutes old: `GET /api/sessions/<id>` when it
+is in a session (the one read that records a bearer, and which a front proxy
+restamps like any other request), else `GET /api/me`.
 
 A Run carries an identity set: the ordered list of humans who wrote into the
 turn ([`RunRegistry`](../../server/src/runs/runRegistry.ts)). A human message
 that opens a Run sets it to `[author]`; one that steers or follows up a Run in
-flight appends the author (or moves them to the end); an agent or automation
-wake opens a Run that inherits the participants of the Run before it; a
-sub-agent's first Run inherits its spawner's. The set lives and dies with its
-Run — only the participant list is handed on to the next wake, so between Runs
-the participant is read as acting for the people its last Run acted for. The
-most recent member is the acting default — the person remote tools route to.
+flight appends the author (or moves them to the end). The set lives and dies
+with its Run: nothing is inherited from the participant's earlier Runs, so an
+agent or automation wake that nobody stands behind opens a Run with an empty
+set and acts as the instance. The one way a set travels is a relay — when one
+agent's Run writes to another, the Message carries the sender's set and the Run
+it wakes opens with it: a sub-agent's report (`/internal/agents/report`) and
+its finalized turn carry its Run's set to the orchestrator, and the
+orchestrator's directives (`/internal/agents/message`, a spawn's first task)
+carry its Run's set to the sub-agent. A relay that lands in a busy agent's turn
+leaves that turn's set unchanged. The most recent member is the acting default
+— the person remote tools route to.
 
 The cache keeps the assertion that is worth most. The source ranks first: an
 assertion from the trusted header replaces a bearer token for the same
@@ -231,6 +257,9 @@ restart.
   bundle-author code (same trust model as Pi tool extensions).
 - **CORS** — Socket.IO is configured with `cors: { origin: true }` to ease local
   dev where the UI is proxied by Vite (same-origin in practice).
+- **Health check** — `GET /api/health` answers `{ ok: true }` and nothing else:
+  it used to echo the request headers and cookies, which handed the identity
+  assertion, the authorization header and the auth cookie back to whoever asked.
 
 ---
 

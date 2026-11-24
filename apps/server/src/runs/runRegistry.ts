@@ -28,17 +28,23 @@ export interface OpenRunInput {
    * The human whose prompt opened this Run, when a human woke the participant.
    * Becomes the Run's identity set on its own: remote tools called during the
    * Run target this person's host, and calls made on someone's behalf act as
-   * them. Absent for an agent/automation wake, which inherits the participants
-   * of the Run before it instead.
+   * them.
    */
   audienceParticipantId?: string;
+  /**
+   * The identity set a relay carries: when one agent's Run messages another
+   * (a sub-agent's report, an orchestrator's directive), the people behind the
+   * sending Run become the people behind the Run it wakes. A wake with neither
+   * this nor an audience acts for nobody.
+   */
+  audienceParticipants?: readonly string[];
 }
 
 /**
  * The humans behind one Run, oldest first. The most recent is the acting
  * default: the one a remote tool routes to and an egress call acts for unless
- * another member is named. Lives and dies with the Run; only the participant
- * list carries over to the participant's next agent/automation wake.
+ * another member is named. Lives and dies with the Run: nothing is inherited
+ * by the participant's next wake unless a relay carries it there.
  */
 export interface RunIdentity {
   participants: string[];
@@ -79,10 +85,6 @@ export class RunRegistry {
   private readonly byId = new Map<RunId, Run>();
   /** Each open Run's identity set, by run id; it dies with the Run. */
   private readonly identityByRun = new Map<RunId, RunIdentity>();
-  /** The participants a participant's last Run acted for, by `(session,
-   * participant)`, so an agent/automation wake inherits them rather than
-   * routing to nobody. */
-  private readonly lastParticipants = new Map<string, string[]>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
   private onSettled?: (run: Run, settlement: Settlement) => void;
@@ -143,29 +145,15 @@ export class RunRegistry {
   }
 
   /**
-   * A human's prompt opens a Run as its whole identity set. An agent or
-   * automation wake (no audience) inherits the participants its last Run acted
-   * for, so a follow-on turn still acts for the same people.
+   * A human's prompt opens a Run as its whole identity set; a relay opens it
+   * with the set it carried. Any other wake acts for nobody: a participant's
+   * earlier Runs lend it no one.
    */
   private seedIdentity(input: OpenRunInput): RunIdentity {
     if (input.audienceParticipantId) {
       return { participants: [input.audienceParticipantId] };
     }
-    return {
-      participants: this.inheritedParticipants(
-        input.sessionId,
-        input.participantId,
-      ),
-    };
-  }
-
-  private inheritedParticipants(
-    sessionId: string,
-    participantId: string,
-  ): string[] {
-    return [
-      ...(this.lastParticipants.get(keyFor(sessionId, participantId)) ?? []),
-    ];
+    return { participants: [...(input.audienceParticipants ?? [])] };
   }
 
   private openIdentity(
@@ -192,41 +180,18 @@ export class RunRegistry {
   }
 
   /**
-   * Replaces a participant's identity set — used when a sub-agent inherits the
-   * set of whoever asked Prime to spawn it, so its first turn already acts for
-   * those people. Lands on the open Run when there is one, otherwise on what
-   * the next wake inherits.
-   */
-  recordAudience(
-    sessionId: string,
-    participantId: string,
-    participants: readonly string[],
-  ): void {
-    if (participants.length === 0) return;
-    const identity = this.openIdentity(sessionId, participantId);
-    if (identity) {
-      identity.participants = [...participants];
-      return;
-    }
-    this.lastParticipants.set(keyFor(sessionId, participantId), [
-      ...participants,
-    ]);
-  }
-
-  /**
-   * The humans this participant is working for, oldest first: its open Run's
-   * identity set, or between Runs the one its next wake inherits. Empty when no
-   * human has ever woken it.
+   * The humans this participant's open Run is working for, oldest first.
+   * Empty between Runs, and for a Run no human stands behind.
    */
   participantsFor(sessionId: string, participantId: string): string[] {
-    const identity = this.openIdentity(sessionId, participantId);
-    if (identity) return [...identity.participants];
-    return this.inheritedParticipants(sessionId, participantId);
+    return [
+      ...(this.openIdentity(sessionId, participantId)?.participants ?? []),
+    ];
   }
 
   /**
    * The human whose prompt this participant is acting for: the most recent
-   * member of its identity set. Undefined when no human has ever woken it.
+   * member of its open Run's identity set. Undefined when there is none.
    */
   audienceFor(sessionId: string, participantId: string): string | undefined {
     return this.participantsFor(sessionId, participantId).at(-1);
@@ -262,12 +227,6 @@ export class RunRegistry {
     status: SettledStatus,
     settlement: Settlement,
   ): void {
-    const identity = this.identityByRun.get(run.id);
-    if (identity) {
-      this.lastParticipants.set(keyFor(run.sessionId, run.participantId), [
-        ...identity.participants,
-      ]);
-    }
     this.forget(run);
     // Stamp the terminal status on the object handed to the listener, so a
     // `failed` Run is distinguishable from a clean one there (the store write

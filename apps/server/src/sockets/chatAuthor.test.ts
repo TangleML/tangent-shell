@@ -15,7 +15,7 @@ process.env.EMBED_ALLOWED_ORIGINS = "https://host.example";
 const { resolveSocketAuthor } = await import("./chat.ts");
 
 /** An unsigned JWT carrying just the claims the identity resolver reads. */
-function tokenFor(claims: Record<string, string>): string {
+function tokenFor(claims: Record<string, unknown>): string {
   const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
   return `header.${payload}.signature`;
 }
@@ -95,4 +95,13 @@ test("an Authorization header on the handshake is ignored", () => {
   };
 
   assert.equal(resolveSocketAuthor(headers).id, "ada@example.com");
+});
+
+test("an expired handshake token identifies nobody, so the default user stands in", () => {
+  const expired = tokenFor({
+    email: "ada@example.com",
+    exp: Math.floor(Date.now() / 1000) - 60,
+  });
+
+  assert.equal(resolveSocketAuthor({}, expired).id, DEFAULT_USER.email);
 });

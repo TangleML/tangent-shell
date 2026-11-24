@@ -270,6 +270,8 @@ export interface SendToAgentOptions {
   /** The human whose message this is, when it came from a person; stamped on the
    * Run this opens so remote tools route to their host. */
   audienceParticipantId?: string;
+  /** The identity set a relay from another agent's Run carries. */
+  audienceParticipants?: readonly string[];
 }
 
 /** A session's selector tags, read synchronously at spawn. */

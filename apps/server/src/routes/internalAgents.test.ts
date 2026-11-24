@@ -23,7 +23,11 @@ const { InMemorySessionStore } =
 const { InMemoryParticipantStore } =
   await import("../store/inMemoryParticipantStore.ts");
 
-import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
+import {
+  connectorFor,
+  PI_AGENT,
+  type SubagentInfo,
+} from "@tangent/shared/contracts.ts";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import {
@@ -46,6 +50,14 @@ after(() => {
   rmSync(ROOT, { recursive: true, force: true });
 });
 
+/** Polls until `ready` holds, for work a handler finishes after answering. */
+async function waitFor(ready: () => boolean): Promise<void> {
+  for (let i = 0; i < 50 && !ready(); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(ready());
+}
+
 /** The sub-agent a stubbed spawner hands back, in a fresh Conversation. */
 function spawned(id: string, conversationId: string): SpawnedSubagent {
   const info: SubagentInfo = {
@@ -62,7 +74,7 @@ function spawned(id: string, conversationId: string): SpawnedSubagent {
 /** A running internal-agents API over in-memory stores and stubbed connectors. */
 async function serve(
   agents?: AgentCallerResolver,
-  identitySet: readonly string[] = [],
+  identitySet: Record<string, readonly string[]> = {},
 ) {
   const store = new InMemorySessionStore(new InMemoryParticipantStore());
   const reactors = new ReactorRegistry(new InMemoryReactorStore());
@@ -76,20 +88,31 @@ async function serve(
     resolve: (_sessionId: string, agentId: string) => ({
       kill: () => killed.push(agentId),
     }),
+    list: () => [spawned("worker", "conv-worker").info],
   } as unknown as ConnectorRegistry;
 
+  const posted: {
+    conversationId: string;
+    mentions?: string[];
+    audienceParticipants?: readonly string[];
+  }[] = [];
   const conversations = {
-    postToConversation: async () => ({ woke: [], refused: [] }),
+    post: async (input: (typeof posted)[number]) => {
+      posted.push(input);
+      return { woke: [], refused: [] };
+    },
+    postToConversation: async (input: (typeof posted)[number]) => {
+      posted.push(input);
+      return { woke: [], refused: [] };
+    },
   } as unknown as ConversationRouter;
 
-  const seeded: { agentId: string; participants: readonly string[] }[] = [];
   const runs = {
-    participantsFor: () => [...identitySet],
-    recordAudience: (
-      _sessionId: string,
-      agentId: string,
-      inherited: readonly string[],
-    ) => seeded.push({ agentId, participants: inherited }),
+    participantsFor: (_sessionId: string, agentId: string) => [
+      ...(identitySet[agentId] ?? []),
+    ],
+    audienceFor: (_sessionId: string, agentId: string) =>
+      identitySet[agentId]?.at(-1),
   } as unknown as RunRegistry;
 
   const a2a = {} as unknown as A2aPeerGateway;
@@ -116,7 +139,7 @@ async function serve(
   const server = app.listen(0);
   cleanups.push(() => server.close());
   const { port } = server.address() as AddressInfo;
-  return { store, reactors, killed, seeded, post: poster(port) };
+  return { store, reactors, killed, posted, post: poster(port) };
 }
 
 /** Posts JSON to the served API as a Pi child, optionally naming itself. */
@@ -340,13 +363,65 @@ test("a report must come from the sub-agent it is attributed to", async () => {
   );
 });
 
-test("a spawned sub-agent inherits the orchestrator's whole identity set", async () => {
-  const { store, seeded, post } = await serve(undefined, ["alice@x", "bob@x"]);
+test("a spawn's first task and a directive relay the orchestrator's identity set", async () => {
+  const { store, posted, post } = await serve(undefined, {
+    [PI_AGENT.id]: ["alice@x", "bob@x"],
+  });
   const session = await store.createSession({ name: "S" });
 
-  const res = await post("/spawn", { sessionId: session.id, name: "worker" });
+  const res = await post("/spawn", {
+    sessionId: session.id,
+    name: "worker",
+    task: "go",
+  });
   assert.equal(res.status, 200);
-  assert.deepEqual(seeded, [
-    { agentId: "worker", participants: ["alice@x", "bob@x"] },
-  ]);
+  await waitFor(() => posted.length === 1);
+  assert.deepEqual(posted[0].audienceParticipants, ["alice@x", "bob@x"]);
+
+  const directive = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "more",
+  });
+  assert.equal(directive.status, 200);
+  assert.deepEqual(posted[1].audienceParticipants, ["alice@x", "bob@x"]);
+});
+
+test("a sub-agent's report carries its own run's identity set to the orchestrator", async () => {
+  const session = "s-report";
+  const { posted, post } = await serve(
+    {
+      resolveAgentToken: (token) =>
+        token === "worker-token"
+          ? { sessionId: session, agentId: "worker" }
+          : undefined,
+    },
+    { [PI_AGENT.id]: ["prime-only@x"], worker: ["alice@x"] },
+  );
+
+  const res = await post(
+    "/report",
+    { sessionId: session, agentId: "worker", text: "done" },
+    "worker-token",
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual(posted[0].audienceParticipants, ["alice@x"]);
+});
+
+test("a report from a sub-agent whose run acts for nobody carries an empty set", async () => {
+  const session = "s-report-empty";
+  const { posted, post } = await serve(
+    {
+      resolveAgentToken: () => ({ sessionId: session, agentId: "worker" }),
+    },
+    { [PI_AGENT.id]: ["alice@x"] },
+  );
+
+  const res = await post(
+    "/report",
+    { sessionId: session, agentId: "worker", text: "done" },
+    "worker-token",
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual(posted[0].audienceParticipants, []);
 });

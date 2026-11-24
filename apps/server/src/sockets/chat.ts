@@ -26,7 +26,11 @@ import {
 import type { Server, Socket } from "socket.io";
 
 import { resolveUserIdentity } from "../auth/identity.ts";
-import { rememberAssertion } from "../auth/identityAssertions.ts";
+import {
+  CLIENT_ASSERTED,
+  PROXY_ASSERTED,
+  rememberAssertion,
+} from "../auth/identityAssertions.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { ConversationRouter } from "../conversation/conversationRouter.ts";
 import {
@@ -113,31 +117,56 @@ async function handleAgentAbort(
   console.log(`[runs] cancel refused for ${participantId}: ${reason}`);
 }
 
-/** Wires one connected socket's chat and agent listeners. */
-function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
-  const { io, store, pi, connectors } = deps;
+/** Who a socket is, and how to vouch for a token it carried itself. */
+interface SocketIdentity {
+  author: ChatAuthor;
+  acceptIdentity: () => void;
+}
 
-  // Resolved once per connection: the identity is the connection's, and the
-  // client never gets a say in who its messages are attributed to.
+/**
+ * Resolves a connection's identity once: it is the connection's, and the
+ * client never gets a say in who its messages are attributed to. A
+ * proxy-stamped assertion is recorded right away; a token the client carried
+ * itself is kept only once a session has let this connection in as that
+ * person, which is what `acceptIdentity` records.
+ */
+function socketIdentity(socket: Socket): SocketIdentity {
   const handshakeToken = socket.handshake.auth?.token;
-  const author = resolveSocketAuthor(
+  const presented = presentedHeaders(
     socket.handshake.headers,
     typeof handshakeToken === "string" ? handshakeToken : undefined,
   );
+  rememberAssertion(presented, PROXY_ASSERTED);
+  return {
+    author: humanAuthor(resolveUserIdentity(presented) ?? DEFAULT_USER),
+    acceptIdentity: () => rememberAssertion(presented, CLIENT_ASSERTED),
+  };
+}
+
+/** Wires one connected socket's chat and agent listeners. */
+function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
+  const { io, store, pi, connectors } = deps;
+  const { author, acceptIdentity } = socketIdentity(socket);
 
   // (sessionId\0participantId) pairs whose presence this socket is holding up,
   // so the last of a person's tabs to close is what marks them detached.
   const tracked = new Set<string>();
 
   socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) => {
-    void handleChatJoin(socket, deps, author, payload);
+    void handleChatJoin(socket, deps, author, payload, acceptIdentity);
     void markPresent(deps, author, payload?.sessionId, tracked);
   });
 
   socket.on(
     SocketEvents.ConversationSubscribe,
     (payload: ConversationSubscribePayload) =>
-      void handleConversationSubscribe(socket, deps, author, payload),
+      void handleConversationSubscribe(
+        socket,
+        deps,
+        author,
+        payload,
+        acceptIdentity,
+      ),
   );
 
   socket.on("disconnect", () => markAbsent(deps, tracked));
@@ -236,6 +265,7 @@ async function handleChatJoin(
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   payload: ChatJoinPayload,
+  acceptIdentity: () => void,
 ): Promise<void> {
   const { store, pi, connectors, triggerEngine } = deps;
   const session = await store.getSession(payload?.sessionId);
@@ -250,7 +280,13 @@ async function handleChatJoin(
 
   await wakeOnJoin(deps, session);
 
-  const authorized = await joinAuthorized(socket, deps, author, session);
+  const authorized = await joinAuthorized(
+    socket,
+    deps,
+    author,
+    session,
+    acceptIdentity,
+  );
   socket.emit(
     SocketEvents.ChatHistory,
     await authorizedHistory(store, session.id, authorized),
@@ -289,13 +325,20 @@ async function handleConversationSubscribe(
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   payload: ConversationSubscribePayload,
+  acceptIdentity: () => void,
 ): Promise<void> {
   const { sessionId, conversationId } = payload ?? EMPTY_SUBSCRIBE;
   if (!sessionId || !conversationId) return;
   const session = await deps.store.getSession(sessionId);
   if (!session) return;
 
-  const authorized = await joinAuthorized(socket, deps, author, session);
+  const authorized = await joinAuthorized(
+    socket,
+    deps,
+    author,
+    session,
+    acceptIdentity,
+  );
   if (!authorized.has(conversationId)) return;
 
   const history: ConversationHistoryPayload = {
@@ -316,16 +359,20 @@ const EMPTY_SUBSCRIBE: ConversationSubscribePayload = {
 
 /**
  * Joins the socket to each Conversation room it is authorized for and returns
- * that set, so history can be scoped to the same Conversations.
+ * that set, so history can be scoped to the same Conversations. Being let into
+ * at least one is the gate a client-carried identity token has to pass before
+ * it is kept for calls made on that person's behalf.
  */
 async function joinAuthorized(
   socket: Socket,
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   session: Session,
+  acceptIdentity: () => void,
 ): Promise<Set<string>> {
   const agents = await deps.store.listAgents(session.id);
   const authorized = await authorizedFor(deps, author, session, agents);
+  if (authorized.size > 0) acceptIdentity();
   for (const conversationId of authorized)
     await socket.join(roomForConversation(session.id, conversationId));
   return authorized;
@@ -460,6 +507,19 @@ export async function mentionCandidates(
 }
 
 /**
+ * A handshake's headers with its `auth.token` standing in as the bearer, and
+ * any `Authorization` header the client sent dropped: the handshake token is
+ * the one place a cross-origin embed may carry its own token.
+ */
+function presentedHeaders(
+  headers: IncomingHttpHeaders,
+  authToken: string | undefined,
+): IncomingHttpHeaders {
+  const authorization = authToken ? `Bearer ${authToken}` : undefined;
+  return { ...headers, authorization };
+}
+
+/**
  * The chat identity of whoever is on the other end of a socket, read from the
  * connection's own headers (the trusted identity header a front proxy stamps,
  * the forwarded auth header, the auth cookie) or the handshake's bearer token
@@ -471,10 +531,9 @@ export function resolveSocketAuthor(
   headers: IncomingHttpHeaders,
   authToken?: string | undefined,
 ) {
-  const authorization = authToken ? `Bearer ${authToken}` : undefined;
-  const presented = { ...headers, authorization };
-  rememberAssertion(presented);
-  return humanAuthor(resolveUserIdentity(presented) ?? DEFAULT_USER);
+  return humanAuthor(
+    resolveUserIdentity(presentedHeaders(headers, authToken)) ?? DEFAULT_USER,
+  );
 }
 
 /** Key of the presence a socket holds for one participant in one session. */

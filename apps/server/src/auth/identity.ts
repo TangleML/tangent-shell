@@ -60,10 +60,20 @@ function pickString(
   return "";
 }
 
-/** Maps a decoded JWT (no signature check) onto a {@link UserIdentity}. */
-function identityFromToken(token: string): UserIdentity | null {
+/** Whether the payload's `exp` claim, when it has a usable one, has passed. */
+function hasExpired(payload: Record<string, unknown>, now: number): boolean {
+  const exp = payload.exp;
+  return typeof exp === "number" && Number.isFinite(exp) && exp * 1000 <= now;
+}
+
+/**
+ * Maps a decoded JWT (no signature check) onto a {@link UserIdentity}. A token
+ * past its `exp` identifies nobody: it is read for where it arrived from, but
+ * not for longer than its issuer meant it to be.
+ */
+function identityFromToken(token: string, now: number): UserIdentity | null {
   const payload = decodeJwtPayload(token);
-  if (!payload) return null;
+  if (!payload || hasExpired(payload, now)) return null;
   const email = pickString(payload, ["email", "sub"]);
   if (!email) return null;
 
@@ -160,15 +170,16 @@ function presentedToken(
  * `sub` as the participant id, so an identity assertion issuer must put the
  * participant's email in `sub`; an opaque subject would be shown and compared
  * as if it were an email. Returns `null` when no configured source carries a
- * token, or the token it carries is malformed or anonymous.
+ * token, or the token it carries is malformed, anonymous or past its `exp`.
  */
 export function resolveIdentity(
   headers: IncomingHttpHeaders,
   config: IdentityConfig = DEFAULT_CONFIG,
+  now: number = Date.now(),
 ): ResolvedIdentity | null {
   const presented = presentedToken(headers, config);
   if (!presented) return null;
-  const identity = identityFromToken(presented.token);
+  const identity = identityFromToken(presented.token, now);
   if (!identity) return null;
   return { identity, ...presented };
 }
@@ -177,6 +188,7 @@ export function resolveIdentity(
 export function resolveUserIdentity(
   headers: IncomingHttpHeaders,
   config: IdentityConfig = DEFAULT_CONFIG,
+  now: number = Date.now(),
 ): UserIdentity | null {
-  return resolveIdentity(headers, config)?.identity ?? null;
+  return resolveIdentity(headers, config, now)?.identity ?? null;
 }

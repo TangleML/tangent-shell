@@ -132,7 +132,7 @@ class SessionChatRoom {
       delivery: options?.delivery ?? "auto",
       ...(hasAttachments ? { attachments } : {}),
     };
-    void refreshIdentityIfStale().then(() =>
+    void refreshIdentityIfStale(this.sessionId).then(() =>
       socket.emit(SocketEvents.ChatMessage, payload),
     );
   }

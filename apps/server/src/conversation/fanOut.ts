@@ -41,6 +41,8 @@ export interface FanOutRequest {
   ingress?: RunIngress;
   /** Whether a mid-run delivery steers or queues behind the current turn. */
   delivery?: MessageDelivery;
+  /** The identity set the author's Run carried, when an agent posted this. */
+  audienceParticipants?: readonly string[];
   /** The text one recipient receives, projected from the envelope. */
   project: (message: ChatMessage, recipient: Membership) => string;
 }
@@ -68,7 +70,7 @@ function keyFor(sessionId: string, id: string): string {
 }
 
 /** The human a delivery routes remote tools to: the author of a human message,
- * else none (an agent/automation wake keeps the recipient's last audience). */
+ * else none (an agent/automation wake carries a set, or acts for nobody). */
 function audienceOf(message: ChatMessage): string | undefined {
   return message.source.kind === "human" ? message.author.id : undefined;
 }
@@ -265,6 +267,7 @@ export class FanOutEngine {
       ingress: request.ingress ?? member.ingress,
       delivery: request.delivery,
       audienceParticipantId: audienceOf(message),
+      audienceParticipants: request.audienceParticipants,
     };
     const performNow = () =>
       this.connectors()

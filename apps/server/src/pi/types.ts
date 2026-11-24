@@ -90,6 +90,8 @@ export interface PostedMessage {
   mentions?: string[];
   /** What created it, when a reaction did not. */
   ingress?: RunIngress;
+  /** The identity set the author's Run carried, when it relays a report. */
+  audienceParticipants?: readonly string[];
 }
 
 /**

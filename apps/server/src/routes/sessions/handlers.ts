@@ -54,6 +54,10 @@ import type {
   RunUsageTotals,
   UsageStore,
 } from "../../store/usageStore.ts";
+import {
+  type IdentityProbeDeps,
+  recordAdmittedIdentity,
+} from "./identityProbe.ts";
 import { injectPageBridge } from "./pageBridge.ts";
 import type {
   CreateSessionInput,
@@ -498,13 +502,28 @@ export async function handleMarkSessionViewed(
 }
 
 /** Handles `GET /api/sessions/:id`. */
+/** What `GET /api/sessions/:id` needs beyond the store. */
+export interface SessionReadDeps {
+  store: SessionStore;
+  identityProbe?: IdentityProbeDeps;
+}
+
+/**
+ * Handles `GET /api/sessions/:id`. Doubles as the web client's identity
+ * freshness probe: a caller the session admits has the token it carried
+ * recorded for calls made on their behalf.
+ */
 export async function handleGetSession(
-  store: SessionStore,
+  deps: SessionReadDeps,
+  req: Request,
   id: string,
   res: Response,
 ): Promise<void> {
-  const session = await loadSession(store, res, id);
+  const session = await loadSession(deps.store, res, id);
   if (!session) return;
+  if (deps.identityProbe) {
+    await recordAdmittedIdentity(deps.identityProbe, req, session);
+  }
   res.json({ session });
 }
 

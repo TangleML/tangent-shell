@@ -225,7 +225,7 @@ test("a human wake stamps the run's audience", async () => {
   assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
 });
 
-test("an agent wake inherits the participant's last human audience", async () => {
+test("an agent wake with no carried set acts for nobody, whoever woke the run before", async () => {
   const h = await newRegistry();
 
   h.runs.open({
@@ -240,7 +240,8 @@ test("an agent wake inherits the participant's last human audience", async () =>
     ingress: "reaction",
   });
 
-  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), []);
 });
 
 test("a later human wake retargets the audience", async () => {
@@ -274,12 +275,35 @@ test("audience is unknown until a human has ever woken the participant", async (
   assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
 });
 
-test("recordAudience seeds a sub-agent's audience without opening a run", async () => {
+test("a relay opens a run with the set it carried, most recent last", async () => {
   const h = await newRegistry();
 
-  h.runs.recordAudience(h.sessionId, "sub-1", ["alice@x"]);
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "tool",
+    audienceParticipants: ["alice@x", "bob@x"],
+  });
 
-  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "alice@x");
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-1"), [
+    "alice@x",
+    "bob@x",
+  ]);
+  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "bob@x");
+});
+
+test("a human's prompt opens the run as its whole set even when a relay set rides along", async () => {
+  const h = await newRegistry();
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "carol@x",
+    audienceParticipants: ["alice@x"],
+  });
+
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), ["carol@x"]);
 });
 
 test("a human who steers a run in flight joins its identity set as the most recent", async () => {
@@ -326,7 +350,7 @@ test("a human message that opens a run resets the identity set to its author", a
   assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), ["carol@x"]);
 });
 
-test("an agent or automation wake inherits the whole identity set", async () => {
+test("the identity set dies with its run: a settled run lends the next wake nobody", async () => {
   const h = await newRegistry();
   h.runs.open({
     sessionId: h.sessionId,
@@ -336,30 +360,27 @@ test("an agent or automation wake inherits the whole identity set", async () => 
   });
   h.runs.join(h.sessionId, "prime", "bob@x");
   h.runs.settleOpenFor(h.sessionId, "prime", "completed");
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), []);
 
   h.runs.open({
     sessionId: h.sessionId,
     participantId: "prime",
     ingress: "tool",
   });
-  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), [
-    "alice@x",
-    "bob@x",
-  ]);
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), []);
   assert.deepEqual(h.runs.participantsFor(h.sessionId, "nobody"), []);
 });
 
-test("a spawned sub-agent inherits its spawner's identity set", async () => {
+test("a carried set is copied in and read out, never shared", async () => {
   const h = await newRegistry();
-  h.runs.recordAudience(h.sessionId, "sub-1", ["alice@x", "bob@x"]);
-  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-1"), [
-    "alice@x",
-    "bob@x",
-  ]);
-  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "bob@x");
-
-  h.runs.recordAudience(h.sessionId, "sub-2", []);
-  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-2"), []);
+  const carried = ["alice@x", "bob@x"];
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "tool",
+    audienceParticipants: carried,
+  });
+  carried.push("eve@x");
 
   const copy = h.runs.participantsFor(h.sessionId, "sub-1");
   copy.push("mallory@x");
@@ -367,6 +388,14 @@ test("a spawned sub-agent inherits its spawner's identity set", async () => {
     "alice@x",
     "bob@x",
   ]);
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-2",
+    ingress: "tool",
+    audienceParticipants: [],
+  });
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-2"), []);
 });
 
 test("joining an idle participant is a no-op: the message opens a run instead", async () => {
@@ -383,37 +412,10 @@ test("joining an idle participant is a no-op: the message opens a run instead", 
   });
   h.runs.settleOpenFor(h.sessionId, "prime", "completed");
   h.runs.join(h.sessionId, "prime", "bob@x");
-  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), ["alice@x"]);
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), []);
 });
 
-test("recordAudience replaces the open run's identity set, and the next wake inherits it", async () => {
-  const h = await newRegistry();
-  h.runs.open({
-    sessionId: h.sessionId,
-    participantId: "sub-1",
-    ingress: "tool",
-    audienceParticipantId: "alice@x",
-  });
-
-  h.runs.recordAudience(h.sessionId, "sub-1", ["bob@x", "carol@x"]);
-  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-1"), [
-    "bob@x",
-    "carol@x",
-  ]);
-
-  h.runs.settleOpenFor(h.sessionId, "sub-1", "completed");
-  h.runs.open({
-    sessionId: h.sessionId,
-    participantId: "sub-1",
-    ingress: "tool",
-  });
-  assert.deepEqual(h.runs.participantsFor(h.sessionId, "sub-1"), [
-    "bob@x",
-    "carol@x",
-  ]);
-});
-
-test("a run superseded by the next one hands its identity set on like a settled one", async () => {
+test("a run superseded by the next one hands nothing on either", async () => {
   const h = await newRegistry();
   h.runs.open({
     sessionId: h.sessionId,
@@ -428,8 +430,5 @@ test("a run superseded by the next one hands its identity set on like a settled 
     participantId: "prime",
     ingress: "tool",
   });
-  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), [
-    "alice@x",
-    "bob@x",
-  ]);
+  assert.deepEqual(h.runs.participantsFor(h.sessionId, "prime"), []);
 });
