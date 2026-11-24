@@ -70,6 +70,17 @@ test("a bearer token never replaces one the trusted header asserted", () => {
   assert.equal(cache.get("alice@x")?.token, reasserted);
 });
 
+test("a trusted-header token replaces a held bearer even when it expires earlier", () => {
+  const { cache } = clockedCache();
+  const exp = Math.floor(T0 / 1000) + 3600;
+  cache.record("alice@x", jwt({ email: "alice@x", exp }), "bearer");
+
+  const asserted = jwt({ email: "alice@x", exp: exp - 1800 });
+  cache.record("alice@x", asserted, "trusted-header");
+  assert.equal(cache.get("alice@x")?.token, asserted);
+  assert.equal(cache.get("alice@x")?.source, "trusted-header");
+});
+
 test("a token expiring before the held one does not replace it", () => {
   const { cache, advance } = clockedCache();
   const exp = Math.floor(T0 / 1000) + 3600;

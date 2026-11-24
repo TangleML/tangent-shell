@@ -106,9 +106,10 @@ Run — only the participant list is handed on to the next wake, so between Runs
 the participant is read as acting for the people its last Run acted for. The
 most recent member is the acting default — the person remote tools route to.
 
-The cache keeps the assertion that is worth most: a bearer token never
-replaces one the trusted header asserted for the same participant, and no
-token replaces one that expires later than it does.
+The cache keeps the assertion that is worth most. The source ranks first: an
+assertion from the trusted header replaces a bearer token for the same
+participant and is never replaced by one, whatever their expiries. Within a
+source, no token replaces one that expires later than it does.
 
 ---
 

@@ -37,8 +37,8 @@ function outranks(
   held: IdentityAssertion,
   incoming: IdentityAssertion,
 ): boolean {
-  if (held.source === "trusted-header" && incoming.source === "bearer") {
-    return true;
+  if (held.source !== incoming.source) {
+    return held.source === "trusted-header";
   }
   return Boolean(
     held.expiresAt && incoming.expiresAt && incoming.expiresAt < held.expiresAt,
@@ -59,9 +59,11 @@ export class IdentityAssertionCache {
   }
 
   /**
-   * Remembers `token` for `email`. A bearer token never replaces one the front
-   * proxy asserted, and no token replaces one that outlives it: an embed host
-   * re-sending an older token must not shorten what the server can act with.
+   * Remembers `token` for `email`. The source ranks first: one the front proxy
+   * asserted replaces a bearer token and is never replaced by one, whatever
+   * their expiries. Within a source no token replaces one that outlives it: an
+   * embed host re-sending an older token must not shorten what the server can
+   * act with.
    */
   record(email: string, token: string, source: AssertingSource): void {
     this.sweep();
