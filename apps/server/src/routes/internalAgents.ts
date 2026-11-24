@@ -1,6 +1,8 @@
 import {
+  type ChatMessage,
   type ConnectorKind,
   PI_AGENT,
+  type Resource,
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
 import { type Response, Router } from "express";
@@ -11,7 +13,10 @@ import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import { ContextEngine, projectRoom } from "../conversation/context.ts";
-import type { ConversationRouter } from "../conversation/conversationRouter.ts";
+import {
+  type ConversationRouter,
+  isHumanRequest,
+} from "../conversation/conversationRouter.ts";
 import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import {
   homeConversationFor,
@@ -99,6 +104,7 @@ export type ListQuery = z.infer<typeof listQuerySchema>;
 export const roomQuerySchema = z.object({
   sessionId: z.string(),
   limit: z.string().optional(),
+  messageId: z.string().min(1).optional(),
   conversationId: z.string().optional(),
   participantId: z.string().optional(),
 });
@@ -452,6 +458,21 @@ function roomLimit(requested: string | undefined): number {
   return DEFAULT_ROOM_LIMIT;
 }
 
+/** An exact reference resolves only an original human request; ordinary room reads keep their tail. */
+function roomPage(
+  messages: ChatMessage[],
+  query: RoomQuery,
+  digests?: Resource[],
+) {
+  if (query.messageId) {
+    const match = messages.find(
+      (message) => message.id === query.messageId && isHumanRequest(message),
+    );
+    return { messages: match ? [match] : [] };
+  }
+  return { messages: messages.slice(-roomLimit(query.limit)), digests };
+}
+
 /**
  * Returns a transcript tail. With `conversationId` + `participantId` and a wired
  * context engine, it is that Conversation projected through the reader's
@@ -465,19 +486,21 @@ async function handleRoom(
   context: ContextEngine | undefined,
   memberships: MembershipRegistry | undefined,
 ): Promise<void> {
-  const limit = roomLimit(query.limit);
   if (context && memberships && query.conversationId && query.participantId) {
-    const projected = await projectRoom(context, store, memberships, {
-      sessionId: query.sessionId,
-      conversationId: query.conversationId,
-      participantId: query.participantId,
-      limit,
-    });
-    res.json(projected);
+    const { messages, digests } = await projectRoom(
+      context,
+      store,
+      memberships,
+      {
+        sessionId: query.sessionId,
+        conversationId: query.conversationId,
+        participantId: query.participantId,
+      },
+    );
+    res.json(roomPage(messages, query, digests));
     return;
   }
-  const all = await store.getMessages(query.sessionId);
-  res.json({ messages: all.slice(-limit) });
+  res.json(roomPage(await store.getMessages(query.sessionId), query));
 }
 
 /**

@@ -427,12 +427,15 @@ test("the conversation's agent is sent command results with its next message, on
     content: "- Train",
     command: { name: "run", args: "p-1" },
   });
-  await post("which one failed?");
-  await post("and now?");
+  const first = await post("which one failed?");
+  const second = await post("and now?");
 
   assert.deepEqual(
     h.delivered.map(({ text }) => text),
-    [withCommandResults("which one failed?", [RAN_TRAIN]), "and now?"],
+    [
+      `[request_message_id: ${first.message.id}]\n${withCommandResults("which one failed?", [RAN_TRAIN])}`,
+      `[request_message_id: ${second.message.id}]\nand now?`,
+    ],
   );
 });
 
@@ -467,7 +470,7 @@ test("command results wait for the next message the agent actually gets", async 
   });
   const { refused } = await post("which one failed?");
   refuse = false;
-  await post("and now?");
+  const second = await post("and now?");
 
   assert.deepEqual(
     refused.map(({ participantId }) => participantId),
@@ -475,7 +478,9 @@ test("command results wait for the next message the agent actually gets", async 
   );
   assert.deepEqual(
     h.delivered.map(({ text }) => text),
-    [withCommandResults("and now?", [RAN_TRAIN])],
+    [
+      `[request_message_id: ${second.message.id}]\n${withCommandResults("and now?", [RAN_TRAIN])}`,
+    ],
   );
 });
 
