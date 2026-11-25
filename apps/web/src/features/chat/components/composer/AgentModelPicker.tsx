@@ -24,6 +24,7 @@ import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 
+import { useAvailableModels } from "@/shared/config/useAvailableModels";
 import { useModelCatalog } from "@/shared/config/useModelCatalog";
 
 /** The model/thinking selection this picker reads and writes. */
@@ -89,13 +90,14 @@ export function AgentModelPicker({
   // Show the real effective value even when the agent has no explicit selection
   // (it runs the server default), so the trigger never reads a generic "Default".
   const { data: catalog, isLoading, isError } = useModelCatalog();
+  const piModels = useAvailableModels(catalog === null);
   const models = catalog
     ? catalog.models.map((m) => ({
         id: m.tangentModelId,
         label: m.label,
         provider: m.tangentModelId.split("/")[0],
       }))
-    : AVAILABLE_MODELS;
+    : (piModels.data ?? AVAILABLE_MODELS);
   const effectiveModel = catalog
     ? resolveCatalogSelection(catalog, model)
     : (model ?? DEFAULT_MODEL_ID);
@@ -106,7 +108,7 @@ export function AgentModelPicker({
       : THINKING_LEVELS;
   };
   const thinkingLevels = levelsFor(effectiveModel);
-  const isDisabled = disabled || isLoading || isError;
+  const isDisabled = disabled || isLoading || isError || piModels.isLoading;
   const effectiveThinking = nearestThinkingLevel(
     thinkingDepth ?? DEFAULT_THINKING_LEVEL,
     thinkingLevels,

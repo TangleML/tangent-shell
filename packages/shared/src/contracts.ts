@@ -216,11 +216,15 @@ export interface ModelOption {
   provider: string;
 }
 
+/** Response of `GET /api/config/available-models`. */
+export interface AvailableModelsResponse {
+  models: ModelOption[];
+}
+
 /**
- * Curated set of models offered in the per-agent model picker. Kept small and
- * static; the wire shape lets this later be replaced by a dynamic
- * `pi --list-models` lookup without touching clients. `id` must match a model
- * Pi can resolve through the proxy-provider extension.
+ * Fallback for the per-agent model picker, used when the server can't get the
+ * model list from Pi. `id` must match a model Pi can resolve through the
+ * proxy-provider extension.
  */
 export const AVAILABLE_MODELS: ModelOption[] = [
   { id: "openai/gpt-6.1-sol", label: "GPT-6.1 Sol", provider: "openai" },

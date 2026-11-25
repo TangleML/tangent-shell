@@ -32,6 +32,7 @@ import {
   type ConversationEventSink,
   PiAgentManager,
 } from "./pi/piAgentManager.ts";
+import { listPiModels } from "./pi/piModels.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
@@ -614,6 +615,9 @@ registerChatHandlers({
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);
 });
+
+// Warms the picker's model list; spawning Pi takes a few seconds.
+void listPiModels();
 
 // Not awaited: indexing runs in qmd child processes and may take minutes.
 void bundleKb.reindexAll();
