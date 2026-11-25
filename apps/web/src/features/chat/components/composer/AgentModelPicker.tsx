@@ -25,6 +25,7 @@ import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 
 import { useModelCatalog } from "@/shared/config/useModelCatalog";
+import { useDefaultModelId } from "@/shared/config/usePublicConfig";
 
 /** The model/thinking selection this picker reads and writes. */
 export interface AgentModelPickerValue {
@@ -89,6 +90,7 @@ export function AgentModelPicker({
   // Show the real effective value even when the agent has no explicit selection
   // (it runs the server default), so the trigger never reads a generic "Default".
   const { data: catalog, isLoading, isError } = useModelCatalog();
+  const serverDefaultModel = useDefaultModelId();
   const models = catalog
     ? catalog.models.map((m) => ({
         id: m.tangentModelId,
@@ -98,7 +100,7 @@ export function AgentModelPicker({
     : AVAILABLE_MODELS;
   const effectiveModel = catalog
     ? resolveCatalogSelection(catalog, model)
-    : (model ?? DEFAULT_MODEL_ID);
+    : (model ?? serverDefaultModel ?? DEFAULT_MODEL_ID);
   const levelsFor = (id: string): readonly ThinkingLevel[] => {
     const capabilities = catalog && findCatalogModel(catalog, id);
     return capabilities

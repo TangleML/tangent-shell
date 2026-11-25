@@ -10,11 +10,12 @@
 # LLM access is wired from well-known provider env vars — set OPENAI_API_KEY
 # and/or ANTHROPIC_API_KEY (optionally OPENAI_BASE_URL / ANTHROPIC_BASE_URL) to
 # talk to a provider directly, or set PI_PROXY_URL + PI_PROXY_API_KEY to route
-# through an LLM gateway instead.
+# through an LLM gateway instead. The server picks a default model that matches
+# the configured credentials; set PI_MODEL (and PI_PROVIDER if needed) to pin one.
 #
 # Everything is overridable by exporting the variable before running, e.g.:
 #   WEB_PORT=3000 SERVER_PORT=8888 TANGLE_API_URL=http://127.0.0.1:9000 ./start_local.sh
-#   PI_MODEL=gpt-4o ANTHROPIC_API_KEY=sk-ant-... ./start_local.sh
+#   PI_MODEL=gpt-6-astra OPENAI_API_KEY=sk-... ./start_local.sh
 
 set -euo pipefail
 
@@ -45,31 +46,18 @@ emit_if_set() {
 command -v node >/dev/null 2>&1 || die "node is required (v24+; see https://nodejs.org)."
 command -v pnpm >/dev/null 2>&1 || die "pnpm is required (npm i -g pnpm@10.28.0; see https://pnpm.io)."
 
-# --- Provider / model wiring -------------------------------------------------
+# --- Provider wiring ---------------------------------------------------------
 # Gateway mode when both PI_PROXY_* are set; otherwise direct from native keys.
+# The model is left to the server unless PI_PROVIDER/PI_MODEL are exported.
 PI_PROXY_URL="${PI_PROXY_URL:-}"
 PI_PROXY_API_KEY="${PI_PROXY_API_KEY:-}"
-PI_PROVIDER="${PI_PROVIDER:-}"
-PI_MODEL="${PI_MODEL:-}"
 
 if [ -n "$PI_PROXY_URL" ] && [ -n "$PI_PROXY_API_KEY" ]; then
-  : "${PI_PROVIDER:=openai}"
-  : "${PI_MODEL:=gpt-5.5}"
-  log "LLM: gateway mode via PI_PROXY_URL (provider=$PI_PROVIDER, model=$PI_MODEL)."
-elif [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  if [ -z "$PI_PROVIDER" ]; then
-    if [ -n "${OPENAI_API_KEY:-}" ]; then PI_PROVIDER="openai"; else PI_PROVIDER="anthropic"; fi
-  fi
-  if [ -z "$PI_MODEL" ]; then
-    case "$PI_PROVIDER" in
-      anthropic) PI_MODEL="claude-sonnet-4-6" ;;
-      *)         PI_MODEL="gpt-5.5" ;;
-    esac
-  fi
-  log "LLM: direct mode (provider=$PI_PROVIDER, model=$PI_MODEL). Override with PI_MODEL/PI_PROVIDER."
+  log "LLM: gateway mode via PI_PROXY_URL."
+elif [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}" ] \
+  || [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${GOOGLE_API_KEY:-}" ]; then
+  log "LLM: direct mode via provider API keys."
 else
-  : "${PI_PROVIDER:=openai}"
-  : "${PI_MODEL:=gpt-5.5}"
   warn "No LLM credentials found — the UI will start, but chatting needs one of:"
   warn "  export OPENAI_API_KEY=...    (or ANTHROPIC_API_KEY=...)"
   warn "  or set PI_PROXY_URL + PI_PROXY_API_KEY to use an LLM gateway."
@@ -127,8 +115,8 @@ else
     echo "TANGLE_BASE_URL=$TANGLE_BASE_URL"
     echo
     echo "PI_BIN=$PI_BIN"
-    echo "PI_PROVIDER=$PI_PROVIDER"
-    echo "PI_MODEL=$PI_MODEL"
+    emit_if_set PI_PROVIDER
+    emit_if_set PI_MODEL
     if [ -n "$PI_PROXY_URL" ] && [ -n "$PI_PROXY_API_KEY" ]; then
       echo "PI_PROXY_URL=$PI_PROXY_URL"
       echo "PI_PROXY_API_KEY=$PI_PROXY_API_KEY"
@@ -158,7 +146,6 @@ export SESSIONS_DB="$REPO_ROOT/.sessions/tangent.db"
 export AGENT_BUNDLES_ROOT="$REPO_ROOT/.agent-bundles"
 export GLOBAL_MEMORY_DIR="$REPO_ROOT/.memory"
 export TANGLE_API_URL TANGLE_BASE_URL
-export PI_PROVIDER PI_MODEL
 export API_TARGET="http://localhost:$SERVER_PORT"
 export VITE_DEFAULT_SESSION_BUNDLE_ID="$DEFAULT_BUNDLE_ID"
 if [ -n "$PI_PROXY_URL" ] && [ -n "$PI_PROXY_API_KEY" ]; then

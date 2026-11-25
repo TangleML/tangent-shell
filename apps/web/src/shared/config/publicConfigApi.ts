@@ -1,6 +1,11 @@
-import type { PublicConfig } from "@tangent/shared/contracts";
+import { DEFAULT_MODEL_ID, type PublicConfig } from "@tangent/shared/contracts";
 
 import { apiFetch } from "@/shared/lib/apiFetch";
+
+const FALLBACK_CONFIG: PublicConfig = {
+  shellUrl: "",
+  defaultModel: DEFAULT_MODEL_ID,
+};
 
 /**
  * Fetches the public client config from `GET /api/config`. Any non-ok response
@@ -10,9 +15,9 @@ import { apiFetch } from "@/shared/lib/apiFetch";
 export async function getPublicConfig(): Promise<PublicConfig> {
   try {
     const res = await apiFetch("/api/config");
-    if (!res.ok) return { shellUrl: "" };
+    if (!res.ok) return FALLBACK_CONFIG;
     return (await res.json()) as PublicConfig;
   } catch {
-    return { shellUrl: "" };
+    return FALLBACK_CONFIG;
   }
 }

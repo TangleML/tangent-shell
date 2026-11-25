@@ -1,16 +1,20 @@
 import type { PublicConfig } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 
-import { PUBLIC_URL } from "../config.ts";
+import { PI_DEFAULT_MODEL_ID, PUBLIC_URL } from "../config.ts";
 import { modelCatalog } from "../modelCatalog.ts";
 
 /**
  * Handles `GET /api/config`. Returns the public, non-sensitive client config —
- * currently just the shell's externally reachable base URL ({@link PUBLIC_URL}),
- * which an attach command must dial. Empty when `TANGENT_PUBLIC_URL` is unset.
+ * the shell's externally reachable base URL ({@link PUBLIC_URL}), which an
+ * attach command must dial (empty when `TANGENT_PUBLIC_URL` is unset), and the
+ * default model the picker shows for an agent with no selection.
  */
 function handleGetConfig(_req: Request, res: Response): void {
-  const body: PublicConfig = { shellUrl: PUBLIC_URL };
+  const body: PublicConfig = {
+    shellUrl: PUBLIC_URL,
+    defaultModel: PI_DEFAULT_MODEL_ID,
+  };
   res.json(body);
 }
 

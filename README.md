@@ -36,10 +36,11 @@ OPENAI_API_KEY=sk-... ./start_local.sh        # or ANTHROPIC_API_KEY=sk-ant-...
 **http://127.0.0.1:8000**).
 
 LLM access is read from well-known provider variables: set `OPENAI_API_KEY` and/or
-`ANHROPIC_API_KEY` (with optional `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`) to call a provider
-directly, or set `PI_PROXY_URL` + `PI_PROXY_API_KEY` to route through an LLM gateway.T Ports,
-model, and paths are overridable — see the top of the script. Prefer to run the steps yourself?
-Use the manual flow below.
+`ANTHROPIC_API_KEY` (with optional `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`) to call a provider
+directly, or set `PI_PROXY_URL` + `PI_PROXY_API_KEY` to route through an LLM gateway. The default
+model follows the configured credentials (e.g. a GPT model when only `OPENAI_API_KEY` is set);
+pin one with `PI_MODEL`. Ports, model, and paths are overridable — see the top of the script.
+Prefer to run the steps yourself? Use the manual flow below.
 
 ### Install and run
 

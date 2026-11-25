@@ -159,9 +159,12 @@ export interface RemoteEnvTokenRequest {
  * server is reachable by an external client (attach bridge, MCP relay) — the
  * value an attach command must dial. Empty when `TANGENT_PUBLIC_URL` is unset
  * (standalone dev), in which case the client falls back to its own origin.
+ * `defaultModel` is the `provider/model` an agent with no selection runs, which
+ * depends on the server's configured credentials.
  */
 export interface PublicConfig {
   shellUrl: string;
+  defaultModel: string;
 }
 
 /** Response of `POST /api/embed/remote-env-token`. */

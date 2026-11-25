@@ -4,6 +4,14 @@ import { BASE_PREFIX } from "@/shared/lib/basePath";
 
 import { getPublicConfig } from "./publicConfigApi";
 
+function usePublicConfig() {
+  return useQuery({
+    queryKey: ["public-config"],
+    queryFn: getPublicConfig,
+    staleTime: Infinity,
+  });
+}
+
 /**
  * The Tangent Shell's public base URL, without a trailing slash — the value an
  * attach command must dial. Resolved from `GET /api/config` so it is correct in
@@ -12,13 +20,14 @@ import { getPublicConfig } from "./publicConfigApi";
  * config loads or when `TANGENT_PUBLIC_URL` is unset (standalone dev).
  */
 export function useShellUrl(): string {
-  const { data } = useQuery({
-    queryKey: ["public-config"],
-    queryFn: getPublicConfig,
-    staleTime: Infinity,
-  });
+  const { data } = usePublicConfig();
   return (
     data?.shellUrl ||
     `${window.location.origin}${BASE_PREFIX}`.replace(/\/$/, "")
   );
+}
+
+/** The server's default `provider/model`; undefined while the config loads. */
+export function useDefaultModelId(): string | undefined {
+  return usePublicConfig().data?.defaultModel;
 }
