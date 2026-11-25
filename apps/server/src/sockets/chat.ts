@@ -212,9 +212,12 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
 }
 
 /**
- * Lazily (re)spawns Prime, revives the session's sub-agents, and re-arms its
- * schedules (all idempotent) in case the server restarted. An archived session
- * is asleep: viewing it only loads its triggers for the roster.
+ * Re-arms the session's schedules, then lazily (re)spawns Prime and revives its
+ * sub-agents (all idempotent) in case the server restarted. Triggers sync
+ * first so one whose dedicated sub-agent is dormant is seen as such and
+ * switched off, rather than looking live once the revive restarts it. An
+ * archived session is asleep: viewing it only loads its triggers for the
+ * roster.
  */
 async function wakeOnJoin(
   deps: ChatHandlerDeps,
@@ -225,8 +228,8 @@ async function wakeOnJoin(
     triggerEngine.load(session.id, session.rootPath);
     return;
   }
+  await triggerEngine.sync(session.id, session.rootPath);
   await ensureSessionAgents(store, pi, connectors, session);
-  triggerEngine.sync(session.id, session.rootPath);
 }
 
 /** Joins the session room, then replays history and the sub-agent roster. */

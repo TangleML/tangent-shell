@@ -63,7 +63,7 @@ after(() => {
 });
 
 /** A running attach API over a fresh gateway, with a token signer to match. */
-async function serve() {
+async function serve(options: { deliveryPollMs?: number } = {}) {
   const sink: ConversationEventSink = {
     onAgentEvent: () => {},
     onSubagentUpdate: () => {},
@@ -100,6 +100,7 @@ async function serve() {
       conversations,
       resources,
       scoped,
+      options,
     ),
   );
   app.use(errorHandler);
@@ -324,6 +325,113 @@ test("a deliveries poll scoped to an agent returns only that agent's work", asyn
     deliveries: { agentId: string; text: string }[];
   };
   assert.deepEqual(body.deliveries, [{ agentId: b.id, text: "for b" }]);
+});
+
+/** Resolves to `"pending"` if `promise` hasn't settled within `ms`. */
+async function settledWithin<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | "pending"> {
+  let timer: NodeJS.Timeout | undefined;
+  const pending = new Promise<"pending">((resolve) => {
+    timer = setTimeout(() => resolve("pending"), ms);
+  });
+  try {
+    return await Promise.race([promise, pending]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// Regression: on Node 24 / Express 5 the request's `close` fires as soon as its
+// body is read, so a poll aborted on `req.on("close")` answered empty at once and
+// attach clients spun into upstream 429s. The poll must park until work arrives.
+test("an empty deliveries poll holds over HTTP until a delivery arrives", async () => {
+  const { base, gateway, sessionToken } = await serve();
+  const agent = await gateway.register("s1", { name: "worker" });
+
+  const poll = postJson(
+    base,
+    "/deliveries",
+    { sessionId: "s1", agentId: agent.id },
+    sessionToken("s1"),
+  );
+  assert.equal(
+    await settledWithin(poll, 500),
+    "pending",
+    "the poll must park, not answer empty right after the body is read",
+  );
+
+  gateway.deliver("s1", agent.id, "wake up");
+  const res = await poll;
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    deliveries: { agentId: string; text: string }[];
+  };
+  assert.deepEqual(body.deliveries, [{ agentId: agent.id, text: "wake up" }]);
+});
+
+test("an empty deliveries poll answers empty only once its budget runs out", async () => {
+  const pollMs = 600;
+  const { base, gateway, sessionToken } = await serve({
+    deliveryPollMs: pollMs,
+  });
+  const agent = await gateway.register("s1", { name: "worker" });
+
+  const started = Date.now();
+  const res = await postJson(
+    base,
+    "/deliveries",
+    { sessionId: "s1", agentId: agent.id },
+    sessionToken("s1"),
+  );
+  const elapsed = Date.now() - started;
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { deliveries: [] });
+  assert.ok(
+    elapsed >= pollMs - 50,
+    `the poll answered after ${elapsed}ms, before its ${pollMs}ms budget`,
+  );
+});
+
+test("a client dropping a parked deliveries poll frees its waiter", async () => {
+  const { base, gateway, sessionToken } = await serve();
+  const agent = await gateway.register("s1", { name: "worker" });
+  const token = sessionToken("s1");
+
+  const controller = new AbortController();
+  const dropped = fetch(`${base}/deliveries`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ sessionId: "s1", agentId: agent.id }),
+    signal: controller.signal,
+  }).catch((err: unknown) => err);
+  await sleep(300);
+  controller.abort();
+  assert.ok((await dropped) instanceof Error);
+  // Give the server a beat to see the socket close and abort the waiter.
+  await sleep(300);
+
+  // Had the dropped poll's waiter lingered, it would swallow this delivery.
+  gateway.deliver("s1", agent.id, "after the drop");
+  const res = await postJson(
+    base,
+    "/deliveries",
+    { sessionId: "s1", agentId: agent.id },
+    token,
+  );
+  const body = (await res.json()) as {
+    deliveries: { agentId: string; text: string }[];
+  };
+  assert.deepEqual(body.deliveries, [
+    { agentId: agent.id, text: "after the drop" },
+  ]);
 });
 
 test("a killed agent's directive is never delivered to a fresh agent in the session", async () => {

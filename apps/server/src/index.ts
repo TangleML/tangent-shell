@@ -31,6 +31,7 @@ import { MemoryManager } from "./pi/memory.ts";
 import {
   type ConversationEventSink,
   PiAgentManager,
+  type SubagentUpdateHandler,
 } from "./pi/piAgentManager.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
@@ -279,12 +280,26 @@ runs.useOnSettled((run, settlement) => {
   }
 });
 
+// A sub-agent that ends (or drops) takes the triggers it served with it, so a
+// watcher's schedule doesn't respawn a fresh worker for a job that is over. The
+// engine is built further down; the wrapper only reaches it once events flow.
+function withTriggerRetirement(
+  handler: SubagentUpdateHandler,
+): SubagentUpdateHandler {
+  return (sessionId, subagent) => {
+    handler(sessionId, subagent);
+    triggerEngine.onAgentStatus(sessionId, subagent.id, subagent.status);
+  };
+}
+
 // Shared event sink: a participant's streaming events, roster changes and posted
 // messages land the same way whether it runs locally (PiAgentManager), in a
 // remote environment, or entirely outside Tangent.
 const agentHandlers: ConversationEventSink = {
   onAgentEvent: createAgentEventHandler(io, store, conversations),
-  onSubagentUpdate: createSubagentUpdateHandler(io, store, conversations),
+  onSubagentUpdate: withTriggerRetirement(
+    createSubagentUpdateHandler(io, store, conversations),
+  ),
   onAgentMessage: createAgentMessageHandler(conversations),
   onSessionStatus: createSessionStatusHandler(io),
 };

@@ -111,8 +111,14 @@ After creating one, tell the human what you set up (cadence or callback URL).
 Whenever something must be **polled** — tracked, watched, or checked on a cadence
 (follow a job to completion, "notify me when X happens", a periodic health
 check) — do NOT loop yourself and do NOT route the firings to yourself. Create a
-**schedule trigger** (`schedule.every`, default cadence ~2-5 min) with
-`target: "subagent"` so a dedicated watcher reacts to each tick in isolation.
+**schedule trigger** (`schedule.every`, default cadence ~5-10 min; slower for
+jobs that take hours) with `target: "subagent"` so a dedicated watcher reacts to
+each tick in isolation. Every polling trigger gets a bound: set `expires_in` to
+how long the watched thing can reasonably take (e.g. `"6h"`, `"2d"`) and/or
+`max_fires`. The server switches the trigger off when the bound is hit, when its
+watcher completes or is killed, and (without `expires_in`) after a server
+restart. Use one watcher per workflow, not one per item, and never a watcher of
+a watcher.
 Never use `target: "prime"` for polling — delivering ticks to you pollutes your
 context and the human conversation; `prime` is the discouraged legacy path.
 
@@ -157,11 +163,20 @@ you need. If a call reports no host is connected, tell the human the host
 
 ## Session naming
 
-Sessions keep the name they had when they were created. Do not call
-`rename_session` on your own initiative, even when the request becomes clear or
-the topic shifts. Only rename the session when the human explicitly asks you to
-rename it. If asked to rename without a specific name, infer one and apply it
-directly rather than asking. Briefly tell the human the name you set.
+Name the session during your first turn, as soon as you have read the first
+message: call `rename_session` with `only_if_unnamed: true` and a title of a few
+words. The first message is enough to write one, so don't wait until the work is
+done. `only_if_unnamed` makes the call a no-op when the session already has a
+real name (one a human chose), so it is always safe in the first turn. If the
+embedding app also asks you to name the work with its own host tool (e.g. a
+`name_session` remote tool), call that too. Titles describe the work, not the
+request ("Churn model training", not "User wants a churn model"), and don't
+announce that you named anything.
+
+After that, leave the name alone: don't rename as the topic shifts, and never
+replace a name a human chose. Rename later only when the human asks; if they
+don't give a name, infer one and apply it directly rather than asking. Mention
+the name only when the human asked for the rename.
 
 ## Memory tools
 

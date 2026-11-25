@@ -181,6 +181,38 @@ sequenceDiagram
   deactivate Route
 ```
 
+### Lifetimes: expiry, fire budgets, dead targets
+
+A polling trigger left alone keeps waking its watcher for days, so each trigger
+can bound itself and the engine switches off ones that should stop. Switching
+off sets `enabled: false` plus a `disabledReason`, stops the timer and
+broadcasts `trigger:update`; the trigger stays listed until someone re-enables
+or deletes it. Re-enabling clears the reason, resets a spent `fireCount`,
+needs a new expiry for an expired trigger (refused otherwise), and for an
+ended or dormant sub-agent spawns a fresh worker on the next firing (the old
+one is forgotten when the trigger is retired, or when it ends while the
+trigger is off). The
+rules live in [triggerLifecycle.ts](../../server/src/pi/triggers/triggerLifecycle.ts).
+
+- **`expiresAt`** (or `expiresIn`, a duration resolved at create/update) —
+  `expired` once it passes.
+- **`maxFires`** — `max-fires` once `fireCount` (delivered prompts only)
+  reaches it; checked right after the delivering firing.
+- **Dead target** — a `subagent`-target trigger whose sub-agent is `completed`,
+  `killed` or `error` is `target-ended`, both when its status changes
+  (`onAgentStatus`, wired into the shared `onSubagentUpdate` sink) and before a
+  firing, instead of respawning a fresh worker for a finished job.
+- **Dormant on wake** — `sync` on chat join runs **before** the session's
+  sub-agents are revived. A `schedule` trigger whose sub-agent is `detached`
+  and not running (the server restarted) is `target-detached` unless it has an
+  `expiresAt`, so opening a session days later doesn't resurrect a watcher
+  nobody is waiting on; its sub-agent row is marked `completed` so the revive
+  doesn't bring it back idle. Callback triggers are exempt: they cost nothing
+  until called. Unarchive syncs with `resume`, which skips this rule: archiving
+  detaches sub-agents on purpose.
+- **No stacking** — a schedule tick (`fireTick`) is dropped as `busy` while the
+  previous tick of the same trigger is still being delivered.
+
 ---
 
 ## Signal -> prompt resolution
@@ -194,9 +226,13 @@ compiled handler when present, else renders the prompt template:
   server secrets), a memory ceiling (`maxOldGenerationSizeMb: 64`), and a
   wall-clock timeout (`DEFAULT_TIMEOUT_MS` = 5000) enforced by terminating the
   thread, so a hung or runaway transform can't stall the server. The handler
-  default-exports a function `(signal) => string | { prompt: string }`; the
-  result is coerced to a non-empty string and capped at `MAX_PROMPT_LENGTH`
-  (16000). The worker is for fault isolation + a hard timeout, **not** a security
+  default-exports a function
+  `(signal) => string | { prompt: string } | { skip: true }`; a prompt is
+  coerced to a non-empty string and capped at `MAX_PROMPT_LENGTH` (16000).
+  `{ skip: true }` drops the firing (`fire` returns `"skipped"`): nothing is
+  delivered, no agent wakes, and it doesn't count against `maxFires` — so a
+  deterministic check can decide whether a tick is worth an LLM turn. Any
+  other empty result is still an error. The worker is for fault isolation + a hard timeout, **not** a security
   boundary against deliberately malicious code (the handler is trusted
   bundle-author code, same trust model as Pi tool extensions).
 - **Prompt template** — `renderPrompt(template, signal)`

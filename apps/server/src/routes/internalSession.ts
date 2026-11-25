@@ -20,6 +20,8 @@ import { loadSession } from "./sessions/utils.ts";
 export const renameSchema = z.object({
   sessionId: z.string(),
   name: z.string().trim().min(1),
+  /** Rename only while the session still has a placeholder name. */
+  onlyIfUnnamed: z.boolean().optional(),
 });
 export type RenameInput = z.infer<typeof renameSchema>;
 
@@ -46,8 +48,24 @@ export const dismissSubagentSchema = z.object({
 export type DismissSubagentInput = z.infer<typeof dismissSubagentSchema>;
 
 /**
+ * Names a session gets before anyone titles it: the store's `Session <n>`
+ * default, or an embedder's generic stand-in such as "New Tangent session" or
+ * "Untitled".
+ */
+const PLACEHOLDER_NAME_RE =
+  /^(?:session(?:\s+\d+)?|new(?:\s+\S+)?\s+session|untitled(?:\s+session)?)$/i;
+
+/** Whether `name` is a placeholder rather than a title someone chose. */
+export function isPlaceholderSessionName(name: string | undefined): boolean {
+  return !name?.trim() || PLACEHOLDER_NAME_RE.test(name.trim());
+}
+
+/**
  * `POST /rename`: applies a session rename and pushes the updated record to the
  * UI over the generic `ui:command` channel so the change is reflected promptly.
+ * With `onlyIfUnnamed`, a session that already has a real name is left as is
+ * and answered with `renamed: false`, so Prime can name every new session on
+ * its first turn without clobbering a name a human chose.
  */
 async function handleRename(
   store: SessionStore,
@@ -55,6 +73,17 @@ async function handleRename(
   body: RenameInput,
   res: Response,
 ): Promise<void> {
+  if (body.onlyIfUnnamed) {
+    const current = await store.getSession(body.sessionId);
+    if (!current) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    if (!isPlaceholderSessionName(current.name)) {
+      res.json({ session: current, renamed: false });
+      return;
+    }
+  }
   const session = await store.updateSession(body.sessionId, {
     name: body.name,
   });
@@ -64,7 +93,7 @@ async function handleRename(
   }
 
   emitUiCommand(session.id, { kind: "session.update", session });
-  res.json({ session });
+  res.json({ session, renamed: true });
 }
 
 /**

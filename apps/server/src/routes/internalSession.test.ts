@@ -6,7 +6,8 @@ import { after, test } from "node:test";
 process.env.TANGENT_INTERNAL_TOKEN = "test-internal-token";
 
 const express = (await import("express")).default;
-const { createInternalSessionRouter } = await import("./internalSession.ts");
+const { createInternalSessionRouter, isPlaceholderSessionName } =
+  await import("./internalSession.ts");
 const { InMemorySessionStore } =
   await import("../store/inMemorySessionStore.ts");
 const { InMemoryParticipantStore } =
@@ -48,7 +49,22 @@ async function serve() {
     });
   }
 
-  return { store, session, dismissed, dismiss };
+  async function rename(
+    sessionId: string,
+    name: string,
+    onlyIfUnnamed?: boolean,
+  ) {
+    return fetch(`http://127.0.0.1:${port}/internal/session/rename`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer test-internal-token",
+      },
+      body: JSON.stringify({ sessionId, name, onlyIfUnnamed }),
+    });
+  }
+
+  return { store, session, dismissed, dismiss, rename };
 }
 
 async function recordSubagent(
@@ -106,4 +122,67 @@ test("dismiss-subagent treats an already dismissed sub-agent as gone", async () 
 
   assert.equal(res.status, 404);
   assert.equal(dismissed.length, 1, "the room is told only once");
+});
+
+test("placeholder session names are told apart from chosen ones", () => {
+  for (const name of [
+    "Session 3",
+    "session",
+    "New Tangent session",
+    "New session",
+    "Untitled",
+    "",
+  ]) {
+    assert.equal(isPlaceholderSessionName(name), true, name);
+  }
+  for (const name of ["Churn model training", "Session notes for Q3"]) {
+    assert.equal(isPlaceholderSessionName(name), false, name);
+  }
+});
+
+test("rename with onlyIfUnnamed titles a session that has a placeholder name", async () => {
+  const { store, rename } = await serve();
+  const fresh = await store.createSession({ name: "New Tangent session" });
+
+  const res = await rename(fresh.id, "Churn model training", true);
+
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    renamed: boolean;
+    session: { name: string };
+  };
+  assert.equal(body.renamed, true);
+  assert.equal(body.session.name, "Churn model training");
+  assert.equal(
+    (await store.getSession(fresh.id))?.name,
+    "Churn model training",
+  );
+});
+
+test("rename with onlyIfUnnamed keeps a name someone chose", async () => {
+  const { store, rename } = await serve();
+  const named = await store.createSession({ name: "Ranking ablations" });
+
+  const res = await rename(named.id, "Something else", true);
+
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    renamed: boolean;
+    session: { name: string };
+  };
+  assert.equal(body.renamed, false);
+  assert.equal((await store.getSession(named.id))?.name, "Ranking ablations");
+});
+
+test("an explicit rename still replaces a chosen name", async () => {
+  const { store, rename } = await serve();
+  const named = await store.createSession({ name: "Ranking ablations" });
+
+  const res = await rename(named.id, "Ranking ablations v2");
+
+  assert.equal(res.status, 200);
+  assert.equal(
+    (await store.getSession(named.id))?.name,
+    "Ranking ablations v2",
+  );
 });

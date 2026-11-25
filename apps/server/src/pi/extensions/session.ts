@@ -154,10 +154,10 @@ export default function (pi: ExtensionAPI) {
     label: "Rename Session",
     description:
       "Rename this chat session. Sessions start with a generic name like " +
-      '"Session 3"; once you understand what the user wants, call this to set ' +
-      "a short, descriptive title (about 3-6 words) derived from the " +
-      "conversation topic. Call it again to refine the name if the topic " +
-      "shifts substantially. The new name is shown in the UI immediately. When " +
+      '"Session 3"; in your first turn, call this with `only_if_unnamed: ' +
+      "true` to set a short, descriptive title (about 3-6 words) from the " +
+      "first message — it keeps a name someone already chose. Don't rename " +
+      "again as the topic shifts. The new name is shown in the UI immediately. When " +
       "the user asks you to rename the session but doesn't specify a name, " +
       "infer a fitting title from the conversation and call this directly — do " +
       "not ask them what name to use.",
@@ -168,13 +168,27 @@ export default function (pi: ExtensionAPI) {
           "The new session name: a concise, human-readable title (about 3-6 " +
           "words). Infer it from the conversation when the user didn't give one.",
       }),
+      only_if_unnamed: Type.Optional(
+        Type.Boolean({
+          description:
+            "Rename only if the session still has a placeholder name (e.g. " +
+            '"Session 3"); a name someone chose is kept. Use it when naming ' +
+            "on your own initiative in the first turn.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
       const data = (await callApi("POST", "rename", {
         sessionId: SESSION_ID,
         name: params.name,
-      })) as { session: { name: string } };
+        onlyIfUnnamed: params.only_if_unnamed,
+      })) as { session: { name: string }; renamed?: boolean };
 
+      if (data.renamed === false) {
+        return textResult(
+          `Kept this session's existing name "${data.session.name}".`,
+        );
+      }
       return textResult(`Renamed this session to "${data.session.name}".`);
     },
   });

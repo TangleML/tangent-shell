@@ -143,7 +143,9 @@ export interface BundleTrigger {
   /**
    * Optional bundle-relative path to a TS/JS transform (conventionally under
    * `triggers/`). The default export receives the raw signal and returns the
-   * prompt string. Transpiled on upload and executed server-side in a sandbox.
+   * prompt string (or `{ prompt }`), or `{ skip: true }` to drop the firing
+   * without waking an agent — so a deterministic check can gate the LLM.
+   * Transpiled on upload and executed server-side in a sandbox.
    */
   handler?: string;
   /** Schedule config; required when {@link BundleTrigger.kind} is `schedule`. */
