@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@tangent/shared/contracts";
+import type { ChatMessage } from "@/features/chat/model/types";
 
 /** Messages bucketed by the `conversationId` they belong to. */
 export type MessageMap = Map<string, ChatMessage[]>;

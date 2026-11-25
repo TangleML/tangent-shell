@@ -17,6 +17,8 @@ interface UseChatScrollParams {
   currentAuthorId: string;
   /** Number of virtualized rows (messages, collapsed groups, activity bubble). */
   rowCount: number;
+  targetMessageId?: string;
+  targetIndex: number;
 }
 
 interface UseChatScroll {
@@ -37,6 +39,13 @@ function scrollToLastRow(handle: VirtualizerHandle | null, rowCount: number) {
   handle.scrollToIndex(lastIndex, { align });
 }
 
+function atBottom(handle: VirtualizerHandle): boolean {
+  return (
+    handle.scrollSize - handle.scrollOffset - handle.viewportSize <=
+    PIN_THRESHOLD_PX
+  );
+}
+
 /**
  * Stick-to-bottom + unread-pill bookkeeping for the chat list.
  *
@@ -46,8 +55,8 @@ function scrollToLastRow(handle: VirtualizerHandle | null, rowCount: number) {
  * bottom", so we must NOT treat every such offset as the user scrolling away —
  * otherwise we unpin, show the jump pill, and leave the list stranded.
  *
- * Instead we keep a `sticky` intent that only the user can clear, via real
- * scroll gestures (wheel / touch / pointer drag / keyboard). Any other drift
+ * A link or a real scroll gesture (wheel / touch / pointer drag / keyboard)
+ * takes the reader away from the bottom. Any other drift
  * away from the bottom while sticky (measurement jumps, appended rows, content
  * growth) snaps straight back down. Everything is driven through virtua's
  * handle so we never read or write the DOM scroll position directly.
@@ -56,12 +65,14 @@ export function useChatScroll({
   messages,
   currentAuthorId,
   rowCount,
+  targetMessageId,
+  targetIndex,
 }: UseChatScrollParams): UseChatScroll {
   const containerRef = useRef<HTMLDivElement>(null);
   const virtualizerRef = useRef<VirtualizerHandle>(null);
 
-  // Whether we want the view glued to the bottom. Only a user gesture clears it.
-  const stickyRef = useRef(true);
+  const position = useRef<"bottom" | "reading" | "linked">("bottom");
+  const scrolledToMessage = useRef<string | undefined>(undefined);
   // Set while a user scroll gesture is in flight, so `onScroll` can tell a real
   // scroll-away from virtua's own measurement/append driven offset changes.
   const userScrolledRef = useRef(false);
@@ -91,7 +102,7 @@ export function useChatScroll({
   // Whether drifting back to the bottom is allowed right now: we still want the
   // bottom, no gesture is in flight, and the last one has settled.
   const canAutoSnap = () =>
-    stickyRef.current &&
+    position.current === "bottom" &&
     !draggingRef.current &&
     performance.now() - lastUserScrollAtRef.current > SCROLL_QUIET_MS;
 
@@ -99,12 +110,14 @@ export function useChatScroll({
     const handle = virtualizerRef.current;
     if (!handle) return;
 
-    const distanceFromBottom =
-      handle.scrollSize - handle.scrollOffset - handle.viewportSize;
-    const atBottom = distanceFromBottom <= PIN_THRESHOLD_PX;
+    // Estimates can briefly put a deep link at the bottom while its row is measured.
+    if (position.current === "linked") {
+      setShowJump(!atBottom(handle));
+      return;
+    }
 
-    if (atBottom) {
-      stickyRef.current = true;
+    if (atBottom(handle)) {
+      position.current = "bottom";
       // Clearing this mid-drag would make the rest of the gesture read as
       // drift, so a drag that starts near the bottom gets snapped back.
       if (!draggingRef.current) userScrolledRef.current = false;
@@ -114,7 +127,7 @@ export function useChatScroll({
     }
 
     if (userScrolledRef.current || draggingRef.current) {
-      stickyRef.current = false;
+      position.current = "reading";
       setShowJump(true);
     } else if (canAutoSnap()) {
       scrollToBottom();
@@ -122,7 +135,7 @@ export function useChatScroll({
   };
 
   const jumpToBottom = () => {
-    stickyRef.current = true;
+    position.current = "bottom";
     userScrolledRef.current = false;
     draggingRef.current = false;
     setShowJump(false);
@@ -130,15 +143,28 @@ export function useChatScroll({
     scrollToBottom();
   };
 
-  // First load snaps to the bottom before paint. virtua re-measures rows right
-  // after, and the ResizeObserver below re-snaps while sticky, so this lands
-  // even though the initial sizes are estimates.
+  // Resolve the link once history arrives, before ordinary bottom-pinning runs.
   useLayoutEffect(() => {
+    if (!targetMessageId) scrolledToMessage.current = undefined;
+    const handle = virtualizerRef.current;
+    if (
+      handle &&
+      targetMessageId &&
+      targetIndex >= 0 &&
+      scrolledToMessage.current !== targetMessageId
+    ) {
+      scrolledToMessage.current = targetMessageId;
+      position.current = "linked";
+      didInitRef.current = true;
+      prevLenRef.current = messages.length;
+      handle.scrollToIndex(targetIndex, { align: "start" });
+      return;
+    }
     if (didInitRef.current) return;
     didInitRef.current = true;
     prevLenRef.current = messages.length;
     if (messages.length > 0) scrollToBottom();
-  }, [messages.length]);
+  }, [messages.length, targetIndex, targetMessageId]);
 
   // A count increase (new message, not a streaming delta) snaps own sends and
   // sticky views, else tallies the unread pill.
@@ -152,8 +178,8 @@ export function useChatScroll({
     const lastMessage = messages[messages.length - 1];
     const isOwnSend = lastMessage?.author.id === currentAuthorId;
 
-    if (isOwnSend || stickyRef.current) {
-      stickyRef.current = true;
+    if (isOwnSend || position.current === "bottom") {
+      position.current = "bottom";
       userScrolledRef.current = false;
       setShowJump(false);
       setUnreadCount(0);
@@ -176,6 +202,7 @@ export function useChatScroll({
     if (!container) return;
 
     const markUserScroll = () => {
+      if (position.current === "linked") position.current = "reading";
       userScrolledRef.current = true;
       lastUserScrollAtRef.current = performance.now();
     };
@@ -199,8 +226,11 @@ export function useChatScroll({
 
     const inner = container.firstElementChild;
     const observer = new ResizeObserver(() => {
-      if (canAutoSnap()) {
-        scrollToLastRow(virtualizerRef.current, rowCountRef.current);
+      const handle = virtualizerRef.current;
+      if (handle && position.current === "linked") {
+        setShowJump(!atBottom(handle));
+      } else if (canAutoSnap()) {
+        scrollToLastRow(handle, rowCountRef.current);
       }
     });
     if (inner) observer.observe(inner);

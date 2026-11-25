@@ -19,7 +19,12 @@ import { CollapsedMessageGroup } from "./CollapsedMessageGroup";
 import { JumpToBottomButton } from "./JumpToBottomButton";
 import { buildSegments } from "./messageSegments";
 
-interface ChatMessageListProps {
+export interface MessageLinkProps {
+  getMessageLink?: (messageId: string) => string | undefined;
+  targetMessageId?: string;
+}
+
+interface ChatMessageListProps extends MessageLinkProps {
   sessionId: string;
   messages: ChatMessageType[];
   currentAuthorId: string;
@@ -58,6 +63,7 @@ const ACTIVITY_ROW_KEY = "__activity__";
 
 interface RowContentProps {
   row: Row;
+  getMessageLink?: MessageLinkProps["getMessageLink"];
   sessionId: string;
   currentAuthorId: string;
   primaryConversationId: string;
@@ -75,6 +81,7 @@ interface RowContentProps {
 
 function RowContent({
   row,
+  getMessageLink,
   sessionId,
   currentAuthorId,
   primaryConversationId,
@@ -95,6 +102,11 @@ function RowContent({
         <ChatMessage
           sessionId={sessionId}
           message={row.message}
+          messageLink={
+            row.message.streamingPlaceholder
+              ? undefined
+              : getMessageLink?.(row.message.id)
+          }
           primaryConversationId={primaryConversationId}
           isOwn={row.message.author.id === currentAuthorId}
           bundleId={bundleId}
@@ -145,6 +157,8 @@ function EmptyThread({ historyLoaded }: { historyLoaded: boolean }) {
 
 export function ChatMessageList({
   sessionId,
+  targetMessageId,
+  getMessageLink,
   messages,
   currentAuthorId,
   primaryConversationId,
@@ -159,41 +173,29 @@ export function ChatMessageList({
   onTogglePinArtifact,
   isMessageStreaming,
 }: ChatMessageListProps) {
-  // Collapse state is ephemeral per view (not URL or server). Thinking-only
-  // messages collapse by default once they finish streaming; `expandedIds`
-  // records the user overriding that default, while `collapsedIds` records the
-  // user collapsing a message that would otherwise be visible. Consecutive
-  // collapsed ids are grouped at render time into a "<n> messages hidden" row.
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [collapseOverrides, setCollapseOverrides] = useState(
+    new Map<string, boolean>(),
+  );
+  const [previousTarget, setPreviousTarget] = useState<string>();
 
-  const isCollapsed = (message: ChatMessageType) => {
-    if (expandedIds.has(message.id)) return false;
-    if (collapsedIds.has(message.id)) return true;
-    return isThinkingOnly(message) && !isMessageStreaming(message.id);
-  };
+  const isCollapsed = (message: ChatMessageType) =>
+    collapseOverrides.get(message.id) ??
+    (isThinkingOnly(message) && !isMessageStreaming(message.id));
 
-  const collapse = (id: string) => {
-    setCollapsedIds((prev) => new Set(prev).add(id));
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
+  const collapse = (id: string) =>
+    setCollapseOverrides((previous) => new Map(previous).set(id, true));
+
+  const expand = (ids: string[]) =>
+    setCollapseOverrides((previous) => {
+      const next = new Map(previous);
+      for (const id of ids) next.set(id, false);
       return next;
     });
-  };
 
-  const expand = (ids: string[]) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.add(id);
-      return next;
-    });
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.delete(id);
-      return next;
-    });
-  };
+  if (targetMessageId !== previousTarget) {
+    setPreviousTarget(targetMessageId);
+    if (targetMessageId) expand([targetMessageId]);
+  }
 
   // Empty agent messages (no content, thinking, or attachments) carry nothing to
   // show, so they are dropped entirely rather than collapsed. A still-streaming
@@ -223,6 +225,12 @@ export function ChatMessageList({
   if (activity) {
     rows.push({ key: ACTIVITY_ROW_KEY, kind: "activity", activity });
   }
+  const targetIndex =
+    targetMessageId && historyLoaded
+      ? rows.findIndex(
+          (row) => row.kind === "message" && row.message.id === targetMessageId,
+        )
+      : -1;
   const {
     containerRef,
     virtualizerRef,
@@ -234,6 +242,8 @@ export function ChatMessageList({
     messages: visibleMessages,
     currentAuthorId,
     rowCount: rows.length,
+    targetMessageId,
+    targetIndex,
   });
 
   // The scroll container is always rendered so its ref exists on mount and the
@@ -256,11 +266,19 @@ export function ChatMessageList({
                 return (
                   <Box
                     key={row.key}
+                    group
+                    background={
+                      index === targetIndex ? "info-subtle" : undefined
+                    }
+                    aria-current={
+                      index === targetIndex ? "location" : undefined
+                    }
                     paddingBlockStart={index === 0 ? "base" : undefined}
                     paddingBlockEnd={isLast ? "base" : "lg"}
                   >
                     <RowContent
                       row={row}
+                      getMessageLink={getMessageLink}
                       sessionId={sessionId}
                       currentAuthorId={currentAuthorId}
                       primaryConversationId={primaryConversationId}

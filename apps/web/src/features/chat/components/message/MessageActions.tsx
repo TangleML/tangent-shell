@@ -6,16 +6,21 @@ import { IconButton } from "@/shared/ui/patterns/icon-button";
 import { CopyButton } from "./CopyButton";
 
 interface MessageActionsProps {
-  content: string;
+  content?: string;
+  messageLink?: string;
   onCollapse?: () => void;
 }
 
-/** Hover-revealed row of message-level actions (copy, collapse). */
-export function MessageActions({ content, onCollapse }: MessageActionsProps) {
+export function MessageActions({
+  content,
+  messageLink,
+  onCollapse,
+}: MessageActionsProps) {
   return (
     <HoverReveal>
       <InlineStack gap="0.5" wrap="nowrap">
-        <CopyButton content={content} />
+        {content !== undefined && <CopyButton content={content} />}
+        {messageLink && <CopyButton content={messageLink} kind="link" />}
         {onCollapse ? (
           <IconButton
             icon="ChevronsDownUp"

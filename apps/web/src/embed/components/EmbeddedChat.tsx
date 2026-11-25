@@ -12,11 +12,15 @@ import { ChatInput } from "@/features/chat/components/composer/ChatInput";
 import { ComposerFooter } from "@/features/chat/components/composer/ComposerFooter";
 import { FilesIndicator } from "@/features/chat/components/composer/FilesIndicator";
 import { SessionAgentsPill } from "@/features/chat/components/composer/SessionAgentsPill";
-import { ChatMessageList } from "@/features/chat/components/message/ChatMessageList";
+import {
+  ChatMessageList,
+  type MessageLinkProps,
+} from "@/features/chat/components/message/ChatMessageList";
 import { ConversationQuoting } from "@/features/chat/components/quote/ConversationQuoting";
 import { SubagentTabView } from "@/features/chat/components/tabs/SubagentTabView";
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 import { useSessionParticipants } from "@/features/chat/hooks/useSessionParticipants";
+import { type Agent, buildSubagents } from "@/features/chat/model/agents";
 import { buildAssets } from "@/features/chat/model/assets";
 import { buildMentionCandidates } from "@/features/chat/model/mentions";
 import {
@@ -35,11 +39,13 @@ import type {
   TangentRuntime,
 } from "../types";
 
-interface EmbeddedChatProps {
+interface EmbeddedChatProps extends MessageLinkProps {
   sessionId: string;
   runtime: TangentRuntime;
   /** When set, render that agent's thread instead of Prime. */
   agentId?: string;
+  /** Prime resolves the linked sub-agent against its session roster for the host. */
+  targetAgentId?: string;
   /** Focuses the composer as soon as it is usable, so the user can just type. */
   autoFocus?: boolean;
   /** The host opens the resource however it wants (a tab, a drawer, ...). */
@@ -77,6 +83,9 @@ export function EmbeddedChat({
   sessionId,
   runtime,
   agentId,
+  targetAgentId,
+  targetMessageId,
+  getMessageLink,
   autoFocus,
   onOpenArtifact,
   onSendPrompt,
@@ -101,6 +110,25 @@ export function EmbeddedChat({
   const targetingPrime = isPrimeAgent(agentId);
   const seenResources = useRef({ sessionId, version: resourcesVersion });
   const announceResourcesChange = useEffectEvent(() => onResourcesChange?.());
+
+  const openAgent = (agent: Agent) =>
+    onOpenAgent?.({
+      ...agent,
+      conversationId: chat.conversationForAgent(agent.id),
+    });
+  const linkedAgent =
+    targetingPrime && rosterReady && targetAgentId
+      ? buildSubagents(chat.subagents).find(
+          (agent) => agent.id === targetAgentId,
+        )
+      : undefined;
+  const linkedAgentId = linkedAgent?.id;
+  const openLinkedAgent = useEffectEvent(() => {
+    if (linkedAgent) openAgent(linkedAgent);
+  });
+  useEffect(() => {
+    openLinkedAgent();
+  }, [sessionId, linkedAgentId]);
 
   useEffect(() => {
     const seen = seenResources.current;
@@ -163,12 +191,7 @@ export function EmbeddedChat({
       <SessionAgentsPill
         sessionId={sessionId}
         selectedId={selectedId}
-        onOpenAgent={(agent) =>
-          onOpenAgent?.({
-            ...agent,
-            conversationId: chat.conversationForAgent(agent.id),
-          })
-        }
+        onOpenAgent={openAgent}
         onRemoved={(agent) => onRemoveAgent?.(agent.id)}
       />
       <FilesIndicator
@@ -200,6 +223,8 @@ export function EmbeddedChat({
       <SubagentChat
         sessionId={sessionId}
         agentId={agentId}
+        targetMessageId={targetMessageId}
+        getMessageLink={getMessageLink}
         bundleId={bundleId}
         chat={chat}
         rosterReady={rosterReady}
@@ -227,7 +252,10 @@ export function EmbeddedChat({
     <ConversationQuoting>
       <BlockStack fill grow align="stretch" inlineAlign="start">
         <ChatMessageList
+          key={sessionId}
           sessionId={sessionId}
+          targetMessageId={targetMessageId}
+          getMessageLink={getMessageLink}
           messages={chat.messagesFor(primaryConversationId)}
           currentAuthorId={chat.currentAuthorId}
           primaryConversationId={primaryConversationId}
@@ -291,7 +319,7 @@ export function EmbeddedChat({
   );
 }
 
-interface SubagentChatProps {
+interface SubagentChatProps extends MessageLinkProps {
   sessionId: string;
   agentId: string;
   bundleId?: string;
@@ -310,6 +338,8 @@ interface SubagentChatProps {
 function SubagentChat({
   sessionId,
   agentId,
+  targetMessageId,
+  getMessageLink,
   bundleId,
   chat,
   rosterReady,
@@ -350,6 +380,8 @@ function SubagentChat({
     <SubagentTabView
       sessionId={sessionId}
       agentId={agentId}
+      targetMessageId={targetMessageId}
+      getMessageLink={getMessageLink}
       primaryConversationId={chat.primaryConversationId}
       name={subagent.name}
       messages={chat.messagesFor(conversationId)}

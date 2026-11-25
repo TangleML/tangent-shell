@@ -1,4 +1,5 @@
 import { Paragraph } from "@tangent/ui-primitives/typography";
+import type { ReactNode } from "react";
 
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { apiUrl } from "@/shared/lib/basePath";
@@ -16,6 +17,7 @@ interface ReportMessageProps {
   onOpenArtifact?: (url: string, title: string) => void;
   pinnedPaths?: Set<string>;
   onTogglePinArtifact?: (path: string, title: string) => void;
+  actions: ReactNode;
   onCollapse?: () => void;
 }
 
@@ -33,6 +35,7 @@ export function ReportMessage({
   onOpenArtifact,
   pinnedPaths,
   onTogglePinArtifact,
+  actions,
   onCollapse,
 }: ReportMessageProps) {
   const isAgent = message.author.kind === "agent";
@@ -44,8 +47,7 @@ export function ReportMessage({
       title={`Report from ${message.author.name}`}
       tone="info"
       createdAt={message.createdAt}
-      content={message.content}
-      onCollapse={onCollapse}
+      actions={actions}
     >
       <QuotableMessage messageId={message.id}>
         {isAgent ? (

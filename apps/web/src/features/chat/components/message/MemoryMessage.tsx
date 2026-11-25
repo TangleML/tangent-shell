@@ -3,12 +3,12 @@ import "./MemoryMessage.css";
 import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
+import type { ReactNode } from "react";
 
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 import { ExpandableBlock } from "@/shared/ui/patterns/expandable-block";
 
-import { HeaderCollapseButton } from "./HeaderCollapseButton";
 import { MessageAvatar } from "./MessageAvatar";
 import { MessageLayout } from "./MessageLayout";
 
@@ -20,13 +20,13 @@ import { MessageLayout } from "./MessageLayout";
 interface MemoryMessageProps {
   sessionId: string;
   message: ChatMessageType;
-  onCollapse?: () => void;
+  actions: ReactNode;
 }
 
 export function MemoryMessage({
   sessionId,
   message,
-  onCollapse,
+  actions,
 }: MemoryMessageProps) {
   const scope = message.memory?.scope ?? "session";
   return (
@@ -47,7 +47,7 @@ export function MemoryMessage({
               Remembered ({scope})
             </Text>
           </InlineStack>
-          <HeaderCollapseButton onCollapse={onCollapse} />
+          {actions}
         </InlineStack>
       }
     >
