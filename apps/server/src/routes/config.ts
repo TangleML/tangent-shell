@@ -1,8 +1,12 @@
-import type { PublicConfig } from "@tangent/shared/contracts.ts";
+import type {
+  AvailableModelsResponse,
+  PublicConfig,
+} from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 
 import { PUBLIC_URL } from "../config.ts";
 import { modelCatalog } from "../modelCatalog.ts";
+import { listPiModels } from "../pi/piModels.ts";
 
 /**
  * Handles `GET /api/config`. Returns the public, non-sensitive client config —
@@ -29,14 +33,32 @@ function handleGetModels(_req: Request, res: Response): void {
 }
 
 /**
- * Client config router: `GET /api/config` (public) and `GET /api/config/models`
- * (installation-private; keep behind the auth gateway).
+ * Handles `GET /api/config/available-models`. Returns the models Pi can resolve
+ * (or the built-in list when Pi can't be queried), for installations without a
+ * deployment catalog.
+ */
+async function handleGetAvailableModels(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  const body: AvailableModelsResponse = { models: await listPiModels() };
+  res.setHeader("Cache-Control", "private, max-age=60");
+  res.json(body);
+}
+
+/**
+ * Client config router: `GET /api/config` (public), plus `GET /api/config/models`
+ * and `GET /api/config/available-models` (installation-private; keep behind the
+ * auth gateway).
  */
 export function createConfigRouter(): Router {
   const router = Router();
   router.get("/models", (req: Request, res: Response) =>
     handleGetModels(req, res),
   );
+  router.get("/available-models", (req: Request, res: Response) => {
+    void handleGetAvailableModels(req, res);
+  });
   router.get("/", (req: Request, res: Response) => handleGetConfig(req, res));
   return router;
 }
