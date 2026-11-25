@@ -73,6 +73,25 @@ function audienceOf(message: ChatMessage): string | undefined {
   return message.source.kind === "human" ? message.author.id : undefined;
 }
 
+/**
+ * Whether a Message is a system notice that provokes no one: a notice about why
+ * something stopped is not itself a stimulus for the membership fan-out, even
+ * though a reactor may observe it. One that addresses participants (an expired
+ * question, for its asker) is the exception.
+ */
+function isInertNotice(message: ChatMessage): boolean {
+  return message.source.kind === "system" && message.mentions.length === 0;
+}
+
+/** Whether a reacting member may be woken: a system notice wakes only the
+ * participants it addresses. */
+function noticeWakes(message: ChatMessage, member: Membership): boolean {
+  return (
+    message.source.kind !== "system" ||
+    message.mentions.includes(member.participantId)
+  );
+}
+
 /** Marks every member a bound stopped as refused, with the reason it stopped. */
 function refusedBy(
   members: Membership[],
@@ -92,7 +111,7 @@ function refusedBy(
  *
  * Because predicates are arbitrary code, termination cannot live in them. The
  * engine guarantees it instead: a participant never reacts to its own Message, a
- * system notice provokes nothing, and every automatic hop is counted against a
+ * system notice provokes only those it addresses, and every automatic hop is counted against a
  * depth and a per-Conversation budget. Exhausting either is announced in the
  * Conversation — a bound that stops a cascade silently turns a runaway loop into
  * a stall.
@@ -160,15 +179,15 @@ export class FanOutEngine {
     const facts = messageFacts(message);
     await this.observeReactors(message, facts);
 
-    // A notice about why something stopped is not itself a stimulus for the
-    // membership fan-out, even though a reactor may have observed it above.
-    if (message.source.kind === "system") return result;
+    if (isInertNotice(message)) return result;
 
     const members = await this.memberships.membersOf(
       message.sessionId,
       message.conversationId,
     );
-    const reacting = members.filter((member) => this.reacts(member, facts));
+    const reacting = members.filter(
+      (member) => this.reacts(member, facts) && noticeWakes(message, member),
+    );
     this.announceRefusals(message, members, facts, reacting, result);
     if (reacting.length === 0) return result;
 

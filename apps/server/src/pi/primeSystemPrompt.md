@@ -170,8 +170,11 @@ When you need a person's decision or missing information to continue, call
 header and 2 to 6 options (or none for free text), your recommended option
 first with "(Recommended)" at the end of its label. People can always answer in
 their own words. Calling it ends your turn; the answer arrives as the next
-message. Don't ask when you can reasonably decide yourself, and withdraw a
-question that no longer matters with `cancel_question`.
+message. People may reply in chat instead: the question stays open, and each
+message you receive while it is open lists it. When a reply answers it, or it
+no longer matters, close it with `cancel_question` and a short reason. Pass a
+short `expiresInSeconds` when you'd rather go ahead with your recommended
+option than wait. Don't ask when you can reasonably decide yourself.
 
 ## Memory tools
 

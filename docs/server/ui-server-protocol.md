@@ -107,6 +107,11 @@ Event names come from `SocketEvents` in
   queued when the target agent is mid-run: `"steer"` nudges it before the next LLM
   call, `"followUp"` waits until the run stops; both are ignored when the agent is
   idle.
+- `chat:message` `{ sessionId, content: "", inReplyTo, answer }` — answer one of
+  Prime's pending questions (see [Structured questions](#sequence-structured-questions)).
+  `answer` is `{ answers: [{ id, selected: string[], other? }] }`. Pass a
+  socket.io ack to get `{ ok, error? }` back; without one, a refusal arrives as
+  the socket's `error` event.
 - `agent:abort` `{ sessionId, conversationId }` — abort an in-progress **Run**;
   the server resolves the participant's open run id and cancels it through
   whichever connector holds it.
@@ -151,6 +156,9 @@ Event names come from `SocketEvents` in
 - `trigger:removed` `{ sessionId, triggerId }` — a trigger was deleted.
 - `ui:command` `{ sessionId, command }` — the generic agent->UI directive
   channel (`session.update`, `artifacts.update`).
+- `session:status` / `session:status:snapshot` — a session's run status for list
+  views, with `awaitingInput { count, since }` while Prime has unanswered
+  questions.
 
 Each message carries a `conversationId` — a **Conversation id** — that tells the
 client which transcript to bucket it into. It is no longer necessarily an agent
@@ -363,6 +371,42 @@ sequenceDiagram
 A `memory:dismiss` follows the same shape but writes nothing; it only tells
 Prime the user declined so it can continue honestly. See
 [memory.md](./memory.md).
+
+---
+
+## Sequence: structured questions
+
+Prime asks with `ask_question`, which ends its turn; a person answers over
+`chat:message`. The question, the answer and any close notice are ordinary
+Messages, so history replays them and clients fold the pending set themselves.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant UI
+  participant Socket as SocketIO
+  participant Questions as QuestionRegistry
+  participant Router as ConversationRouter
+  participant Prime
+
+  Prime->>Questions: ask_question (internal API)
+  Questions->>Router: post { question, correlationId }
+  Router-->>UI: chat:message (question card)
+  Router-->>UI: session:status { awaitingInput }
+  Note over Prime: tool returns terminate: true, turn ends
+  UI->>Socket: chat:message { inReplyTo, answer } + ack
+  Socket->>Questions: claimAnswer (validate, reserve)
+  Socket->>Router: post { answer, inReplyTo, content: rendered text }
+  Router-->>UI: chat:message (answer), card closes
+  Router->>Prime: deliver the rendered answer
+  Socket-->>UI: ack { ok: true }
+```
+
+A plain message from a person leaves the question open: Prime receives it with
+a note listing the open questions, and closes one the reply answered with
+`cancel_question` (a `questionClosed: cancelled` notice, with its `note`). So
+clients that don't render questions can still answer in prose. See
+[conversations.md](./conversations.md#structured-questions).
 
 ---
 

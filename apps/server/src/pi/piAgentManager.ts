@@ -177,7 +177,8 @@ function sameStatus(a: SessionStatusPayload, b: SessionStatusPayload): boolean {
 }
 
 function sameAwaiting(a?: AwaitingInput, b?: AwaitingInput): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  if (!a || !b) return a === b;
+  return a.count === b.count && a.since === b.since;
 }
 
 /** Which sessions have Prime waiting on answers, for the lobby status. */
@@ -2669,7 +2670,6 @@ export class PiAgentManager {
     this.notifyStatus(sessionId);
   }
 
-  /** Supplies the lookup that tells a respawned Prime from a fresh session's. */
   /** Wires the pending-question source the lobby status reports. */
   useAwaitingInput(source: AwaitingInputSource): void {
     this.awaitingInput = source;
@@ -2680,6 +2680,7 @@ export class PiAgentManager {
     this.notifyStatus(sessionId);
   }
 
+  /** Supplies the lookup that tells a respawned Prime from a fresh session's. */
   useTranscript(hasTranscript: (sessionId: string) => Promise<boolean>): void {
     this.hasTranscript = hasTranscript;
   }

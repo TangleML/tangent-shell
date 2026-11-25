@@ -8,11 +8,12 @@
  * from type-check (`@ts-nocheck`) and never imported by the server — only passed
  * as a path to the Pi subprocess.
  *
- * The tool is Prime-only and is a thin client over this server's internal
- * session API; the server owns the session record, applies the rename, and
- * pushes the change to the UI over the generic `ui:command` socket channel. It
- * lets Prime give the session a concise, conversation-derived name (replacing
- * the default "Session N") and refine it as the topic evolves.
+ * The tools are thin clients over this server's internal session API; the
+ * server owns the session record and pushes changes to the UI. Every agent can
+ * pin and unpin artifacts. Prime alone can rename the session, dismiss finished
+ * sub-agents, and ask (or close) structured questions: `ask_question` posts a
+ * question card and returns `terminate: true`, so Prime's turn ends there and
+ * the answer arrives as its next message.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -160,8 +161,13 @@ export default function (pi: ExtensionAPI) {
       "too. Put your recommended option first and end its label with " +
       '" (Recommended)". Your turn ends when you call this: do not call other ' +
       "tools in the same step, and do not repeat the question in prose. The " +
-      "answer arrives later as the next message. A plain message from a " +
-      "person replaces pending questions.",
+      "answer arrives later as the next message. People may also reply in " +
+      "chat instead: the question stays open, and each message you get while " +
+      "it is open says so; close it with cancel_question once a reply " +
+      "answers it. If nobody answers before it expires (24 h by default) you " +
+      "are told and can go ahead. Use a short expiresInSeconds (e.g. 300) to " +
+      "ask without waiting long, when your recommended option is a fine " +
+      "default.",
     promptSnippet: "Ask people structured questions; ends your turn",
     parameters: Type.Object({
       questions: Type.Array(
@@ -199,7 +205,9 @@ export default function (pi: ExtensionAPI) {
         Type.Integer({
           minimum: 60,
           maximum: 604800,
-          description: "Close unanswered after this long (default 24 h).",
+          description:
+            "Close unanswered after this long (default 24 h). Short means " +
+            "'ask, but don't wait long'.",
         }),
       ),
       idempotencyKey: Type.Optional(
@@ -227,18 +235,30 @@ export default function (pi: ExtensionAPI) {
     name: "cancel_question",
     label: "Cancel Question",
     description:
-      "Withdraw a question you asked with ask_question that no longer needs " +
-      "an answer.",
-    promptSnippet: "Withdraw a pending question",
+      "Close a question you asked with ask_question that no longer needs a " +
+      "structured answer: a person answered it in chat, or it stopped " +
+      "mattering. Give a short reason; people see it on the question.",
+    promptSnippet: "Close a pending question",
     parameters: Type.Object({
       questionId: Type.String({ description: "The id ask_question returned." }),
+      reason: Type.Optional(
+        Type.String({
+          maxLength: 500,
+          description: "Why, e.g. 'Answered in chat: all time'.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
-      await callApi("POST", "cancel-question", {
+      const data = (await callApi("POST", "cancel-question", {
         sessionId: SESSION_ID,
         questionId: params.questionId,
-      });
-      return textResult(`Cancelled question ${params.questionId}.`);
+        reason: params.reason,
+      })) as { outcome: "cancelled" | "closed" };
+      return textResult(
+        data.outcome === "closed"
+          ? `Question ${params.questionId} was already closed.`
+          : `Closed question ${params.questionId}.`,
+      );
     },
   });
 

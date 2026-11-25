@@ -11,6 +11,7 @@ import {
   type MemoryHighlightScope,
   type MessageDelivery,
   type MessageSource,
+  type PendingQuestion,
   type RunId,
   type RunIngress,
   SocketEvents,
@@ -18,6 +19,7 @@ import {
   SYSTEM_AUTHOR,
   type TerminationCause,
 } from "@tangent/shared/contracts.ts";
+import { pendingNoteText } from "@tangent/shared/questions.ts";
 import type { Server } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
@@ -109,7 +111,7 @@ export interface CrossPostResult extends FanOutResult {
   message?: ChatMessage;
 }
 
-/** Fields an empty value must omit rather than persist as empty. */
+/** Optional Message fields copied from a post only when set. */
 const OPTIONAL_FIELDS = [
   "thinking",
   "memory",
@@ -119,6 +121,7 @@ const OPTIONAL_FIELDS = [
   "questionClosed",
 ] as const;
 
+/** Fields an empty value must omit rather than persist as empty. */
 function whatIsThere(input: PostInput): Partial<ChatMessage> {
   const fields: Partial<ChatMessage> = {};
   for (const key of OPTIONAL_FIELDS) {
@@ -193,6 +196,19 @@ function oneLine(value: object): string {
     /[\u2028\u2029]/g,
     (char) => `\\u${char.charCodeAt(0).toString(16)}`,
   );
+}
+
+/**
+ * Reminds the Conversation's agent of the questions it asked that are still
+ * open, after what it's sent: a person's reply may answer one in prose, and
+ * only the agent can tell, so it closes it with `cancel_question`.
+ */
+export function withPendingNote(
+  text: string,
+  pending: readonly PendingQuestion[],
+): string {
+  if (pending.length === 0) return text;
+  return `${text}\n\n${pendingNoteText(pending)}`;
 }
 
 /**
@@ -449,6 +465,11 @@ export class ConversationRouter {
       message.conversationId,
     );
     const results = this.takeCommandResults(message);
+    const pending =
+      (await this.questions?.pendingIn(
+        message.sessionId,
+        message.conversationId,
+      )) ?? [];
     let delivered = false;
     try {
       const outcome = await this.engine.fanOut({
@@ -458,7 +479,7 @@ export class ConversationRouter {
         project: (msg, recipient) => {
           const text = deliveryText(msg, recipient, owner);
           return recipient.participantId === owner
-            ? withCommandResults(text, results)
+            ? withPendingNote(withCommandResults(text, results), pending)
             : text;
         },
       });

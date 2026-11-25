@@ -5,6 +5,8 @@ import {
   type ChatAnswer,
   type ChatMessage,
   type ChatQuestion,
+  type ChatQuestionClosed,
+  type PendingQuestion,
   PI_AGENT,
   type QuestionCloseReason,
   type QuestionItem,
@@ -14,14 +16,14 @@ import {
   answerError,
   answerText,
   applyToPending,
-  type PendingQuestion,
   questionFallbackText,
 } from "@tangent/shared/questions.ts";
+import { z } from "zod";
 
 import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import type { PostInput, PostResult } from "./conversationRouter.ts";
-import { orchestratorConversationFor } from "./participantRegistry.ts";
+import { orchestratorIdentity } from "./participantRegistry.ts";
 
 export const MAX_PENDING_QUESTIONS = 4;
 export const DEFAULT_QUESTION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -56,16 +58,60 @@ export type AskOutcome =
   | { ok: true; question: ChatQuestion; messageId: string; reused: boolean }
   | { ok: false; error: string };
 
+/** What {@link QuestionRegistry.cancel} did: closed it, found it already
+ * closed (or unknown), or left it to an answer being posted. */
+export type CancelOutcome = "cancelled" | "closed" | "answering";
+
 export type AnswerCheck =
   | { ok: true; pending: PendingQuestion; content: string }
   | { ok: false; error: string };
 
 type Post = (input: PostInput) => Promise<PostResult>;
 
+/**
+ * Gets a session's Prime ready to be woken by an expired question, resolving
+ * whether it should be: an asleep (archived) session isn't woken.
+ */
+export type QuestionWaker = (sessionId: string) => Promise<boolean>;
+
 interface SessionState {
   pending: Map<string, PendingQuestion>;
+  /** Idempotency key -> the question id it asked. */
   keys: Map<string, string>;
   timers: Map<string, () => void>;
+  /** Asks validated but not yet posted, counted against the pending cap. */
+  asking: number;
+  /** Questions an answer has claimed but not yet posted. */
+  answering: Set<string>;
+}
+
+const MAX_OTHER_CHARS = 4_000;
+
+const answerSchema = z.object({
+  answers: z
+    .array(
+      z.object({
+        id: z.string(),
+        selected: z.array(z.string()).default([]),
+        other: z.string().max(MAX_OTHER_CHARS).optional(),
+      }),
+    )
+    .max(4),
+});
+
+/**
+ * Reads an answer off an untrusted socket payload, keeping only the fields
+ * the contract defines. `undefined` when it isn't shaped like one.
+ */
+export function parseAnswer(raw: unknown): ChatAnswer | undefined {
+  const parsed = answerSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  return {
+    answers: parsed.data.answers.map(({ id, selected, other }) => {
+      const text = other?.trim();
+      return text ? { id, selected, other: text } : { id, selected };
+    }),
+  };
 }
 
 /**
@@ -74,15 +120,27 @@ interface SessionState {
  * use, then kept current by {@link observe} on every post, so questions
  * survive a restart. Closing a question is itself a Message (an answer, or a
  * `questionClosed` system notice), so every client can run the same fold.
+ *
+ * A question closes when a person answers it, when Prime cancels it, or when
+ * it expires; a person's plain message leaves it open, and Prime is reminded
+ * of it with that message (see the router's delivery projection). Expiry is
+ * the backstop that keeps `awaitingInput` from sticking, and the only close
+ * that wakes Prime: it asked and is still owed an outcome.
  */
 export class QuestionRegistry {
   private readonly store: SessionStore;
   private readonly runs?: RunRegistry;
   private readonly clock: QuestionClock;
   private readonly sessions = new Map<string, SessionState>();
+  /**
+   * Sessions evicted with nothing pending. A question only enters through
+   * {@link ask}, which folds first, so these need no fold to say "none".
+   */
+  private readonly idle = new Set<string>();
   private readonly loading = new Map<string, Promise<SessionState>>();
   private readonly buffered = new Map<string, ChatMessage[]>();
   private post?: Post;
+  private wake?: QuestionWaker;
   private onChange?: (sessionId: string) => void;
 
   constructor(
@@ -100,21 +158,27 @@ export class QuestionRegistry {
     this.post = post;
   }
 
+  /** Wires how an expired question wakes Prime; without it nothing is woken. */
+  useWaker(wake: QuestionWaker): void {
+    this.wake = wake;
+  }
+
   /** Called whenever a session's pending count may have changed. */
   useOnChange(onChange: (sessionId: string) => void): void {
     this.onChange = onChange;
   }
 
-  /** Rebuilds every session's pending set, e.g. at boot. */
+  /**
+   * Rebuilds every awake session's pending set at boot, so the lobby status
+   * and expiry timers are right before anyone opens them. An archived session
+   * is folded when it is next used.
+   */
   async loadAll(): Promise<void> {
     for (const session of await this.store.listSessions()) {
-      await this.load(session.id);
+      if (session.archived) continue;
+      const state = await this.stateFor(session.id);
+      this.evictIfIdle(session.id, state);
     }
-  }
-
-  /** The session's pending set, folding its transcript on first use. */
-  async load(sessionId: string): Promise<Map<string, PendingQuestion>> {
-    return (await this.stateFor(sessionId)).pending;
   }
 
   private stateFor(sessionId: string): Promise<SessionState> {
@@ -129,6 +193,19 @@ export class QuestionRegistry {
     return promise;
   }
 
+  /**
+   * The session's state for a caller about to change it. A read that shared
+   * the same fold may have evicted it while this caller waited, so it refolds
+   * until it holds the state the registry keeps; the caller's change then
+   * happens in the same tick, before anything can evict it again.
+   */
+  private async liveState(sessionId: string): Promise<SessionState> {
+    for (;;) {
+      const state = await this.stateFor(sessionId);
+      if (this.sessions.get(sessionId) === state) return state;
+    }
+  }
+
   private async fold(sessionId: string): Promise<SessionState> {
     this.buffered.set(sessionId, []);
     const messages = await this.store.getMessages(sessionId);
@@ -140,6 +217,7 @@ export class QuestionRegistry {
 
     const state = foldState([...messages, ...late]);
     this.sessions.set(sessionId, state);
+    this.idle.delete(sessionId);
     for (const entry of [...state.pending.values()]) {
       this.arm(sessionId, state, entry);
     }
@@ -147,17 +225,29 @@ export class QuestionRegistry {
     return state;
   }
 
-  /**
-   * Folds a just-posted Message in. A person's plain message that closes
-   * pending questions also posts their `superseded` notices.
-   */
+  /** Folds a just-posted Message in. */
   observe(message: ChatMessage): void {
     const state = this.sessions.get(message.sessionId);
     if (!state) return this.buffer(message);
     const closed = applyToPending(state.pending, message);
     const asked = this.armAsked(state, message);
-    this.settleClosed(state, message, closed);
-    if (asked || closed.length > 0) this.onChange?.(message.sessionId);
+    this.settleClosed(state, closed);
+    if (!asked && closed.length === 0) return;
+    this.onChange?.(message.sessionId);
+    this.evictIfIdle(message.sessionId, state);
+  }
+
+  /**
+   * Forgets a session with nothing pending or in flight, so idle sessions hold
+   * no memory; the next use folds its transcript again.
+   */
+  private evictIfIdle(sessionId: string, state: SessionState): void {
+    const busy =
+      state.pending.size > 0 || state.asking > 0 || state.answering.size > 0;
+    if (!busy && this.sessions.get(sessionId) === state) {
+      this.sessions.delete(sessionId);
+      this.idle.add(sessionId);
+    }
   }
 
   private buffer(message: ChatMessage): void {
@@ -171,13 +261,11 @@ export class QuestionRegistry {
     return Boolean(entry);
   }
 
-  private settleClosed(
-    state: SessionState,
-    message: ChatMessage,
-    closed: PendingQuestion[],
-  ): void {
-    for (const entry of closed) this.disarm(state, entry);
-    if (!message.inReplyTo) this.supersede(message.sessionId, closed);
+  private settleClosed(state: SessionState, closed: PendingQuestion[]): void {
+    for (const entry of closed) {
+      this.disarm(state, entry);
+      state.answering.delete(entry.question.id);
+    }
   }
 
   private disarm(state: SessionState, entry: PendingQuestion): void {
@@ -185,15 +273,39 @@ export class QuestionRegistry {
     state.timers.delete(entry.question.id);
   }
 
-  private supersede(sessionId: string, closed: PendingQuestion[]): void {
-    for (const entry of closed) {
-      this.notifyClosed(sessionId, entry, "superseded");
-    }
-  }
-
-  /** Pending questions, oldest first. */
+  /** Pending questions already folded, oldest first; none for a session not
+   * loaded yet. */
   pending(sessionId: string): PendingQuestion[] {
     return [...(this.sessions.get(sessionId)?.pending.values() ?? [])];
+  }
+
+  /** Whether a question is pending in a session whose state is loaded. */
+  isPending(sessionId: string, questionId: string): boolean {
+    return this.sessions.get(sessionId)?.pending.has(questionId) ?? false;
+  }
+
+  /**
+   * The questions open in one Conversation, folding the session only when it
+   * hasn't been yet (one archived at boot, say). Cheap for an idle session.
+   */
+  async pendingIn(
+    sessionId: string,
+    conversationId: string,
+  ): Promise<PendingQuestion[]> {
+    const loaded = this.sessions.has(sessionId);
+    if (!loaded && this.idle.has(sessionId)) return [];
+    const pending = loaded
+      ? this.pending(sessionId)
+      : await this.listPending(sessionId);
+    return pending.filter((entry) => entry.conversationId === conversationId);
+  }
+
+  /** Pending questions, oldest first, folding the transcript if needed. */
+  async listPending(sessionId: string): Promise<PendingQuestion[]> {
+    const state = await this.stateFor(sessionId);
+    const pending = [...state.pending.values()];
+    this.evictIfIdle(sessionId, state);
+    return pending;
   }
 
   awaiting(sessionId: string): AwaitingInput | undefined {
@@ -212,8 +324,12 @@ export class QuestionRegistry {
       .map(([sessionId]) => sessionId);
   }
 
+  /**
+   * Posts a question set into Prime's Conversation. A retry with the same
+   * `idempotencyKey` returns the question still pending under it.
+   */
   async ask(input: AskInput): Promise<AskOutcome> {
-    const state = await this.stateFor(input.sessionId);
+    const state = await this.liveState(input.sessionId);
     const reused = reusable(state, input.idempotencyKey);
     if (reused) return { ok: true, ...reused, reused: true };
     const error = askError(state, input.questions);
@@ -223,20 +339,35 @@ export class QuestionRegistry {
     if (input.idempotencyKey) {
       state.keys.set(input.idempotencyKey, question.id);
     }
-    const { message } = await this.requirePoster()({
-      sessionId: input.sessionId,
-      conversationId: await orchestratorConversationFor(
-        this.store,
-        input.sessionId,
-      ),
+    state.asking += 1;
+    try {
+      const { message } = await this.requirePoster()(
+        await this.questionPost(input.sessionId, question),
+      );
+      return { ok: true, question, messageId: message.id, reused: false };
+    } finally {
+      state.asking -= 1;
+    }
+  }
+
+  private async questionPost(
+    sessionId: string,
+    question: ChatQuestion,
+  ): Promise<PostInput> {
+    const { orchestratorId, homeConversationId } = await orchestratorIdentity(
+      this.store,
+      sessionId,
+    );
+    return {
+      sessionId,
+      conversationId: homeConversationId,
       author: PI_AGENT,
       content: questionFallbackText(question),
       question,
       correlationId: question.id,
-      runId: this.runs?.current(input.sessionId, PI_AGENT.id)?.id,
+      runId: this.runs?.current(sessionId, orchestratorId)?.id,
       provokes: false,
-    });
-    return { ok: true, question, messageId: message.id, reused: false };
+    };
   }
 
   private build(input: AskInput): ChatQuestion {
@@ -253,33 +384,61 @@ export class QuestionRegistry {
     };
   }
 
-  /** Closes a pending question as `cancelled`. Returns whether one was. */
-  async cancel(sessionId: string, questionId: string): Promise<boolean> {
-    const state = await this.stateFor(sessionId);
+  /**
+   * Closes a pending question as `cancelled`, with Prime's optional reason
+   * (for example, that a person answered it in chat). A question that already
+   * closed is left alone, and one a person is answering right now is refused,
+   * so the answer and the cancel can't both land.
+   */
+  async cancel(
+    sessionId: string,
+    questionId: string,
+    note?: string,
+  ): Promise<CancelOutcome> {
+    const state = await this.liveState(sessionId);
     const entry = state.pending.get(questionId);
-    if (!entry) return false;
-    await this.close(sessionId, entry, "cancelled");
-    return true;
+    if (!entry) return "closed";
+    if (state.answering.has(questionId)) return "answering";
+    const closed: ChatQuestionClosed = { reason: "cancelled" };
+    if (note) closed.note = note;
+    await this.close(sessionId, entry, closed);
+    return "cancelled";
   }
 
-  /** Checks an answer against a pending question and renders Prime's text. */
-  async checkAnswer(
+  /**
+   * Checks an answer against a pending question and claims the question for
+   * it, so a concurrent answer is refused rather than posted twice. The claim
+   * ends when the answer is posted, or with {@link releaseAnswer} if it isn't.
+   */
+  async claimAnswer(
     sessionId: string,
     questionId: string,
     answer: ChatAnswer,
   ): Promise<AnswerCheck> {
-    const state = await this.stateFor(sessionId);
+    const state = await this.liveState(sessionId);
     const pending = state.pending.get(questionId);
     if (!pending) {
       return { ok: false, error: "That question is no longer pending." };
     }
+    if (state.answering.has(questionId)) {
+      return { ok: false, error: "That question is already being answered." };
+    }
     const error = answerError(pending.question, answer);
     if (error) return { ok: false, error };
+    state.answering.add(questionId);
     return {
       ok: true,
       pending,
       content: answerText(pending.question, answer),
     };
+  }
+
+  /** Drops a claim whose answer was never posted. */
+  releaseAnswer(sessionId: string, questionId: string): void {
+    const state = this.sessions.get(sessionId);
+    if (!state) return;
+    state.answering.delete(questionId);
+    this.evictIfIdle(sessionId, state);
   }
 
   private arm(
@@ -293,37 +452,51 @@ export class QuestionRegistry {
       Date.parse(entry.question.expiresAt),
       () => {
         state.timers.delete(id);
-        if (state.pending.has(id))
-          this.notifyClosed(sessionId, entry, "expired");
+        if (state.pending.has(id)) this.expire(sessionId, entry);
       },
     );
     state.timers.set(id, cancel);
   }
 
-  private notifyClosed(
-    sessionId: string,
-    entry: PendingQuestion,
-    reason: QuestionCloseReason,
-  ): void {
-    this.close(sessionId, entry, reason).catch((err: unknown) => {
-      console.error(`[questions] failed to post a ${reason} notice:`, err);
-    });
+  private expire(sessionId: string, entry: PendingQuestion): void {
+    this.close(sessionId, entry, { reason: "expired" }).catch(
+      (err: unknown) => {
+        console.error("[questions] failed to post an expiry notice:", err);
+      },
+    );
   }
 
   private async close(
     sessionId: string,
     entry: PendingQuestion,
-    reason: QuestionCloseReason,
+    closed: ChatQuestionClosed,
   ): Promise<void> {
+    const mentions = await this.wakeFor(sessionId, closed.reason);
     await this.requirePoster()({
       sessionId,
       conversationId: entry.conversationId,
       author: SYSTEM_AUTHOR,
-      content: closedText(entry.question, reason),
+      content: closedText(entry.question, closed),
       inReplyTo: entry.question.id,
-      questionClosed: { reason },
-      provokes: false,
+      questionClosed: closed,
+      mentions,
     });
+  }
+
+  /** Who a close notice addresses: Prime for an expiry, when it may be woken. */
+  private async wakeFor(
+    sessionId: string,
+    reason: QuestionCloseReason,
+  ): Promise<string[]> {
+    if (reason !== "expired" || !this.wake) return [];
+    try {
+      if (!(await this.wake(sessionId))) return [];
+    } catch (err) {
+      // The notice still closes the question; Prime just isn't woken by it.
+      console.error(`[questions] couldn't wake Prime in ${sessionId}:`, err);
+      return [];
+    }
+    return [(await orchestratorIdentity(this.store, sessionId)).orchestratorId];
   }
 
   private requirePoster(): Post {
@@ -332,14 +505,28 @@ export class QuestionRegistry {
   }
 }
 
-function closedText(question: ChatQuestion, reason: QuestionCloseReason) {
+const RECOMMENDED = /\(Recommended\)\s*$/;
+
+/** What Prime is told to do about an expired question. Nothing is chosen for
+ * it: a recommendation it made is only suggested. */
+function afterExpiry(question: ChatQuestion): string {
+  const recommended = question.questions.some((item) =>
+    item.options.some((option) => RECOMMENDED.test(option.label)),
+  );
+  return recommended
+    ? "Go ahead with the option you marked (Recommended), or ask again if you still need an answer."
+    : "Decide without the answer, or ask again if you still need one.";
+}
+
+function closedText(question: ChatQuestion, closed: ChatQuestionClosed) {
   const headers = question.questions.map((item) => item.header).join(", ");
-  const why = {
-    superseded: "a new message replaced it",
-    expired: "it expired unanswered",
-    cancelled: "Prime cancelled it",
-  }[reason];
-  return `Question ${question.id} (${headers}) closed: ${why}.`;
+  const subject = `Question ${question.id} (${headers})`;
+  if (closed.reason === "expired") {
+    return `${subject} expired unanswered. ${afterExpiry(question)}`;
+  }
+  return closed.note
+    ? `${subject} was cancelled by Prime: ${closed.note}`
+    : `${subject} was cancelled by Prime.`;
 }
 
 function clampTtl(expiresInSeconds?: number): number {
@@ -355,6 +542,8 @@ function foldState(messages: ChatMessage[]): SessionState {
     pending: new Map(),
     keys: new Map(),
     timers: new Map(),
+    asking: 0,
+    answering: new Set(),
   };
   for (const message of messages) {
     applyToPending(state.pending, message);
@@ -377,7 +566,7 @@ function askError(
   state: SessionState,
   items: QuestionItem[],
 ): string | undefined {
-  if (state.pending.size >= MAX_PENDING_QUESTIONS) {
+  if (state.pending.size + state.asking >= MAX_PENDING_QUESTIONS) {
     return `There are already ${MAX_PENDING_QUESTIONS} pending questions; wait for answers or cancel one.`;
   }
   return questionsError(items);

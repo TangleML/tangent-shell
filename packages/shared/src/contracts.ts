@@ -1328,6 +1328,8 @@ export interface WorkflowView {
   correlations: OutstandingCorrelation[];
   digests: Resource[];
   causes: TerminationCause[];
+  /** Prime's questions still waiting for an answer. */
+  questions?: PendingQuestion[];
   room?: WorkflowRoom;
 }
 
@@ -1469,9 +1471,9 @@ export interface QuestionOption {
 }
 
 /**
- * One question of a {@link ChatQuestion}. No `options` means free text only;
+ * One question of a {@link ChatQuestion}. Empty `options` means free text only;
  * otherwise free text ("Other") is still always allowed. A label ending in
- * "(Recommended)" marks Prime's recommendation.
+ * "(Recommended)" marks Prime's recommendation and is listed first.
  */
 export interface QuestionItem {
   /** Unique within its {@link ChatQuestion}. */
@@ -1487,7 +1489,10 @@ export interface QuestionItem {
 export interface ChatQuestion {
   id: string;
   questions: QuestionItem[];
-  /** Only people should answer, not orchestrators acting for them. */
+  /**
+   * Only a person should answer, not an orchestrator acting for one. A hint for
+   * clients: the server cannot tell the two apart.
+   */
   peopleOnly?: boolean;
   /** ISO-8601 time after which the question closes as `expired`. */
   expiresAt: string;
@@ -1507,14 +1512,36 @@ export interface ChatAnswer {
   answers: QuestionItemAnswer[];
 }
 
+/** What the server acknowledges a `chat:message` answer with. */
+export interface ChatAnswerAck {
+  ok: boolean;
+  /** Why the answer was refused, when it was. */
+  error?: string;
+}
+
 /**
- * Why a question closed without an answer: a person's plain message replaced
- * it, it expired, or Prime cancelled it.
+ * Why a question closed without a structured answer: it expired, or Prime
+ * cancelled it (for example because a person answered it in chat).
  */
-export type QuestionCloseReason = "superseded" | "expired" | "cancelled";
+export type QuestionCloseReason = "expired" | "cancelled";
 
 export interface ChatQuestionClosed {
   reason: QuestionCloseReason;
+  /** Prime's reason for cancelling, when it gave one. */
+  note?: string;
+}
+
+/**
+ * A question still waiting for an answer, as folded from the transcript by
+ * `pendingQuestions` in `questions.ts`.
+ */
+export interface PendingQuestion {
+  question: ChatQuestion;
+  /** The Message that asked it. */
+  messageId: string;
+  conversationId: string;
+  /** When it was asked (ISO 8601). */
+  askedAt: string;
 }
 
 /** A single chat message. `content` is markdown. */
@@ -1806,7 +1833,11 @@ export interface ChatMessagePayload {
   attachments?: Attachment[];
   /** Posts `content` as this slash command's result instead of as a turn. */
   command?: ChatCommandRun;
-  /** The pending {@link ChatQuestion} id this payload answers, with `answer`. */
+  /**
+   * The pending {@link ChatQuestion} id this payload answers. With `answer` the
+   * payload is an answer: `content` and `conversationId` are ignored, and the
+   * server acknowledges it with a {@link ChatAnswerAck} when the client asks.
+   */
   inReplyTo?: string;
   /** A structured answer; the server renders the text Prime reads from it. */
   answer?: ChatAnswer;

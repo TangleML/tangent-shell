@@ -49,12 +49,12 @@ export type DismissSubagentInput = z.infer<typeof dismissSubagentSchema>;
 const questionItemSchema = z.object({
   id: z.string().trim().min(1).max(40).optional(),
   header: z.string().trim().min(1),
-  question: z.string().trim().min(1),
+  question: z.string().trim().min(1).max(2_000),
   options: z
     .array(
       z.object({
-        label: z.string().trim().min(1),
-        description: z.string().trim().optional(),
+        label: z.string().trim().min(1).max(200),
+        description: z.string().trim().max(500).optional(),
       }),
     )
     .default([]),
@@ -71,12 +71,15 @@ export const askQuestionSchema = z.object({
 });
 export type AskQuestionInput = z.infer<typeof askQuestionSchema>;
 
+/** Cancel-question body: the pending question Prime closes, and why. */
 export const cancelQuestionSchema = z.object({
   sessionId: z.string(),
   questionId: z.string().trim().min(1),
+  reason: z.string().trim().max(500).optional(),
 });
 export type CancelQuestionInput = z.infer<typeof cancelQuestionSchema>;
 
+/** Items Prime left unnamed get positional ids (`q1`, `q2`, …). */
 async function handleAskQuestion(
   store: SessionStore,
   questions: QuestionRegistry,
@@ -108,11 +111,52 @@ async function handleCancelQuestion(
 ): Promise<void> {
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
-  if (!(await questions.cancel(session.id, body.questionId))) {
-    res.status(404).json({ error: "No such pending question" });
+  const outcome = await questions.cancel(
+    session.id,
+    body.questionId,
+    body.reason || undefined,
+  );
+  if (outcome === "answering") {
+    res.status(409).json({
+      error: "A person is answering that question right now; wait for it.",
+    });
     return;
   }
-  res.json({ ok: true });
+  res.json({ ok: true, outcome });
+}
+
+/**
+ * `POST /ask-question` and `POST /cancel-question`: Prime's `ask_question` and
+ * `cancel_question` tools. A malformed question set is a 400 with the reason,
+ * which the tool hands back to Prime so it can fix the call.
+ */
+function mountQuestionRoutes(
+  router: Router,
+  store: SessionStore,
+  questions: QuestionRegistry,
+): void {
+  router.post(
+    "/ask-question",
+    validate({ body: askQuestionSchema }),
+    (req: Request, res: Response) =>
+      handleAskQuestion(
+        store,
+        questions,
+        getValidated<AskQuestionInput>(req).body,
+        res,
+      ),
+  );
+  router.post(
+    "/cancel-question",
+    validate({ body: cancelQuestionSchema }),
+    (req: Request, res: Response) =>
+      handleCancelQuestion(
+        store,
+        questions,
+        getValidated<CancelQuestionInput>(req).body,
+        res,
+      ),
+  );
 }
 
 /**
@@ -218,11 +262,12 @@ async function handleDismissSubagent(
 /**
  * Internal API used only by the session extension running inside each Pi
  * process. It lets Prime rename the session (e.g. to a concise,
- * conversation-derived title) and dismiss finished sub-agents, lets any agent
- * pin/unpin artifacts for quick access, and serves Prime's selector-scoped
- * cross-session recall reads; the server owns the session record and
- * broadcasts changes to the room. Guarded by the same bearer token as the
- * other internal APIs so arbitrary local callers can't mutate a session.
+ * conversation-derived title), dismiss finished sub-agents and ask or withdraw
+ * structured questions, lets any agent pin/unpin artifacts for quick access,
+ * and serves Prime's selector-scoped cross-session recall reads; the server
+ * owns the session record and broadcasts changes to the room. Guarded by the
+ * same bearer token as the other internal APIs so arbitrary local callers can't
+ * mutate a session.
  */
 export function createInternalSessionRouter(
   store: SessionStore,
@@ -230,8 +275,7 @@ export function createInternalSessionRouter(
   emitSubagentDismissed: SubagentDismissedEmitter,
   questions?: QuestionRegistry,
 ): Router {
-  const router = Router();
-  router.use(requireInternalToken);
+  const router = Router().use(requireInternalToken);
 
   router.post(
     "/rename",
@@ -280,32 +324,7 @@ export function createInternalSessionRouter(
         res,
       ),
   );
-
-  if (questions) {
-    router.post(
-      "/ask-question",
-      validate({ body: askQuestionSchema }),
-      (req: Request, res: Response) =>
-        handleAskQuestion(
-          store,
-          questions,
-          getValidated<AskQuestionInput>(req).body,
-          res,
-        ),
-    );
-    router.post(
-      "/cancel-question",
-      validate({ body: cancelQuestionSchema }),
-      (req: Request, res: Response) =>
-        handleCancelQuestion(
-          store,
-          questions,
-          getValidated<CancelQuestionInput>(req).body,
-          res,
-        ),
-    );
-  }
-
+  if (questions) mountQuestionRoutes(router, store, questions);
   mountSessionRecallRoutes(router, store);
 
   return router;

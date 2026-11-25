@@ -1,6 +1,7 @@
 import {
   type AgentActivity,
   type Attachment,
+  type ChatAnswer,
   type ChatMessage,
   humanAuthor,
   type MessageDelivery,
@@ -144,6 +145,11 @@ export function useSessionChat(sessionId: string) {
       } finally {
         releaseSessionChatRoom(sessionId);
       }
+    },
+    answer: async (questionId: string, answer: ChatAnswer) => {
+      const room = peekSessionChatRoom(sessionId);
+      if (!room) throw new Error("The chat isn't connected.");
+      await room.answer(questionId, answer);
     },
     abort: (conversationId: string) =>
       peekSessionChatRoom(sessionId)?.abort(conversationId),

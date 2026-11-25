@@ -75,6 +75,7 @@ import { roomFor } from "./sockets/rooms.ts";
 import {
   createSubagentDismissedEmitter,
   createUiCommandEmitter,
+  ensureSessionAgents,
 } from "./sockets/sessionRoster.ts";
 import { openDb } from "./store/db/client.ts";
 import { FileAgentBundleStore } from "./store/fileAgentBundleStore.ts";
@@ -319,15 +320,13 @@ const pi = new PiAgentManager(
   (sessionId) => store.selectorsOf(sessionId),
 );
 pi.useOnDisposed((sessionId) => conversations.forgetSession(sessionId));
-// Prime's structured questions, folded from the transcript and rebuilt at boot;
-// pending ones show as `awaitingInput` in the lobby status.
+// Prime's structured questions, folded from the transcript; pending ones show
+// as `awaitingInput` in the lobby status. Rebuilt at boot once connectors exist,
+// below, because an expiry found then wakes Prime.
 const questions = new QuestionRegistry(store, runs);
 conversations.useQuestions(questions);
 questions.useOnChange((sessionId) => pi.refreshStatus(sessionId));
 pi.useAwaitingInput(questions);
-void questions.loadAll().catch((err: unknown) => {
-  console.error("[questions] startup rebuild failed", err);
-});
 pi.useTranscript(
   async (sessionId) => (await store.getMessages(sessionId)).length > 0,
 );
@@ -483,6 +482,7 @@ app.use(
       waves: conversations,
       correlations,
       context: contextEngine,
+      questions,
     },
     remoteGateway,
     emitUiCommand,
@@ -625,6 +625,18 @@ registerChatHandlers({
   participantService,
   presence,
   questions,
+});
+
+// An expired question wakes Prime with its notice, spawning it in a cold
+// session; an archived session is asleep and stays that way.
+questions.useWaker(async (sessionId) => {
+  const session = await store.getSession(sessionId);
+  if (!session || session.archived) return false;
+  await ensureSessionAgents(store, pi, connectors, session);
+  return true;
+});
+void questions.loadAll().catch((err: unknown) => {
+  console.error("[questions] startup rebuild failed", err);
 });
 
 httpServer.listen(PORT, () => {

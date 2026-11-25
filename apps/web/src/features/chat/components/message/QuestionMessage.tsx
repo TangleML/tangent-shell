@@ -10,14 +10,9 @@ import { Icon } from "@tangent/ui-primitives/icon";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import { Textarea } from "@tangent/ui-primitives/textarea";
 import { Paragraph, Text } from "@tangent/ui-primitives/typography";
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 
-import {
-  NO_MESSAGES,
-  peekSessionChat,
-  peekSessionChatRoom,
-  subscribeToSessionChat,
-} from "@/features/chat/hooks/sessionChatRoom";
+import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 
 import { HeaderCollapseButton } from "./HeaderCollapseButton";
 import { MessageAvatar } from "./MessageAvatar";
@@ -30,24 +25,22 @@ interface QuestionMessageProps {
   onCollapse?: () => void;
 }
 
-type Draft = Record<string, { selected: string[]; other: string }>;
-
-function useConversationMessages(
-  sessionId: string,
-  conversationId: string,
-): ChatMessage[] {
-  const snapshot = useSyncExternalStore(subscribeToSessionChat(sessionId), () =>
-    peekSessionChat(sessionId),
-  );
-  return snapshot.messagesByConversation.get(conversationId) ?? NO_MESSAGES;
+interface ItemDraft {
+  selected: string[];
+  other: string;
 }
+
+type Draft = Record<string, ItemDraft>;
+
+const EMPTY_DRAFT: ItemDraft = { selected: [], other: "" };
 
 function closedLabel(messages: ChatMessage[], questionId: string): string {
   const closing = messages.find((m) => m.inReplyTo === questionId);
   if (closing?.answer) return `Answered by ${closing.author.name}`;
-  if (closing?.questionClosed?.reason === "expired") return "Expired";
-  if (closing?.questionClosed?.reason === "cancelled") return "Withdrawn";
-  return "Replaced by a newer message";
+  const closed = closing?.questionClosed;
+  if (closed?.reason === "expired") return "Expired unanswered";
+  if (closed?.note) return `Closed by Prime: ${closed.note}`;
+  return "Closed by Prime";
 }
 
 function isComplete(items: QuestionItem[], draft: Draft): boolean {
@@ -59,7 +52,7 @@ function isComplete(items: QuestionItem[], draft: Draft): boolean {
 
 function toAnswers(items: QuestionItem[], draft: Draft): QuestionItemAnswer[] {
   return items.map((item) => {
-    const entry = draft[item.id] ?? { selected: [], other: "" };
+    const entry = draft[item.id] ?? EMPTY_DRAFT;
     const other = entry.other.trim();
     return {
       id: item.id,
@@ -69,11 +62,16 @@ function toAnswers(items: QuestionItem[], draft: Draft): QuestionItemAnswer[] {
   });
 }
 
+function toggled(item: QuestionItem, selected: string[], label: string) {
+  if (selected.includes(label)) return selected.filter((l) => l !== label);
+  return item.multiSelect ? [...selected, label] : [label];
+}
+
 interface QuestionItemFieldsProps {
   item: QuestionItem;
-  entry: { selected: string[]; other: string };
+  entry: ItemDraft;
   disabled: boolean;
-  onChange: (entry: { selected: string[]; other: string }) => void;
+  onChange: (entry: ItemDraft) => void;
 }
 
 function QuestionItemFields({
@@ -82,18 +80,6 @@ function QuestionItemFields({
   disabled,
   onChange,
 }: QuestionItemFieldsProps) {
-  const toggle = (label: string) => {
-    const has = entry.selected.includes(label);
-    const selected = item.multiSelect
-      ? has
-        ? entry.selected.filter((l) => l !== label)
-        : [...entry.selected, label]
-      : has
-        ? []
-        : [label];
-    onChange({ ...entry, selected });
-  };
-
   return (
     <BlockStack gap="1">
       <Text size="xs" weight="medium" tone="accent">
@@ -102,21 +88,27 @@ function QuestionItemFields({
       <Paragraph size="sm">{item.question}</Paragraph>
       {item.options.length > 0 ? (
         <InlineStack gap="1">
-          {item.options.map((option) => (
-            <Button
-              key={option.label}
-              size="xs"
-              variant={
-                entry.selected.includes(option.label) ? "default" : "outline"
-              }
-              disabled={disabled}
-              title={option.description}
-              aria-pressed={entry.selected.includes(option.label)}
-              onClick={() => toggle(option.label)}
-            >
-              {option.label}
-            </Button>
-          ))}
+          {item.options.map((option) => {
+            const pressed = entry.selected.includes(option.label);
+            return (
+              <Button
+                key={option.label}
+                size="xs"
+                variant={pressed ? "default" : "outline"}
+                disabled={disabled}
+                title={option.description}
+                aria-pressed={pressed}
+                onClick={() =>
+                  onChange({
+                    ...entry,
+                    selected: toggled(item, entry.selected, option.label),
+                  })
+                }
+              >
+                {option.label}
+              </Button>
+            );
+          })}
         </InlineStack>
       ) : null}
       <Textarea
@@ -126,40 +118,47 @@ function QuestionItemFields({
         }
         value={entry.other}
         disabled={disabled}
-        aria-label={`${item.header}: free-text answer`}
+        aria-label={`${item.header}: answer in your own words`}
         onChange={(e) => onChange({ ...entry, other: e.target.value })}
       />
     </BlockStack>
   );
 }
 
-/** Prime's structured question, answerable in place until it closes. */
+/**
+ * Prime's structured question, answerable in place until it closes: options
+ * as buttons (several when multi-select) plus free text for every item.
+ * Whether it is still open is folded from the Conversation's transcript, so a
+ * reload or another person's answer closes it everywhere.
+ */
 export function QuestionMessage({
   sessionId,
   message,
   question,
   onCollapse,
 }: QuestionMessageProps) {
-  const messages = useConversationMessages(sessionId, message.conversationId);
+  const { messagesFor, answer } = useSessionChat(sessionId);
+  const messages = messagesFor(message.conversationId);
   const [draft, setDraft] = useState<Draft>({});
-  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const pending = pendingQuestions(messages).some(
     (entry) => entry.question.id === question.id,
   );
-  const open = pending && !sent;
-  const empty = { selected: [], other: "" };
+  const editable = pending && !sending;
 
-  const submit = () => {
+  const submit = async () => {
+    setSending(true);
+    setError(null);
     try {
-      peekSessionChatRoom(sessionId)?.answer(question.id, {
+      await answer(question.id, {
         answers: toAnswers(question.questions, draft),
       });
-      setSent(true);
-      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
     }
   };
 
@@ -190,20 +189,25 @@ export function QuestionMessage({
           <QuestionItemFields
             key={item.id}
             item={item}
-            entry={draft[item.id] ?? empty}
-            disabled={!open}
+            entry={draft[item.id] ?? EMPTY_DRAFT}
+            disabled={!editable}
             onChange={(entry) => setDraft({ ...draft, [item.id]: entry })}
           />
         ))}
-        {open ? (
+        {pending ? (
           <InlineStack gap="2" blockAlign="center">
             <Button
               size="xs"
-              disabled={!isComplete(question.questions, draft)}
-              onClick={submit}
+              disabled={!editable || !isComplete(question.questions, draft)}
+              onClick={() => void submit()}
             >
-              Send answer
+              {sending ? "Sending…" : "Send answer"}
             </Button>
+            {question.peopleOnly ? (
+              <Text size="xs" tone="subdued">
+                A person should answer this.
+              </Text>
+            ) : null}
             {error ? (
               <Text size="xs" tone="critical">
                 {error}
@@ -212,7 +216,7 @@ export function QuestionMessage({
           </InlineStack>
         ) : (
           <Text size="xs" tone="subdued">
-            {pending ? "Sending…" : closedLabel(messages, question.id)}
+            {closedLabel(messages, question.id)}
           </Text>
         )}
       </BlockStack>

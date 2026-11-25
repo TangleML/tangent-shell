@@ -5,7 +5,6 @@ import {
   type AgentSetModelPayload,
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
-  type ChatAnswer,
   type ChatAuthor,
   type ChatCommandRun,
   type ChatJoinPayload,
@@ -40,6 +39,11 @@ import { type PiAgentManager, PRIME_AGENT_ID } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
+import {
+  type AnswerAck,
+  handleChatAnswer,
+  isAnswerPayload,
+} from "./chatAnswers.ts";
 import {
   handleArtifactPin,
   handleArtifactUnpin,
@@ -115,6 +119,30 @@ async function handleAgentAbort(
   console.log(`[runs] cancel refused for ${participantId}: ${reason}`);
 }
 
+/**
+ * Handles `chat:message`. A failure is logged rather than left unhandled, so a
+ * bad payload can't take the server down; an answer may carry an ack.
+ */
+function listenForChatMessages(
+  socket: Socket,
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+): void {
+  socket.on(
+    SocketEvents.ChatMessage,
+    (payload: ChatMessagePayload, ack?: unknown) =>
+      void handleChatMessage(
+        socket,
+        deps,
+        author,
+        payload,
+        typeof ack === "function" ? (ack as AnswerAck) : undefined,
+      ).catch((error: unknown) =>
+        console.error("[chat] posting a message failed:", error),
+      ),
+  );
+}
+
 /** Wires one connected socket's chat and agent listeners. */
 function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   const { io, store, pi, connectors } = deps;
@@ -144,9 +172,7 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
 
   socket.on("disconnect", () => markAbsent(deps, tracked));
 
-  socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
-    handleChatMessage(socket, deps, author, payload),
-  );
+  listenForChatMessages(socket, deps, author);
 
   socket.on(
     SocketEvents.AgentAbort,
@@ -537,68 +563,19 @@ export async function handleChatMessage(
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   payload: ChatMessagePayload,
+  ack?: AnswerAck,
 ): Promise<void> {
   const session = await deps.store.getSession(payload?.sessionId);
   if (!session) {
-    socket.emit("error", { message: "Session not found" });
+    if (ack) ack({ ok: false, error: "Session not found" });
+    else socket.emit("error", { message: "Session not found" });
     return;
   }
-  const { inReplyTo, answer } = payload;
-  if (inReplyTo && answer) {
-    await postAnswer(socket, deps, author, session, {
-      ...payload,
-      inReplyTo,
-      answer,
-    });
+  if (isAnswerPayload(payload)) {
+    await handleChatAnswer(socket, deps, author, session, payload, ack);
     return;
   }
   await postChatMessage(deps, author, session, payload);
-}
-
-/**
- * Posts a structured answer into the question's Conversation. Prime reads the
- * server-rendered text, so what it is told matches what was validated.
- */
-async function postAnswer(
-  socket: Socket,
-  deps: ChatHandlerDeps,
-  author: ChatAuthor,
-  session: Session,
-  payload: ChatMessagePayload & { inReplyTo: string; answer: ChatAnswer },
-): Promise<void> {
-  const { questions, store, pi, connectors, conversations } = deps;
-  if (!questions) return;
-  const check = await questions.checkAnswer(
-    session.id,
-    payload.inReplyTo,
-    payload.answer,
-  );
-  if (!check.ok) {
-    socket.emit("error", { message: check.error });
-    return;
-  }
-  if (!pi.hasAgent(session.id, PRIME_AGENT_ID)) {
-    await ensureSessionAgents(store, pi, connectors, session);
-  }
-  await conversations.post({
-    sessionId: session.id,
-    conversationId: check.pending.conversationId,
-    author,
-    content: check.content,
-    inReplyTo: payload.inReplyTo,
-    answer: cleanAnswer(payload.answer),
-  });
-}
-
-/** Keeps only the answer fields the contract defines. */
-function cleanAnswer(answer: ChatAnswer): ChatAnswer {
-  return {
-    answers: answer.answers.map(({ id, selected, other }) => ({
-      id,
-      selected,
-      ...(other?.trim() ? { other: other.trim() } : {}),
-    })),
-  };
 }
 
 async function postChatMessage(
