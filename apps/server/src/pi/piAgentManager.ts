@@ -271,9 +271,8 @@ export interface SendToAgentOptions {
   /** The human whose message this is, when it came from a person; stamped on the
    * Run this opens so remote tools route to their host. */
   audienceParticipantId?: string;
-  /** The human a relay from another agent's Run carries. Seeds the Run this
-   * opens; a Run in flight keeps acting for whoever it already did. */
-  relayedParticipantId?: string;
+  /** The identity set a relay from another agent's Run carries. */
+  audienceParticipants?: readonly string[];
   delegation?: RunDelegation;
 }
 
@@ -1790,8 +1789,8 @@ export class PiAgentManager {
    * A message that finds the agent idle opens a Run with `ingress`; one that
    * finds it mid-run joins the Run in flight, because Pi folds a steer or
    * follow-up into the run it is already taking — and a human who does so
-   * becomes the one the Run acts for. Pi's answer to the prompt corrects
-   * either guess (see {@link onPromptAnswered}).
+   * joins the Run's identity set as its most recent member. Pi's answer to the
+   * prompt corrects either guess (see {@link onPromptAnswered}).
    */
   sendToAgent(options: SendToAgentOptions): void {
     if (this.holdDuringMaintenance(options)) return;
@@ -1818,7 +1817,7 @@ export class PiAgentManager {
       streamingBehavior: streamingBehavior(options.delivery ?? "auto"),
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
-      relayedParticipantId: options.relayedParticipantId,
+      audienceParticipants: options.audienceParticipants,
       delegation: options.delegation,
     });
   }
@@ -1847,9 +1846,9 @@ export class PiAgentManager {
   }
 
   /**
-   * Makes the human behind a prompt that found its agent busy the one its open
-   * Run acts for. A trigger's creator is not, and its delegation is not
-   * applied — the firing is only posted, so a schedule cannot lend its
+   * Adds a human who writes into a Run in flight to its identity set as the
+   * acting default. A trigger's creator is not added and its delegation is
+   * not applied — the firing is only posted, so a schedule cannot lend its
    * creator's identity to someone else's turn.
    */
   private joinRun(
@@ -1880,7 +1879,7 @@ export class PiAgentManager {
       homeConversationId: agent.homeConversationId,
       ingress: prompt?.ingress ?? "reaction",
       audienceParticipantId: prompt?.audienceParticipantId,
-      relayedParticipantId: prompt?.relayedParticipantId,
+      audienceParticipants: prompt?.audienceParticipants,
       delegation: prompt?.delegation,
     }).id;
   }

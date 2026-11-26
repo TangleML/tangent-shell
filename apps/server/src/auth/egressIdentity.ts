@@ -26,29 +26,34 @@ export interface ChosenIdentity {
   source?: TokenSource;
 }
 
-/** One participant as `GET /internal/egress/identity` reports them. */
-export interface TurnParticipant {
-  id: string;
-  assertionExpiresAt?: string;
-}
-
-/** The human behind the caller's turn, or nobody. */
+/** The humans behind the caller's turn, as `GET /internal/egress/identity` reports them. */
 export interface TurnIdentity {
-  participant: TurnParticipant | null;
+  participants: { id: string; assertionExpiresAt?: string }[];
+  acting: string | null;
 }
 
 /** What choosing an identity needs to consult. */
 export interface EgressIdentityDeps {
-  runs: Pick<RunRegistry, "audienceFor" | "delegationFor">;
+  runs: Pick<RunRegistry, "participantsFor" | "delegationFor">;
   assertions?: IdentityAssertionCache;
   identityHeader?: string;
 }
 
+/** Raised when a caller names a participant who did not write into its turn. */
+export class ParticipantNotInTurnError extends Error {
+  readonly code = "participant_not_in_turn";
+
+  constructor(participantId: string) {
+    super(`${participantId} is not a participant of this turn.`);
+    this.name = "ParticipantNotInTurnError";
+  }
+}
+
 /**
- * Raised when the turn has a person behind it who cannot be carried: their
- * assertion has expired and the turn holds no delegation for them. Running as
- * the instance here would quietly widen what the agent may do, so the call is
- * refused instead.
+ * Raised when the turn has people behind it but none of them can be carried:
+ * the acting participant's assertion has expired and the turn holds no
+ * delegation for them. Running as the instance here would quietly widen what
+ * the agent may do, so the call is refused instead.
  */
 export class ParticipantAssertionExpiredError extends Error {
   readonly code = "participant_assertion_expired";
@@ -79,6 +84,18 @@ function configured(deps: EgressIdentityDeps): boolean {
   return (deps.identityHeader ?? EGRESS_IDENTITY_HEADER).length > 0;
 }
 
+/** The named member of the set, or its most recent; a non-member is refused. */
+function pickParticipant(
+  participants: string[],
+  onBehalfOf: string | undefined,
+): string | undefined {
+  if (onBehalfOf === undefined) return participants.at(-1);
+  if (!participants.includes(onBehalfOf)) {
+    throw new ParticipantNotInTurnError(onBehalfOf);
+  }
+  return onBehalfOf;
+}
+
 /** The turn's delegation for this person, else their live assertion. */
 function tokenFor(
   deps: EgressIdentityDeps,
@@ -97,20 +114,25 @@ function tokenFor(
 }
 
 /**
- * Decides who an egress call acts as: the human behind the caller's turn,
- * carrying that person's live assertion or the trigger delegation the turn
- * runs under. The instance identity is used only when forwarding is off or
- * the turn has nobody behind it. A participant who cannot be carried is a
- * refusal, as is an unidentified caller once forwarding is configured, so
- * nothing runs as the instance merely because a token expired or was left out.
+ * Decides who an egress call acts as: the named `onBehalfOf` member of the
+ * caller's identity set, else its most recent member, carrying that person's
+ * live assertion or the trigger delegation the turn runs under. The instance
+ * identity is used only when forwarding is off or the turn has nobody behind
+ * it. A participant who cannot be carried is a refusal, as is an unidentified
+ * caller once forwarding is configured, so nothing runs as the instance merely
+ * because a token expired or was left out.
  */
 export function chooseEgressIdentity(
   deps: EgressIdentityDeps,
   caller: AgentCaller | undefined,
+  onBehalfOf: string | undefined,
 ): ChosenIdentity {
   if (!configured(deps)) return instance("not_configured");
   if (!caller) throw new CallerRequiredError();
-  const participantId = deps.runs.audienceFor(caller.sessionId, caller.agentId);
+  const participantId = pickParticipant(
+    deps.runs.participantsFor(caller.sessionId, caller.agentId),
+    onBehalfOf,
+  );
   if (!participantId) return instance("no_participant");
 
   const carried = tokenFor(deps, caller, participantId);
@@ -118,18 +140,19 @@ export function chooseEgressIdentity(
   return { applied: { kind: "participant", id: participantId }, ...carried };
 }
 
-function participantOf(deps: EgressIdentityDeps, id: string): TurnParticipant {
-  const expiresAt = (deps.assertions ?? identityAssertions).get(id)?.expiresAt;
-  return expiresAt
-    ? { id, assertionExpiresAt: expiresAt.toISOString() }
-    : { id };
-}
-
-/** The human behind the caller's turn, with their assertion's expiry if held. */
+/** The caller's identity set with each member's assertion expiry, if held. */
 export function describeTurnIdentity(
   deps: EgressIdentityDeps,
   caller: AgentCaller | undefined,
 ): TurnIdentity {
-  const id = caller && deps.runs.audienceFor(caller.sessionId, caller.agentId);
-  return { participant: id ? participantOf(deps, id) : null };
+  if (!caller) return { participants: [], acting: null };
+  const assertions = deps.assertions ?? identityAssertions;
+  const ids = deps.runs.participantsFor(caller.sessionId, caller.agentId);
+  return {
+    participants: ids.map((id) => {
+      const expiresAt = assertions.get(id)?.expiresAt?.toISOString();
+      return expiresAt ? { id, assertionExpiresAt: expiresAt } : { id };
+    }),
+    acting: ids.at(-1) ?? null,
+  };
 }

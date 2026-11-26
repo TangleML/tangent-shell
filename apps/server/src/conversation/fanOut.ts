@@ -42,8 +42,8 @@ export interface FanOutRequest {
   ingress?: RunIngress;
   /** Whether a mid-run delivery steers or queues behind the current turn. */
   delivery?: MessageDelivery;
-  /** The human the author's Run acted for, when an agent posted this. */
-  relayedParticipantId?: string;
+  /** The identity set the author's Run carried, when an agent posted this. */
+  audienceParticipants?: readonly string[];
   audienceParticipantId?: string;
   delegation?: RunDelegation;
   /** The text one recipient receives, projected from the envelope. */
@@ -73,7 +73,7 @@ function keyFor(sessionId: string, id: string): string {
 }
 
 /** The human a delivery routes remote tools to: the author of a human message,
- * else none (an agent/automation wake relays a person, or acts for nobody). */
+ * else none (an agent/automation wake carries a set, or acts for nobody). */
 function audienceOf(message: ChatMessage): string | undefined {
   return message.source.kind === "human" ? message.author.id : undefined;
 }
@@ -91,7 +91,7 @@ function deliveryFor(
     ingress: request.ingress ?? member.ingress,
     delivery: request.delivery,
     audienceParticipantId: request.audienceParticipantId ?? audienceOf(message),
-    relayedParticipantId: request.relayedParticipantId,
+    audienceParticipants: request.audienceParticipants,
     delegation: request.delegation,
   };
 }

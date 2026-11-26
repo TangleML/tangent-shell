@@ -562,7 +562,7 @@ test("a human wake carries its author as the delivery's audience", async () => {
   assert.equal(h.delivered[0].audienceParticipantId, "ada@x");
 });
 
-test("an agent wake carries no audience of its own, only the participant its post relays", async () => {
+test("an agent wake carries no audience of its own, only the set its post relays", async () => {
   const h = makeEngine([membership("prime", "sub-1", "always")]);
   const relay = message({
     conversationId: "sub-1",
@@ -573,13 +573,13 @@ test("an agent wake carries no audience of its own, only the participant its pos
   await h.engine.fanOut({ message: relay, project });
   await h.engine.fanOut({
     message: relay,
-    relayedParticipantId: "bob@x",
+    audienceParticipants: ["ada@x", "bob@x"],
     project,
   });
 
   assert.equal(h.delivered[0].audienceParticipantId, undefined);
-  assert.equal(h.delivered[0].relayedParticipantId, undefined);
-  assert.equal(h.delivered[1].relayedParticipantId, "bob@x");
+  assert.equal(h.delivered[0].audienceParticipants, undefined);
+  assert.deepEqual(h.delivered[1].audienceParticipants, ["ada@x", "bob@x"]);
 });
 
 test("a fan-in wakes once, in its home, only after every worker finishes", async () => {

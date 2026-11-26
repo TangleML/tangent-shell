@@ -91,8 +91,8 @@ export interface PostedMessage {
   mentions?: string[];
   /** What created it, when a reaction did not. */
   ingress?: RunIngress;
-  /** The human the author's Run acted for, when it relays a report. */
-  relayedParticipantId?: string;
+  /** The identity set the author's Run carried, when it relays a report. */
+  audienceParticipants?: readonly string[];
 }
 
 /**
@@ -127,7 +127,7 @@ export interface SentPrompt {
   streamingBehavior: "steer" | "followUp";
   ingress: RunIngress;
   audienceParticipantId?: string;
-  relayedParticipantId?: string;
+  audienceParticipants?: readonly string[];
   delegation?: RunDelegation;
   /** The Run it opened by finding the agent idle. */
   runId?: RunId;

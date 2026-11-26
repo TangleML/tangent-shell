@@ -15,6 +15,7 @@ const {
   chooseEgressIdentity,
   describeTurnIdentity,
   ParticipantAssertionExpiredError,
+  ParticipantNotInTurnError,
 } = await import("./egressIdentity.ts");
 
 import type { RunDelegation } from "../runs/runRegistry.ts";
@@ -33,9 +34,9 @@ const SOON = Math.floor(Date.now() / 1000) + 600;
 const ALICE = jwt({ email: "alice@x", exp: SOON });
 const BOB = jwt({ email: "bob@x", exp: SOON + 60 });
 
-/** Identity deps for a turn `participant` stands behind; Alice and Bob hold live assertions. */
+/** Identity deps over a fixed set, with Alice and Bob holding live assertions. */
 function deps(
-  participant: string | undefined,
+  participants: string[],
   options: {
     delegation?: RunDelegation;
     expired?: string[];
@@ -49,7 +50,7 @@ function deps(
   }
   return {
     runs: {
-      audienceFor: () => participant,
+      participantsFor: () => [...participants],
       delegationFor: () => options.delegation,
     },
     assertions,
@@ -75,32 +76,61 @@ function captureFetch(status = 200) {
 
 afterEach(() => mock.reset());
 
-test("the human behind the turn is carried with their assertion", () => {
-  const chosen = chooseEgressIdentity(deps("bob@x"), WORKER);
+test("the acting default is the most recent member, carrying their assertion", () => {
+  const chosen = chooseEgressIdentity(
+    deps(["alice@x", "bob@x"]),
+    WORKER,
+    undefined,
+  );
   assert.deepEqual(chosen.applied, { kind: "participant", id: "bob@x" });
   assert.equal(chosen.token, BOB);
 });
 
-test("an unidentified caller is refused once forwarding is configured", () => {
-  assert.throws(
-    () => chooseEgressIdentity(deps("alice@x"), undefined),
-    (err: unknown) =>
-      err instanceof CallerRequiredError && err.code === "caller_required",
+test("onBehalfOf picks another member of the set, and refuses a non-member", () => {
+  const chosen = chooseEgressIdentity(
+    deps(["alice@x", "bob@x"]),
+    WORKER,
+    "alice@x",
   );
+  assert.deepEqual(chosen.applied, { kind: "participant", id: "alice@x" });
+  assert.equal(chosen.token, ALICE);
+
+  assert.throws(
+    () => chooseEgressIdentity(deps(["alice@x", "bob@x"]), WORKER, "mallory@x"),
+    (err: unknown) =>
+      err instanceof ParticipantNotInTurnError &&
+      err.code === "participant_not_in_turn",
+  );
+});
+
+test("an unidentified caller is refused once forwarding is configured", () => {
+  for (const onBehalfOf of [undefined, "alice@x"]) {
+    assert.throws(
+      () => chooseEgressIdentity(deps(["alice@x"]), undefined, onBehalfOf),
+      (err: unknown) =>
+        err instanceof CallerRequiredError && err.code === "caller_required",
+    );
+  }
   assert.deepEqual(
-    chooseEgressIdentity({ ...deps("alice@x"), identityHeader: "" }, undefined)
-      .applied,
+    chooseEgressIdentity(
+      { ...deps(["alice@x"]), identityHeader: "" },
+      undefined,
+      undefined,
+    ).applied,
     { kind: "instance", reason: "not_configured" },
   );
 });
 
 test("the instance stands in only when forwarding is off or nobody is behind the turn", () => {
   assert.deepEqual(
-    chooseEgressIdentity({ ...deps("alice@x"), identityHeader: "" }, WORKER)
-      .applied,
+    chooseEgressIdentity(
+      { ...deps(["alice@x"]), identityHeader: "" },
+      WORKER,
+      undefined,
+    ).applied,
     { kind: "instance", reason: "not_configured" },
   );
-  assert.deepEqual(chooseEgressIdentity(deps(undefined), WORKER).applied, {
+  assert.deepEqual(chooseEgressIdentity(deps([]), WORKER, undefined).applied, {
     kind: "instance",
     reason: "no_participant",
   });
@@ -109,44 +139,78 @@ test("the instance stands in only when forwarding is off or nobody is behind the
 test("a participant whose assertion expired is a refusal, not a fall-back to the instance", () => {
   assert.throws(
     () =>
-      chooseEgressIdentity(deps("alice@x", { expired: ["alice@x"] }), WORKER),
+      chooseEgressIdentity(
+        deps(["alice@x"], { expired: ["alice@x"] }),
+        WORKER,
+        undefined,
+      ),
     (err: unknown) =>
       err instanceof ParticipantAssertionExpiredError &&
       err.code === "participant_assertion_expired",
   );
+  assert.throws(
+    () =>
+      chooseEgressIdentity(
+        deps(["alice@x", "bob@x"], { expired: ["alice@x"] }),
+        WORKER,
+        "alice@x",
+      ),
+    ParticipantAssertionExpiredError,
+    "naming an expired member is refused too",
+  );
+  assert.equal(
+    chooseEgressIdentity(
+      deps(["alice@x", "bob@x"], { expired: ["alice@x"] }),
+      WORKER,
+      undefined,
+    ).token,
+    BOB,
+    "the acting default is judged on its own assertion",
+  );
 });
 
 test("a turn opened by a trigger carries the delegation token for its creator", () => {
-  const delegation = {
-    triggerId: "t1",
-    participantId: "alice@x",
-    token: "delegation-token",
-  };
-  const delegated = deps("alice@x", { expired: ["alice@x"], delegation });
-  const chosen = chooseEgressIdentity(delegated, WORKER);
+  const delegated = deps(["alice@x"], {
+    expired: ["alice@x"],
+    delegation: {
+      triggerId: "t1",
+      participantId: "alice@x",
+      token: "delegation-token",
+    },
+  });
+  const chosen = chooseEgressIdentity(delegated, WORKER, undefined);
   assert.deepEqual(chosen.applied, { kind: "participant", id: "alice@x" });
   assert.equal(chosen.token, "delegation-token");
 
-  // A human who took over the trigger's turn acts under their own assertion.
-  const takenOver = deps("bob@x", { delegation });
-  assert.equal(chooseEgressIdentity(takenOver, WORKER).token, BOB);
-});
-
-test("describeTurnIdentity names the human behind the turn with their assertion's expiry", () => {
-  assert.deepEqual(describeTurnIdentity(deps("alice@x"), WORKER), {
-    participant: {
-      id: "alice@x",
-      assertionExpiresAt: new Date(SOON * 1000).toISOString(),
+  // A human who joined the trigger's turn acts under their own assertion.
+  const joined = deps(["alice@x", "bob@x"], {
+    delegation: {
+      triggerId: "t1",
+      participantId: "alice@x",
+      token: "delegation-token",
     },
   });
-  assert.deepEqual(describeTurnIdentity(deps("carol@x"), WORKER), {
-    participant: { id: "carol@x" },
-  });
-  assert.deepEqual(describeTurnIdentity(deps(undefined), WORKER), {
-    participant: null,
-  });
-  assert.deepEqual(describeTurnIdentity(deps("alice@x"), undefined), {
-    participant: null,
+  assert.equal(chooseEgressIdentity(joined, WORKER, undefined).token, BOB);
+});
+
+test("describeTurnIdentity lists the set with each live assertion's expiry", () => {
+  const described = describeTurnIdentity(
+    deps(["alice@x", "bob@x", "carol@x"]),
+    WORKER,
+  );
+  assert.equal(described.acting, "carol@x");
+  assert.deepEqual(
+    described.participants.map((p) => p.id),
+    ["alice@x", "bob@x", "carol@x"],
+  );
+  assert.equal(
+    described.participants[0].assertionExpiresAt,
+    new Date(SOON * 1000).toISOString(),
+  );
+  assert.equal(described.participants[2].assertionExpiresAt, undefined);
+  assert.deepEqual(describeTurnIdentity(deps(["alice@x"]), undefined), {
+    participants: [],
+    acting: null,
   });
 });
 

@@ -393,7 +393,7 @@ test("a trigger's firing opens the remote sub-agent's Run under its delegation, 
   });
 
   assert.deepEqual(h.runs.delegationFor("s1", info.id), delegation);
-  assert.equal(h.runs.audienceFor("s1", info.id), "alice@x");
+  assert.deepEqual(h.runs.participantsFor("s1", info.id), ["alice@x"]);
   const message = env.sent.findLast(
     (entry) => entry.event === RemoteEnvEvents.Message,
   );

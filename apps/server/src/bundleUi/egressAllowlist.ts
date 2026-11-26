@@ -180,6 +180,7 @@ const EGRESS_TIMEOUT_MS = 10_000;
 /** Stable codes an egress route answers a failed proxy call with. */
 export type EgressErrorCode =
   | "egress_denied"
+  | "participant_not_in_turn"
   | "upstream_timeout"
   | "upstream_unreachable"
   | "egress_failed";

@@ -2148,7 +2148,7 @@ test("each spawn mints its own agent token; a respawn rotates it and a kill forg
   assert.equal(pi.resolveAgentToken(workerToken), undefined);
 });
 
-test("a human message into a busy agent becomes the one its run acts for", async () => {
+test("a human message into a busy agent joins the run's identity set", async () => {
   const { pi, runs } = makeManager();
   await pi.ensure("s1", "/tmp/s1");
 
@@ -2158,7 +2158,7 @@ test("a human message into a busy agent becomes the one its run acts for", async
     text: "start",
     audienceParticipantId: "alice@x",
   });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "alice@x");
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), ["alice@x"]);
 
   pi.sendToAgent({
     sessionId: "s1",
@@ -2167,18 +2167,16 @@ test("a human message into a busy agent becomes the one its run acts for", async
     delivery: "steer",
     audienceParticipantId: "bob@x",
   });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), [
+    "alice@x",
+    "bob@x",
+  ]);
 
   pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "agent" });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
-
-  pi.sendToAgent({
-    sessionId: "s1",
-    agentId: PRIME_AGENT_ID,
-    text: "a relay",
-    relayedParticipantId: "carol@x",
-  });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), [
+    "alice@x",
+    "bob@x",
+  ]);
 });
 
 test("a trigger firing into an idle agent opens a run acting as its creator under its delegation", async () => {
@@ -2198,16 +2196,16 @@ test("a trigger firing into an idle agent opens a run acting as its creator unde
     audienceParticipantId: "alice@x",
     delegation,
   });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "alice@x");
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), ["alice@x"]);
   assert.deepEqual(runs.delegationFor("s1", PRIME_AGENT_ID), delegation);
 
   runs.settleOpenFor("s1", PRIME_AGENT_ID, "completed");
   pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "agent" });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), undefined);
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), []);
   assert.equal(runs.delegationFor("s1", PRIME_AGENT_ID), undefined);
 });
 
-test("a relay into an idle agent opens a run acting for the participant it carried", async () => {
+test("a relay into an idle agent opens a run with the set it carried", async () => {
   const { pi, runs } = makeManager();
   await pi.ensure("s1", "/tmp/s1");
 
@@ -2216,12 +2214,15 @@ test("a relay into an idle agent opens a run acting for the participant it carri
     agentId: PRIME_AGENT_ID,
     text: "report",
     ingress: "tool",
-    relayedParticipantId: "bob@x",
+    audienceParticipants: ["alice@x", "bob@x"],
   });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), [
+    "alice@x",
+    "bob@x",
+  ]);
 });
 
-test("a trigger firing into a busy agent is only posted: the audience and the delegation stay as they were", async () => {
+test("a trigger firing into a busy agent is only posted: the set and the delegation stay as they were", async () => {
   const { pi, runs } = makeManager();
   await pi.ensure("s1", "/tmp/s1");
 
@@ -2243,6 +2244,7 @@ test("a trigger firing into a busy agent is only posted: the audience and the de
       token: "delegation-token",
     },
   });
+  assert.deepEqual(runs.participantsFor("s1", PRIME_AGENT_ID), ["bob@x"]);
   assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
   assert.equal(runs.delegationFor("s1", PRIME_AGENT_ID), undefined);
 });

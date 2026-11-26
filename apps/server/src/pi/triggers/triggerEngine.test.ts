@@ -270,13 +270,14 @@ test("a lapse mid-turn strips the delegation from the open Run, which falls back
       chooseEgressIdentity(
         { runs, assertions, identityHeader: "x-tangent-on-behalf-of" },
         { sessionId: "s1", agentId: "sub-1" },
+        undefined,
       );
     assert.equal(egress().source?.kind, "delegation");
     assert.equal(egress().token, "delegation-token");
 
     await engine.dropLapsedDelegation("s1", nightly.id);
     assert.equal(runs.delegationFor("s1", "sub-1"), undefined);
-    assert.equal(runs.audienceFor("s1", "sub-1"), "alice@x");
+    assert.deepEqual(runs.participantsFor("s1", "sub-1"), ["alice@x"]);
     assert.throws(egress, ParticipantAssertionExpiredError);
 
     assertions.record("alice@x", ALICE, "bearer");
