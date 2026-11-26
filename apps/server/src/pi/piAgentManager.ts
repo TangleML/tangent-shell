@@ -530,8 +530,8 @@ function warnMissingProxyEnv(): void {
   }
   if (!process.env.PI_PROXY_URL) {
     console.warn(
-      `[pi] PI_PROXY_URL is not set; the proxy-provider extension will default to ${PI_PROXY_URL}. ` +
-        "Set PI_PROXY_URL to point Pi at an LLM gateway, or set a provider key for direct access.",
+      "[pi] PI_PROXY_URL is not set. Set it to point Pi at an LLM gateway, " +
+        "or set a provider key for direct access.",
     );
   }
 }
@@ -822,7 +822,7 @@ function logSpawn(
       provider,
       model,
       thinking,
-      proxyUrl: PI_PROXY_URL,
+      proxyUrl: PI_PROXY_URL ?? null,
       hasProxyApiKey: Boolean(process.env.PI_PROXY_API_KEY),
       tools: tools.join(","),
       skills: extras.skillPaths,

@@ -105,9 +105,9 @@ the extensions read to call back in:
 - `TANGENT_SESSION_ID`, `TANGENT_AGENT_ID`, `TANGENT_AGENT_ROLE`
 - `TANGENT_INTERNAL_URL`, `TANGENT_INTERNAL_TOKEN`
 
-If `PI_PROXY_API_KEY` / `PI_PROXY_URL` are unset, `warnMissingProxyEnv` logs a
-warning once per ensure; the proxy-provider extension still defaults the base URL
-to `PI_PROXY_URL`.
+If no provider key is set and `PI_PROXY_API_KEY` / `PI_PROXY_URL` are unset,
+`warnMissingProxyEnv` logs a warning once per ensure, because Pi then has no way
+to reach a model.
 
 ---
 
