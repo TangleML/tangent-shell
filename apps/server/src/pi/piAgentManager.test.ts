@@ -536,9 +536,7 @@ function emitPi(child: FakeChild, event: Record<string, unknown>): void {
 }
 
 /** The RPC commands written to an agent's stdin, oldest first. */
-function commands(
-  child: FakeChild,
-): {
+function commands(child: FakeChild): {
   id: string;
   type: string;
   streamingBehavior?: string;
