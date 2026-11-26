@@ -23,7 +23,12 @@ const { InMemorySessionStore } =
 const { InMemoryParticipantStore } =
   await import("../store/inMemoryParticipantStore.ts");
 
-import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
+import {
+  type ChatMessage,
+  connectorFor,
+  DEFAULT_USER,
+  type SubagentInfo,
+} from "@tangent/shared/contracts.ts";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
@@ -113,7 +118,7 @@ async function serve() {
       body: JSON.stringify(body),
     });
 
-  return { store, reactors, killed, post };
+  return { store, reactors, killed, post, base };
 }
 
 /** Serves the internal agents API over `store`, with `live` as the connectors' roster. */
@@ -138,6 +143,46 @@ function serveList(
   cleanups.push(() => server.close());
   return (server.address() as AddressInfo).port;
 }
+
+test("looking up a request keeps its original sender after a later message", async () => {
+  const { store, base } = await serve();
+  const message: ChatMessage = {
+    id: "first",
+    sessionId: "s1",
+    conversationId: "room",
+    seq: 1,
+    author: { kind: "human", id: "matt@example.com", name: "Matt" },
+    source: { kind: "human" },
+    mentions: [],
+    content: "Run pipeline A",
+    createdAt: new Date().toISOString(),
+  };
+  await store.appendMessage(message);
+  for (const [id, author, command] of [
+    ["second", { kind: "human", id: "john@example.com", name: "John" }],
+    ["local", { kind: "human", id: DEFAULT_USER.email, name: "Local" }],
+    ["command", message.author, { name: "run" }],
+  ] as const) {
+    await store.appendMessage({ ...message, id, author, command });
+  }
+  const read = async (query: string) => {
+    const res = await fetch(`${base}/room?${query}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    assert.equal(res.status, 200);
+    return ((await res.json()) as { messages: ChatMessage[] }).messages;
+  };
+  assert.deepEqual(await read("sessionId=s1&limit=1&messageId=first"), [
+    message,
+  ]);
+  assert.deepEqual(await read("sessionId=other&messageId=first"), []);
+  assert.deepEqual(await read("sessionId=s1&messageId=local"), []);
+  assert.deepEqual(await read("sessionId=s1&messageId=command"), []);
+  assert.deepEqual(
+    (await read("sessionId=s1&limit=1")).map((m) => m.id),
+    ["command"],
+  );
+});
 
 test("spawning installs a supervise reactor for the orchestrator", async () => {
   const { store, reactors, post } = await serve();

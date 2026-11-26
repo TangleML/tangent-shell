@@ -5,6 +5,7 @@ import {
   type ChatAuthor,
   type ChatCommandRun,
   type ChatMessage,
+  DEFAULT_USER,
   type MemoryHighlightScope,
   type MessageDelivery,
   type MessageSource,
@@ -206,6 +207,17 @@ export function withCommandResults(
     "End of command results. The message you were sent follows.",
     text,
   ].join("\n\n");
+}
+
+/** A signed-in human's original chat instruction can be referenced by its stored ID. */
+export function isHumanRequest(message: ChatMessage): boolean {
+  return (
+    message.source.kind === "human" &&
+    message.author.kind === "human" &&
+    !message.command &&
+    message.author.id.includes("@") &&
+    message.author.id !== DEFAULT_USER.email
+  );
 }
 
 /** How a recipient woken from someone else's Conversation is told whose it was. */
@@ -428,9 +440,14 @@ export class ConversationRouter {
         delivery: input.delivery,
         project: (msg, recipient) => {
           const text = deliveryText(msg, recipient, owner);
-          return recipient.participantId === owner
-            ? withCommandResults(text, results)
-            : text;
+          const prompt =
+            recipient.participantId === owner
+              ? withCommandResults(text, results)
+              : text;
+          return recipient.transcriptVisibility !== "opaque" &&
+            isHumanRequest(msg)
+            ? `[request_message_id: ${msg.id}]\n${prompt}`
+            : prompt;
         },
       });
       delivered = outcome.woke.includes(owner);
