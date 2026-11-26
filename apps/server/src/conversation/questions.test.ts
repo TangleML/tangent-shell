@@ -212,6 +212,54 @@ test("answers that don't fit the question are refused", async () => {
   await refused({ answers: [{ id: "scope", selected: ["All time"] }] });
 });
 
+test("a people-only question needs an answer that says a person gave it", async () => {
+  const h = await makeHarness();
+  const outcome = await h.questions.ask({
+    sessionId: "s1",
+    questions: [SCOPE],
+    peopleOnly: true,
+  });
+  assert.ok(outcome.ok, outcome.ok ? "" : outcome.error);
+  const { question } = outcome;
+  const picked = [{ id: "scope", selected: ["All time"] }];
+
+  const bare = await h.questions.claimAnswer("s1", question.id, {
+    answers: picked,
+  });
+  assert.equal(bare.ok, false);
+  assert.match(bare.ok ? "" : bare.error, /Only a person can answer/);
+
+  const relayed = await h.questions.claimAnswer("s1", question.id, {
+    answers: picked,
+    answeredBy: { kind: "relayed", by: "pi-3 (PiForge)", ref: "q-123" },
+  });
+  assert.ok(relayed.ok);
+  assert.match(
+    relayed.content,
+    /Relayed by pi-3 \(PiForge\) from a person's answer \(q-123\)\./,
+  );
+  h.questions.releaseAnswer("s1", question.id);
+
+  const check = await answerWith(h, question.id, {
+    answers: picked,
+    answeredBy: { kind: "person" },
+  });
+  assert.match(check.content, /Answered directly by a person\./);
+  const messages = await transcript(h);
+  const answer = messages.find((m) => m.answer)?.answer;
+  assert.deepEqual(answer?.answeredBy, { kind: "person" });
+});
+
+test("an attestation is optional on a question anyone may answer", async () => {
+  const h = await makeHarness();
+  const { question } = await ask(h);
+
+  const check = await answerWith(h, question.id, {
+    answers: [{ id: "scope", selected: ["All time"] }],
+  });
+  assert.doesNotMatch(check.content, /person/);
+});
+
 test("a claimed question refuses a second answer until the claim is released", async () => {
   const h = await makeHarness();
   const { question } = await ask(h);
@@ -502,6 +550,16 @@ test("parseAnswer keeps well-formed answers and rejects anything else", () => {
   assert.deepEqual(parseAnswer({ answers: [{ id: "notes", other: "x" }] }), {
     answers: [{ id: "notes", selected: [], other: "x" }],
   });
+  assert.deepEqual(
+    parseAnswer({
+      answers: [{ id: "notes", other: "x" }],
+      answeredBy: { kind: "relayed", by: " pi-3 ", ref: "q-1", extra: 1 },
+    }),
+    {
+      answers: [{ id: "notes", selected: [], other: "x" }],
+      answeredBy: { kind: "relayed", by: "pi-3", ref: "q-1" },
+    },
+  );
   for (const raw of [
     undefined,
     "All time",
@@ -509,6 +567,9 @@ test("parseAnswer keeps well-formed answers and rejects anything else", () => {
     { answers: [{ id: "scope", selected: "All time" }] },
     { answers: [{ id: "scope", selected: [], other: 5 }] },
     { answers: [{ id: 1, selected: [] }] },
+    { answers: [], answeredBy: { kind: "bot" } },
+    { answers: [], answeredBy: { kind: "relayed", by: " ", ref: "q-1" } },
+    { answers: [], answeredBy: { kind: "relayed", by: "pi-3" } },
   ]) {
     assert.equal(parseAnswer(raw), undefined, JSON.stringify(raw));
   }

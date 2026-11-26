@@ -188,8 +188,15 @@ is pending, `SessionStatusPayload.awaitingInput { count, since }` is set in the
 lobby status and its snapshot, and the workflow view lists them under
 `questions`. Answers arrive over `chat:message` (see
 [ui-server-protocol.md](./ui-server-protocol.md)); the server validates them
-against the question and writes the text Prime reads. `peopleOnly` is a hint to
-clients: the server can't tell a person from an orchestrator acting for one.
+against the question and writes the text Prime reads.
+
+`peopleOnly` marks a question only a person may answer, such as an approval.
+Its answers must carry `answeredBy`: `person` when a person answered in the
+client, or `relayed` with who relayed it and where the person answered, when an
+agent passes on a person's own answer. The server refuses an answer without
+one, and Prime reads the attestation with the answer. It is a statement, not
+proof: the server can't tell a person's client from an agent's, so it holds
+agents to saying when they relay, and the web UI shows a relayed answer as one.
 
 ---
 

@@ -16,6 +16,7 @@ import {
   answerError,
   answerText,
   applyToPending,
+  MAX_PENDING_QUESTIONS,
   questionFallbackText,
 } from "@tangent/shared/questions.ts";
 import { z } from "zod";
@@ -25,7 +26,6 @@ import type { SessionStore } from "../store/sessionStore.ts";
 import type { PostInput, PostResult } from "./conversationRouter.ts";
 import { orchestratorIdentity } from "./participantRegistry.ts";
 
-export const MAX_PENDING_QUESTIONS = 4;
 export const DEFAULT_QUESTION_TTL_MS = 24 * 60 * 60 * 1000;
 const MIN_QUESTION_TTL_MS = 60 * 1000;
 const MAX_QUESTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -87,6 +87,9 @@ interface SessionState {
 
 const MAX_OTHER_CHARS = 4_000;
 
+const MAX_ATTESTATION_CHARS = 200;
+const attestationField = z.string().trim().min(1).max(MAX_ATTESTATION_CHARS);
+
 const answerSchema = z.object({
   answers: z
     .array(
@@ -97,6 +100,16 @@ const answerSchema = z.object({
       }),
     )
     .max(4),
+  answeredBy: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("person") }),
+      z.object({
+        kind: z.literal("relayed"),
+        by: attestationField,
+        ref: attestationField,
+      }),
+    ])
+    .optional(),
 });
 
 /**
@@ -106,11 +119,13 @@ const answerSchema = z.object({
 export function parseAnswer(raw: unknown): ChatAnswer | undefined {
   const parsed = answerSchema.safeParse(raw);
   if (!parsed.success) return undefined;
+  const { answeredBy } = parsed.data;
   return {
     answers: parsed.data.answers.map(({ id, selected, other }) => {
       const text = other?.trim();
       return text ? { id, selected, other: text } : { id, selected };
     }),
+    ...(answeredBy ? { answeredBy } : {}),
   };
 }
 
@@ -567,7 +582,11 @@ function askError(
   items: QuestionItem[],
 ): string | undefined {
   if (state.pending.size + state.asking >= MAX_PENDING_QUESTIONS) {
-    return `There are already ${MAX_PENDING_QUESTIONS} pending questions; wait for answers or cancel one.`;
+    return (
+      `There are already ${MAX_PENDING_QUESTIONS} pending questions; wait ` +
+      "for answers or cancel one. People see that you can't ask more, so " +
+      "say in chat which open question you need answered first."
+    );
   }
   return questionsError(items);
 }

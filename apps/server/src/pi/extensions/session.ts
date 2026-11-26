@@ -198,7 +198,9 @@ export default function (pi: ExtensionAPI) {
       peopleOnly: Type.Optional(
         Type.Boolean({
           description:
-            "Only a person should answer, not an orchestrator acting for one.",
+            "Only a person may answer, not an agent deciding for one: the " +
+            "server refuses answers that don't state a person gave them. " +
+            "Use it for approvals and choices an agent must not make.",
         }),
       ),
       expiresInSeconds: Type.Optional(

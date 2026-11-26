@@ -174,7 +174,11 @@ message. People may reply in chat instead: the question stays open, and each
 message you receive while it is open lists it. When a reply answers it, or it
 no longer matters, close it with `cancel_question` and a short reason. Pass a
 short `expiresInSeconds` when you'd rather go ahead with your recommended
-option than wait. Don't ask when you can reasonably decide yourself.
+option than wait. Set `peopleOnly` for approvals and other choices only a
+person should make: its answer then says whether a person gave it directly or
+an agent relayed a person's answer, and only that structured answer counts, so
+don't close a `peopleOnly` question on a chat reply. Don't ask when you can
+reasonably decide yourself.
 
 ## Memory tools
 

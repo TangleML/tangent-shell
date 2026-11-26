@@ -1490,8 +1490,8 @@ export interface ChatQuestion {
   id: string;
   questions: QuestionItem[];
   /**
-   * Only a person should answer, not an orchestrator acting for one. A hint for
-   * clients: the server cannot tell the two apart.
+   * Only a person may answer, not an agent deciding for one. The server refuses
+   * an answer to it that carries no {@link AnswerAttestation}.
    */
   peopleOnly?: boolean;
   /** ISO-8601 time after which the question closes as `expired`. */
@@ -1507,9 +1507,27 @@ export interface QuestionItemAnswer {
   other?: string;
 }
 
+/**
+ * Who gave an answer, as the answering client states it: a person answering in
+ * that client, or an agent passing on a person's own answer it got elsewhere.
+ * It is a statement, not proof, since the server can't tell a person's client
+ * from an agent's; an agent must not attest an answer it chose itself.
+ */
+export type AnswerAttestation =
+  | { kind: "person" }
+  | {
+      kind: "relayed";
+      /** Who relayed it, e.g. "pi-3 (PiForge)". */
+      by: string;
+      /** Where the person answered, e.g. the relaying tool's question id. */
+      ref: string;
+    };
+
 /** A person's answer to a {@link ChatQuestion}, one entry per item answered. */
 export interface ChatAnswer {
   answers: QuestionItemAnswer[];
+  /** Who answered. Required for a `peopleOnly` question, optional otherwise. */
+  answeredBy?: AnswerAttestation;
 }
 
 /** What the server acknowledges a `chat:message` answer with. */

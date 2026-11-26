@@ -7,6 +7,10 @@ import type {
   QuestionItemAnswer,
 } from "./contracts.ts";
 
+/** How many of Prime's questions can be open in a session at once; the server
+ * refuses another until one is answered or closed. */
+export const MAX_PENDING_QUESTIONS = 4;
+
 /**
  * Applies one Message to a pending-question set, in transcript order: a
  * question opens, and an answer or close notice naming it closes it. Any other
@@ -66,7 +70,7 @@ function itemText(item: QuestionItem, index: number): string {
  * don't render structured questions. */
 export function questionFallbackText(question: ChatQuestion): string {
   const items = question.questions.map(itemText).join("\n");
-  const who = question.peopleOnly ? " A person should answer." : "";
+  const who = question.peopleOnly ? " Only a person can answer this." : "";
   return `**Prime is asking:**\n\n${items}\n\n_Reply with your answer.${who}_`;
 }
 
@@ -83,7 +87,18 @@ export function answerText(question: ChatQuestion, answer: ChatAnswer): string {
     const value = parts.length ? parts.join(", ") : "(no answer)";
     return `- ${item.header} (${item.question}): ${value}`;
   });
-  return `Answer to your question ${question.id}:\n${lines.join("\n")}`;
+  const source = attestationText(answer.answeredBy);
+  const tail = source ? `\n${source}` : "";
+  return `Answer to your question ${question.id}:\n${lines.join("\n")}${tail}`;
+}
+
+/** How an answer's attestation reads to Prime and on a closed card. */
+export function attestationText(
+  answeredBy: ChatAnswer["answeredBy"],
+): string | undefined {
+  if (!answeredBy) return undefined;
+  if (answeredBy.kind === "person") return "Answered directly by a person.";
+  return `Relayed by ${answeredBy.by} from a person's answer (${answeredBy.ref}).`;
 }
 
 /**
@@ -132,6 +147,12 @@ export function answerError(
   answer: ChatAnswer,
 ): string | undefined {
   if (answer.answers.length === 0) return "The answer has no entries.";
+  if (question.peopleOnly && !answer.answeredBy) {
+    return (
+      "Only a person can answer this question. Answer it as a person, or " +
+      "relay a person's own answer with answeredBy."
+    );
+  }
   const seen = new Set<string>();
   for (const entry of answer.answers) {
     const item = question.questions.find(

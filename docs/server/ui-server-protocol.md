@@ -109,9 +109,13 @@ Event names come from `SocketEvents` in
   idle.
 - `chat:message` `{ sessionId, content: "", inReplyTo, answer }` — answer one of
   Prime's pending questions (see [Structured questions](#sequence-structured-questions)).
-  `answer` is `{ answers: [{ id, selected: string[], other? }] }`. Pass a
-  socket.io ack to get `{ ok, error? }` back; without one, a refusal arrives as
-  the socket's `error` event.
+  `answer` is `{ answers: [{ id, selected: string[], other? }], answeredBy? }`.
+  `answeredBy` says who answered: `{ kind: "person" }` from a client a person
+  answers in (the web UI always sends it), or `{ kind: "relayed", by, ref }` from
+  an agent passing on a person's own answer, `ref` naming where they gave it. A
+  `peopleOnly` question refuses answers without it. Pass a socket.io ack to get
+  `{ ok, error? }` back; without one, a refusal arrives as the socket's `error`
+  event.
 - `agent:abort` `{ sessionId, conversationId }` — abort an in-progress **Run**;
   the server resolves the participant's open run id and cancels it through
   whichever connector holds it.

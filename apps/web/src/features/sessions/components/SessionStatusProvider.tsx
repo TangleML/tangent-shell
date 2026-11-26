@@ -1,5 +1,4 @@
 import {
-  type SessionRunStatus,
   type SessionStatusPayload,
   type SessionStatusSnapshotPayload,
   SocketEvents,
@@ -10,6 +9,7 @@ import { type PropsWithChildren, useEffect, useState } from "react";
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
 import {
   SessionStatusContext,
+  type SessionStatusEntry,
   type SessionStatusMap,
 } from "@/features/sessions/model/sessionStatusContext";
 import { createSocket } from "@/shared/lib/socket";
@@ -37,20 +37,17 @@ export function SessionStatusProvider({ children }: PropsWithChildren) {
     socket.on(
       SocketEvents.SessionStatusSnapshot,
       ({ statuses: snapshot }: SessionStatusSnapshotPayload) => {
-        setStatuses(new Map(snapshot.map((s) => [s.sessionId, s.status])));
+        setStatuses(new Map(snapshot.map((s) => [s.sessionId, toEntry(s)])));
       },
     );
 
-    socket.on(
-      SocketEvents.SessionStatus,
-      ({ sessionId, status }: SessionStatusPayload) => {
-        setStatuses((prev) => upsertStatus(prev, sessionId, status));
-        // A turn boundary usually means new messages; refresh list activity.
-        void queryClient.invalidateQueries({
-          queryKey: SessionQueryKeys.All(),
-        });
-      },
-    );
+    socket.on(SocketEvents.SessionStatus, (payload: SessionStatusPayload) => {
+      setStatuses((prev) => upsertStatus(prev, payload));
+      // A turn boundary usually means new messages; refresh list activity.
+      void queryClient.invalidateQueries({
+        queryKey: SessionQueryKeys.All(),
+      });
+    });
 
     return () => {
       socket.removeAllListeners();
@@ -65,17 +62,24 @@ export function SessionStatusProvider({ children }: PropsWithChildren) {
   );
 }
 
-/** Returns a new map with `sessionId` set to `status` (or removed when idle). */
+function toEntry({
+  status,
+  awaitingInput,
+}: SessionStatusPayload): SessionStatusEntry {
+  return awaitingInput ? { status, awaitingInput } : { status };
+}
+
+/** Returns a new map with the payload's session updated, or removed when it is
+ * idle with nothing pending. */
 function upsertStatus(
   prev: SessionStatusMap,
-  sessionId: string,
-  status: SessionRunStatus,
+  payload: SessionStatusPayload,
 ): SessionStatusMap {
   const next = new Map(prev);
-  if (status === "idle") {
-    next.delete(sessionId);
+  if (payload.status === "idle" && !payload.awaitingInput) {
+    next.delete(payload.sessionId);
   } else {
-    next.set(sessionId, status);
+    next.set(payload.sessionId, toEntry(payload));
   }
   return next;
 }
