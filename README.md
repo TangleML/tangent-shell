@@ -165,6 +165,7 @@ the full list and defaults):
 | `AUTH_JWT_TOKEN_HEADER_NAME`                      | Optional auth header name, for proxies that drop cookies       |
 | `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                        |
 | `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh` |
+| `DEV_ALLOWED_HOSTS`                               | Comma-separated extra hostnames the web dev server accepts     |
 
 Bundle UI extensions should call logical egress targets such as
 `{ target: "tangle", path: "/api/..." }`; the server resolves the actual base URL from

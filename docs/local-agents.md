@@ -45,7 +45,7 @@ Connect from any agent you're already running. Instead of the extension, you ini
 
 **What it does.** From a running coding agent, paste a one-line command to join a session as a sub-agent. It spawns a **fresh** local agent in your working folder (`--cwd`), and that agent can be controlled from the Web UI, Prime, and the agent you launched from. The spawned agent also gets session-resource tools so it can share files into the Tangent session and read what others contributed.
 
-**How to get it.** Use the skill — [skills.quick.shopify.io/#/skills/tangent-acp-attach](https://skills.quick.shopify.io/#/skills/tangent-acp-attach) — or the `tangent-acp-attach` CLI directly. Paste the attach line for whichever host you're in:
+**How to get it.** Use the skill — [`apps/acp-attach-cli/SKILL.md`](../apps/acp-attach-cli/SKILL.md) — or the `tangent-acp-attach` CLI directly. Paste the attach line for whichever host you're in:
 
 ```
 /tangent-acp-attach <url> <session> claude

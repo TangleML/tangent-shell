@@ -205,7 +205,7 @@ test("a turn's run carries the far side's session id and drain cursor", async ()
   const { id } = await h.gateway.register("s1", { name: "worker" });
 
   const runId = h.gateway.openRun("s1", id, {
-    externalId: "aquifer-1",
+    externalId: "remote-1",
     cursor: "7",
   });
   assert.ok(runId);
@@ -214,7 +214,7 @@ test("a turn's run carries the far side's session id and drain cursor", async ()
 
   assert.equal(h.events.at(-1)?.runId, runId);
   const stored = await h.runStore.getRun(runId);
-  assert.equal(stored?.externalId, "aquifer-1");
+  assert.equal(stored?.externalId, "remote-1");
   assert.equal(stored?.cursor, "31");
   assert.equal(stored?.status, "completed");
   assert.equal(stored?.ingress, "tool");

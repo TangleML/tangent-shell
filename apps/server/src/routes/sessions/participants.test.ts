@@ -105,7 +105,7 @@ test("inviteParticipantSchema requires a valid email", () => {
     false,
   );
   assert.equal(
-    inviteParticipantSchema.safeParse({ email: "a@shopify.com" }).success,
+    inviteParticipantSchema.safeParse({ email: "a@example.com" }).success,
     true,
   );
 });
@@ -128,7 +128,7 @@ test("POST invite then GET shows the human as away", async () => {
   const invited = await call<{
     participant: { kind: string; presence: string };
   }>("POST", `/${sessionId}/participants`, {
-    email: "a@shopify.com",
+    email: "a@example.com",
     conversationIds: ["prime"],
   });
   assert.equal(invited.status, 201);
@@ -141,7 +141,7 @@ test("POST invite then GET shows the human as away", async () => {
       memberships: { conversationId: string }[];
     }[];
   }>("GET", `/${sessionId}/participants`);
-  const human = list.json.participants.find((p) => p.id === "a@shopify.com");
+  const human = list.json.participants.find((p) => p.id === "a@example.com");
   assert.ok(human);
   assert.deepEqual(
     human.memberships.map((m) => m.conversationId),
@@ -151,38 +151,38 @@ test("POST invite then GET shows the human as away", async () => {
 
 test("membership join then leave, and revoke, drive the right statuses", async () => {
   const { call, sessionId } = await serve();
-  await call("POST", `/${sessionId}/participants`, { email: "a@shopify.com" });
+  await call("POST", `/${sessionId}/participants`, { email: "a@example.com" });
 
   const joined = await call(
     "POST",
-    `/${sessionId}/participants/a@shopify.com/memberships`,
+    `/${sessionId}/participants/a@example.com/memberships`,
     { conversationId: "prime" },
   );
   assert.equal(joined.status, 201);
 
   const left = await call(
     "DELETE",
-    `/${sessionId}/participants/a@shopify.com/memberships/prime`,
+    `/${sessionId}/participants/a@example.com/memberships/prime`,
   );
   assert.equal(left.status, 204);
 
   const revoked = await call(
     "DELETE",
-    `/${sessionId}/participants/a@shopify.com`,
+    `/${sessionId}/participants/a@example.com`,
   );
   assert.equal(revoked.status, 204);
 });
 
 test("muting a human membership is refused", async () => {
   const { call, sessionId } = await serve();
-  await call("POST", `/${sessionId}/participants`, { email: "a@shopify.com" });
-  await call("POST", `/${sessionId}/participants/a@shopify.com/memberships`, {
+  await call("POST", `/${sessionId}/participants`, { email: "a@example.com" });
+  await call("POST", `/${sessionId}/participants/a@example.com/memberships`, {
     conversationId: "prime",
   });
 
   const muted = await call(
     "PATCH",
-    `/${sessionId}/participants/a@shopify.com/memberships/prime`,
+    `/${sessionId}/participants/a@example.com/memberships/prime`,
     { muted: true },
   );
 
@@ -203,7 +203,7 @@ test("revoking an unknown participant 404s", async () => {
   const { call, sessionId } = await serve();
   const { status } = await call(
     "DELETE",
-    `/${sessionId}/participants/ghost@shopify.com`,
+    `/${sessionId}/participants/ghost@example.com`,
   );
   assert.equal(status, 404);
 });

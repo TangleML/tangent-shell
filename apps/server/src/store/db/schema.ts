@@ -106,9 +106,9 @@ export const runs = sqliteTable(
     status: text("status").notNull().default("running"),
     /** `reaction` | `schedule` | `webhook` | `tool`. */
     ingress: text("ingress").notNull(),
-    /** The far side's own id for this work (an Aquifer World session id). */
+    /** The far side's own id for this work (e.g. a remote sandbox session id). */
     externalId: text("external_id"),
-    /** Connector-private resume cursor (the Aquifer drain's `lastSeq`). */
+    /** Connector-private resume cursor (e.g. a stream's last sequence number). */
     cursor: text("cursor"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),

@@ -94,7 +94,7 @@ function mountDeliveries(
 /**
  * The session-scoped token a caller presented: an `Authorization: Bearer`
  * header, or the {@link ATTACH_TOKEN_HEADER} fallback. The fallback exists
- * because an SSO proxy (Okta/Minerva) in front of the Shell can strip or
+ * because an SSO proxy (e.g. Okta) in front of the Shell can strip or
  * overwrite `Authorization` for its own auth, which would leave every attach
  * call unauthenticated; a non-standard header rides through untouched.
  */

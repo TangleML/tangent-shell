@@ -67,7 +67,7 @@ Mint as a specific identity instead of the SSO cookie's:
 
 ```bash
 tangent-local-agent --url https://shell.example/tangent --session abc123 \
-    --email me@shopify.com
+    --email me@example.com
 ```
 
 Drive it from the environment (most flags have an env fallback):

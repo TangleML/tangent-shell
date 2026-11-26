@@ -91,10 +91,10 @@ test("forwards extraHeaders for the transport handshake when set", () => {
   const { opts } = buildRemoteEnvConnectArgs({
     ...base,
     url: "https://host",
-    extraHeaders: { cookie: "MINERVA_TOKEN=abc" },
+    extraHeaders: { cookie: "SSO_TOKEN=abc" },
   });
 
-  assert.deepEqual(opts.extraHeaders, { cookie: "MINERVA_TOKEN=abc" });
+  assert.deepEqual(opts.extraHeaders, { cookie: "SSO_TOKEN=abc" });
 });
 
 test("omits extraHeaders when unset", () => {

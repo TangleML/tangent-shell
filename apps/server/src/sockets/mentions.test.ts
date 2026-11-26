@@ -66,14 +66,14 @@ async function setup() {
 test("an invited human is a mention candidate and @name resolves to their id", async () => {
   const { service, connectors, sessionId } = await setup();
   await service.invite(sessionId, {
-    email: "ada@shopify.com",
+    email: "ada@example.com",
     displayName: "Ada Lovelace",
   });
 
   const candidates = await mentionCandidates(connectors, service, sessionId);
   assert.ok(
     candidates.some(
-      (c) => c.id === "ada@shopify.com" && c.name === "Ada Lovelace",
+      (c) => c.id === "ada@example.com" && c.name === "Ada Lovelace",
     ),
     "the invited human should be a candidate",
   );
@@ -83,17 +83,17 @@ test("an invited human is a mention candidate and @name resolves to their id", a
     "hey @AdaLovelace can you look?",
     candidates,
   );
-  assert.deepEqual(resolved, ["ada@shopify.com"]);
+  assert.deepEqual(resolved, ["ada@example.com"]);
 });
 
 test("a revoked human is dropped from the mention roster", async () => {
   const { service, connectors, sessionId } = await setup();
   await service.invite(sessionId, {
-    email: "ada@shopify.com",
+    email: "ada@example.com",
     displayName: "Ada Lovelace",
   });
-  await service.revoke(sessionId, "ada@shopify.com");
+  await service.revoke(sessionId, "ada@example.com");
 
   const candidates = await mentionCandidates(connectors, service, sessionId);
-  assert.ok(!candidates.some((c) => c.id === "ada@shopify.com"));
+  assert.ok(!candidates.some((c) => c.id === "ada@example.com"));
 });

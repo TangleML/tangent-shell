@@ -8,9 +8,9 @@
  *   TANGLE_TOKEN="$(pnpm -s tangle:token)" pnpm dev
  *
  * Pass `jwt-only` as the first argument to strip the cookie-name prefix and
- * emit the bare token value (e.g. for `MINERVA_TOKEN`):
+ * emit the bare token value (e.g. for a token header):
  *
- *   MINERVA_TOKEN="$(pnpm -s tangle:token jwt-only https://oasis-staging.shopify.io)"
+ *   TOKEN="$(pnpm -s tangle:token jwt-only https://api.example.com)"
  *
  * All diagnostics (browser prompt, errors) go to stderr.
  */
