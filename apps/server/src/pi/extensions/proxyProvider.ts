@@ -20,6 +20,10 @@
  *   to OpenAI/Anthropic without a gateway (see `start_local.sh`).
  */
 
+import {
+  getBuiltinModels,
+  getBuiltinProviders,
+} from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const stripSlash = (url: string): string => url.replace(/\/+$/, "");
@@ -30,6 +34,25 @@ const PROXY_API_KEY = process.env.PI_PROXY_API_KEY ?? "";
 // A gateway needs both an endpoint and its credential; without either we fall
 // back to talking to each provider's public API directly.
 const useGateway = PROXY_URL !== "" && PROXY_API_KEY !== "";
+
+/**
+ * The request-shape settings Pi ships for its own copy of a model, such as the
+ * adaptive thinking current Claude models require. The catalog carries none, so
+ * without these Pi sends a format the model rejects. Fallback models point at
+ * Pi's native providers, which a catalog deployment does not configure.
+ */
+function builtinCompat(api: string, id: string) {
+  for (const provider of getBuiltinProviders()) {
+    const builtin = getBuiltinModels(provider).find(
+      (model) => model.id === id && model.api === api,
+    );
+    if (builtin?.compat) {
+      const { allowedFallbackModels: _fallbacks, ...compat } = builtin.compat;
+      return compat;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Registers providers from a deployment-supplied model catalog, routed through
@@ -51,6 +74,7 @@ function registerCatalogProviders(pi: ExtensionAPI, catalogJson: string): void {
       contextWindow: model.contextWindow,
       maxTokens: model.maxOutputTokens,
       thinkingLevelMap: model.thinkingLevelMap,
+      compat: builtinCompat(model.api, model.id),
       // Costs are unspecified by this deployment contract, not known to be free.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     });

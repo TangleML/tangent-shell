@@ -32,6 +32,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "1.6.0",
     "@tangent/build": "workspace:*",
     "@tangent/local-agent-host": "workspace:*",
     "@types/better-sqlite3": "^7.6.13",
