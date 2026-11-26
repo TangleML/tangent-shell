@@ -10,6 +10,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROXY_URL = (process.env.PI_PROXY_URL ?? "").replace(/\/+$/, "");
 
+const ANTHROPIC_CATALOG_COMPAT = {
+  forceAdaptiveThinking: true,
+  supportsStrictTools: true,
+};
+
 export default function (pi: ExtensionAPI) {
   // The host validates this deployment catalog before passing it to Pi.
   if (process.env.TANGENT_MODEL_CATALOG_JSON) {
@@ -28,6 +33,10 @@ export default function (pi: ExtensionAPI) {
         contextWindow: model.contextWindow,
         maxTokens: model.maxOutputTokens,
         thinkingLevelMap: model.thinkingLevelMap,
+        compat:
+          model.api === "anthropic-messages"
+            ? ANTHROPIC_CATALOG_COMPAT
+            : undefined,
         // Costs are unspecified by this deployment contract, not known to be free.
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       });

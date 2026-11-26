@@ -32,6 +32,17 @@ const PROXY_API_KEY = process.env.PI_PROXY_API_KEY ?? "";
 const useGateway = PROXY_URL !== "" && PROXY_API_KEY !== "";
 
 /**
+ * The catalog carries no per-model request settings, which Pi otherwise takes
+ * from its own model records. Without adaptive thinking Pi sends the budget
+ * format current Claude models reject; strict tool schemas match what Pi's
+ * records enable for every Claude model.
+ */
+const ANTHROPIC_CATALOG_COMPAT = {
+  forceAdaptiveThinking: true,
+  supportsStrictTools: true,
+};
+
+/**
  * Registers providers from a deployment-supplied model catalog, routed through
  * the gateway. The host validates this catalog before passing it to Pi.
  */
@@ -51,6 +62,10 @@ function registerCatalogProviders(pi: ExtensionAPI, catalogJson: string): void {
       contextWindow: model.contextWindow,
       maxTokens: model.maxOutputTokens,
       thinkingLevelMap: model.thinkingLevelMap,
+      compat:
+        model.api === "anthropic-messages"
+          ? ANTHROPIC_CATALOG_COMPAT
+          : undefined,
       // Costs are unspecified by this deployment contract, not known to be free.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     });
