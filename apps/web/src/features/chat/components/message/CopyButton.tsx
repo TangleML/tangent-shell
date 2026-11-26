@@ -23,6 +23,7 @@ export function CopyButton({ content, kind = "markdown" }: CopyButtonProps) {
   }, [feedback]);
 
   async function copy() {
+    setFeedback(null);
     try {
       await navigator.clipboard.writeText(content);
       setFeedback("copied");
@@ -33,14 +34,19 @@ export function CopyButton({ content, kind = "markdown" }: CopyButtonProps) {
 
   const { label, icon } = BUTTON_STATES[feedback ?? kind];
   return (
-    <IconButton
-      icon={icon}
-      size="xs"
-      tone={feedback === "failed" ? "critical" : undefined}
-      disabled={!content.trim()}
-      title={label}
-      aria-label={label}
-      onClick={copy}
-    />
+    <>
+      <IconButton
+        icon={icon}
+        size="xs"
+        tone={feedback === "failed" ? "critical" : undefined}
+        disabled={!content.trim()}
+        title={label}
+        aria-label={BUTTON_STATES[kind].label}
+        onClick={copy}
+      />
+      <span className="sr-only" role="status">
+        {feedback && label}
+      </span>
+    </>
   );
 }

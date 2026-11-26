@@ -275,7 +275,17 @@ export interface TangentProviderElementLike extends HTMLElement {
   runtime?: EmbedRuntimeHandle | null;
 }
 
-export interface TangentChatElementLike extends HTMLElement {
+export interface ChatMessageLinkProps {
+  /** Return the URL to copy for this message, or omit its copy-link action. */
+  getMessageLink?: (messageId: string) => string | undefined;
+  /** Scroll to this message when the thread has loaded. */
+  targetMessageId?: string;
+  /** On Prime, open the linked sub-agent through `onOpenAgent`. */
+  targetAgentId?: string;
+}
+
+export interface TangentChatElementLike
+  extends HTMLElement, ChatMessageLinkProps {
   sessionId: string;
   agentId?: string;
   initialPrompt?: string;

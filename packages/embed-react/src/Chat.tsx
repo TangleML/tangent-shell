@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useTangentContext } from "./context";
 import type {
+  ChatMessageLinkProps,
   EmbedAgent,
   EmbedCommand,
   EmbedReference,
@@ -10,7 +11,7 @@ import type {
   TangentChatElementLike,
 } from "./types";
 
-export interface ChatProps {
+export interface ChatProps extends ChatMessageLinkProps {
   /** The session to render. Obtain a new one from `useTangent().newSession`. */
   sessionId: string;
   /** Render this agent's thread instead of Prime. */
@@ -66,6 +67,9 @@ export interface ChatProps {
 export function Chat({
   sessionId,
   agentId,
+  getMessageLink,
+  targetAgentId,
+  targetMessageId,
   initialPrompt,
   autoFocus,
   onOpenArtifact,
@@ -80,24 +84,24 @@ export function Chat({
   className,
   style,
 }: ChatProps) {
-  const ref = useRef<HTMLElement | null>(null);
+  const ref = useRef<TangentChatElementLike>(null);
   const { uiComponents, anchorProtocols } = useTangentContext();
   const [slots, setSlots] = useState<HostSlotRecordLike[]>([]);
 
   // Assigned before `sessionId` so the composer already knows to take focus by
   // the time the session renders.
   useEffect(() => {
-    const element = ref.current as TangentChatElementLike | null;
+    const element = ref.current;
     if (element) element.autoFocus = autoFocus ?? false;
   }, [autoFocus]);
 
   useEffect(() => {
-    const element = ref.current as TangentChatElementLike | null;
+    const element = ref.current;
     if (element) element.sessionId = sessionId;
   }, [sessionId]);
 
   useEffect(() => {
-    const element = ref.current as TangentChatElementLike | null;
+    const element = ref.current;
     const getHostSlots = element?.getHostSlots;
     const subscribeHostSlots = element?.subscribeHostSlots;
     if (!element || !getHostSlots || !subscribeHostSlots) return;
@@ -109,22 +113,30 @@ export function Chat({
   }, []);
 
   useEffect(() => {
-    const element = ref.current as TangentChatElementLike | null;
+    const element = ref.current;
     if (element) element.agentId = agentId ?? "";
   }, [agentId]);
 
   useEffect(() => {
-    const element = ref.current as TangentChatElementLike | null;
+    const element = ref.current;
+    if (!element) return;
+    element.getMessageLink = getMessageLink;
+    element.targetAgentId = targetAgentId;
+    element.targetMessageId = targetMessageId;
+  }, [getMessageLink, targetAgentId, targetMessageId]);
+
+  useEffect(() => {
+    const element = ref.current;
     if (element) element.references = references ?? [];
   }, [references]);
 
   useEffect(() => {
-    const element = ref.current as TangentChatElementLike | null;
+    const element = ref.current;
     if (element) element.commands = commands ?? [];
   }, [commands]);
 
   useEffect(() => {
-    const element = ref.current as TangentChatElementLike | null;
+    const element = ref.current;
     if (element && initialPrompt != null) element.initialPrompt = initialPrompt;
   }, [initialPrompt]);
 
