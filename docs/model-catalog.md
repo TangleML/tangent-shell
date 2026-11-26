@@ -28,7 +28,8 @@ Messages. Dedicated provider names avoid replacing built-in provider catalogs.
 `browserAvailable: false` marks agent-only choices for browser clients.
 
 Agent inference uses the existing `PI_PROXY_URL` and `PI_PROXY_API_KEY`
-configuration. Local hosts must configure their proxy connection and use the
+configuration. Every catalog model is routed through that gateway, so the
+server refuses to start with a catalog but no `PI_PROXY_URL`. Local hosts must configure their proxy connection and use the
 updated host package; an older local-host package will not install catalog model
 definitions. Provider paths are protocol-specific relative to that proxy.
 Catalog pricing is not part of this contract; runtime cost metadata is unknown

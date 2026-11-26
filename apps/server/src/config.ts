@@ -8,14 +8,17 @@ import {
 
 import { nestedRoots } from "./memory/paths.ts";
 
-function readAbsoluteUrl(name: string, fallback: string): string {
-  const value = process.env[name] ?? fallback;
+function assertAbsoluteUrl(name: string, value: string): string {
   try {
     new URL(value);
   } catch {
     throw new Error(`${name} must be an absolute URL`);
   }
   return value;
+}
+
+function readAbsoluteUrl(name: string, fallback: string): string {
+  return assertAbsoluteUrl(name, process.env[name] ?? fallback);
 }
 
 /** Port the dev server listens on. Vite proxies /api and /socket.io here. */
@@ -150,14 +153,13 @@ export const SESSION_MEMORY_FILENAME = "MEMORY.md";
 export const PI_BIN = process.env.PI_BIN ?? "pi";
 
 /**
- * Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
- * Override in deployments to target the proxy available in that environment.
- * Mirrored here for logging; the extension reads it directly.
+ * Base URL of the LLM gateway the bundled proxy-provider extension points Pi at,
+ * unset when Pi calls each provider directly. Mirrored here for logging; the
+ * extension reads it directly.
  */
-export const PI_PROXY_URL = readAbsoluteUrl(
-  "PI_PROXY_URL",
-  "https://proxy.example.com",
-);
+export const PI_PROXY_URL = process.env.PI_PROXY_URL
+  ? assertAbsoluteUrl("PI_PROXY_URL", process.env.PI_PROXY_URL)
+  : undefined;
 
 /**
  * Provider/model Pi is pinned to when spawned. In the container there is no

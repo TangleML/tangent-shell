@@ -49,10 +49,13 @@ export function catalogRequestHeaders(
   return {};
 }
 
-async function fetchCatalog(url: string): Promise<ModelCatalog> {
+async function fetchCatalog(
+  url: string,
+  env: CatalogCredentialEnv,
+): Promise<ModelCatalog> {
   const target = catalogUrl(url);
   const response = await fetch(target, {
-    headers: catalogRequestHeaders(target, process.env),
+    headers: catalogRequestHeaders(target, env),
     signal: AbortSignal.timeout(10000),
     redirect: "error",
   });
@@ -60,14 +63,33 @@ async function fetchCatalog(url: string): Promise<ModelCatalog> {
   return parseModelCatalog(await response.json());
 }
 
-/** Trusted deployment settings, never browser/session-supplied URLs or credentials. */
-async function loadConfiguredCatalog(): Promise<ModelCatalog | undefined> {
-  const file = process.env.TANGENT_MODEL_CATALOG_FILE;
-  const url = process.env.TANGENT_MODEL_CATALOG_URL;
-  if (file && url)
+interface CatalogSettingsEnv extends CatalogCredentialEnv {
+  TANGENT_MODEL_CATALOG_FILE?: string;
+  TANGENT_MODEL_CATALOG_URL?: string;
+  PI_PROXY_URL?: string;
+}
+
+function assertCatalogSettings(env: CatalogSettingsEnv): void {
+  if (env.TANGENT_MODEL_CATALOG_FILE && env.TANGENT_MODEL_CATALOG_URL)
     throw new Error("Configure either a catalog file or URL, not both");
+  // The proxy-provider extension builds every catalog provider's base URL from
+  // PI_PROXY_URL; without it Pi gets relative URLs and fails every turn.
+  if (!env.PI_PROXY_URL)
+    throw new Error(
+      "A model catalog routes every model through the LLM gateway; set PI_PROXY_URL",
+    );
+}
+
+/** Trusted deployment settings, never browser/session-supplied URLs or credentials. */
+export async function loadConfiguredCatalog(
+  env: CatalogSettingsEnv = process.env,
+): Promise<ModelCatalog | undefined> {
+  const file = env.TANGENT_MODEL_CATALOG_FILE;
+  const url = env.TANGENT_MODEL_CATALOG_URL;
+  if (!file && !url) return undefined;
+  assertCatalogSettings(env);
   if (file) return parseModelCatalog(JSON.parse(await readFile(file, "utf8")));
-  if (url) return fetchCatalog(url);
+  if (url) return fetchCatalog(url, env);
   return undefined;
 }
 
