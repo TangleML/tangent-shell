@@ -127,6 +127,12 @@ export interface SentPrompt {
   runId?: RunId;
 }
 
+/** A prompt's text with how it is, or was, written to Pi. */
+export interface OutgoingPrompt {
+  text: string;
+  prompt: SentPrompt;
+}
+
 export interface AgentProcess {
   agentId: string;
   role: AgentRole;
@@ -150,9 +156,9 @@ export interface AgentProcess {
   child: ChildProcessWithoutNullStreams;
   busy: boolean;
   /** Prompts written to Pi, by command id, until Pi answers each. */
-  sent: Map<string, SentPrompt>;
+  sent: Map<string, OutgoingPrompt>;
   /** Prompts sent while an abort is landing, written once Pi answers it. */
-  heldPrompts: { text: string; prompt: SentPrompt }[];
+  heldPrompts: OutgoingPrompt[];
   /**
    * Set from an `abort` RPC command until Pi settles or answers it. Carried
    * onto the finalized `end` event so a half-finished reply is persisted
@@ -199,6 +205,12 @@ export interface AgentProcess {
    * and does NOT auto-respawn the process.
    */
   intentionalKill: boolean;
+  /**
+   * Set when Pi exits because no provider serves the agent's selected model, so
+   * the supervisor respawns it on the default model rather than retrying a model
+   * Pi can never start.
+   */
+  unknownProvider: boolean;
   /**
    * How many times the supervisor has auto-respawned this slot within the
    * current rolling window. Carried forward across respawns so a crash loop is

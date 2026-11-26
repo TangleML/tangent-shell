@@ -89,6 +89,10 @@ function recordSpawn(
   return child as unknown as ChildProcessWithoutNullStreams;
 }
 
+function argAfter(args: string[], flag: string): string | undefined {
+  return args[args.indexOf(flag) + 1];
+}
+
 /** One relayed agent event, reduced to what the run tests assert on. */
 interface RelayedEvent {
   agentId: string;
@@ -365,6 +369,87 @@ test("supervisor auto-respawns a crashed agent with backoff, then gives up", asy
   assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
 });
 
+test("a model Pi has no provider for respawns on the default model", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  mock.method(console, "error", () => {});
+  mock.method(console, "warn", () => {});
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  const defaultArgs = spawns[0].args;
+  pi.setAgentModel("s1", PRIME_AGENT_ID, {
+    model: "catalog-only/some-model",
+  });
+  const picked = spawns[1];
+  assert.equal(argAfter(picked.args, "--provider"), "catalog-only");
+
+  picked.child.stderr.emit(
+    "data",
+    Buffer.from('Error: Unknown provider "catalog-only". Use --list-models.\n'),
+  );
+  picked.child.crash();
+  mock.timers.tick(1_000);
+
+  const retried = spawns[2];
+  assert.equal(
+    argAfter(retried.args, "--provider"),
+    argAfter(defaultArgs, "--provider"),
+  );
+  assert.equal(
+    argAfter(retried.args, "--model"),
+    argAfter(defaultArgs, "--model"),
+  );
+});
+
+test("a prompt a model with no provider never ran is re-sent on the default model", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  mock.method(console, "error", () => {});
+  mock.method(console, "warn", () => {});
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  h.pi.setAgentModel("s1", PRIME_AGENT_ID, {
+    model: "catalog-only/some-model",
+  });
+  const picked = h.spawns[1].child;
+  h.pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "build me a pipeline",
+  });
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  picked.stderr.emit(
+    "data",
+    Buffer.from('Error: Unknown provider "catalog-only". Use --list-models.\n'),
+  );
+  picked.crash();
+  picked.crash();
+  mock.timers.tick(1_000);
+
+  const resent = commands(h.spawns[2].child)
+    .filter((command) => command.type === "prompt")
+    .map((command) => command.message ?? "");
+  assert.equal(resent.length, 1);
+  assert.match(resent[0], /build me a pipeline$/);
+  assert.deepEqual(
+    h.events.filter((event) => event.type === "error"),
+    [],
+  );
+  assert.ok(runId);
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, runId);
+});
+
+test("an ordinary crash respawns with the agent's own model", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  pi.setAgentModel("s1", PRIME_AGENT_ID, { model: "anthropic/picked-model" });
+
+  spawns[1].child.crash();
+  mock.timers.tick(1_000);
+
+  assert.equal(argAfter(spawns[2].args, "--model"), "picked-model");
+});
+
 test("the local roster describes its connector", async () => {
   const { pi } = makeManager();
   await pi.ensure("s1", "/tmp/s1");
@@ -451,9 +536,12 @@ function emitPi(child: FakeChild, event: Record<string, unknown>): void {
 }
 
 /** The RPC commands written to an agent's stdin, oldest first. */
-function commands(
-  child: FakeChild,
-): { id: string; type: string; streamingBehavior?: string }[] {
+function commands(child: FakeChild): {
+  id: string;
+  type: string;
+  streamingBehavior?: string;
+  message?: string;
+}[] {
   return child.writes.map((line) => JSON.parse(line));
 }
 
