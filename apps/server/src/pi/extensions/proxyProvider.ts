@@ -20,10 +20,6 @@
  *   to OpenAI/Anthropic without a gateway (see `start_local.sh`).
  */
 
-import {
-  getBuiltinModels,
-  getBuiltinProviders,
-} from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const stripSlash = (url: string): string => url.replace(/\/+$/, "");
@@ -36,23 +32,15 @@ const PROXY_API_KEY = process.env.PI_PROXY_API_KEY ?? "";
 const useGateway = PROXY_URL !== "" && PROXY_API_KEY !== "";
 
 /**
- * The request-shape settings Pi ships for its own copy of a model, such as the
- * adaptive thinking current Claude models require. The catalog carries none, so
- * without these Pi sends a format the model rejects. Fallback models point at
- * Pi's native providers, which a catalog deployment does not configure.
+ * The catalog carries no per-model request settings, which Pi otherwise takes
+ * from its own model records. Without adaptive thinking Pi sends the budget
+ * format current Claude models reject; strict tool schemas match what Pi's
+ * records enable for every Claude model.
  */
-function builtinCompat(api: string, id: string) {
-  for (const provider of getBuiltinProviders()) {
-    const builtin = getBuiltinModels(provider).find(
-      (model) => model.id === id && model.api === api,
-    );
-    if (builtin?.compat) {
-      const { allowedFallbackModels: _fallbacks, ...compat } = builtin.compat;
-      return compat;
-    }
-  }
-  return undefined;
-}
+const ANTHROPIC_CATALOG_COMPAT = {
+  forceAdaptiveThinking: true,
+  supportsStrictTools: true,
+};
 
 /**
  * Registers providers from a deployment-supplied model catalog, routed through
@@ -74,7 +62,10 @@ function registerCatalogProviders(pi: ExtensionAPI, catalogJson: string): void {
       contextWindow: model.contextWindow,
       maxTokens: model.maxOutputTokens,
       thinkingLevelMap: model.thinkingLevelMap,
-      compat: builtinCompat(model.api, model.id),
+      compat:
+        model.api === "anthropic-messages"
+          ? ANTHROPIC_CATALOG_COMPAT
+          : undefined,
       // Costs are unspecified by this deployment contract, not known to be free.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     });

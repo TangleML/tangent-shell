@@ -6,26 +6,14 @@
  * lint. Mirrors the server's `apps/server/src/pi/extensions/proxyProvider.ts`.
  */
 
-import {
-  getBuiltinModels,
-  getBuiltinProviders,
-} from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROXY_URL = (process.env.PI_PROXY_URL ?? "").replace(/\/+$/, "");
 
-function builtinCompat(api: string, id: string) {
-  for (const provider of getBuiltinProviders()) {
-    const builtin = getBuiltinModels(provider).find(
-      (model) => model.id === id && model.api === api,
-    );
-    if (builtin?.compat) {
-      const { allowedFallbackModels: _fallbacks, ...compat } = builtin.compat;
-      return compat;
-    }
-  }
-  return undefined;
-}
+const ANTHROPIC_CATALOG_COMPAT = {
+  forceAdaptiveThinking: true,
+  supportsStrictTools: true,
+};
 
 export default function (pi: ExtensionAPI) {
   // The host validates this deployment catalog before passing it to Pi.
@@ -45,7 +33,10 @@ export default function (pi: ExtensionAPI) {
         contextWindow: model.contextWindow,
         maxTokens: model.maxOutputTokens,
         thinkingLevelMap: model.thinkingLevelMap,
-        compat: builtinCompat(model.api, model.id),
+        compat:
+          model.api === "anthropic-messages"
+            ? ANTHROPIC_CATALOG_COMPAT
+            : undefined,
         // Costs are unspecified by this deployment contract, not known to be free.
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       });

@@ -21,7 +21,6 @@
     "open": "^11.0.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.6.0",
     "@tangent/build": "workspace:*",
     "@types/node": "^25.9.1",
     "eslint": "^10.4.0",

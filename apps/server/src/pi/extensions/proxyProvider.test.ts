@@ -83,7 +83,7 @@ test("direct mode falls back to GOOGLE_API_KEY with the native v1beta base", asy
   assert.equal(google.apiKey, "$GOOGLE_API_KEY");
 });
 
-test("catalog models take Pi's built-in compat for the same model, without its fallbacks", async () => {
+test("Anthropic catalog models use adaptive thinking and strict tools; others keep Pi's defaults", async () => {
   enterDirectMode();
   const catalogModel = (id: string, tangentModelId: string, api: string) => ({
     id,
@@ -104,8 +104,8 @@ test("catalog models take Pi's built-in compat for the same model, without its f
         "anthropic-messages",
       ),
       catalogModel(
-        "deployment-only-model",
-        "proxy-responses/deployment-only-model",
+        "gpt-6.1-sol",
+        "proxy-responses/gpt-6.1-sol",
         "openai-responses",
       ),
     ],
@@ -122,8 +122,10 @@ test("catalog models take Pi's built-in compat for the same model, without its f
   });
 
   const [claude] = registered.get("proxy-anthropic")?.models ?? [];
-  assert.equal(claude?.compat?.forceAdaptiveThinking, true);
-  assert.equal(claude?.compat?.allowedFallbackModels, undefined);
-  const [unknown] = registered.get("proxy-responses")?.models ?? [];
-  assert.equal(unknown?.compat, undefined);
+  assert.deepEqual(claude?.compat, {
+    forceAdaptiveThinking: true,
+    supportsStrictTools: true,
+  });
+  const [gpt] = registered.get("proxy-responses")?.models ?? [];
+  assert.equal(gpt?.compat, undefined);
 });
