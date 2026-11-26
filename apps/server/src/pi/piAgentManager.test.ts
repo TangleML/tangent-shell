@@ -479,6 +479,21 @@ function answer(
   });
 }
 
+/** The ids of the aborts written to an agent's stdin, oldest first. */
+function abortIds(child: FakeChild): string[] {
+  return commands(child)
+    .filter((command) => command.type === "abort")
+    .map((command) => command.id);
+}
+
+/** Answers an abort as Pi does, by default the last one written. */
+function answerAbort(
+  child: FakeChild,
+  { success = true, id = abortIds(child).at(-1) } = {},
+): void {
+  emitPi(child, { type: "response", id, command: "abort", success });
+}
+
 /** Starts Pi's run for the last prompt written. */
 function startTurn(child: FakeChild): void {
   answer(child, "started");
@@ -1634,24 +1649,6 @@ test("a turn that starts before Pi answers a prompt takes over the prompt's Run"
   assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), false, "the agent is idle");
 });
 
-test("a prompt answered by an older Pi, with no disposition, keeps its Run", async () => {
-  const h = makeManager();
-  await h.pi.ensure("s1", "/tmp/s1");
-  const child = h.spawns[0].child;
-  sendPrime(h, "work");
-  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
-
-  emitPi(child, {
-    type: "response",
-    id: promptIds(child)[0],
-    command: "prompt",
-    success: true,
-  });
-  emitPi(child, { type: "agent_start" });
-
-  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, runId);
-});
-
 test("aborting clears Pi's queue before aborting its run", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
@@ -1684,7 +1681,7 @@ test("a prompt sent while an abort lands waits for Pi to settle", async () => {
   assert.equal(promptIds(child).length, 1, "the prompt is held");
 
   settle(child, true);
-  emitPi(child, { type: "response", command: "abort", success: true });
+  answerAbort(child);
   await flush();
 
   assert.equal((await h.runStore.getRun(runId))?.status, "cancelled");
@@ -1706,7 +1703,7 @@ test("an abort that leaves no run frees the agent once Pi answers it", async () 
 
   h.pi.abort("s1", PRIME_AGENT_ID);
   answer(child, "handled", late);
-  emitPi(child, { type: "response", command: "abort", success: true });
+  answerAbort(child);
   await flush();
 
   assert.equal(h.runs.current("s1", PRIME_AGENT_ID), undefined);
@@ -1728,9 +1725,73 @@ test("a prompt held during an abort that found no run is written on its answer",
   answer(child, "handled", command);
   assert.equal(promptIds(child).length, 1);
 
-  emitPi(child, { type: "response", command: "abort", success: true });
+  answerAbort(child);
   assert.equal(promptIds(child).length, 2);
   assert.ok(h.runs.current("s1", PRIME_AGENT_ID));
+});
+
+test("aborting again while an abort lands writes nothing more", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  startTurn(child);
+
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), true);
+  assert.equal(h.pi.abort("s1", PRIME_AGENT_ID), true);
+
+  assert.deepEqual(
+    commands(child)
+      .map((command) => command.type)
+      .filter((type) => type !== "prompt"),
+    ["clear_queue", "abort"],
+  );
+});
+
+test("a late answer to an earlier abort leaves a newer abort's prompts held", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  sendPrime(h, "work");
+  startTurn(child);
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  const [first] = abortIds(child);
+  settle(child, true);
+
+  sendPrime(h, "next");
+  startTurn(child);
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  sendPrime(h, "held");
+  answerAbort(child, { id: first });
+  assert.equal(promptIds(child).length, 2, "the prompt is still held");
+
+  settle(child, true);
+  answerAbort(child);
+  assert.equal(promptIds(child).length, 3, "and written once Pi settles");
+});
+
+test("a failed abort leaves its held prompts to the run's settle", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const child = h.spawns[0].child;
+  const error = mock.method(console, "error", () => {});
+  sendPrime(h, "work");
+  startTurn(child);
+  const runId = h.runs.current("s1", PRIME_AGENT_ID)?.id;
+
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  sendPrime(h, "after");
+  answerAbort(child, { success: false });
+  error.mock.restore();
+
+  assert.equal(promptIds(child).length, 1, "the prompt is still held");
+  assert.equal(h.runs.current("s1", PRIME_AGENT_ID)?.id, runId);
+  assert.equal(error.mock.callCount(), 1, "the failure is logged");
+  h.pi.abort("s1", PRIME_AGENT_ID);
+  assert.equal(abortIds(child).length, 2, "and the run can be aborted again");
+
+  settle(child, true);
+  assert.equal(promptIds(child).length, 2);
 });
 
 /** A bundle config with one Prime prompt and the given sub-agent templates. */

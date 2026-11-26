@@ -159,6 +159,8 @@ export interface AgentProcess {
    * without waking anyone.
    */
   aborted: boolean;
+  /** The id of the latest `abort` command written to Pi, until Pi answers it. */
+  pendingAbortId: string | null;
   /**
    * Whether the run's latest assistant message ended because the model call
    * failed, so the run settles `failed` rather than `completed`.

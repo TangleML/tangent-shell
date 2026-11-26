@@ -129,7 +129,10 @@ The manager writes newline-delimited JSON commands to a process's stdin:
   `abort` when an agent is busy; it sets `aborted = true` first. Pi keeps its
   queue across an abort and would fold it into the next prompt's run, so it is
   cleared too. The process stays alive and emits `agent_settled`. A prompt sent
-  while the abort lands is held and written once Pi settles.
+  while the abort lands is held and written once Pi settles. The manager keeps
+  the `abort` command's id and ignores any other abort answer, so an earlier
+  abort's late answer can't release a newer one's held prompts. Aborting again
+  before Pi settles or answers writes nothing.
 
 `sendToAgent(sessionId, agentId, text, surfaceAuthor?, delivery?)` is the single
 entry for delivering text to any agent. `delivery` (`"auto" | "steer" |
@@ -140,7 +143,7 @@ sub-agent, the text is also surfaced into that sub-agent's transcript (via
 
 ### Prompt dispositions and Runs
 
-Pi (0.99.0 and later) answers each prompt with a `response` whose
+Pi answers each prompt with a `response` whose
 `data.disposition` says what it did with it. The manager tracks each prompt by
 its command `id` until that answer arrives:
 
@@ -159,8 +162,8 @@ extension's, say), and takes over the Run the prompt opened, which the prompt
 then queues into. A Pi run lasts from its `started`
 answer to `agent_settled`, however many turns it takes (a retry, compaction, or
 a follow-up queued as a turn ended), and so does its Run; it settles `failed`
-when its last model call failed. With older Pi, which sends no disposition, the
-agent's state when the prompt was written stands in.
+when its last model call failed. The server checks `PI_BIN --version` at startup
+and refuses to start with a Pi older than 1.6.0, which this lifecycle needs.
 
 ---
 

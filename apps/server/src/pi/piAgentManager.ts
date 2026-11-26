@@ -1024,7 +1024,7 @@ function streamingBehavior(
 
 const DISPOSITIONS = ["started", "queued", "handled"] as const;
 
-/** What Pi (0.99.0 and later) says it did with a prompt, from its response. */
+/** What Pi says it did with a prompt, from its response. */
 function readDisposition(
   data: unknown,
 ): (typeof DISPOSITIONS)[number] | undefined {
@@ -1042,6 +1042,22 @@ function readDisposition(
 function forgetQueuedPrompts(agent: AgentProcess): void {
   for (const [id, prompt] of agent.sent) {
     if (!prompt.runId) agent.sent.delete(id);
+  }
+}
+
+/**
+ * Writes `clear_queue` then `abort`. Pi keeps its queue across an abort and
+ * would fold it into the next prompt's run, so it is cleared too.
+ */
+function writeAbort(agent: AgentProcess): void {
+  agent.aborted = true;
+  agent.pendingAbortId = randomUUID();
+  forgetQueuedPrompts(agent);
+  for (const command of [
+    { id: randomUUID(), type: "clear_queue" },
+    { id: agent.pendingAbortId, type: "abort" },
+  ]) {
+    agent.child.stdin.write(`${JSON.stringify(command)}\n`);
   }
 }
 
@@ -1078,6 +1094,7 @@ function buildAgentProcess(
     sent: new Map(),
     heldPrompts: [],
     aborted: false,
+    pendingAbortId: null,
     modelFailed: false,
     currentMessageId: null,
     startEmitted: false,
@@ -1855,25 +1872,19 @@ export class PiAgentManager {
    * the Run as `cancelled` and resets state through the normal event flow.
    * Returns false when there is nothing to cancel (unknown or idle agent), so
    * the caller can tell a refusal from a cancellation. `aborted` is flagged so a
-   * half-finished sub-agent reply is not relayed back to Prime.
+   * half-finished sub-agent reply is not relayed back to Prime. An abort Pi has
+   * yet to settle or answer is not written again.
    */
   abort(sessionId: string, agentId: string): boolean {
     const agent = this.sessions.get(sessionId)?.agents.get(agentId);
     if (!agent || !agent.busy) return false;
+    if (agent.aborted && agent.pendingAbortId) return true;
 
-    agent.aborted = true;
-    // Pi keeps its queue across an abort and would fold it into the next
-    // prompt's run, so it is cleared too.
-    forgetQueuedPrompts(agent);
     console.log(
       `[pi:${sessionId}:${agentId}] abort`,
       JSON.stringify({ role: agent.role }),
     );
-    for (const type of ["clear_queue", "abort"]) {
-      agent.child.stdin.write(
-        `${JSON.stringify({ id: randomUUID(), type })}\n`,
-      );
-    }
+    writeAbort(agent);
     return true;
   }
 
@@ -2556,9 +2567,12 @@ export class PiAgentManager {
     agent: AgentProcess,
     event: PiStdoutEvent,
   ): void {
-    // Pi answers an abort once idle, which covers one that found no run.
+    // Pi answers an abort once idle, which covers one that found no run. An
+    // earlier abort's late answer would release a newer abort's held prompts.
     if (event.command === "abort") {
-      this.onAbortAnswered(sessionId, agent);
+      if (event.id !== agent.pendingAbortId) return;
+      agent.pendingAbortId = null;
+      this.onAbortAnswered(sessionId, agent, event);
       return;
     }
     const prompt =
@@ -2569,8 +2583,7 @@ export class PiAgentManager {
   /**
    * Follows a prompt to where Pi put it: a run of its own, the queue of the run
    * in flight, or nowhere, when an extension command or input handler handled
-   * it or Pi rejected it. Pi before 0.99.0 doesn't say which, so the agent's
-   * state when the prompt was written stands in.
+   * it or Pi rejected it.
    */
   private onPromptAnswered(
     sessionId: string,
@@ -2585,8 +2598,7 @@ export class PiAgentManager {
       this.dropPrompt(sessionId, agent, prompt, "failed");
       return;
     }
-    const disposition =
-      readDisposition(event.data) ?? (prompt.runId ? "started" : "queued");
+    const disposition = readDisposition(event.data);
     if (disposition === "handled") {
       this.dropPrompt(sessionId, agent, prompt, "completed");
     } else if (disposition === "started") {
@@ -2631,12 +2643,21 @@ export class PiAgentManager {
   /**
    * Frees an agent the abort left with no run, whose forgotten prompts' answers
    * would otherwise never clear `busy`, then writes the prompts held meanwhile.
+   * A run still open, as after a failed abort, releases them when it settles.
    */
-  private onAbortAnswered(sessionId: string, agent: AgentProcess): void {
-    if (!this.runs.current(sessionId, agent.agentId)) {
-      agent.busy = agent.sent.size > 0;
-      this.notifyStatus(sessionId);
+  private onAbortAnswered(
+    sessionId: string,
+    agent: AgentProcess,
+    event: PiStdoutEvent,
+  ): void {
+    if (!event.success) {
+      console.error(
+        `[pi:${sessionId}:${agent.agentId}] abort rejected: ${String(event.error)}`,
+      );
     }
+    if (this.runs.current(sessionId, agent.agentId)) return;
+    agent.busy = agent.sent.size > 0;
+    this.notifyStatus(sessionId);
     this.releaseHeldPrompts(sessionId, agent);
   }
 

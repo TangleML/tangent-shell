@@ -137,7 +137,7 @@ the full list and defaults):
 | `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                     |
 | `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)       |
 | `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                            |
-| `PI_BIN`                                          | Path to the `pi` agent executable                              |
+| `PI_BIN`                                          | Path to the `pi` agent executable (1.6.0+, checked at startup) |
 | `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                |
 | `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                              |
 | `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets         |
