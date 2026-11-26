@@ -674,13 +674,13 @@ export async function handleDeleteSession(
   id: string,
   res: Response,
 ): Promise<void> {
-  const deleted = await store.deleteSession(id);
-  if (!deleted) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
+  const session = await loadSession(store, res, id);
+  if (!session) return;
+  // Disposing reads a cold session's triggers from disk, and lifting a legacy
+  // token into the database needs the session row to still exist.
+  triggerEngine.dispose(id, session.rootPath);
+  await store.deleteSession(id);
   pi.dispose(id);
-  triggerEngine.dispose(id);
   removeSessionQmdState(id);
   res.status(204).end();
 }

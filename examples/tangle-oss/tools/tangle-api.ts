@@ -14,6 +14,10 @@
  * holds the token. The Tangle base URL is read from `TANGLE_API_URL`
  * (defaulting to the local dev server); it must match the server's allowlist
  * origin or the call is denied.
+ *
+ * The process's own `TANGENT_AGENT_TOKEN` is presented so the proxy knows which
+ * agent is calling and can act as the human behind its turn. Each write tool
+ * reports who the call ran as (`appliedIdentity`).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -21,6 +25,7 @@ import { Type } from "typebox";
 
 const INTERNAL_URL = process.env.TANGENT_INTERNAL_URL ?? "";
 const INTERNAL_TOKEN = process.env.TANGENT_INTERNAL_TOKEN ?? "";
+const AGENT_TOKEN = process.env.TANGENT_AGENT_TOKEN ?? "";
 const TANGLE_API_URL = process.env.TANGLE_API_URL ?? "https://api.example.com";
 
 interface EgressInit {
@@ -30,12 +35,17 @@ interface EgressInit {
   query?: Record<string, string | number | boolean>;
 }
 
+type AppliedIdentity =
+  | { kind: "participant"; id: string }
+  | { kind: "instance"; reason: string };
+
 interface EgressResponse {
   ok: boolean;
   status: number;
   headers: Record<string, string>;
   json?: unknown;
   text?: string;
+  appliedIdentity?: AppliedIdentity;
 }
 
 /** Calls the server-side egress proxy for one allowlisted Tangle request. */
@@ -49,6 +59,7 @@ async function egress(
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${INTERNAL_TOKEN}`,
+      ...(AGENT_TOKEN ? { "x-tangent-agent-token": AGENT_TOKEN } : {}),
     },
     body: JSON.stringify({ input, init }),
   });
@@ -66,15 +77,26 @@ function textResult(text: string) {
   return { content: [{ type: "text", text }], details: {} };
 }
 
+/** One line saying who the backend saw the call come from. */
+function describeIdentity(applied: AppliedIdentity | undefined): string {
+  if (!applied) return "";
+  return applied.kind === "participant"
+    ? `Acted as ${applied.id}.`
+    : `Acted as the instance (${applied.reason}).`;
+}
+
 /** Renders an egress response as readable text for the agent. */
-function renderResult(res: EgressResponse) {
+function renderResult(res: EgressResponse, withIdentity = false) {
   const body =
     res.json !== undefined
       ? JSON.stringify(res.json, null, 2)
       : (res.text ?? "");
   const status = res.ok ? "" : ` (HTTP ${res.status})`;
+  const identity = withIdentity ? describeIdentity(res.appliedIdentity) : "";
   return textResult(
-    `${status}${status ? "\n" : ""}${body || `HTTP ${res.status}`}`,
+    [status.trim(), body || `HTTP ${res.status}`, identity]
+      .filter(Boolean)
+      .join("\n"),
   );
 }
 
@@ -179,6 +201,7 @@ export default function (pi: ExtensionAPI) {
       if (params.annotations) body.annotations = params.annotations;
       return renderResult(
         await egress("/api/pipeline_runs/", { method: "POST", body }),
+        true,
       );
     },
   });
@@ -196,6 +219,7 @@ export default function (pi: ExtensionAPI) {
         await egress(`/api/pipeline_runs/${enc(params.id)}/cancel`, {
           method: "POST",
         }),
+        true,
       );
     },
   });
@@ -220,6 +244,7 @@ export default function (pi: ExtensionAPI) {
           `/api/pipeline_runs/${enc(params.id)}/annotations/${enc(params.key)}`,
           { method: "PUT", query },
         ),
+        true,
       );
     },
   });

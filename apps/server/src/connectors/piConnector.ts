@@ -48,6 +48,7 @@ export class PiConnector implements Connector {
       ingress: request.ingress,
       audienceParticipantId: request.audienceParticipantId,
       relayedParticipantId: request.relayedParticipantId,
+      delegation: request.delegation,
     });
     return { delivered: true };
   }

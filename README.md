@@ -148,25 +148,27 @@ See [`apps/web/src/shared/ui/DESIGN_SYSTEM.md`](apps/web/src/shared/ui/DESIGN_SY
 Key environment variables (see [`apps/server/src/config.ts`](apps/server/src/config.ts) for
 the full list and defaults):
 
-| Variable                                          | Purpose                                                                                           |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `PORT`                                            | HTTP server port                                                                                  |
-| `SESSIONS_ROOT`                                   | Root directory for per-session workspaces                                                         |
-| `SESSIONS_DB`                                     | SQLite metadata database file                                                                     |
-| `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                                                        |
-| `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)                                          |
-| `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                                                               |
-| `PI_BIN`                                          | Path to the `pi` agent executable (1.6.0+, checked at startup)                                    |
-| `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                                                   |
-| `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                                                                 |
-| `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets                                            |
-| `TANGLE_TOKEN`                                    | Optional cookie string injected server-side for egress                                            |
-| `AUTH_JWT_TOKEN_COOKIE_NAME`                      | Optional auth cookie name for `/api/me`                                                           |
-| `AUTH_JWT_TOKEN_HEADER_NAME`                      | Optional auth header name, for proxies that drop cookies                                          |
-| `TRUSTED_IDENTITY_HEADER`                         | Header a trusting front proxy stamps the participant's identity assertion into; empty trusts none |
-| `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                                                           |
-| `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh`                                    |
-| `DEV_ALLOWED_HOSTS`                               | Comma-separated extra hostnames the web dev server accepts                                        |
+| Variable                                          | Purpose                                                                                                                       |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                            | HTTP server port                                                                                                              |
+| `SESSIONS_ROOT`                                   | Root directory for per-session workspaces                                                                                     |
+| `SESSIONS_DB`                                     | SQLite metadata database file                                                                                                 |
+| `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                                                                                    |
+| `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)                                                                      |
+| `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                                                                                           |
+| `PI_BIN`                                          | Path to the `pi` agent executable (1.6.0+, checked at startup)                                                                |
+| `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                                                                               |
+| `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                                                                                             |
+| `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets                                                                        |
+| `TANGLE_TOKEN`                                    | Optional cookie string injected server-side for egress                                                                        |
+| `AUTH_JWT_TOKEN_COOKIE_NAME`                      | Optional auth cookie name for `/api/me`                                                                                       |
+| `AUTH_JWT_TOKEN_HEADER_NAME`                      | Optional auth header name, for proxies that drop cookies                                                                      |
+| `EGRESS_IDENTITY_HEADER`                          | Header the egress proxy forwards a participant's identity assertion or trigger delegation in; empty never forwards            |
+| `EGRESS_DELEGATION_PATH`                          | Path that mints/revokes trigger delegations (e.g. `/api/tangent/delegations`); requires `EGRESS_IDENTITY_HEADER`; empty: none |
+| `TRUSTED_IDENTITY_HEADER`                         | Header a trusting front proxy stamps the participant's identity assertion into; empty trusts none                             |
+| `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                                                                                       |
+| `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh`                                                                |
+| `DEV_ALLOWED_HOSTS`                               | Comma-separated extra hostnames the web dev server accepts                                                                    |
 
 Bundle UI extensions should call logical egress targets such as
 `{ target: "tangle", path: "/api/..." }`; the server resolves the actual base URL from

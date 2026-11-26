@@ -28,6 +28,7 @@ comparison lives in the credential facet, not the route:
 - `/internal/agents` ([internalAgents.ts](../../server/src/routes/internalAgents.ts))
 - `/internal/memory` ([internalMemory.ts](../../server/src/routes/internalMemory.ts))
 - `/internal/triggers` ([internalTriggers.ts](../../server/src/routes/internalTriggers.ts))
+  — also requires the per-process agent token once identity forwarding is on
 - `/internal/session` ([internalSession.ts](../../server/src/routes/internalSession.ts))
 - `/internal/egress` ([internalEgress.ts](../../server/src/routes/internalEgress.ts))
 
@@ -210,6 +211,111 @@ Allowlist properties:
   contain credentials and are not returned to callers. Backend HTTP statuses
   and response bodies are preserved in the egress response envelope.
 
+### Acting on behalf of a participant
+
+By default every call the proxy makes carries the instance's own credential, so
+the backend attributes agent work to whoever created the instance. When
+`EGRESS_IDENTITY_HEADER` is set, `POST /internal/egress` also forwards the
+identity of the human behind the calling agent's turn, and the backend acts as
+that person (read and write, never admin).
+
+The trust chain, link by link:
+
+1. A trusting front proxy authenticates the browser and stamps a participant
+   identity assertion into `TRUSTED_IDENTITY_HEADER` on every request, stripping
+   any copy the client sent. The server reads it unverified and keeps the latest
+   one per participant in the identity assertion cache, with its expiry.
+2. A chat message opens or joins a Run, and the Run records the human behind
+   the turn (see [Who a request is from](#who-a-request-is-from)).
+3. The agent's tool extension calls `POST /internal/egress` presenting its own
+   `x-tangent-agent-token`. The token resolves to the agent, the agent to its
+   open Run, the Run to the person behind it.
+4. The route takes that person's cached assertion (or the Run's trigger
+   delegation), and
+   [`resolveEgress`](../../server/src/bundleUi/egressAllowlist.ts) sends it
+   under `EGRESS_IDENTITY_HEADER` after dropping any caller copy. The backend
+   verifies it and acts as that person. A participant who cannot be carried —
+   their assertion has expired and the turn holds no delegation for them — is
+   a refusal, `403 { code: "participant_assertion_expired" }`, never a quiet
+   fall-back to the instance: the instance credential is used only for a Run
+   nobody stands behind, or when forwarding is not configured.
+5. A backend `401` is charged to the token that was sent: a refused assertion
+   is dropped from the cache, so the next call is refused as
+   `participant_assertion_expired` instead of failing the same way. The backend answers a refused identity
+   with `401` and the detail `Identity assertion error: <reason>`; the server
+   acts on the reasons `delegation expired` and `delegation has been revoked`
+   (exact, case-sensitive match on `detail`, nothing else is interpreted). On
+   either, the delegation is dropped from its trigger (and revoked, best
+   effort) and from the open Run acting under it — the rest of that turn
+   carries the creator's live assertion or runs as the instance — and a system
+   notice in the session's main chat tells the trigger's owner to re-create
+   it. The refused response itself reaches the agent unchanged.
+
+The response envelope says who the call ran as:
+`appliedIdentity: { kind: "participant", id }`, or
+`{ kind: "instance", reason }` with `not_configured` or `no_participant`. Once
+the header is configured, a call that presents no agent token is refused rather
+than run as the instance, so a missing token can never widen what an agent may
+do. Proxy errors carry a stable `code`: `egress_denied`,
+`participant_assertion_expired` and `caller_required` (403), `agent_unknown`
+(401, from the agent-token guard),
+`upstream_timeout`, `upstream_unreachable` and `egress_failed` (502). A bundle
+tool that sees `participant_assertion_expired` should tell the user their
+identity assertion has expired and to reload the page, not retry as anyone
+else. `GET /internal/egress/identity` returns the human behind the caller's
+turn with their assertion's expiry, so a tool can tell the user who it is about
+to act as.
+
+What agents can and cannot do: an agent acts as the human behind its turn and
+as nobody else; it cannot name a participant, cannot set the identity header
+itself (a caller copy is always dropped), and never sees the assertion or a
+trigger's delegation token: the assertion stays in the server's cache and the
+token in the server database. When two people write into one turn, the later
+writer is the one it acts for. The bundle-UI proxy
+(`POST /api/agent-bundles/ui-egress`) never forwards an identity.
+
+Triggers outlive assertions. When an agent creates a trigger during a turn with
+an acting participant who still holds a live assertion, and
+`EGRESS_DELEGATION_PATH` is set (it requires `EGRESS_IDENTITY_HEADER`, and the
+server refuses to boot with one but not the other), the server calls
+`POST <TANGLE_API_URL><EGRESS_DELEGATION_PATH>` with that assertion and body
+`{ scope: "trigger:<id>" }` and binds the trigger to the returned delegation:
+`participantId` and `delegationId` go on the trigger in the session's
+`.tangent/triggers.json`, the token into the `trigger_delegations` table of the
+server database, never into the workspace an agent can read (a `triggers.json`
+written before this split is migrated on first load and rewritten without the
+token). A firing's prompt carries the creator and the delegation: when it
+finds its target idle, the Run it opens acts for `participantId` and forwards
+the delegation token instead of an assertion; when it lands in a turn already
+in flight, the prompt is only posted into that turn — the creator does not
+become the Run's participant and the delegation is not applied, so a
+schedule can never lend its creator's identity to work someone else started.
+A sub-agent hosted in a connected remote environment gets the same treatment —
+the Run the firing opens for it carries the creator and the delegation; the
+token stays on the server and never rides the remote protocol. The delegation
+dies with its Run, like the participant itself: the participant's next wake
+starts from nothing. Removing the trigger — from the UI, by the agent, or by
+deleting its session — revokes the delegation with a best-effort `DELETE` and
+deletes the token row, as does replacing it with a newer one. A registration
+that fails is logged and the trigger is created bound to the person but without
+a delegation, so its firings act as the instance.
+
+A trigger created from the session API (`POST /api/sessions/:id/triggers`) is
+bound the same way to the signed-in person making the request, when they hold
+a live assertion; otherwise it is created unbound and fires as the instance.
+Editing a bound trigger's prompt or schedule — from the session API or through
+`/internal/triggers/update` — is new authorship: the person it was bound to
+never asked for that prompt on that schedule, so the edit revokes and clears
+the old delegation and binds the trigger afresh to the editor. From the session
+API that is the requesting user, bound only when they hold a live assertion and
+left unbound otherwise; from the internal route it is the person behind the
+editing agent's turn, as on creation, or nobody when the turn has no one behind
+it. Toggling `enabled` or changing the title keeps the binding. Once
+`EGRESS_IDENTITY_HEADER` is configured, every `/internal/triggers/*` call must
+present the agent token (`403 { code: "caller_required" }` otherwise), because
+who a trigger is bound to is read from the calling agent's turn; a call whose
+`sessionId` names a session other than the token's is refused as before.
+
 ### Saved pipeline authoring
 
 Bundle tools can submit a complete definition through the internal egress route
@@ -222,10 +328,12 @@ pipeline in the UI is an optional step after confirmed persistence.
 Configure `TANGLE_API_URL` and the established trusted authentication in the
 deployment wrapper (`TANGLE_TOKEN` for cookie-based deployments, or the
 deployment's authenticated network path). `GET /api/users/me` identifies the
-backend caller. The proxy does not impersonate session participants, so every
-agent write runs as that one identity: anyone who can message an agent in a
-session can have it create or overwrite pipelines that identity may write,
-including pipelines other owners have shared with it for editing.
+backend caller. Without `EGRESS_IDENTITY_HEADER` the proxy does not act for
+session participants, so every agent write runs as that one identity: anyone
+who can message an agent in a session can have it create or overwrite pipelines
+that identity may write, including pipelines other owners have shared with it
+for editing. With it configured, a write runs as the participant behind the
+turn (see [Acting on behalf of a participant](#acting-on-behalf-of-a-participant)).
 
 A failed or timed-out response does not prove that a write was rolled back.
 Read the original `file_path` and compare the persisted definition before
@@ -285,3 +393,27 @@ append-only JSONL under each session's `.tangent/chats/`
 ([sessions-and-storage.md](./sessions-and-storage.md)). Both survive a restart —
 so a deployment must treat the database file and the session root as the durable
 state to back up and protect, not as scratch space.
+
+### Note 4: the database is a credential store once delegations exist
+
+With trigger delegations configured, `tangent.db` holds the delegation tokens
+triggers fire under (`trigger_delegations`). A delegation token together with
+the instance credential (`TANGLE_TOKEN`, or whatever the deployment's
+authenticated path presents) lets its holder act at the backend as the
+participant who granted it, for as long as the backend honours the delegation.
+The database file and every backup of it are therefore secrets of the same
+rank as `TANGLE_TOKEN`: restrict who can read them, encrypt backups, and
+revoke delegations (`DELETE` on the delegation path, or delete the trigger)
+if a copy may have leaked. Identity assertions themselves are never written to
+disk; they live in the process's memory and expire within the hour.
+
+### Note 5: the agent token sits in the child's environment
+
+Each Pi child's `TANGENT_AGENT_TOKEN` is handed to it through its environment,
+alongside `TANGENT_INTERNAL_TOKEN`. Anything that can read that process's
+environment — a tool the agent runs with `bash`, a debugger, `/proc` on a
+shared host — can present itself as that agent to `/internal/*`, and so act
+for the people behind that agent's turn. The token is per process and per
+spawn, so the exposure is bounded to one agent's identity set for one
+process's lifetime, but a deployment that lets agents run arbitrary commands
+should treat the agent as able to do whatever its participants can.

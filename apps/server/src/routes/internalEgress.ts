@@ -2,25 +2,37 @@ import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import {
+  agentCallerFrom,
   type AgentCallerResolver,
   enforceAgentCaller,
 } from "../auth/agentCaller.ts";
 import {
+  CallerRequiredError,
+  chooseEgressIdentity,
+  type ChosenIdentity,
+  describeTurnIdentity,
+  type EgressIdentityDeps,
+  ParticipantAssertionExpiredError,
+} from "../auth/egressIdentity.ts";
+import {
+  type IdentityAssertionCache,
+  identityAssertions,
+} from "../auth/identityAssertions.ts";
+import {
   EgressDeniedError,
-  type EgressInput,
   type EgressRequestInit,
+  type EgressResponse,
   EgressUpstreamError,
   resolveEgress,
 } from "../bundleUi/egressAllowlist.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
+import type { RunDelegation } from "../runs/runRegistry.ts";
 
 /**
- * Egress request body. `input` must be a non-empty string (replacing the old
- * manual `typeof` guard); `init` stays permissive — it's a structural
- * {@link EgressRequestInit} passed straight through to {@link resolveEgress},
- * so we type it via `z.custom` rather than re-describing its shape, keeping the
- * validated value assignable without an `as` cast.
+ * Egress request body. `init` is a structural {@link EgressRequestInit} passed
+ * straight through to {@link resolveEgress}, so it is typed via `z.custom`
+ * rather than re-described, keeping the validated value assignable as is.
  */
 const egressInputSchema = z.union([
   z.string().min(1),
@@ -37,28 +49,123 @@ const egressBodySchema = z.object({
 type EgressBody = z.infer<typeof egressBodySchema>;
 
 /**
- * Resolves the requested destination against the egress allowlist, mapping a
- * denied destination to `403` and any other failure to `502`.
+ * A backend 401 over a refused identity reads `Identity assertion error:
+ * <reason>`; these are the reasons that mean the delegation itself is gone.
+ */
+const IDENTITY_ASSERTION_ERROR_PREFIX = "Identity assertion error: ";
+const DELEGATION_LAPSED_REASONS = new Set([
+  "delegation expired",
+  "delegation has been revoked",
+]);
+const refusalDetailSchema = z.object({ detail: z.string() });
+
+/** Told when the backend stopped honouring the delegation a turn acts under. */
+export type OnDelegationLapsed = (
+  sessionId: string,
+  delegation: RunDelegation,
+) => Promise<void>;
+
+/** What the route does with a refused token, beyond reporting it. */
+export interface EgressRefusalDeps {
+  identity: EgressIdentityDeps;
+  onDelegationLapsed?: OnDelegationLapsed;
+}
+
+function saysDelegationLapsed(result: EgressResponse): boolean {
+  const parsed = refusalDetailSchema.safeParse(result.json);
+  if (!parsed.success) return false;
+  const { detail } = parsed.data;
+  if (!detail.startsWith(IDENTITY_ASSERTION_ERROR_PREFIX)) return false;
+  return DELEGATION_LAPSED_REASONS.has(
+    detail.slice(IDENTITY_ASSERTION_ERROR_PREFIX.length),
+  );
+}
+
+/**
+ * A 401 means the backend refused the token the call carried. A refused
+ * assertion is dropped from the cache so the next call is refused as
+ * `participant_assertion_expired` rather than failing the same way; a
+ * delegation the backend calls expired or revoked is handed to the trigger
+ * side to drop and announce.
+ */
+function chargeRefusal(
+  deps: EgressRefusalDeps,
+  sessionId: string,
+  chosen: ChosenIdentity,
+  result: EgressResponse,
+): void {
+  if (result.status !== 401 || chosen.applied.kind !== "participant") return;
+  const { source } = chosen;
+  if (!source) return;
+  if (source.kind === "assertion") {
+    assertionsOf(deps.identity).evict(chosen.applied.id);
+    return;
+  }
+  if (saysDelegationLapsed(result)) {
+    dropDelegation(deps, sessionId, source.delegation);
+  }
+}
+
+function assertionsOf(identity: EgressIdentityDeps): IdentityAssertionCache {
+  return identity.assertions ?? identityAssertions;
+}
+
+function dropDelegation(
+  deps: EgressRefusalDeps,
+  sessionId: string,
+  delegation: RunDelegation,
+): void {
+  void deps
+    .onDelegationLapsed?.(sessionId, delegation)
+    .catch((err) =>
+      console.error("[egress] dropping a lapsed delegation failed:", err),
+    );
+}
+
+/** Maps a failed proxy call to its status and stable code. */
+function sendEgressError(err: unknown, res: Response): void {
+  if (err instanceof EgressDeniedError) {
+    res.status(403).json({ error: err.message, code: err.code });
+    return;
+  }
+  if (
+    err instanceof ParticipantAssertionExpiredError ||
+    err instanceof CallerRequiredError
+  ) {
+    res.status(403).json({ error: err.message, code: err.code });
+    return;
+  }
+  if (err instanceof EgressUpstreamError) {
+    res.status(502).json({ error: err.message, code: err.code });
+    return;
+  }
+  res
+    .status(502)
+    .json({ error: "egress request failed", code: "egress_failed" });
+}
+
+/**
+ * Resolves the requested destination against the egress allowlist as the
+ * human behind the caller's turn, and reports who the call ran as. A backend
+ * status is preserved in the envelope (an upstream 401 is a 200 here), so the
+ * applied identity rides along with it either way.
  */
 async function handleEgress(
-  input: EgressInput,
-  init: EgressRequestInit | undefined,
+  deps: EgressRefusalDeps,
+  req: Request,
   res: Response,
 ): Promise<void> {
+  const { input, init } = getValidated<EgressBody>(req).body;
   try {
-    const result = await resolveEgress(input, init, "agent");
-    res.json(result);
-  } catch (err) {
-    if (err instanceof EgressDeniedError) {
-      res.status(403).json({ error: err.message });
-      return;
-    }
-    res.status(502).json({
-      error:
-        err instanceof EgressUpstreamError
-          ? err.message
-          : "egress request failed",
+    const caller = agentCallerFrom(req);
+    const chosen = chooseEgressIdentity(deps.identity, caller);
+    const result = await resolveEgress(input, init, "agent", {
+      identityToken: chosen.token,
     });
+    if (caller) chargeRefusal(deps, caller.sessionId, chosen, result);
+    res.json({ ...result, appliedIdentity: chosen.applied });
+  } catch (err) {
+    sendEgressError(err, res);
   }
 }
 
@@ -67,7 +174,11 @@ async function handleEgress(
  * process (e.g. the Tangle API tool). It is the agent-side counterpart to the
  * public bundle-UI `host.fetch` proxy: the request is validated against the
  * same {@link resolveEgress} allowlist and the server injects any credentials,
- * so the agent never holds them.
+ * so the agent never holds them. With identity forwarding configured, the call
+ * is made on behalf of the human behind the calling agent's turn; a call that
+ * does not identify its agent, or whose participant's assertion has expired,
+ * is refused rather than run as the instance; the agent never sets the
+ * identity header itself.
  *
  * Guarded by the bearer token shared with the spawned processes via env (the
  * same `INTERNAL_TOKEN` the orchestrator/memory extensions present), so
@@ -75,19 +186,22 @@ async function handleEgress(
  */
 export function createInternalEgressRouter(
   agents?: AgentCallerResolver,
+  identity: EgressIdentityDeps = {
+    runs: { audienceFor: () => undefined, delegationFor: () => undefined },
+  },
+  onDelegationLapsed?: OnDelegationLapsed,
 ): Router {
   const router = Router();
 
   router.use(requireInternalToken, enforceAgentCaller(agents));
 
-  router.post(
-    "/",
-    validate({ body: egressBodySchema }),
-    (req: Request, res: Response) => {
-      const { input, init } = getValidated<EgressBody>(req).body;
-      return handleEgress(input, init, res);
-    },
+  router.post("/", validate({ body: egressBodySchema }), (req, res) =>
+    handleEgress({ identity, onDelegationLapsed }, req, res),
   );
+
+  router.get("/identity", (req: Request, res: Response) => {
+    res.json(describeTurnIdentity(identity, agentCallerFrom(req)));
+  });
 
   return router;
 }
