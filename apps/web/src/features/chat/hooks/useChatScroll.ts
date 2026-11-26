@@ -47,19 +47,8 @@ function atBottom(handle: VirtualizerHandle): boolean {
 }
 
 /**
- * Stick-to-bottom + unread-pill bookkeeping for the chat list.
- *
- * The tricky part with a virtualizer is that row sizes are measured
- * asynchronously after mount (and again as markdown/images/streaming deltas
- * render). During that settling the scroll offset briefly looks "not at the
- * bottom", so we must NOT treat every such offset as the user scrolling away —
- * otherwise we unpin, show the jump pill, and leave the list stranded.
- *
- * A link or a real scroll gesture (wheel / touch / pointer drag / keyboard)
- * takes the reader away from the bottom. Any other drift
- * away from the bottom while sticky (measurement jumps, appended rows, content
- * growth) snaps straight back down. Everything is driven through virtua's
- * handle so we never read or write the DOM scroll position directly.
+ * Virtua remeasures rows as their content loads. Follow those changes while
+ * pinned to the bottom, and preserve the reading position after a link or scroll.
  */
 export function useChatScroll({
   messages,
@@ -166,8 +155,8 @@ export function useChatScroll({
     if (messages.length > 0) scrollToBottom();
   }, [messages.length, targetIndex, targetMessageId]);
 
-  // A count increase (new message, not a streaming delta) snaps own sends and
-  // sticky views, else tallies the unread pill.
+  // Sending a message returns the reader to the bottom. Incoming messages
+  // count as unread while the reader is elsewhere.
   useEffect(() => {
     const prevLen = prevLenRef.current;
     prevLenRef.current = messages.length;
@@ -190,12 +179,8 @@ export function useChatScroll({
     }
   }, [messages, currentAuthorId]);
 
-  // Re-snap to the bottom whenever virtua's content resizes while sticky (row
-  // measurement, streaming growth, a hidden tab becoming visible). We observe
-  // virtua's own sized element — the scroll container's only child — and also
-  // mark user scroll gestures here so `onScroll` can distinguish them.
-  // Re-runs when the list flips between empty and populated so it tracks
-  // whichever element virtua mounts.
+  // Virtua's inner element resizes as rows are measured or messages stream.
+  // While pinned, follow the bottom. At a linked message, only update the jump button.
   const hasRows = rowCount > 0;
   useEffect(() => {
     const container = containerRef.current;

@@ -61,6 +61,15 @@ type Row =
 
 const ACTIVITY_ROW_KEY = "__activity__";
 
+const LINKED_MESSAGE_HIGHLIGHT = {
+  "aria-current": "location",
+  background: "info-subtle",
+  border: "sm",
+  borderColor: "info",
+  borderRadius: "lg",
+  padding: "sm",
+} as const;
+
 interface RowContentProps {
   row: Row;
   getMessageLink?: MessageLinkProps["getMessageLink"];
@@ -267,32 +276,30 @@ export function ChatMessageList({
                   <Box
                     key={row.key}
                     group
-                    background={
-                      index === targetIndex ? "info-subtle" : undefined
-                    }
-                    aria-current={
-                      index === targetIndex ? "location" : undefined
-                    }
                     paddingBlockStart={index === 0 ? "base" : undefined}
                     paddingBlockEnd={isLast ? "base" : "lg"}
                   >
-                    <RowContent
-                      row={row}
-                      getMessageLink={getMessageLink}
-                      sessionId={sessionId}
-                      currentAuthorId={currentAuthorId}
-                      primaryConversationId={primaryConversationId}
-                      activityAuthorName={activityAuthorName}
-                      activityAuthorRole={activityAuthorRole}
-                      bundleId={bundleId}
-                      onSendPrompt={onSendPrompt}
-                      onOpenArtifact={onOpenArtifact}
-                      pinnedPaths={pinnedPaths}
-                      onTogglePinArtifact={onTogglePinArtifact}
-                      isMessageStreaming={isMessageStreaming}
-                      onCollapse={collapse}
-                      onExpand={expand}
-                    />
+                    <Box
+                      {...(index === targetIndex && LINKED_MESSAGE_HIGHLIGHT)}
+                    >
+                      <RowContent
+                        row={row}
+                        getMessageLink={getMessageLink}
+                        sessionId={sessionId}
+                        currentAuthorId={currentAuthorId}
+                        primaryConversationId={primaryConversationId}
+                        activityAuthorName={activityAuthorName}
+                        activityAuthorRole={activityAuthorRole}
+                        bundleId={bundleId}
+                        onSendPrompt={onSendPrompt}
+                        onOpenArtifact={onOpenArtifact}
+                        pinnedPaths={pinnedPaths}
+                        onTogglePinArtifact={onTogglePinArtifact}
+                        isMessageStreaming={isMessageStreaming}
+                        onCollapse={collapse}
+                        onExpand={expand}
+                      />
+                    </Box>
                   </Box>
                 );
               })}
