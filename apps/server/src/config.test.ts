@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readHeaderName } from "./config.ts";
+import { assertDelegationsForwardable, readHeaderName } from "./config.ts";
 
 const VAR = "CONFIG_TEST_HEADER_NAME";
 
@@ -58,4 +58,14 @@ test("readHeaderName refuses separators and other non-token characters", () => {
       bad,
     );
   }
+});
+
+test("a delegation path without an identity header is refused at boot", () => {
+  assert.throws(
+    () => assertDelegationsForwardable("/api/tangent/delegations", ""),
+    /EGRESS_DELEGATION_PATH is set but EGRESS_IDENTITY_HEADER is not/,
+  );
+  assertDelegationsForwardable("/api/tangent/delegations", "x-on-behalf-of");
+  assertDelegationsForwardable("", "");
+  assertDelegationsForwardable("", "x-on-behalf-of");
 });

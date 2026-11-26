@@ -1,5 +1,5 @@
 import { EGRESS_IDENTITY_HEADER } from "../config.ts";
-import type { RunRegistry } from "../runs/runRegistry.ts";
+import type { RunDelegation, RunRegistry } from "../runs/runRegistry.ts";
 import type { AgentCaller } from "./agentCaller.ts";
 import {
   type IdentityAssertionCache,
@@ -14,10 +14,16 @@ export type AppliedIdentity =
   | { kind: "participant"; id: string }
   | { kind: "instance"; reason: InstanceReason };
 
+/** Where a forwarded token came from, so a refusal can be charged to it. */
+export type TokenSource =
+  | { kind: "assertion" }
+  | { kind: "delegation"; delegation: RunDelegation };
+
 /** The token to forward and the identity it stands for. */
 export interface ChosenIdentity {
   applied: AppliedIdentity;
   token?: string;
+  source?: TokenSource;
 }
 
 /** One participant as `GET /internal/egress/identity` reports them. */
@@ -33,15 +39,16 @@ export interface TurnIdentity {
 
 /** What choosing an identity needs to consult. */
 export interface EgressIdentityDeps {
-  runs: Pick<RunRegistry, "audienceFor">;
+  runs: Pick<RunRegistry, "audienceFor" | "delegationFor">;
   assertions?: IdentityAssertionCache;
   identityHeader?: string;
 }
 
 /**
- * Raised when the turn has a person behind it whose assertion has expired.
- * Running as the instance here would quietly widen what the agent may do, so
- * the call is refused instead.
+ * Raised when the turn has a person behind it who cannot be carried: their
+ * assertion has expired and the turn holds no delegation for them. Running as
+ * the instance here would quietly widen what the agent may do, so the call is
+ * refused instead.
  */
 export class ParticipantAssertionExpiredError extends Error {
   readonly code = "participant_assertion_expired";
@@ -72,17 +79,30 @@ function configured(deps: EgressIdentityDeps): boolean {
   return (deps.identityHeader ?? EGRESS_IDENTITY_HEADER).length > 0;
 }
 
-function assertionsOf(deps: EgressIdentityDeps): IdentityAssertionCache {
-  return deps.assertions ?? identityAssertions;
+/** The turn's delegation for this person, else their live assertion. */
+function tokenFor(
+  deps: EgressIdentityDeps,
+  caller: AgentCaller,
+  participantId: string,
+): { token: string; source: TokenSource } | undefined {
+  const delegation = deps.runs.delegationFor(caller.sessionId, caller.agentId);
+  if (delegation?.participantId === participantId) {
+    return {
+      token: delegation.token,
+      source: { kind: "delegation", delegation },
+    };
+  }
+  const held = (deps.assertions ?? identityAssertions).get(participantId);
+  return held && { token: held.token, source: { kind: "assertion" } };
 }
 
 /**
  * Decides who an egress call acts as: the human behind the caller's turn,
- * carrying that person's live assertion. The instance identity is used only
- * when forwarding is off or the turn has nobody behind it. A participant whose
- * assertion has expired is a refusal, as is an unidentified caller once
- * forwarding is configured, so nothing runs as the instance merely because a
- * token expired or was left out.
+ * carrying that person's live assertion or the trigger delegation the turn
+ * runs under. The instance identity is used only when forwarding is off or
+ * the turn has nobody behind it. A participant who cannot be carried is a
+ * refusal, as is an unidentified caller once forwarding is configured, so
+ * nothing runs as the instance merely because a token expired or was left out.
  */
 export function chooseEgressIdentity(
   deps: EgressIdentityDeps,
@@ -93,16 +113,13 @@ export function chooseEgressIdentity(
   const participantId = deps.runs.audienceFor(caller.sessionId, caller.agentId);
   if (!participantId) return instance("no_participant");
 
-  const held = assertionsOf(deps).get(participantId);
-  if (!held) throw new ParticipantAssertionExpiredError(participantId);
-  return {
-    applied: { kind: "participant", id: participantId },
-    token: held.token,
-  };
+  const carried = tokenFor(deps, caller, participantId);
+  if (!carried) throw new ParticipantAssertionExpiredError(participantId);
+  return { applied: { kind: "participant", id: participantId }, ...carried };
 }
 
 function participantOf(deps: EgressIdentityDeps, id: string): TurnParticipant {
-  const expiresAt = assertionsOf(deps).get(id)?.expiresAt;
+  const expiresAt = (deps.assertions ?? identityAssertions).get(id)?.expiresAt;
   return expiresAt
     ? { id, assertionExpiresAt: expiresAt.toISOString() }
     : { id };

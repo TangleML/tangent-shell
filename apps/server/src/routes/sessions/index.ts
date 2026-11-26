@@ -7,6 +7,7 @@ import { getValidated, validate } from "../../middleware/validate.ts";
 import type { HostResourcePreamble } from "../../pi/hostResourcePreamble.ts";
 import type { MemoryManager } from "../../pi/memory.ts";
 import type { PiAgentManager } from "../../pi/piAgentManager.ts";
+import type { TriggerBindingDeps } from "../../pi/triggers/triggerBinding.ts";
 import type { TriggerEngine } from "../../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../../pi/triggers/triggerManager.ts";
 import type { UiCommandEmitter } from "../../sockets/sessionRoster.ts";
@@ -200,6 +201,7 @@ export function createSessionsRouter(
   usage: UsageStore,
   runStore: RunStore,
   bundleKb?: BundleKbRegistry,
+  triggerIdentity?: TriggerBindingDeps,
 ): Router {
   const router = Router();
 
@@ -227,7 +229,13 @@ export function createSessionsRouter(
     agentBundleStore,
     postSystemNote,
   });
-  registerTriggerRoutes(router, store, triggers, triggerEngine);
+  registerTriggerRoutes(
+    router,
+    store,
+    triggers,
+    triggerEngine,
+    triggerIdentity,
+  );
   registerParticipantRoutes(router, store, participants);
   registerEnvironmentRoutes(router, store, environments);
   registerResourceRoutes(router, {

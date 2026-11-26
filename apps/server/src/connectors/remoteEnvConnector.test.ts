@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { ConversationEventSink } from "../pi/types.ts";
 import type { RemoteEnvironmentGateway } from "../remote/remoteEnvironmentGateway.ts";
+import type { RunDelegation } from "../runs/runRegistry.ts";
 import { RemoteEnvConnector } from "./remoteEnvConnector.ts";
 import type { DeliveryRequest } from "./types.ts";
 
@@ -11,6 +12,7 @@ interface Sent {
   agentId: string;
   text: string;
   audienceParticipantId?: string;
+  delegation?: RunDelegation;
 }
 
 /** A message the connector surfaced into a conversation. */
@@ -86,6 +88,27 @@ test("a non-owner's message is refused and never sent to the machine", () => {
   assert.equal(h.surfaced.length, 1);
   assert.equal(h.surfaced[0].conversationId, "remote-1");
   assert.match(h.surfaced[0].content, /Only the person who connected/);
+});
+
+test("a trigger's firing hands the gateway its creator and delegation", () => {
+  const h = makeHarness("alice@x");
+  const delegation = {
+    triggerId: "t1",
+    participantId: "alice@x",
+    token: "delegation-token",
+  };
+
+  const result = h.connector.deliver(
+    request({
+      ingress: "schedule",
+      audienceParticipantId: "alice@x",
+      delegation,
+    }),
+  );
+
+  assert.equal(result.delivered, true);
+  assert.equal(h.sends[0].audienceParticipantId, "alice@x");
+  assert.deepEqual(h.sends[0].delegation, delegation);
 });
 
 test("an agent-originated delivery is not owner-gated", () => {

@@ -48,6 +48,7 @@ import {
   withoutCatalogCredentials,
 } from "../modelCatalog.ts";
 import type {
+  RunDelegation,
   RunRegistry,
   SettledStatus,
   Settlement,
@@ -273,6 +274,11 @@ export interface SendToAgentOptions {
   /** The human a relay from another agent's Run carries. Seeds the Run this
    * opens; a Run in flight keeps acting for whoever it already did. */
   relayedParticipantId?: string;
+  delegation?: RunDelegation;
+}
+
+function isTriggerIngress(ingress: RunIngress | undefined): boolean {
+  return ingress === "schedule" || ingress === "webhook";
 }
 
 /** A session's selector tags, read synchronously at spawn. */
@@ -1813,6 +1819,7 @@ export class PiAgentManager {
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
       relayedParticipantId: options.relayedParticipantId,
+      delegation: options.delegation,
     });
   }
 
@@ -1841,15 +1848,24 @@ export class PiAgentManager {
 
   /**
    * Makes the human behind a prompt that found its agent busy the one its open
-   * Run acts for. An agent's or automation's prompt changes nothing.
+   * Run acts for. A trigger's creator is not, and its delegation is not
+   * applied — the firing is only posted, so a schedule cannot lend its
+   * creator's identity to someone else's turn.
    */
   private joinRun(
     sessionId: string,
     agent: AgentProcess,
     prompt: SentPrompt,
   ): void {
-    if (!prompt.audienceParticipantId) return;
-    this.runs.join(sessionId, agent.agentId, prompt.audienceParticipantId);
+    const { audienceParticipantId } = prompt;
+    if (!audienceParticipantId) return;
+    if (isTriggerIngress(prompt.ingress)) {
+      console.debug(
+        `[pi] a ${prompt.ingress} firing landed in ${agent.agentId}'s busy turn; its creator ${audienceParticipantId} is not added and no delegation is applied`,
+      );
+      return;
+    }
+    this.runs.join(sessionId, agent.agentId, audienceParticipantId);
   }
 
   /** Opens a Run for an agent, for the prompt it serves when there is one. */
@@ -1865,6 +1881,7 @@ export class PiAgentManager {
       ingress: prompt?.ingress ?? "reaction",
       audienceParticipantId: prompt?.audienceParticipantId,
       relayedParticipantId: prompt?.relayedParticipantId,
+      delegation: prompt?.delegation,
     }).id;
   }
 

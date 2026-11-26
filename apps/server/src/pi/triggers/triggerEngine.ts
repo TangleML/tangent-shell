@@ -7,7 +7,11 @@ import type {
   TriggerTarget,
   TriggerUpdatePayload,
 } from "@tangent/shared/contracts.ts";
-import { SocketEvents, TRIGGER_AUTHOR } from "@tangent/shared/contracts.ts";
+import {
+  SocketEvents,
+  SYSTEM_AUTHOR,
+  TRIGGER_AUTHOR,
+} from "@tangent/shared/contracts.ts";
 import { Cron } from "croner";
 import type { Server } from "socket.io";
 
@@ -18,12 +22,18 @@ import {
   orchestratorIdentity,
 } from "../../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../../conversation/participantService.ts";
+import type { RunDelegation, RunRegistry } from "../../runs/runRegistry.ts";
 import { roomFor } from "../../sockets/rooms.ts";
 import type { SessionStore } from "../../store/sessionStore.ts";
 import type { SubagentSpawnRequest } from "../agentConfig.ts";
 import type { PiAgentManager } from "../piAgentManager.ts";
 import { resolveTriggerPrompt } from "./handlerRunner.ts";
-import type { StoredTrigger, TriggerManager } from "./triggerManager.ts";
+import type { TriggerDelegations } from "./triggerDelegation.ts";
+import type {
+  StoredTrigger,
+  TriggerListener,
+  TriggerManager,
+} from "./triggerManager.ts";
 
 /** Floor on a schedule interval so a bad `every` can't busy-loop the server. */
 const MIN_INTERVAL_MS = 1000;
@@ -41,6 +51,19 @@ function triggerAuthor(stored: StoredTrigger): ChatAuthor {
 /** What a firing counts as when it opens a Run: the trigger's own signal. */
 function ingressFor(stored: StoredTrigger): RunIngress {
   return stored.kind === "schedule" ? "schedule" : "webhook";
+}
+
+/** What a firing's prompt carries so the turn it wakes acts for the creator. */
+interface FiringIdentity {
+  audienceParticipantId?: string;
+  delegation?: RunDelegation;
+}
+
+/** Told to the session when a trigger's grant stopped working. */
+function delegationLapsedNotice(stored: StoredTrigger): string {
+  const label = stored.title ?? stored.name;
+  const owner = stored.participantId ?? "its creator";
+  return `The trigger "${label}" can no longer act as ${owner}: the grant it fired under has expired or been revoked. ${owner} needs to re-create the trigger so it can act as them again.`;
 }
 
 /** Builds the spawn request that revives a `subagent`-target trigger's sub-agent. */
@@ -91,6 +114,8 @@ export class TriggerEngine {
   private readonly triggers: TriggerManager;
   private readonly conversations: ConversationRouter;
   private readonly participants: ParticipantService | undefined;
+  private readonly delegations: Pick<TriggerDelegations, "revoke"> | undefined;
+  private readonly runs: Pick<RunRegistry, "dropDelegation"> | undefined;
 
   constructor(
     io: Server,
@@ -99,6 +124,8 @@ export class TriggerEngine {
     triggers: TriggerManager,
     conversations: ConversationRouter,
     participants?: ParticipantService,
+    delegations?: Pick<TriggerDelegations, "revoke">,
+    runs?: Pick<RunRegistry, "dropDelegation">,
   ) {
     this.io = io;
     this.store = store;
@@ -106,6 +133,61 @@ export class TriggerEngine {
     this.triggers = triggers;
     this.conversations = conversations;
     this.participants = participants;
+    this.delegations = delegations;
+    this.runs = runs;
+    const release: TriggerListener = (_sessionId, stored) => {
+      this.revokeDelegationOf(stored);
+    };
+    triggers.listen({ onRemoved: release, onDelegationReplaced: release });
+  }
+
+  /**
+   * Lets go of the backend delegation a trigger fired under, once the trigger
+   * (or that delegation) is gone. Best effort: a failed revoke is logged by the
+   * delegation client and never blocks the removal.
+   */
+  private revokeDelegationOf(stored: StoredTrigger): void {
+    if (!stored.delegationId) return;
+    void this.delegations?.revoke(stored.delegationId);
+  }
+
+  /**
+   * What the firing's prompt carries so the Run it opens acts for the trigger's
+   * creator, under the trigger's delegation when the backend issued one. A
+   * trigger nobody created (a bundle's) acts as the instance, as before.
+   */
+  private actFor(sessionId: string, stored: StoredTrigger): FiringIdentity {
+    if (!stored.participantId) return {};
+    return {
+      audienceParticipantId: stored.participantId,
+      delegation: this.triggers.delegationOf(sessionId, stored.id),
+    };
+  }
+
+  /**
+   * Drops a trigger's delegation once the backend stopped honouring it — from
+   * the trigger, so later firings act as the instance rather than fail the
+   * same way, and from the open Run acting under it, so the rest of that turn
+   * falls back to the creator's live assertion or the instance — and tells
+   * the session's main chat what its owner has to do about it.
+   */
+  async dropLapsedDelegation(
+    sessionId: string,
+    triggerId: string,
+  ): Promise<void> {
+    this.runs?.dropDelegation(sessionId, triggerId);
+    const stored = this.triggers.getStored(sessionId, triggerId);
+    if (!stored?.participantId || !stored.delegationId) return;
+    this.triggers.setDelegation(sessionId, triggerId, {
+      participantId: stored.participantId,
+    });
+    await this.conversations.post({
+      sessionId,
+      conversationId: await orchestratorConversationFor(this.store, sessionId),
+      author: SYSTEM_AUTHOR,
+      content: delegationLapsedNotice(stored),
+      provokes: false,
+    });
   }
 
   /** Seeds a bundle's triggers into a new session and arms its schedules. */
@@ -160,8 +242,13 @@ export class TriggerEngine {
     return this.triggers.list(sessionId);
   }
 
-  /** Tears down a session's schedules and drops its in-memory trigger state. */
-  dispose(sessionId: string): void {
+  /**
+   * Tears down a deleted session's schedules and forgets its triggers, which
+   * releases their delegations. Given the session's root, the triggers are read
+   * from disk first so a session untouched since a restart is covered too.
+   */
+  dispose(sessionId: string, rootPath?: string): void {
+    if (rootPath) this.triggers.register(sessionId, rootPath);
     this.disarm(sessionId);
     this.triggers.dispose(sessionId);
   }
@@ -274,6 +361,7 @@ export class TriggerEngine {
       content: prompt,
       mentions: [orchestratorId],
       ingress: ingressFor(stored),
+      ...this.actFor(sessionId, stored),
     });
   }
 
@@ -298,6 +386,7 @@ export class TriggerEngine {
       content: prompt,
       mentions: [agentId],
       ingress: ingressFor(stored),
+      ...this.actFor(sessionId, stored),
     });
   }
 

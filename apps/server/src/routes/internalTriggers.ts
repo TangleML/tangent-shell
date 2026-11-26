@@ -3,13 +3,23 @@ import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import {
+  agentCallerFrom,
   type AgentCallerResolver,
   enforceAgentCaller,
+  requireAgentCaller,
 } from "../auth/agentCaller.ts";
+import { EGRESS_IDENTITY_HEADER } from "../config.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
+import {
+  bindToParticipant,
+  patchTrigger,
+  reauthored,
+  type TriggerBindingDeps,
+} from "../pi/triggers/triggerBinding.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { TriggerManager } from "../pi/triggers/triggerManager.ts";
+import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import { loadSession } from "./sessions/utils.ts";
 
@@ -106,18 +116,56 @@ async function resolveTarget(
   return { ok: true, session, triggerId };
 }
 
+/** What a trigger needs to act for the person who asked for it. */
+export interface TriggerIdentityDeps extends TriggerBindingDeps {
+  runs: Pick<RunRegistry, "audienceFor">;
+  identityHeader?: string;
+}
+
+/** Whether identity forwarding is on, so every trigger call must name its agent. */
+function forwardingConfigured(identity: TriggerIdentityDeps | undefined) {
+  return (identity?.identityHeader ?? EGRESS_IDENTITY_HEADER).length > 0;
+}
+
+/**
+ * Binds a trigger to the human behind the calling agent's turn. Nothing to
+ * bind to when the caller is unidentified or its turn has nobody behind it.
+ */
+async function bindCreator(
+  identity: TriggerIdentityDeps | undefined,
+  triggers: TriggerManager,
+  req: Request,
+  sessionId: string,
+  triggerId: string,
+): Promise<void> {
+  const caller = agentCallerFrom(req);
+  if (!identity || !caller) return;
+  const participantId = identity.runs.audienceFor(sessionId, caller.agentId);
+  if (!participantId) return;
+  await bindToParticipant(
+    identity,
+    triggers,
+    sessionId,
+    triggerId,
+    participantId,
+  );
+}
+
 async function handleCreate(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
-  body: CreateTriggerInput,
+  identity: TriggerIdentityDeps | undefined,
+  req: Request,
   res: Response,
 ): Promise<void> {
+  const body = getValidated<CreateTriggerInput>(req).body;
   const session = await loadSession(store, res, body.sessionId);
   if (!session) return;
   triggers.register(session.id, session.rootPath);
   try {
     const trigger = triggers.create(session.id, session.rootPath, body);
+    await bindCreator(identity, triggers, req, session.id, trigger.id);
     // Eagerly spawn the dedicated sub-agent so it exists before the first firing.
     await triggerEngine.provision(session.id, session.rootPath, trigger.id);
     triggerEngine.afterChange(session.id, session.rootPath);
@@ -139,10 +187,18 @@ async function handleList(
   res.json({ triggers: triggers.list(session.id) });
 }
 
+/**
+ * Applies the patch. An edit that changes what a bound trigger does when it
+ * fires is new authorship: the grant its creator gave is revoked and the
+ * trigger is bound afresh to whoever is behind the editing agent's turn.
+ * Toggling it or renaming it keeps the binding.
+ */
 async function handleUpdate(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
+  identity: TriggerIdentityDeps | undefined,
+  req: Request,
   body: MutateInput,
   res: Response,
 ): Promise<void> {
@@ -151,13 +207,18 @@ async function handleUpdate(
     res.status(target.status).json({ error: target.message });
     return;
   }
-  const trigger = triggers.update(target.session.id, target.triggerId, body);
-  if (!trigger) {
+  const { session, triggerId } = target;
+  const patched = patchTrigger(triggers, session.id, triggerId, body);
+  if (!patched) {
     res.status(404).json({ error: "Trigger not found" });
     return;
   }
-  triggerEngine.afterChange(target.session.id, target.session.rootPath);
-  res.json({ trigger });
+  if (reauthored(patched)) {
+    triggers.clearBinding(session.id, triggerId);
+    await bindCreator(identity, triggers, req, session.id, triggerId);
+  }
+  triggerEngine.afterChange(session.id, session.rootPath);
+  res.json({ trigger: triggers.get(session.id, triggerId) ?? patched.trigger });
 }
 
 async function handleDelete(
@@ -185,29 +246,30 @@ async function handleDelete(
  * process. It lets Prime create/list/enable/disable/delete the session's
  * triggers; the server owns persistence, scheduling, and delivery. Guarded by
  * the same bearer token as the other internal APIs so arbitrary local callers
- * can't drive a session's triggers.
+ * can't drive a session's triggers; once identity forwarding is configured a
+ * call must also name its agent, because a trigger is bound to the person
+ * behind that agent's turn.
  */
 export function createInternalTriggersRouter(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
   agents?: AgentCallerResolver,
+  identity?: TriggerIdentityDeps,
 ): Router {
   const router = Router();
 
-  router.use(requireInternalToken, enforceAgentCaller(agents));
+  router.use(
+    requireInternalToken,
+    enforceAgentCaller(agents),
+    requireAgentCaller(() => forwardingConfigured(identity)),
+  );
 
   router.post(
     "/create",
     validate({ body: createTriggerSchema }),
     (req: Request, res: Response) =>
-      handleCreate(
-        store,
-        triggers,
-        triggerEngine,
-        getValidated<CreateTriggerInput>(req).body,
-        res,
-      ),
+      handleCreate(store, triggers, triggerEngine, identity, req, res),
   );
   router.get(
     "/list",
@@ -228,6 +290,8 @@ export function createInternalTriggersRouter(
         store,
         triggers,
         triggerEngine,
+        identity,
+        req,
         getValidated<MutateInput>(req).body,
         res,
       ),
