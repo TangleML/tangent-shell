@@ -44,6 +44,7 @@ function fakeClient(socket: FakeSocket): FakeClient {
     socket: socket as unknown as RemoteEnvironmentClient["socket"],
     disconnected: false,
     agentEvent() {},
+    runEvent() {},
     subagentUpdate() {},
     report() {},
     readRoom: async () => [],

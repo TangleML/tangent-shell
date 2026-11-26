@@ -982,7 +982,7 @@ export interface OutstandingCorrelation {
  * - `fromHumans` — act only on what a person typed.
  * - `mentionsMe` — act only when addressed. A directed message is one whose
  *   `mentions` include you; `directed` is not a separate value.
- * - `atRunEnd` — act only on a Message that ends its Run.
+ * - `atRunEnd` — act on a finalized turn of another participant's Run.
  * - `never` — a member that declares it does not act.
  */
 export type ReactionName =
@@ -1510,7 +1510,7 @@ export interface ChatMessage {
   command?: ChatCommandRun;
   /** The {@link Run} that produced this Message, when one is attributable. */
   runId?: RunId;
-  /** Whether this Message is the last of its Run. */
+  /** Set on each finalized turn of a Run, not only its last. */
   endsRun?: boolean;
   /**
    * Marks this Message as a request awaiting an answer. The engine holds an

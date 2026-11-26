@@ -6,12 +6,14 @@ import type { MessageDelivery } from "@tangent/shared/contracts.ts";
 import { parseModelCatalog } from "@tangent/shared/modelCatalog.ts";
 import type {
   RemoteAgentEvent,
+  RemoteRunEvent,
   RemoteSpawnCommand,
 } from "@tangent/shared/remoteSubagent.ts";
 
 import {
   createStreamState,
   parsePiLine,
+  runEventFor,
   translatePiEvent,
 } from "./piEvents.ts";
 
@@ -36,6 +38,7 @@ export interface PiLaunchOptions {
 
 export interface PiAgentCallbacks {
   onEvent(event: RemoteAgentEvent): void;
+  onRunEvent(event: RemoteRunEvent): void;
   /** Fires once, whether the process exited or failed to start. */
   onExit(reason: string): void;
   onLog(line: string): void;
@@ -177,8 +180,12 @@ export class PiAgent {
   }
 
   /** Sends a prompt; mid-run it steers or queues according to `delivery`. */
-  prompt(text: string, delivery: MessageDelivery): void {
-    this.write(promptCommand(randomUUID(), text, delivery));
+  prompt(
+    text: string,
+    delivery: MessageDelivery,
+    id: string = randomUUID(),
+  ): void {
+    this.write(promptCommand(id, text, delivery));
   }
 
   kill(): void {
@@ -200,6 +207,8 @@ export class PiAgent {
       for (const out of translatePiEvent(this.state, event, randomUUID)) {
         this.callbacks.onEvent(out);
       }
+      const runEvent = runEventFor(this.state, event);
+      if (runEvent) this.callbacks.onRunEvent(runEvent);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.callbacks.onLog(`translate failed ${message}`);

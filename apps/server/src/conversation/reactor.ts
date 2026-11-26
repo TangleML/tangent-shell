@@ -65,6 +65,12 @@ function targetsOf(spec: ReactorSpec): {
  * The id this Message completes, or nothing. A completion is a finalized turn
  * (`endsRun`) by an awaited participant, or a finalized turn of an awaited run —
  * whichever identity the caller declared it waits on.
+ *
+ * `endsRun` is set on every finalized turn, and a Pi Run can span several
+ * (retries, queued follow-ups), so this counts a worker done at its first
+ * turn, not when its Run settles. Nothing installs these set reactors yet
+ * (only `supervise` is); count completions from the Run settling before
+ * exposing them.
  */
 function completionId(
   message: MessageFacts,

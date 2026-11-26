@@ -1,5 +1,8 @@
 import type { AgentActivity } from "@tangent/shared/contracts.ts";
-import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
+import type {
+  RemoteAgentEvent,
+  RemoteRunEvent,
+} from "@tangent/shared/remoteSubagent.ts";
 
 /**
  * One parsed line of `pi --mode rpc` stdout. Flat rather than a union because
@@ -8,11 +11,17 @@ import type { RemoteAgentEvent } from "@tangent/shared/remoteSubagent.ts";
 export interface PiStdoutEvent {
   type?: string;
   assistantMessageEvent?: { type?: string; delta?: unknown };
-  message?: { role?: string; content?: unknown };
+  message?: { role?: string; content?: unknown; stopReason?: unknown };
   toolName?: string;
   args?: unknown;
   steering?: unknown;
   followUp?: unknown;
+  id?: unknown;
+  command?: unknown;
+  success?: unknown;
+  data?: unknown;
+  error?: unknown;
+  aborted?: unknown;
 }
 
 /** The in-flight assistant message of one pi process. */
@@ -22,10 +31,18 @@ export interface PiStreamState {
   startEmitted: boolean;
   accum: string;
   thinkingAccum: string;
+  /** Whether the run's latest model call failed, so it settles `failed`. */
+  modelFailed: boolean;
 }
 
 export function createStreamState(): PiStreamState {
-  return { messageId: null, startEmitted: false, accum: "", thinkingAccum: "" };
+  return {
+    messageId: null,
+    startEmitted: false,
+    accum: "",
+    thinkingAccum: "",
+    modelFailed: false,
+  };
 }
 
 function resetMessage(state: PiStreamState): void {
@@ -212,4 +229,70 @@ export function translatePiEvent(
 ): RemoteAgentEvent[] {
   const translate = TRANSLATORS[event.type ?? ""];
   return translate ? translate(state, event, newId) : [];
+}
+
+const DISPOSITIONS = ["started", "queued", "handled"] as const;
+
+function readDisposition(
+  data: unknown,
+): (typeof DISPOSITIONS)[number] | undefined {
+  if (typeof data !== "object" || data === null || !("disposition" in data)) {
+    return undefined;
+  }
+  const { disposition } = data;
+  return DISPOSITIONS.find((known) => known === disposition);
+}
+
+function promptAnswered(event: PiStdoutEvent): RemoteRunEvent | undefined {
+  if (event.command !== "prompt" || typeof event.id !== "string") {
+    return undefined;
+  }
+  const success = event.success === true;
+  const disposition = readDisposition(event.data);
+  return {
+    type: "prompt-answered",
+    promptId: event.id,
+    success,
+    ...(disposition ? { disposition } : {}),
+    ...(success ? {} : { error: String(event.error) }),
+  };
+}
+
+function settled(state: PiStreamState, event: PiStdoutEvent): RemoteRunEvent {
+  const failed = state.modelFailed;
+  state.modelFailed = false;
+  return { type: "settled", aborted: event.aborted === true, failed };
+}
+
+/** Only the latest call counts, so a call Pi retried and got through doesn't
+ * fail the run. */
+function trackModelFailure(
+  state: PiStreamState,
+  event: PiStdoutEvent,
+): undefined {
+  if (isAssistant(event)) {
+    state.modelFailed = event.message?.stopReason === "error";
+  }
+  return undefined;
+}
+
+const RUN_EVENTS: Record<
+  string,
+  (state: PiStreamState, event: PiStdoutEvent) => RemoteRunEvent | undefined
+> = {
+  message_end: trackModelFailure,
+  response: (_state, event) => promptAnswered(event),
+  agent_settled: settled,
+};
+
+/**
+ * The {@link RemoteRunEvent} one pi RPC event implies, if any, updating
+ * `state`. Mirrors how the server's local pi relay follows a run, so the server
+ * can do the same for a sub-agent hosted here.
+ */
+export function runEventFor(
+  state: PiStreamState,
+  event: PiStdoutEvent,
+): RemoteRunEvent | undefined {
+  return RUN_EVENTS[event.type ?? ""]?.(state, event);
 }

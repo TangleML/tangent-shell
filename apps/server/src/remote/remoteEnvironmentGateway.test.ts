@@ -11,7 +11,9 @@ import {
 import {
   type RemoteAgentEventPayload,
   RemoteEnvEvents,
+  type RemoteMessageCommand,
   type RemoteRoomReadResponse,
+  type RemoteRunEventPayload,
   type RemoteSpawnCommand,
   type RemoteSubagentUpdatePayload,
   type RemoteToolCallRequest,
@@ -323,6 +325,45 @@ test("a disconnecting environment detaches its sub-agents and keeps their tabs",
   assert.equal(h.gateway.listSubagents("s1")[0].status, "detached");
   assert.equal(h.rosterUpdates.at(-1)?.status, "detached");
   assert.equal((await h.runStore.getRun(runId))?.status, "failed");
+});
+
+test("a host that reports its runs keeps one Run until the agent settles", async () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
+  const messages = () =>
+    env.sent
+      .filter((entry) => entry.event === RemoteEnvEvents.Message)
+      .map((entry) => entry.payload as RemoteMessageCommand);
+  const report = (event: RemoteRunEventPayload["event"]) =>
+    env.send(RemoteEnvEvents.RunEvent, {
+      sessionId: "s1",
+      agentId: info.id,
+      event,
+    } satisfies RemoteRunEventPayload);
+
+  h.gateway.sendToAgent({ sessionId: "s1", agentId: info.id, text: "go" });
+  const [first] = messages();
+  assert.ok(first.promptId && first.runId);
+  report({
+    type: "prompt-answered",
+    promptId: first.promptId,
+    success: true,
+    disposition: "started",
+  });
+
+  h.gateway.sendToAgent({ sessionId: "s1", agentId: info.id, text: "more" });
+  assert.equal(
+    messages()[1].runId,
+    undefined,
+    "a mid-run message opens no Run",
+  );
+  assert.equal(h.runs.current("s1", info.id)?.id, first.runId);
+
+  report({ type: "settled", aborted: false, failed: false });
+  await flush();
+  assert.equal(h.runs.current("s1", info.id), undefined);
+  assert.equal((await h.runStore.getRun(first.runId))?.status, "completed");
 });
 
 test("killing a remote sub-agent clears its activity indicator", () => {

@@ -179,6 +179,13 @@ falling back, so Prime can self-correct.
 
 - `client.agentEvent(sessionId, agentId, event)` — stream a single agent event
   (`start` / `delta` / `thinking` / `end` / `error` / `activity` / `queue`).
+- `client.runEvent(sessionId, agentId, event)` — report where the agent's run
+  stands: `prompt-answered` (for the message sent with
+  `promptId`, with a `disposition` of `started` / `queued` / `handled`, or
+  `success: false`), and `settled` (with `aborted` and `failed`). Once an agent
+  answers a message with a `disposition`, the server keeps one Run open from the
+  message that starts a run until it settles. Without these, the server opens a
+  Run for every message it sends, settled by the next one.
 - `client.subagentUpdate(sessionId, agentId, status)` — push a lifecycle change
   (`active` / `completed` / `killed` / `error`).
 - `client.report(sessionId, agentId, text)` — send a directed report to Prime.
