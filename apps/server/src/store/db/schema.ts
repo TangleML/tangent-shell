@@ -1,7 +1,6 @@
 import {
   index,
   integer,
-  primaryKey,
   real,
   sqliteTable,
   text,
@@ -498,27 +497,6 @@ export const bundleEditors = sqliteTable("bundle_editors", {
   createdAt: text("created_at").notNull(),
 });
 
-/**
- * The backend delegation a trigger fires under, kept out of the session
- * workspace: `triggers.json` holds the trigger's `participantId` and
- * `delegationId`, this row holds the token the egress forwards. Keyed by
- * `(session_id, trigger_id)` because a trigger holds at most one delegation.
- */
-export const triggerDelegations = sqliteTable(
-  "trigger_delegations",
-  {
-    sessionId: text("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
-    triggerId: text("trigger_id").notNull(),
-    participantId: text("participant_id").notNull(),
-    delegationId: text("delegation_id").notNull(),
-    token: text("token").notNull(),
-    createdAt: text("created_at").notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.sessionId, table.triggerId] })],
-);
-
 export type SessionRow = typeof sessions.$inferSelect;
 export type SharedFolderRow = typeof sharedFolders.$inferSelect;
 export type SessionAssetRow = typeof sessionAssets.$inferSelect;
@@ -532,4 +510,3 @@ export type ResourceReferenceRow = typeof resourceReferences.$inferSelect;
 export type ResourceGrantRow = typeof resourceGrants.$inferSelect;
 export type ReactorStateRow = typeof reactorState.$inferSelect;
 export type BundleEditorRow = typeof bundleEditors.$inferSelect;
-export type TriggerDelegationRow = typeof triggerDelegations.$inferSelect;

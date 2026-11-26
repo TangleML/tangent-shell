@@ -18,7 +18,6 @@ import {
 import type { Server } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
-import type { RunDelegation } from "../runs/runRegistry.ts";
 import { messageRoomFor } from "../sockets/rooms.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { CatalogInput } from "../store/resourceStore.ts";
@@ -72,8 +71,6 @@ export interface PostInput {
   ingress?: RunIngress;
   /** Whether a mid-run delivery steers or queues behind the current turn. */
   delivery?: MessageDelivery;
-  audienceParticipantId?: string;
-  delegation?: RunDelegation;
   /**
    * The human the author's Run acts for, when an agent posted this. A relay:
    * whoever this Message wakes acts for the same person. Read by the poster
@@ -437,8 +434,6 @@ export class ConversationRouter {
         ingress: input.ingress,
         delivery: input.delivery,
         relayedParticipantId: input.relayedParticipantId,
-        audienceParticipantId: input.audienceParticipantId,
-        delegation: input.delegation,
         project: (msg, recipient) => {
           const text = deliveryText(msg, recipient, owner);
           return recipient.participantId === owner

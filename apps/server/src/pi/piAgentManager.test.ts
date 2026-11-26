@@ -2181,32 +2181,6 @@ test("a human message into a busy agent becomes the one its run acts for", async
   assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
 });
 
-test("a trigger firing into an idle agent opens a run acting as its creator under its delegation", async () => {
-  const { pi, runs } = makeManager();
-  await pi.ensure("s1", "/tmp/s1");
-  const delegation = {
-    triggerId: "t1",
-    participantId: "alice@x",
-    token: "delegation-token",
-  };
-
-  pi.sendToAgent({
-    sessionId: "s1",
-    agentId: PRIME_AGENT_ID,
-    text: "nightly",
-    ingress: "schedule",
-    audienceParticipantId: "alice@x",
-    delegation,
-  });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "alice@x");
-  assert.deepEqual(runs.delegationFor("s1", PRIME_AGENT_ID), delegation);
-
-  runs.settleOpenFor("s1", PRIME_AGENT_ID, "completed");
-  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "agent" });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), undefined);
-  assert.equal(runs.delegationFor("s1", PRIME_AGENT_ID), undefined);
-});
-
 test("a relay into an idle agent opens a run acting for the participant it carried", async () => {
   const { pi, runs } = makeManager();
   await pi.ensure("s1", "/tmp/s1");
@@ -2219,30 +2193,4 @@ test("a relay into an idle agent opens a run acting for the participant it carri
     relayedParticipantId: "bob@x",
   });
   assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
-});
-
-test("a trigger firing into a busy agent is only posted: the audience and the delegation stay as they were", async () => {
-  const { pi, runs } = makeManager();
-  await pi.ensure("s1", "/tmp/s1");
-
-  pi.sendToAgent({
-    sessionId: "s1",
-    agentId: PRIME_AGENT_ID,
-    text: "start",
-    audienceParticipantId: "bob@x",
-  });
-  pi.sendToAgent({
-    sessionId: "s1",
-    agentId: PRIME_AGENT_ID,
-    text: "nightly",
-    ingress: "schedule",
-    audienceParticipantId: "alice@x",
-    delegation: {
-      triggerId: "t1",
-      participantId: "alice@x",
-      token: "delegation-token",
-    },
-  });
-  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
-  assert.equal(runs.delegationFor("s1", PRIME_AGENT_ID), undefined);
 });

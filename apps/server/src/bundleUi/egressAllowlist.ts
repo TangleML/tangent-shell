@@ -10,11 +10,7 @@
  * See `docs/bundle-ui/host-bridge.md` for the contract.
  */
 
-import {
-  EGRESS_DELEGATION_PATH,
-  EGRESS_IDENTITY_HEADER,
-  TANGLE_API_URL,
-} from "../config.ts";
+import { EGRESS_IDENTITY_HEADER, TANGLE_API_URL } from "../config.ts";
 
 export interface EgressTargetRequest {
   target: "tangle";
@@ -40,11 +36,8 @@ export interface EgressResponse {
   text?: string;
 }
 
-/**
- * Who is asking: a sandboxed bundle UI, an agent's tool extension, or the
- * server itself (trigger delegations). Rules widen in that order.
- */
-export type EgressCaller = "ui" | "agent" | "server";
+/** Who is asking: a sandboxed bundle UI or an agent's tool extension. */
+export type EgressCaller = "ui" | "agent";
 
 /** Per-call choices that are the route's to make, never the caller's: the
  * token forwarded under {@link EGRESS_IDENTITY_HEADER}, ignored for a UI caller. */
@@ -60,7 +53,6 @@ export interface EgressOptions {
 interface EgressRule {
   method: NonNullable<EgressRequestInit["method"]>;
   agentOnly?: boolean;
-  serverOnly?: boolean;
   matches(url: URL): boolean;
   headers?(): Record<string, string>;
 }
@@ -141,32 +133,8 @@ const TANGLE_RULES: EgressRule[] = TANGLE_PATH_RULES.map((rule) => ({
   headers: tangleAuthHeaders,
 }));
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Mint and revoke of trigger delegations, server-side only, when configured. */
-function delegationRules(path: string): EgressRule[] {
-  if (!path) return [];
-  const base = escapeRegExp(path);
-  const tests: [EgressRule["method"], RegExp][] = [
-    ["POST", new RegExp(`^${base}$`)],
-    ["DELETE", new RegExp(`^${base}/[^/]+$`)],
-  ];
-  return tests.map(([method, test]) => ({
-    method,
-    serverOnly: true,
-    matches: (url) =>
-      url.origin === TANGLE_API_ORIGIN && test.test(url.pathname),
-    headers: tangleAuthHeaders,
-  }));
-}
-
 /** Registered destinations the bridge may reach. */
-const EGRESS_RULES: EgressRule[] = [
-  ...TANGLE_RULES,
-  ...delegationRules(EGRESS_DELEGATION_PATH),
-];
+const EGRESS_RULES: EgressRule[] = [...TANGLE_RULES];
 
 /** Response headers we are willing to surface back across the bridge. */
 const ALLOWED_RESPONSE_HEADERS = new Set(["content-type"]);
@@ -373,11 +341,9 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
   };
 }
 
-/** Whether a rule is open to this caller: UI the narrowest, the server the widest. */
+/** Whether a rule is open to this caller; a UI caller never gets an agent-only rule. */
 function admits(rule: EgressRule, caller: EgressCaller): boolean {
-  if (rule.serverOnly) return caller === "server";
-  if (rule.agentOnly) return caller !== "ui";
-  return true;
+  return !rule.agentOnly || caller === "agent";
 }
 
 function methodOf(

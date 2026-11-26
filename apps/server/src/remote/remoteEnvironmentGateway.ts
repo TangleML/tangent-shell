@@ -68,7 +68,7 @@ import { loadInstalledConfig } from "../pi/config/bundleLoader.ts";
 import type { HostResourcePreamble } from "../pi/hostResourcePreamble.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
-import type { RunDelegation, RunRegistry } from "../runs/runRegistry.ts";
+import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
 
 /** Default and maximum number of transcript messages a room read returns. */
@@ -125,7 +125,6 @@ export interface RemoteSendOptions {
   audienceParticipantId?: string;
   /** The human a relay from another agent's Run carries. */
   relayedParticipantId?: string;
-  delegation?: RunDelegation;
 }
 
 /**
@@ -533,7 +532,6 @@ export class RemoteEnvironmentGateway {
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
       relayedParticipantId: options.relayedParticipantId,
-      delegation: options.delegation,
     });
     const command: RemoteMessageCommand = {
       sessionId,

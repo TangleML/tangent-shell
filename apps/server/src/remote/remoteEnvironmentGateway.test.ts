@@ -373,34 +373,6 @@ test("a detached participant refuses delivery instead of dropping it silently", 
   assert.equal(send("hello again"), false);
 });
 
-test("a trigger's firing opens the remote sub-agent's Run under its delegation, which never reaches the environment", () => {
-  const h = makeHarness();
-  const env = h.connect("env-1");
-  const { info } = h.gateway.spawnSubagent("s1", { name: "Worker" });
-  const delegation = {
-    triggerId: "t1",
-    participantId: "alice@x",
-    token: "delegation-token",
-  };
-
-  h.gateway.sendToAgent({
-    sessionId: "s1",
-    agentId: info.id,
-    text: "go",
-    ingress: "schedule",
-    audienceParticipantId: "alice@x",
-    delegation,
-  });
-
-  assert.deepEqual(h.runs.delegationFor("s1", info.id), delegation);
-  assert.equal(h.runs.audienceFor("s1", info.id), "alice@x");
-  const message = env.sent.findLast(
-    (entry) => entry.event === RemoteEnvEvents.Message,
-  );
-  assert.ok(message);
-  assert.equal(JSON.stringify(message.payload).includes("delegation"), false);
-});
-
 test("the owner may direct their own local sub-agent", () => {
   const scoped = new ScopedTokenCredential(SCOPED_SECRET);
   const h = makeHarness({ scoped });

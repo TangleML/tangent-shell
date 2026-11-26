@@ -8,7 +8,6 @@ import type {
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { DeliveryRequest } from "../connectors/types.ts";
-import type { RunDelegation } from "../runs/runRegistry.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { AdmissionEngine } from "./admission.ts";
 import { describeCause, type TerminationCause } from "./causes.ts";
@@ -44,8 +43,6 @@ export interface FanOutRequest {
   delivery?: MessageDelivery;
   /** The human the author's Run acted for, when an agent posted this. */
   relayedParticipantId?: string;
-  audienceParticipantId?: string;
-  delegation?: RunDelegation;
   /** The text one recipient receives, projected from the envelope. */
   project: (message: ChatMessage, recipient: Membership) => string;
 }
@@ -76,24 +73,6 @@ function keyFor(sessionId: string, id: string): string {
  * else none (an agent/automation wake relays a person, or acts for nobody). */
 function audienceOf(message: ChatMessage): string | undefined {
   return message.source.kind === "human" ? message.author.id : undefined;
-}
-
-function deliveryFor(
-  request: FanOutRequest,
-  member: Membership,
-): DeliveryRequest {
-  const { message } = request;
-  return {
-    sessionId: message.sessionId,
-    participantId: member.participantId,
-    conversationId: message.conversationId,
-    text: request.project(message, member),
-    ingress: request.ingress ?? member.ingress,
-    delivery: request.delivery,
-    audienceParticipantId: request.audienceParticipantId ?? audienceOf(message),
-    relayedParticipantId: request.relayedParticipantId,
-    delegation: request.delegation,
-  };
 }
 
 /** Marks every member a bound stopped as refused, with the reason it stopped. */
@@ -280,7 +259,16 @@ export class FanOutEngine {
       depth: wave.depth + 1,
     });
 
-    const deliveryRequest = deliveryFor(request, member);
+    const deliveryRequest: DeliveryRequest = {
+      sessionId: message.sessionId,
+      participantId: member.participantId,
+      conversationId: message.conversationId,
+      text: request.project(message, member),
+      ingress: request.ingress ?? member.ingress,
+      delivery: request.delivery,
+      audienceParticipantId: audienceOf(message),
+      relayedParticipantId: request.relayedParticipantId,
+    };
     const performNow = () =>
       this.connectors()
         .resolve(message.sessionId, member.participantId)

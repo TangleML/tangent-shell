@@ -29,15 +29,6 @@ const RESERVED_EGRESS_HEADERS = new Set([
   "authorization",
 ]);
 
-/** Reads an absolute URL path setting (`/a/b`, no query); empty means off. */
-function readUrlPath(name: string): string {
-  const value = (process.env[name] ?? "").trim().replace(/\/+$/, "");
-  if (value && !/^\/[^?#]*$/.test(value)) {
-    throw new Error(`${name} must be an absolute URL path without a query`);
-  }
-  return value;
-}
-
 function assertAbsoluteUrl(name: string, value: string): string {
   try {
     new URL(value);
@@ -318,9 +309,9 @@ export const ADMIN_EMAILS: ReadonlySet<string> = new Set(
 
 /**
  * Name of the header the egress proxy forwards a participant's identity
- * assertion (or a trigger's delegation token) in, so the backend acts as that
- * person rather than as the instance. Empty by default: nothing is forwarded
- * and every egress call reports `appliedIdentity.kind = "instance"`.
+ * assertion in, so the backend acts as that person rather than as the
+ * instance. Empty by default: nothing is forwarded and every egress call
+ * reports `appliedIdentity.kind = "instance"`.
  */
 export const EGRESS_IDENTITY_HEADER = readHeaderName("EGRESS_IDENTITY_HEADER");
 if (RESERVED_EGRESS_HEADERS.has(EGRESS_IDENTITY_HEADER)) {
@@ -328,30 +319,6 @@ if (RESERVED_EGRESS_HEADERS.has(EGRESS_IDENTITY_HEADER)) {
     `EGRESS_IDENTITY_HEADER must not be one of ${[...RESERVED_EGRESS_HEADERS].join(", ")}`,
   );
 }
-
-/**
- * Backend path (under {@link TANGLE_API_URL}) that mints and revokes the
- * delegation tokens a trigger acts under once its creator's assertion has
- * expired. Empty by default, which creates triggers without a delegation.
- * Needs {@link EGRESS_IDENTITY_HEADER}, which the minted token is forwarded in.
- */
-export const EGRESS_DELEGATION_PATH = readUrlPath("EGRESS_DELEGATION_PATH");
-
-/**
- * A delegation token is only ever forwarded under the identity header, so a
- * delegation path configured without one could never be used.
- */
-export function assertDelegationsForwardable(
-  delegationPath: string,
-  identityHeader: string,
-): void {
-  if (delegationPath && !identityHeader) {
-    throw new Error(
-      "EGRESS_DELEGATION_PATH is set but EGRESS_IDENTITY_HEADER is not; a trigger delegation can only be forwarded under that header",
-    );
-  }
-}
-assertDelegationsForwardable(EGRESS_DELEGATION_PATH, EGRESS_IDENTITY_HEADER);
 
 /**
  * Base URL of the Tangle API reached by the bundle-UI/agent egress allowlist.

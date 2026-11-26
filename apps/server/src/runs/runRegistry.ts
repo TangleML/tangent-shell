@@ -38,17 +38,6 @@ export interface OpenRunInput {
    * lend it no one.
    */
   relayedParticipantId?: string;
-  delegation?: RunDelegation;
-}
-
-/**
- * A standing grant one participant gave a trigger: the token egress forwards
- * for them once the Run was opened by that trigger rather than by a message.
- */
-export interface RunDelegation {
-  triggerId: string;
-  participantId: string;
-  token: string;
 }
 
 /** The terminal states {@link RunRegistry.settle} accepts. */
@@ -86,8 +75,6 @@ export class RunRegistry {
   private readonly byId = new Map<RunId, Run>();
   /** The human each open Run acts for, by run id; it dies with the Run. */
   private readonly audienceByRun = new Map<RunId, string>();
-  /** The trigger delegation an open Run fires under, by run id. */
-  private readonly delegationByRun = new Map<RunId, RunDelegation>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
   private onSettled?: (run: Run, settlement: Settlement) => void;
@@ -128,10 +115,7 @@ export class RunRegistry {
     this.byParticipant.set(keyFor(run.sessionId, run.participantId), run);
     this.byId.set(run.id, run);
     const audience = input.audienceParticipantId ?? input.relayedParticipantId;
-    if (audience) {
-      this.audienceByRun.set(run.id, audience);
-      if (input.delegation) this.delegationByRun.set(run.id, input.delegation);
-    }
+    if (audience) this.audienceByRun.set(run.id, audience);
     void this.store
       .createRun({
         id: run.id,
@@ -168,34 +152,6 @@ export class RunRegistry {
   audienceFor(sessionId: string, participantId: string): string | undefined {
     const run = this.current(sessionId, participantId);
     return run && this.audienceByRun.get(run.id);
-  }
-
-  /**
-   * The delegation the participant's open Run acts under, if any. It is a
-   * property of that Run alone: the next wake may inherit the person but
-   * never the grant.
-   */
-  delegationFor(
-    sessionId: string,
-    participantId: string,
-  ): RunDelegation | undefined {
-    const run = this.current(sessionId, participantId);
-    return run && this.delegationByRun.get(run.id);
-  }
-
-  /**
-   * Clears the delegation from any open Run of the session acting under
-   * `triggerId`'s grant, once the backend stopped honouring it. The Run keeps
-   * its person, so the rest of the turn acts with the creator's live assertion
-   * or, failing that, as the instance.
-   */
-  dropDelegation(sessionId: string, triggerId: string): void {
-    for (const run of this.byParticipant.values()) {
-      if (run.sessionId !== sessionId) continue;
-      if (this.delegationByRun.get(run.id)?.triggerId === triggerId) {
-        this.delegationByRun.delete(run.id);
-      }
-    }
   }
 
   /** An open Run by id. Settled Runs live only in the store. */
@@ -278,7 +234,6 @@ export class RunRegistry {
   private forget(run: Run): void {
     this.byId.delete(run.id);
     this.audienceByRun.delete(run.id);
-    this.delegationByRun.delete(run.id);
     const key = keyFor(run.sessionId, run.participantId);
     if (this.byParticipant.get(key)?.id === run.id) {
       this.byParticipant.delete(key);

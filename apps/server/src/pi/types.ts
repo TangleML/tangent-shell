@@ -14,7 +14,6 @@ import type {
 
 import type { AgentTokenCredential } from "../connectors/credentials.ts";
 import type { ResolvedMemory } from "../memory/resolver.ts";
-import type { RunDelegation } from "../runs/runRegistry.ts";
 import type { AgentConfig, ResolvedSessionConfig } from "./agentConfig.ts";
 
 /** Fixed id of the session's Prime agent (one per session). */
@@ -128,7 +127,6 @@ export interface SentPrompt {
   ingress: RunIngress;
   audienceParticipantId?: string;
   relayedParticipantId?: string;
-  delegation?: RunDelegation;
   /** The Run it opened by finding the agent idle. */
   runId?: RunId;
 }
