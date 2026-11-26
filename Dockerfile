@@ -101,7 +101,7 @@ ENV PI_BIN=pi
 # through an LLM gateway, supply PI_PROXY_URL and PI_PROXY_API_KEY at deploy time
 # (e.g. a Cloud Run secret for the key); without both it calls each provider's
 # public API with that provider's key (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...).
-# Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default anthropic/claude-fable-5-2),
+# Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default anthropic/claude-opus-5-5),
 # PI_DEBUG=1 enables verbose Pi RPC logging.
 
 COPY --from=builder /app/apps/server/dist ./dist
