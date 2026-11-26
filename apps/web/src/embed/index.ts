@@ -7,6 +7,7 @@ import { defineParticipantListElement } from "./elements/participant-list-elemen
 import { defineProviderElement } from "./elements/provider-element";
 import { defineResourceListElement } from "./elements/resource-list-element";
 import { defineSessionListElement } from "./elements/session-list-element";
+import { defineSessionPresenceElement } from "./elements/session-presence-element";
 
 /**
  * Protocol version reported to the npm wrapper at registration. The wrapper
@@ -28,6 +29,7 @@ defineAgentListElement();
 defineAssetListElement();
 defineResourceListElement();
 defineParticipantListElement();
+defineSessionPresenceElement();
 defineArtifactViewerElement();
 defineBundledUiElement();
 
@@ -42,6 +44,7 @@ export { TangentParticipantListElement } from "./elements/participant-list-eleme
 export { TangentProviderElement } from "./elements/provider-element";
 export { TangentResourceListElement } from "./elements/resource-list-element";
 export { TangentSessionListElement } from "./elements/session-list-element";
+export { TangentSessionPresenceElement } from "./elements/session-presence-element";
 export type {
   EmbedTheme,
   NewSessionOptions,

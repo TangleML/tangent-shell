@@ -153,12 +153,12 @@ export interface ParticipantStore {
   get(sessionId: string, id: string): Promise<Participant | undefined>;
   /** Upserts by `(sessionId, id)`. */
   put(participant: Participant): Promise<void>;
-  /** Moves a participant to a new {@link Presence}. A no-op if the row is gone. */
+  /** Changes a non-revoked participant's presence, reporting whether it moved. */
   updatePresence(
     sessionId: string,
     id: string,
     presence: Presence,
-  ): Promise<void>;
+  ): Promise<boolean>;
   /**
    * Marks a participant revoked (stamps `revokedAt`, drops its capabilities) so
    * it no longer acts, without deleting the row — its transcript attributions

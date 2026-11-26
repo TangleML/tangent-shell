@@ -32,13 +32,7 @@ export function MemoryMessage({
   return (
     <MessageLayout
       variant="memory"
-      avatar={
-        <MessageAvatar
-          kind={message.author.kind}
-          name={message.author.name}
-          agentRole={message.author.agentRole}
-        />
-      }
+      avatar={<MessageAvatar author={message.author} />}
       header={
         <InlineStack align="start" blockAlign="center" gap="2" wrap="nowrap">
           <InlineStack gap="1" blockAlign="center">

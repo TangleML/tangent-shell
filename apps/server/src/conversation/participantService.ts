@@ -34,9 +34,6 @@ const ADDRESSABLE = reactionSpec("fromHumans", "mentionsMe");
  */
 const INERT = reactionSpec("never");
 
-/** The presence an invited-but-not-yet-connected person holds. */
-const INVITED_PRESENCE: Presence = "away";
-
 /** Details of a person being invited into a session. */
 export interface InviteInput {
   /** The person's email — their server-resolved, stable Participant id. */
@@ -44,6 +41,24 @@ export interface InviteInput {
   displayName?: string;
   /** Conversations to grant Membership in; empty means the session only. */
   conversationIds?: string[];
+}
+
+function humanParticipant(
+  sessionId: string,
+  id: string,
+  displayName: string,
+  existing?: Participant,
+): Participant {
+  return {
+    id,
+    sessionId,
+    kind: "human",
+    displayName,
+    capabilities: [],
+    presence: existing?.presence ?? "detached",
+    connector: connectorFor("unresolved"),
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+  };
 }
 
 /** The reaction a freshly-joined participant of a given kind holds. */
@@ -154,17 +169,12 @@ export class ParticipantService {
    */
   async invite(sessionId: string, input: InviteInput): Promise<Participant> {
     const existing = await this.participants.get(sessionId, input.email);
-    const participant: Participant = {
-      id: input.email,
+    const participant = humanParticipant(
       sessionId,
-      kind: "human",
-      displayName: input.displayName ?? input.email,
-      capabilities: [],
-      presence: INVITED_PRESENCE,
-      connector: connectorFor("unresolved"),
-      revokedAt: undefined,
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-    };
+      input.email,
+      input.displayName ?? input.email,
+      existing,
+    );
     await this.participants.put(participant);
     for (const conversationId of input.conversationIds ?? [])
       await this.addMembership({
@@ -190,11 +200,6 @@ export class ParticipantService {
         participantId,
       );
     await this.participants.revoke(sessionId, participantId);
-    await this.participants.updatePresence(
-      sessionId,
-      participantId,
-      "detached",
-    );
     this.invalidate(sessionId);
     this.onPresence?.({ sessionId, participantId, presence: "detached" });
   }
@@ -335,19 +340,15 @@ export class ParticipantService {
   async ensureHuman(
     sessionId: string,
     human: { id: string; displayName: string },
-  ): Promise<void> {
-    if (await this.participants.get(sessionId, human.id)) return;
-    await this.participants.put({
-      id: human.id,
+  ): Promise<Participant> {
+    const existing = await this.participants.get(sessionId, human.id);
+    if (existing) return existing;
+    const participant = humanParticipant(
       sessionId,
-      kind: "human",
-      displayName: human.displayName,
-      capabilities: [],
-      presence: INVITED_PRESENCE,
-      connector: connectorFor("unresolved"),
-      revokedAt: undefined,
-      createdAt: new Date().toISOString(),
-    });
+      human.id,
+      human.displayName,
+    );
+    await this.participants.put(participant);
     const conversationId =
       await this.participantRegistry.orchestratorConversationId(sessionId);
     await this.addMembership({
@@ -357,6 +358,7 @@ export class ParticipantService {
       reaction: INERT,
     });
     this.invalidate(sessionId);
+    return participant;
   }
 
   /**
@@ -368,11 +370,12 @@ export class ParticipantService {
     participantId: string,
     presence: Presence,
   ): Promise<void> {
-    const existing = await this.participants.get(sessionId, participantId);
-    if (!existing || existing.revokedAt) return;
-    if (existing.presence === presence) return;
-    await this.participants.updatePresence(sessionId, participantId, presence);
-    this.onPresence?.({ sessionId, participantId, presence });
+    const changed = await this.participants.updatePresence(
+      sessionId,
+      participantId,
+      presence,
+    );
+    if (changed) this.onPresence?.({ sessionId, participantId, presence });
   }
 
   /**

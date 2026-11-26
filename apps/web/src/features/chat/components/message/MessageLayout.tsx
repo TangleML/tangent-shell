@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { MessageBubble, type MessageBubbleVariant } from "./MessageBubble";
 
 interface MessageLayoutProps {
-  /** Sender badge rendered to the left of the bubble (e.g. `MessageAvatar`). */
+  /** Sender badge on the same side as the bubble's tail. */
   avatar?: ReactNode;
   /** Row above the bubble (author/label + actions); omit for headerless rows. */
   header?: ReactNode;
@@ -31,13 +31,14 @@ export function MessageLayout({
   return (
     <Box group inlineSize="full">
       <InlineStack gap="2" blockAlign="end" wrap="nowrap">
-        {avatar}
+        {variant !== "own" && avatar}
         <BlockStack gap="1" align={variant === "own" ? "end" : "stretch"} grow>
           {header}
           <MessageBubble variant={variant} selectable={selectable}>
             {children}
           </MessageBubble>
         </BlockStack>
+        {variant === "own" && avatar}
       </InlineStack>
     </Box>
   );

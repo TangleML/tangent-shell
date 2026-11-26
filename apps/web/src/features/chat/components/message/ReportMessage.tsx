@@ -40,6 +40,7 @@ export function ReportMessage({
 
   return (
     <CalloutMessage
+      author={message.author}
       icon="CornerDownRight"
       title={`Report from ${message.author.name}`}
       tone="info"
