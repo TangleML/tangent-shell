@@ -27,12 +27,12 @@ test("a session URL sets the shell origin and scopes the host id", () => {
 test("email is read from the flag or TANGENT_EMAIL, and omitted otherwise", () => {
   assert.equal(parse(["--url", "http://h"]).email, undefined);
   assert.equal(
-    parse(["--url", "http://h", "--email", "me@shopify.com"]).email,
-    "me@shopify.com",
+    parse(["--url", "http://h", "--email", "me@example.com"]).email,
+    "me@example.com",
   );
   assert.equal(
-    parse(["--url", "http://h"], { TANGENT_EMAIL: "env@shopify.com" }).email,
-    "env@shopify.com",
+    parse(["--url", "http://h"], { TANGENT_EMAIL: "env@example.com" }).email,
+    "env@example.com",
   );
 });
 

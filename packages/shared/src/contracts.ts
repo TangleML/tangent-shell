@@ -173,7 +173,7 @@ export interface RemoteEnvTokenResponse {
 
 /**
  * Header an attach bridge carries its session-scoped token on, as a fallback to
- * `Authorization: Bearer`. An SSO proxy (e.g. Okta/Minerva) in front of the
+ * `Authorization: Bearer`. An SSO proxy (e.g. Okta) in front of the
  * Shell may strip or overwrite `Authorization` for its own auth, which would
  * leave every `/api/attach/*` call unauthenticated; a non-standard header rides
  * through such a proxy untouched. Lower-case because header names are
@@ -879,13 +879,13 @@ export interface Run {
   status: RunStatus;
   ingress: RunIngress;
   /**
-   * The far side's own id for this work, when a connector has one: an Aquifer
-   * World session id today, an A2A `Task.id` later.
+   * The far side's own id for this work, when a connector has one: e.g. a remote
+   * sandbox session id or an A2A `Task.id`.
    */
   externalId?: string;
   /**
-   * Connector-private resume cursor for this Run (the Aquifer drain's
-   * `lastSeq`), so a far end that streams by cursor has somewhere durable to
+   * Connector-private resume cursor for this Run (e.g. a stream's
+   * last sequence number), so a far end that streams by cursor has somewhere durable to
    * keep its position.
    */
   cursor?: string;

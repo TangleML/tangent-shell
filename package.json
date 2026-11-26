@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.28.0",
   "prettier": "@tangent/build/prettier",
   "scripts": {
-    "dev": "SESSIONS_ROOT=\"$PWD/.sessions\" SESSIONS_DB=\"$PWD/.sessions/tangent.db\" AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" GLOBAL_MEMORY_DIR=\"$PWD/.memory\" turbo run dev",
+    "dev": "SESSIONS_ROOT=\"$PWD/.sessions\" SESSIONS_DB=\"$PWD/.sessions/tangent.db\" AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" GLOBAL_MEMORY_DIR=\"$PWD/.memory\" turbo run dev --env-mode=loose",
     "tangle:token": "tsx scripts/print-tangle-token.ts",
     "seed": "node scripts/pack-bundle.mjs && AGENT_BUNDLES_ROOT=\"$PWD/.agent-bundles\" SEED_BUNDLES_DIR=\"$PWD/examples\" pnpm --filter @tangent/server seed",
     "build": "turbo run build",

@@ -109,7 +109,7 @@ export default defineConfig(({ command }) => ({
     ],
   },
   server: {
-    allowedHosts: [".tunnel.shopifycloud.tech"],
+    allowedHosts: process.env.DEV_ALLOWED_HOSTS?.split(",") ?? [],
     // Runtime-generated, agent-owned roots (see server/src/config.ts). Agents
     // constantly write here, so keep them out of the dev watcher to avoid
     // spurious reloads.

@@ -96,12 +96,11 @@ ENV SESSIONS_ROOT=/tmp/sessions
 ENV QMD_STATE_ROOT=/tmp/qmd-state
 ENV HOME=/tmp
 ENV PI_BIN=pi
-# Base URL of the LLM proxy the bundled proxy-provider extension points Pi at.
 # Because HOME=/tmp there is no auto-discovered ~/.pi/agent provider config, so
-# the extension registers providers itself. Override to target a different proxy.
-ENV PI_PROXY_URL=https://proxy.shopify.ai
-# PI_PROXY_API_KEY must be supplied at deploy time (e.g. a Cloud Run secret) so
-# Pi can authenticate to the proxy; it is intentionally not baked into the image.
+# the bundled proxy-provider extension registers providers itself. To route Pi
+# through an LLM gateway, supply PI_PROXY_URL and PI_PROXY_API_KEY at deploy time
+# (e.g. a Cloud Run secret for the key); without both it calls each provider's
+# public API with that provider's key (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...).
 # Optional overrides: PI_PROVIDER / PI_MODEL pin the model (default anthropic/claude-fable-5-2),
 # PI_DEBUG=1 enables verbose Pi RPC logging.
 

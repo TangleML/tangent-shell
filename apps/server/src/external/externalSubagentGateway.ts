@@ -44,7 +44,7 @@ export interface RegisteredExternalSubagent {
 
 /** What a caller supplies to open a Run for an external sub-agent's turn. */
 export interface OpenExternalRun {
-  /** The far side's own id for this work (an Aquifer World session id). */
+  /** The far side's own id for this work (e.g. a remote sandbox session id). */
   externalId?: string;
   /** Where the far side's stream is being read from, to resume by. */
   cursor?: string;
