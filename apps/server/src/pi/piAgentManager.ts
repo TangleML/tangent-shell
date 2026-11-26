@@ -270,8 +270,9 @@ export interface SendToAgentOptions {
   /** The human whose message this is, when it came from a person; stamped on the
    * Run this opens so remote tools route to their host. */
   audienceParticipantId?: string;
-  /** The identity set a relay from another agent's Run carries. */
-  audienceParticipants?: readonly string[];
+  /** The human a relay from another agent's Run carries. Seeds the Run this
+   * opens; a Run in flight keeps acting for whoever it already did. */
+  relayedParticipantId?: string;
 }
 
 /** A session's selector tags, read synchronously at spawn. */
@@ -1783,8 +1784,8 @@ export class PiAgentManager {
    * A message that finds the agent idle opens a Run with `ingress`; one that
    * finds it mid-run joins the Run in flight, because Pi folds a steer or
    * follow-up into the run it is already taking — and a human who does so
-   * joins the Run's identity set as its most recent member. Pi's answer to the
-   * prompt corrects either guess (see {@link onPromptAnswered}).
+   * becomes the one the Run acts for. Pi's answer to the prompt corrects
+   * either guess (see {@link onPromptAnswered}).
    */
   sendToAgent(options: SendToAgentOptions): void {
     if (this.holdDuringMaintenance(options)) return;
@@ -1811,7 +1812,7 @@ export class PiAgentManager {
       streamingBehavior: streamingBehavior(options.delivery ?? "auto"),
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
-      audienceParticipants: options.audienceParticipants,
+      relayedParticipantId: options.relayedParticipantId,
     });
   }
 
@@ -1839,9 +1840,8 @@ export class PiAgentManager {
   }
 
   /**
-   * Adds the human behind a prompt that found its agent busy to the open Run's
-   * identity set, as its most recent member. An agent's or automation's prompt
-   * adds nobody.
+   * Makes the human behind a prompt that found its agent busy the one its open
+   * Run acts for. An agent's or automation's prompt changes nothing.
    */
   private joinRun(
     sessionId: string,
@@ -1864,7 +1864,7 @@ export class PiAgentManager {
       homeConversationId: agent.homeConversationId,
       ingress: prompt?.ingress ?? "reaction",
       audienceParticipantId: prompt?.audienceParticipantId,
-      audienceParticipants: prompt?.audienceParticipants,
+      relayedParticipantId: prompt?.relayedParticipantId,
     }).id;
   }
 

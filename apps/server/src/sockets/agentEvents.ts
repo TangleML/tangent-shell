@@ -48,8 +48,8 @@ interface EmitContext {
   author: ChatAuthor;
   /** The Run that produced the event, when the connector attributed one. */
   runId?: RunId;
-  /** The people that Run acts for, read while it is still open. */
-  audienceParticipants?: readonly string[];
+  /** The human that Run acts for, read while it is still open. */
+  relayedParticipantId?: string;
 }
 
 /**
@@ -168,7 +168,7 @@ function emitEnd(
       thinking: event.thinking,
       runId: ctx.runId,
       ...(ctx.runId ? { endsRun: true } : {}),
-      audienceParticipants: ctx.audienceParticipants,
+      relayedParticipantId: ctx.relayedParticipantId,
       provokes: Boolean(event.content.trim()) && !event.aborted,
       broadcast: (message) => {
         const payload: AgentEndPayload = { message, runId: ctx.runId };
@@ -237,14 +237,14 @@ function emitQueue(
  * drill-in thread). Reasoning streams for every agent.
  *
  * A finalized turn is a relay to whoever reacts to it, so the producing Run's
- * identity set is read here, synchronously: the connector settles that Run on
- * its next event, which can arrive in the same tick as this one.
+ * human is read here, synchronously: the connector settles that Run on its
+ * next event, which can arrive in the same tick as this one.
  */
 export function createAgentEventHandler(
   io: Server,
   store: SessionStore,
   conversations: ConversationRouter,
-  runs?: Pick<RunRegistry, "participantsFor">,
+  runs?: Pick<RunRegistry, "audienceFor">,
 ): AgentEventHandler {
   return (sessionId, agent, event) => {
     const ctx: EmitContext = {
@@ -253,9 +253,9 @@ export function createAgentEventHandler(
       conversationId: agent.homeConversationId,
       author: authorFor(agent),
       runId: event.runId,
-      audienceParticipants:
+      relayedParticipantId:
         event.type === "end"
-          ? runs?.participantsFor(sessionId, agent.agentId)
+          ? runs?.audienceFor(sessionId, agent.agentId)
           : undefined,
     };
     relayStreamingEvent(io, store, ctx, event);

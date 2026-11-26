@@ -117,20 +117,19 @@ its last request is more than 30 minutes old: `GET /api/sessions/<id>` when it
 is in a session (the one read that records a bearer, and which a front proxy
 restamps like any other request), else `GET /api/me`.
 
-A Run carries an identity set: the ordered list of humans who wrote into the
-turn ([`RunRegistry`](../../server/src/runs/runRegistry.ts)). A human message
-that opens a Run sets it to `[author]`; one that steers or follows up a Run in
-flight appends the author (or moves them to the end). The set lives and dies
-with its Run: nothing is inherited from the participant's earlier Runs, so an
-agent or automation wake that nobody stands behind opens a Run with an empty
-set and acts as the instance. The one way a set travels is a relay — when one
-agent's Run writes to another, the Message carries the sender's set and the Run
-it wakes opens with it: a sub-agent's report (`/internal/agents/report`) and
-its finalized turn carry its Run's set to the orchestrator, and the
+A Run acts for one human ([`RunRegistry`](../../server/src/runs/runRegistry.ts)).
+A human message that opens a Run makes its author that person; one that steers
+or follows up a Run in flight takes over. The audience lives and dies with its
+Run: nothing is inherited from the participant's earlier Runs, so an agent or
+automation wake that nobody stands behind opens a Run for nobody and acts as
+the instance. The one way an audience travels is a relay — when one agent's Run
+writes to another, the Message carries the sender's person and the Run it wakes
+opens for them: a sub-agent's report (`/internal/agents/report`) and its
+finalized turn carry its Run's person to the orchestrator, and the
 orchestrator's directives (`/internal/agents/message`, a spawn's first task)
-carry its Run's set to the sub-agent. A relay that lands in a busy agent's turn
-leaves that turn's set unchanged. The most recent member is the acting default
-— the person remote tools route to.
+carry its Run's person to the sub-agent. A relay that lands in a busy agent's
+turn leaves that turn's person unchanged. The person a Run acts for is also the
+one remote tools route to.
 
 The cache keeps the assertion that is worth most. The source ranks first: an
 assertion from the trusted header replaces a bearer token for the same

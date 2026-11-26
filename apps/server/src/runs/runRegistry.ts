@@ -26,28 +26,18 @@ export interface OpenRunInput {
   cursor?: string;
   /**
    * The human whose prompt opened this Run, when a human woke the participant.
-   * Becomes the Run's identity set on its own: remote tools called during the
-   * Run target this person's host, and calls made on someone's behalf act as
-   * them.
+   * The Run acts for them: remote tools called during the Run target this
+   * person's host, and calls made on someone's behalf act as them.
    */
   audienceParticipantId?: string;
   /**
-   * The identity set a relay carries: when one agent's Run messages another
-   * (a sub-agent's report, an orchestrator's directive), the people behind the
-   * sending Run become the people behind the Run it wakes. A wake with neither
-   * this nor an audience acts for nobody.
+   * The human a relay carries: when one agent's Run messages another (a
+   * sub-agent's report, an orchestrator's directive), the person behind the
+   * sending Run becomes the person behind the Run it wakes. A wake with
+   * neither this nor an audience acts for nobody; a participant's earlier Runs
+   * lend it no one.
    */
-  audienceParticipants?: readonly string[];
-}
-
-/**
- * The humans behind one Run, oldest first. The most recent is the acting
- * default: the one a remote tool routes to and an egress call acts for unless
- * another member is named. Lives and dies with the Run: nothing is inherited
- * by the participant's next wake unless a relay carries it there.
- */
-export interface RunIdentity {
-  participants: string[];
+  relayedParticipantId?: string;
 }
 
 /** The terminal states {@link RunRegistry.settle} accepts. */
@@ -83,8 +73,8 @@ export class RunRegistry {
   private readonly byParticipant = new Map<string, Run>();
   /** The same runs by id, so a client-supplied run id resolves directly. */
   private readonly byId = new Map<RunId, Run>();
-  /** Each open Run's identity set, by run id; it dies with the Run. */
-  private readonly identityByRun = new Map<RunId, RunIdentity>();
+  /** The human each open Run acts for, by run id; it dies with the Run. */
+  private readonly audienceByRun = new Map<RunId, string>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
   private onSettled?: (run: Run, settlement: Settlement) => void;
@@ -124,7 +114,8 @@ export class RunRegistry {
 
     this.byParticipant.set(keyFor(run.sessionId, run.participantId), run);
     this.byId.set(run.id, run);
-    this.identityByRun.set(run.id, this.seedIdentity(input));
+    const audience = input.audienceParticipantId ?? input.relayedParticipantId;
+    if (audience) this.audienceByRun.set(run.id, audience);
     void this.store
       .createRun({
         id: run.id,
@@ -145,56 +136,22 @@ export class RunRegistry {
   }
 
   /**
-   * A human's prompt opens a Run as its whole identity set; a relay opens it
-   * with the set it carried. Any other wake acts for nobody: a participant's
-   * earlier Runs lend it no one.
-   */
-  private seedIdentity(input: OpenRunInput): RunIdentity {
-    if (input.audienceParticipantId) {
-      return { participants: [input.audienceParticipantId] };
-    }
-    return { participants: [...(input.audienceParticipants ?? [])] };
-  }
-
-  private openIdentity(
-    sessionId: string,
-    participantId: string,
-  ): RunIdentity | undefined {
-    const run = this.current(sessionId, participantId);
-    return run && this.identityByRun.get(run.id);
-  }
-
-  /**
-   * Adds a human who wrote into a Run already in flight (a steer or follow-up)
-   * to its identity set, as the most recent member. A member who writes again
-   * moves to the end rather than appearing twice. Nothing to join when the
-   * participant is idle: the message opens a Run instead.
+   * Makes a human who wrote into a Run already in flight (a steer or
+   * follow-up) the one it acts for. Nothing to join when the participant is
+   * idle: the message opens a Run instead.
    */
   join(sessionId: string, participantId: string, humanId: string): void {
-    const identity = this.openIdentity(sessionId, participantId);
-    if (!identity) return;
-    identity.participants = [
-      ...identity.participants.filter((id) => id !== humanId),
-      humanId,
-    ];
+    const run = this.current(sessionId, participantId);
+    if (run) this.audienceByRun.set(run.id, humanId);
   }
 
   /**
-   * The humans this participant's open Run is working for, oldest first.
-   * Empty between Runs, and for a Run no human stands behind.
-   */
-  participantsFor(sessionId: string, participantId: string): string[] {
-    return [
-      ...(this.openIdentity(sessionId, participantId)?.participants ?? []),
-    ];
-  }
-
-  /**
-   * The human whose prompt this participant is acting for: the most recent
-   * member of its open Run's identity set. Undefined when there is none.
+   * The human this participant's open Run acts for. Undefined between Runs,
+   * and for a Run no human stands behind.
    */
   audienceFor(sessionId: string, participantId: string): string | undefined {
-    return this.participantsFor(sessionId, participantId).at(-1);
+    const run = this.current(sessionId, participantId);
+    return run && this.audienceByRun.get(run.id);
   }
 
   /** An open Run by id. Settled Runs live only in the store. */
@@ -276,7 +233,7 @@ export class RunRegistry {
   /** Drops a Run from both indexes. */
   private forget(run: Run): void {
     this.byId.delete(run.id);
-    this.identityByRun.delete(run.id);
+    this.audienceByRun.delete(run.id);
     const key = keyFor(run.sessionId, run.participantId);
     if (this.byParticipant.get(key)?.id === run.id) {
       this.byParticipant.delete(key);
