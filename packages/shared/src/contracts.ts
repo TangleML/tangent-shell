@@ -276,7 +276,7 @@ export const AVAILABLE_MODELS: ModelOption[] = [
  * default value rather than a generic "Default" label. `DEFAULT_MODEL_ID` is a
  * `provider/model` string matching an {@link AVAILABLE_MODELS} entry.
  */
-export const DEFAULT_MODEL_ID = "anthropic/claude-fable-5-2";
+export const DEFAULT_MODEL_ID = "anthropic/claude-opus-5-5";
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
 /** Author of a chat message. Chats assume multiple humans and agents. */

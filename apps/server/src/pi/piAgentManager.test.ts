@@ -89,6 +89,10 @@ function recordSpawn(
   return child as unknown as ChildProcessWithoutNullStreams;
 }
 
+function argAfter(args: string[], flag: string): string | undefined {
+  return args[args.indexOf(flag) + 1];
+}
+
 /** One relayed agent event, reduced to what the run tests assert on. */
 interface RelayedEvent {
   agentId: string;
@@ -363,6 +367,49 @@ test("supervisor auto-respawns a crashed agent with backoff, then gives up", asy
   mock.timers.tick(10_000);
   assert.equal(spawns.length, 4, "supervisor gives up after the retry budget");
   assert.equal(pi.hasAgent("s1", PRIME_AGENT_ID), false);
+});
+
+test("a model Pi has no provider for respawns on the default model", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  mock.method(console, "error", () => {});
+  mock.method(console, "warn", () => {});
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  const defaultArgs = spawns[0].args;
+  pi.setAgentModel("s1", PRIME_AGENT_ID, {
+    model: "catalog-only/some-model",
+  });
+  const picked = spawns[1];
+  assert.equal(argAfter(picked.args, "--provider"), "catalog-only");
+
+  picked.child.stderr.emit(
+    "data",
+    Buffer.from('Error: Unknown provider "catalog-only". Use --list-models.\n'),
+  );
+  picked.child.crash();
+  mock.timers.tick(1_000);
+
+  const retried = spawns[2];
+  assert.equal(
+    argAfter(retried.args, "--provider"),
+    argAfter(defaultArgs, "--provider"),
+  );
+  assert.equal(
+    argAfter(retried.args, "--model"),
+    argAfter(defaultArgs, "--model"),
+  );
+});
+
+test("an ordinary crash respawns with the agent's own model", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  pi.setAgentModel("s1", PRIME_AGENT_ID, { model: "anthropic/picked-model" });
+
+  spawns[1].child.crash();
+  mock.timers.tick(1_000);
+
+  assert.equal(argAfter(spawns[2].args, "--model"), "picked-model");
 });
 
 test("the local roster describes its connector", async () => {

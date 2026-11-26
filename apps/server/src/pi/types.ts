@@ -200,6 +200,12 @@ export interface AgentProcess {
    */
   intentionalKill: boolean;
   /**
+   * Set when Pi exits because no provider serves the agent's selected model, so
+   * the supervisor respawns it on the default model rather than retrying a model
+   * Pi can never start.
+   */
+  unknownProvider: boolean;
+  /**
    * How many times the supervisor has auto-respawned this slot within the
    * current rolling window. Carried forward across respawns so a crash loop is
    * bounded; reset once the process survives past the window.

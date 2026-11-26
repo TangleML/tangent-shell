@@ -122,6 +122,7 @@ export const MAX_REMEMBERED_ENDS = 500;
 const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
+const UNKNOWN_PROVIDER_ERROR = /Unknown provider "/;
 
 const RESUME_NOTICE =
   "[Tangent: your process was restarted, so this session's earlier messages are " +
@@ -1104,6 +1105,7 @@ function buildAgentProcess(
     autoRelayToPrime: descriptor.autoRelayToPrime ?? true,
     lastActivity: null,
     intentionalKill: false,
+    unknownProvider: false,
     restartCount: supervision?.restartCount ?? 0,
     lastRestartAt: supervision?.lastRestartAt ?? null,
     resumeNoticePending: false,
@@ -2191,9 +2193,9 @@ export class PiAgentManager {
     );
 
     child.stderr.on("data", (chunk: Buffer) => {
-      console.error(
-        `[pi:${sessionId}:${agent.agentId}] ${chunk.toString().trimEnd()}`,
-      );
+      const text = chunk.toString();
+      if (UNKNOWN_PROVIDER_ERROR.test(text)) agent.unknownProvider = true;
+      console.error(`[pi:${sessionId}:${agent.agentId}] ${text.trimEnd()}`);
     });
 
     child.on("error", (err) => {
@@ -2237,7 +2239,27 @@ export class PiAgentManager {
       return;
     }
 
-    this.scheduleRespawn(sessionId, session, agent, attempt);
+    this.scheduleRespawn(
+      sessionId,
+      session,
+      agent,
+      attempt,
+      this.respawnConfig(sessionId, agent),
+    );
+  }
+
+  /**
+   * The config a crashed agent comes back with: its own, unless Pi rejected the
+   * selected model's provider. A selection made against a deployment catalog
+   * this server does not load can never start, so that agent falls back to the
+   * server default model.
+   */
+  private respawnConfig(sessionId: string, agent: AgentProcess): AgentConfig {
+    if (!agent.unknownProvider || !agent.config.model) return agent.config;
+    console.warn(
+      `[pi:${sessionId}:${agent.agentId}] no provider serves "${agent.config.model}"; respawning with the default model`,
+    );
+    return { ...agent.config, model: undefined };
   }
 
   /**
@@ -2258,7 +2280,7 @@ export class PiAgentManager {
 
   /**
    * Removes the dead process from the roster and schedules a fresh spawn of the
-   * same agent (same id, name, template, config, auto-relay) after a backoff,
+   * same agent (same id, name, template, auto-relay) with `config` after a backoff,
    * carrying the attempt count forward so the budget keeps shrinking. The
    * original in-flight task is not re-delivered.
    */
@@ -2267,6 +2289,7 @@ export class PiAgentManager {
     session: SessionAgents,
     agent: AgentProcess,
     attempt: number,
+    config: AgentConfig,
   ): void {
     const delay =
       RESTART_BACKOFF_MS[Math.min(attempt - 1, RESTART_BACKOFF_MS.length - 1)];
@@ -2287,7 +2310,6 @@ export class PiAgentManager {
       homeConversationId: agent.homeConversationId,
       autoRelayToPrime: agent.autoRelayToPrime,
     };
-    const { config } = agent;
 
     setTimeout(() => {
       const live = this.sessions.get(sessionId);
