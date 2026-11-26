@@ -61,6 +61,18 @@ async function callApi(
   return response.json();
 }
 
+/** What `message_subagent` tells Prime for each server-reported outcome. */
+const DIRECTIVE_OUTCOMES: Record<string, string> = {
+  started: "Delivered: the sub-agent was idle, so this starts a new run.",
+  steered:
+    "Steered into the sub-agent's current run: it reads this after its " +
+    "current tool call finishes.",
+  queued:
+    "Queued until the sub-agent's current run ends: it has not read this " +
+    "yet, and a long run can delay it for hours. Send with delivery " +
+    "`steer` if it must act sooner.",
+};
+
 function textResult(text: string) {
   return { content: [{ type: "text", text }], details: {} };
 }
@@ -286,24 +298,43 @@ export default function (pi: ExtensionAPI) {
     description:
       "Send a directed message/task to one of your sub-agents by id. This is " +
       "non-blocking: the sub-agent works asynchronously and its reply streams " +
-      "into the room, then is summarized back to you.",
+      "into the room, then is summarized back to you. If the sub-agent is " +
+      "mid-run, `delivery` decides when it reads the message: `steer` (the " +
+      "default) lands after its current tool call, so a correction reaches " +
+      "it now; `follow_up` waits until its whole run ends, which for a long " +
+      "monitoring run can be hours. The result says which happened.",
     promptSnippet: "Send a directed task to a sub-agent (non-blocking)",
     parameters: Type.Object({
       id: Type.String({ description: "The sub-agent id from spawn_subagent." }),
       message: Type.String({
         description: "Instruction or task for the sub-agent.",
       }),
+      delivery: Type.Optional(
+        Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
+          description:
+            "Only matters when the sub-agent is mid-run. `steer` (default): " +
+            "apply after its current tool call. `follow_up`: queue until its " +
+            "run fully stops — for work that should not interrupt it.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
-      await callApi("POST", "message", {
+      const data = (await callApi("POST", "message", {
         sessionId: SESSION_ID,
         agentId: params.id,
         text: params.message,
-      });
+        delivery: params.delivery === "follow_up" ? "followUp" : "steer",
+      })) as { ok: boolean; error?: string; outcome?: string };
+
+      if (!data.ok) {
+        return textResult(
+          `Not delivered to sub-agent ${params.id}: ${data.error ?? "unknown reason"}`,
+        );
+      }
       return textResult(
-        `Delivered to sub-agent ${params.id}. It works asynchronously and will ` +
-          `reach you when it reports back. If you have no other work in hand, end ` +
-          `your turn now — do not poll or nudge it.`,
+        `${DIRECTIVE_OUTCOMES[data.outcome] ?? `Sent to sub-agent ${params.id}.`} ` +
+          `It will reach you when it reports back. If you have no other work ` +
+          `in hand, end your turn now — do not poll or nudge it.`,
       );
     },
   });

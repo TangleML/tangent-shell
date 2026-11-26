@@ -1,5 +1,6 @@
 import {
   type ConnectorKind,
+  type MessageDelivery,
   PI_AGENT,
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
@@ -65,17 +66,30 @@ export const attachSchema = z.object({
 });
 export type AttachInput = z.infer<typeof attachSchema>;
 
-/** Deliver a Prime-issued directive to a sub-agent. */
-export const messageSchema = z.object({
+/** A sub-agent's report back to Prime. */
+export const reportSchema = z.object({
   sessionId: z.string(),
   agentId: z.string(),
   text: z.string(),
 });
+export type ReportInput = z.infer<typeof reportSchema>;
+
+/**
+ * Deliver a Prime-issued directive to a sub-agent. `delivery` says what a
+ * directive that finds the sub-agent mid-run does: `steer` (the default) lands
+ * after its current tool call, `followUp` waits until its run fully stops.
+ */
+export const messageSchema = reportSchema.extend({
+  delivery: z.enum(["steer", "followUp"]).optional(),
+});
 export type MessageInput = z.infer<typeof messageSchema>;
 
-/** A sub-agent's report back to Prime; same shape as a message. */
-export const reportSchema = messageSchema;
-export type ReportInput = z.infer<typeof reportSchema>;
+/**
+ * What became of a directive that was posted: it opened a fresh run on an idle
+ * sub-agent, was steered into the run in flight, or was queued until that run
+ * ends. Read before posting, because the directive itself may open the run.
+ */
+export type DirectiveOutcome = "started" | "steered" | "queued";
 
 /** Terminate a sub-agent, optionally marking its work completed. */
 export const killSchema = z.object({
@@ -345,6 +359,7 @@ async function postDirective(
   conversationId: string,
   text: string | undefined,
   fromConversation: string,
+  delivery?: MessageDelivery,
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
   const { message, refused } = await router.postToConversation({
@@ -355,23 +370,41 @@ async function postDirective(
     content: text,
     mentions: [agentId],
     ingress: "tool",
+    delivery,
   });
   // Nothing was posted at all: the refusal is about Prime, not the recipient.
   if (!message) return refused[0]?.reason;
   return refused.find((entry) => entry.participantId === agentId)?.reason;
 }
 
+/** What a directive did, given whether its sub-agent had a Run open. */
+function directiveOutcome(
+  busy: boolean,
+  delivery: MessageDelivery,
+): DirectiveOutcome {
+  if (!busy) return "started";
+  return delivery === "steer" ? "steered" : "queued";
+}
+
 /**
  * Posts a Prime-issued directive into the sub-agent's Conversation. Prime hears
  * about a sub-agent that did not wake, because a directive that reaches nobody
- * looks exactly like one that worked.
+ * looks exactly like one that worked, and hears whether a busy sub-agent was
+ * steered or left to read it only once its current run ends.
  */
 async function handleMessage(
   store: SessionStore,
   router: ConversationRouter,
+  runs: RunRegistry,
   body: MessageInput,
   res: Response,
 ): Promise<void> {
+  if (!body.text.trim()) {
+    res.json({ ok: false, error: "The message is empty; nothing was sent." });
+    return;
+  }
+  const delivery = body.delivery ?? "steer";
+  const busy = Boolean(runs.current(body.sessionId, body.agentId));
   const refused = await postDirective(
     router,
     body.sessionId,
@@ -379,8 +412,13 @@ async function handleMessage(
     await homeConversationFor(store, body.sessionId, body.agentId),
     body.text,
     await orchestratorConversationFor(store, body.sessionId),
+    delivery,
   );
-  res.json({ ok: !refused, ...(refused ? { error: refused } : {}) });
+  if (refused) {
+    res.json({ ok: false, error: refused });
+    return;
+  }
+  res.json({ ok: true, outcome: directiveOutcome(busy, delivery) });
 }
 
 /**
@@ -528,6 +566,7 @@ export function createInternalAgentsRouter(
     handleMessage(
       store,
       conversations,
+      runs,
       getValidated<MessageInput>(req).body,
       res,
     ),

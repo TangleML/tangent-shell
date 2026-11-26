@@ -27,7 +27,10 @@ import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
-import type { ConversationRouter } from "../conversation/conversationRouter.ts";
+import type {
+  ConversationRouter,
+  CrossPostInput,
+} from "../conversation/conversationRouter.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
@@ -55,8 +58,29 @@ function spawned(id: string, conversationId: string): SpawnedSubagent {
   return { info, tools: [], systemPrompt: "", autoRelayToPrime: true };
 }
 
-/** A running internal-agents API over in-memory stores and stubbed connectors. */
-async function serve() {
+/** A router that records each cross-Conversation post and wakes no one. */
+function recordingRouter(posted: CrossPostInput[]): ConversationRouter {
+  return {
+    postToConversation: async (input: CrossPostInput) => {
+      posted.push(input);
+      return { woke: [], refused: [] };
+    },
+  } as unknown as ConversationRouter;
+}
+
+/** A run registry where only the `busy` participants have a Run open. */
+function stubbedRuns(busy: string[]): RunRegistry {
+  return {
+    audienceFor: () => undefined,
+    recordAudience: () => {},
+    current: (_sessionId: string, participantId: string) =>
+      busy.includes(participantId) ? { id: "run-1" } : undefined,
+  } as unknown as RunRegistry;
+}
+
+/** A running internal-agents API over in-memory stores and stubbed connectors.
+ * `busy` names the participants that have a Run open. */
+async function serve(busy: string[] = []) {
   const store = new InMemorySessionStore(new InMemoryParticipantStore());
   const reactors = new ReactorRegistry(new InMemoryReactorStore());
 
@@ -71,14 +95,9 @@ async function serve() {
     }),
   } as unknown as ConnectorRegistry;
 
-  const conversations = {
-    postToConversation: async () => ({ woke: [], refused: [] }),
-  } as unknown as ConversationRouter;
-
-  const runs = {
-    audienceFor: () => undefined,
-    recordAudience: () => {},
-  } as unknown as RunRegistry;
+  const posted: CrossPostInput[] = [];
+  const conversations = recordingRouter(posted);
+  const runs = stubbedRuns(busy);
 
   const a2a = {} as unknown as A2aPeerGateway;
   const participants = {} as unknown as ParticipantService;
@@ -113,7 +132,7 @@ async function serve() {
       body: JSON.stringify(body),
     });
 
-  return { store, reactors, killed, post };
+  return { store, reactors, killed, posted, post };
 }
 
 /** Serves the internal agents API over `store`, with `live` as the connectors' roster. */
@@ -255,4 +274,46 @@ test("list_subagents includes finished sub-agents nobody has dismissed", async (
       ["sub-done", "completed"],
     ],
   );
+});
+
+test("a directive to a busy sub-agent steers its current run by default", async () => {
+  const { store, posted, post } = await serve(["worker"]);
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "Stop retrying that query.",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "steered" });
+  assert.equal(posted.at(-1)?.delivery, "steer");
+});
+
+test("a follow-up directive to a busy sub-agent says it is queued", async () => {
+  const { store, posted, post } = await serve(["worker"]);
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "When you're done, summarize.",
+    delivery: "followUp",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "queued" });
+  assert.equal(posted.at(-1)?.delivery, "followUp");
+});
+
+test("a directive to an idle sub-agent starts a run", async () => {
+  const { store, post } = await serve();
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "Begin.",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "started" });
 });
