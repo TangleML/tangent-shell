@@ -73,6 +73,7 @@ import {
   type AgentProcess,
   type AssistantDelta,
   type ConversationEventSink,
+  type OutgoingPrompt,
   type PiStdoutEvent,
   PRIME_AGENT_ID,
   type SentPrompt,
@@ -1041,7 +1042,7 @@ function readDisposition(
  * their answers are ignored.
  */
 function forgetQueuedPrompts(agent: AgentProcess): void {
-  for (const [id, prompt] of agent.sent) {
+  for (const [id, { prompt }] of agent.sent) {
     if (!prompt.runId) agent.sent.delete(id);
   }
 }
@@ -1065,9 +1066,9 @@ function writeAbort(agent: AgentProcess): void {
 /** Removes and returns the prompt a Pi `response` answers. */
 function takeSent(agent: AgentProcess, id: unknown): SentPrompt | undefined {
   if (typeof id !== "string") return undefined;
-  const prompt = agent.sent.get(id);
+  const sent = agent.sent.get(id);
   agent.sent.delete(id);
-  return prompt;
+  return sent?.prompt;
 }
 
 /** Builds a fresh roster entry around a just-spawned child, defaulting the
@@ -1861,7 +1862,7 @@ export class PiAgentManager {
       }),
     );
 
-    agent.sent.set(id, prompt);
+    agent.sent.set(id, { text, prompt });
     agent.busy = true;
     agent.child.stdin.write(
       `${JSON.stringify({ id, type: "prompt", message, streamingBehavior: prompt.streamingBehavior })}\n`,
@@ -2200,16 +2201,14 @@ export class PiAgentManager {
 
     child.on("error", (err) => {
       console.error(`[pi:${sessionId}:${agent.agentId}] failed to spawn:`, err);
-      this.failInFlight(sessionId, agent, err.message);
-      this.handleChildExit(sessionId, agent);
+      this.handleChildExit(sessionId, agent, err.message);
     });
 
     child.on("exit", (code, signal) => {
       console.log(
         `[pi:${sessionId}:${agent.agentId}] process exited (code=${code}, signal=${signal})`,
       );
-      this.failInFlight(sessionId, agent, "Pi process exited unexpectedly.");
-      this.handleChildExit(sessionId, agent);
+      this.handleChildExit(sessionId, agent, "Pi process exited unexpectedly.");
     });
   }
 
@@ -2218,14 +2217,23 @@ export class PiAgentManager {
    * (deliberate kill, model change, dispose — or a slot already replaced by a
    * newer process) is dropped. A crash is auto-respawned with backoff until the
    * bounded retry budget is exhausted, after which the slot is marked terminal.
+   * The in-flight turn fails with `failure`, unless the respawn re-sends it.
    */
-  private handleChildExit(sessionId: string, agent: AgentProcess): void {
+  private handleChildExit(
+    sessionId: string,
+    agent: AgentProcess,
+    failure: string,
+  ): void {
     const session = this.sessions.get(sessionId);
-    // Ignore the exit if the session is gone or this process was already
-    // replaced in the roster (e.g. a model-change respawn).
-    if (!session || session.agents.get(agent.agentId) !== agent) return;
+    // The session is gone or this process was already replaced in the roster
+    // (e.g. a model-change respawn): only its turn is left to end.
+    if (!session || session.agents.get(agent.agentId) !== agent) {
+      this.failInFlight(sessionId, agent, failure);
+      return;
+    }
 
     if (agent.intentionalKill) {
+      this.failInFlight(sessionId, agent, failure);
       this.removeAgent(sessionId, agent, "killed");
       return;
     }
@@ -2235,17 +2243,39 @@ export class PiAgentManager {
       console.error(
         `[pi:${sessionId}:${agent.agentId}] supervisor gave up after ${MAX_RESTARTS} restarts`,
       );
+      this.failInFlight(sessionId, agent, failure);
       this.removeAgent(sessionId, agent, "error");
       return;
     }
 
-    this.scheduleRespawn(
-      sessionId,
-      session,
-      agent,
-      attempt,
-      this.respawnConfig(sessionId, agent),
-    );
+    this.respawnAfterCrash(sessionId, session, agent, attempt, failure);
+  }
+
+  /**
+   * Schedules a crashed agent's respawn. Pi rejects an unknown provider before
+   * it starts a turn, so the prompts it was sent never ran and go to the
+   * respawn on the default model; any other crash fails the in-flight turn.
+   */
+  private respawnAfterCrash(
+    sessionId: string,
+    session: SessionAgents,
+    agent: AgentProcess,
+    attempt: number,
+    failure: string,
+  ): void {
+    const config = this.respawnConfig(sessionId, agent);
+    const resend = config === agent.config ? [] : this.takeUnanswered(agent);
+    if (resend.length === 0) this.failInFlight(sessionId, agent, failure);
+    this.scheduleRespawn(sessionId, session, agent, attempt, config, resend);
+  }
+
+  /** Takes the prompts Pi never answered off a dead process, which then holds
+   * no turn for a later exit event to fail. */
+  private takeUnanswered(agent: AgentProcess): OutgoingPrompt[] {
+    const unanswered = [...agent.sent.values()];
+    agent.sent.clear();
+    agent.busy = false;
+    return unanswered;
   }
 
   /**
@@ -2281,8 +2311,9 @@ export class PiAgentManager {
   /**
    * Removes the dead process from the roster and schedules a fresh spawn of the
    * same agent (same id, name, template, auto-relay) with `config` after a backoff,
-   * carrying the attempt count forward so the budget keeps shrinking. The
-   * original in-flight task is not re-delivered.
+   * carrying the attempt count forward so the budget keeps shrinking. Only the
+   * prompts in `resend` are written to the new process, each still serving the
+   * Run it opened; any other in-flight task is not re-delivered.
    */
   private scheduleRespawn(
     sessionId: string,
@@ -2290,6 +2321,7 @@ export class PiAgentManager {
     agent: AgentProcess,
     attempt: number,
     config: AgentConfig,
+    resend: OutgoingPrompt[],
   ): void {
     const delay =
       RESTART_BACKOFF_MS[Math.min(attempt - 1, RESTART_BACKOFF_MS.length - 1)];
@@ -2320,11 +2352,31 @@ export class PiAgentManager {
         restartCount: attempt,
         lastRestartAt: Date.now(),
       });
+      this.resendTo(sessionId, agent.agentId, respawned, resend);
       if (!respawned) return;
       if (respawned.role === "subagent") {
         this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(respawned));
       }
     }, delay).unref?.();
+  }
+
+  /** Writes prompts to a respawned process, or fails the Runs they serve when
+   * it did not start. */
+  private resendTo(
+    sessionId: string,
+    agentId: string,
+    respawned: AgentProcess | undefined,
+    prompts: OutgoingPrompt[],
+  ): void {
+    if (prompts.length === 0) return;
+    if (!respawned) {
+      this.runs.settleOpenFor(sessionId, agentId, "failed");
+      return;
+    }
+    for (const { text, prompt } of prompts) {
+      this.writePrompt(sessionId, respawned, text, prompt);
+    }
+    this.notifyStatus(sessionId);
   }
 
   /**
@@ -2578,7 +2630,7 @@ export class PiAgentManager {
    * can no longer settle it.
    */
   private adoptRun(agent: AgentProcess, runId: RunId): void {
-    for (const prompt of agent.sent.values()) {
+    for (const { prompt } of agent.sent.values()) {
       if (prompt.runId === runId) prompt.runId = undefined;
     }
   }
