@@ -691,6 +691,79 @@ test("a tool call routes to the environment and resolves with its result", async
   assert.deepEqual(await pending, { ok: true, result: "hi" });
 });
 
+test("a tool call decodes JSON-string arguments into the object the host expects", async () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  const pending = h.gateway.callTool(
+    "s1",
+    "prime",
+    "echo",
+    '{"text":"hi","nested":{"n":1}}',
+  );
+  const call = toolCalls(env.sent).at(-1);
+  assert.ok(call);
+  const request = call.payload as RemoteToolCallRequest;
+  assert.deepEqual(request.arguments, { text: "hi", nested: { n: 1 } });
+  call.ack?.(null, { ok: true, result: "hi" });
+
+  assert.deepEqual(await pending, { ok: true, result: "hi" });
+});
+
+test("a tool call forwards object arguments unchanged and missing ones as {}", async () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  const withArgs = h.gateway.callTool("s1", "prime", "echo", {
+    text: "hi",
+  });
+  const first = toolCalls(env.sent).at(-1);
+  assert.ok(first);
+  assert.deepEqual((first.payload as RemoteToolCallRequest).arguments, {
+    text: "hi",
+  });
+  first.ack?.(null, { ok: true, result: "hi" });
+  await withArgs;
+
+  const without = h.gateway.callTool("s1", "prime", "echo", undefined);
+  const second = toolCalls(env.sent).at(-1);
+  assert.ok(second && second !== first);
+  assert.deepEqual((second.payload as RemoteToolCallRequest).arguments, {});
+  second.ack?.(null, { ok: true, result: null });
+  await without;
+});
+
+test("a tool call rejects arguments that are not a JSON object without reaching the host", async () => {
+  const h = makeHarness();
+  const env = h.connect("env-1");
+  env.send(RemoteEnvEvents.ToolsRegister, {
+    sessionId: "s1",
+    tools: [ECHO_TOOL],
+  });
+
+  await assert.rejects(
+    () => h.gateway.callTool("s1", "prime", "echo", "not json"),
+    /`arguments` must be a JSON object; got a string that is not valid JSON/,
+  );
+  await assert.rejects(
+    () => h.gateway.callTool("s1", "prime", "echo", '["hi"]'),
+    /`arguments` must be a JSON object; got a string that decodes to an array/,
+  );
+  await assert.rejects(
+    () => h.gateway.callTool("s1", "prime", "echo", 42),
+    /`arguments` must be a JSON object, not a number/,
+  );
+  assert.equal(toolCalls(env.sent).length, 0);
+});
+
 test("calling a tool no environment registered rejects", async () => {
   const h = makeHarness();
   const env = h.connect("env-1");
