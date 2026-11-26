@@ -1,7 +1,6 @@
 import {
   type AgentActivity,
   type Attachment,
-  type ChatMessage,
   humanAuthor,
   type MessageDelivery,
 } from "@tangent/shared/contracts";
@@ -12,6 +11,7 @@ import {
   primeThreadActivity,
 } from "@/features/chat/model/agents";
 import { type ChatCommand, commandRun } from "@/features/chat/model/commands";
+import type { ChatMessage } from "@/features/chat/model/types";
 import { useCurrentUser } from "@/features/user/hooks/useCurrentUser";
 
 import {

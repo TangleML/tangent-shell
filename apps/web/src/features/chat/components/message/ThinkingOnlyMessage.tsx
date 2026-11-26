@@ -1,12 +1,12 @@
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
+import type { ReactNode } from "react";
 
 import { useThinkingCollapse } from "@/features/chat/hooks/useThinkingCollapse";
 import { isThinkingDone } from "@/features/chat/model/messageState";
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { Markdown } from "@/shared/lib/markdown/Markdown";
 
-import { HeaderCollapseButton } from "./HeaderCollapseButton";
 import { MessageAvatar } from "./MessageAvatar";
 import type { MessageBubbleVariant } from "./MessageBubble";
 import { MessageLayout } from "./MessageLayout";
@@ -16,7 +16,7 @@ interface ThinkingOnlyMessageProps {
   variant: MessageBubbleVariant;
   roleLabel: string;
   isStreaming: boolean;
-  onCollapse?: () => void;
+  actions: ReactNode;
 }
 
 export function ThinkingOnlyMessage({
@@ -24,7 +24,7 @@ export function ThinkingOnlyMessage({
   variant,
   roleLabel,
   isStreaming,
-  onCollapse,
+  actions,
 }: ThinkingOnlyMessageProps) {
   const thinkingDone = isThinkingDone(message, isStreaming);
   const { open } = useThinkingCollapse(thinkingDone);
@@ -46,7 +46,7 @@ export function ThinkingOnlyMessage({
             {message.author.name}
             {roleLabel}
           </Text>
-          <HeaderCollapseButton onCollapse={onCollapse} />
+          {actions}
         </InlineStack>
       }
     >

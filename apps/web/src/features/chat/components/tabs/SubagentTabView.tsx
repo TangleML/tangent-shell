@@ -18,10 +18,13 @@ import {
 } from "../composer/AgentModelPicker";
 import { ChatInput } from "../composer/ChatInput";
 import { ComposerFooter } from "../composer/ComposerFooter";
-import { ChatMessageList } from "../message/ChatMessageList";
+import {
+  ChatMessageList,
+  type MessageLinkProps,
+} from "../message/ChatMessageList";
 import { ConversationQuoting } from "../quote/ConversationQuoting";
 
-interface SubagentTabViewProps {
+interface SubagentTabViewProps extends MessageLinkProps {
   sessionId: string;
   /** The sub-agent this tab is dedicated to. */
   agentId: string;
@@ -80,6 +83,8 @@ interface SubagentTabViewProps {
 export function SubagentTabView({
   sessionId,
   agentId,
+  targetMessageId,
+  getMessageLink,
   primaryConversationId,
   name,
   messages,
@@ -106,10 +111,12 @@ export function SubagentTabView({
   pills,
 }: SubagentTabViewProps) {
   return (
-    <ConversationQuoting>
+    <ConversationQuoting key={`${sessionId}:${agentId}`}>
       <BlockStack grow>
         <ChatMessageList
           sessionId={sessionId}
+          targetMessageId={targetMessageId}
+          getMessageLink={getMessageLink}
           messages={messages}
           currentAuthorId={currentAuthorId}
           primaryConversationId={primaryConversationId}
@@ -135,7 +142,6 @@ export function SubagentTabView({
           }
         />
         <ChatInput
-          key={`${sessionId}:${agentId}`}
           sessionId={sessionId}
           agentId={agentId}
           disabled={disabled}

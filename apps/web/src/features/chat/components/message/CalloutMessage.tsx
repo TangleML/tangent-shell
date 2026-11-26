@@ -6,17 +6,13 @@ import type { ReactNode } from "react";
 import { formatMessageTime } from "@/features/chat/model/messageTime";
 import { Surface, type SurfaceTone } from "@/shared/ui/patterns/surface";
 
-import { MessageActions } from "./MessageActions";
-
 interface CalloutMessageProps {
   icon: IconName;
   /** Says where it came from, e.g. `Report from Scout`; the time follows. */
   title: string;
   tone?: SurfaceTone;
   createdAt: string;
-  /** What the copy action copies. */
-  content: string;
-  onCollapse?: () => void;
+  actions: ReactNode;
   children: ReactNode;
 }
 
@@ -29,8 +25,7 @@ export function CalloutMessage({
   title,
   tone,
   createdAt,
-  content,
-  onCollapse,
+  actions,
   children,
 }: CalloutMessageProps) {
   return (
@@ -41,7 +36,7 @@ export function CalloutMessage({
           <Text size="xs" weight="medium" tone="subdued" truncate>
             {`${title} · ${formatMessageTime(createdAt)}`}
           </Text>
-          <MessageActions content={content} onCollapse={onCollapse} />
+          {actions}
         </InlineStack>
         {children}
       </BlockStack>

@@ -240,6 +240,9 @@ await addResource(sessionId, {
 | -------------------- | ---------------------- | --------------------------------------------------------- |
 | `sessionId`          | `string`               | The session to render.                                    |
 | `agentId`            | `string`               | Render this agent's thread instead of Prime.              |
+| `getMessageLink`     | `function`             | Given a message ID, return its URL or `undefined`.        |
+| `targetMessageId`    | `string`               | Scroll to and highlight this message in the open thread.  |
+| `targetAgentId`      | `string`               | Ask Prime to open this sub-agent through `onOpenAgent`.   |
 | `initialPrompt`      | `string`               | Sent once the session joins (for a host-created session). |
 | `autoFocus`          | `boolean`              | Focuses the composer once it accepts input. See below.    |
 | `onOpenArtifact`     | `(url, title) => void` | The host decides how to open the resource.                |

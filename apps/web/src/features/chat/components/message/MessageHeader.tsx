@@ -1,28 +1,25 @@
 import { Icon } from "@tangent/ui-primitives/icon";
 import { InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
+import type { ReactNode } from "react";
 
 import { formatMessageTime } from "@/features/chat/model/messageTime";
-
-import { MessageActions } from "./MessageActions";
 
 interface MessageHeaderProps {
   authorName: string;
   roleLabel: string;
   createdAt: string;
-  content: string;
+  actions: ReactNode;
   /** Where the author wrote this from, when it was not this conversation. */
   origin?: string;
-  onCollapse?: () => void;
 }
 
 export function MessageHeader({
   authorName,
   roleLabel,
   createdAt,
-  content,
+  actions,
   origin,
-  onCollapse,
 }: MessageHeaderProps) {
   return (
     <InlineStack align="start" blockAlign="center" gap="2" wrap="nowrap">
@@ -40,7 +37,7 @@ export function MessageHeader({
           </Text>
         </InlineStack>
       ) : null}
-      <MessageActions content={content} onCollapse={onCollapse} />
+      {actions}
     </InlineStack>
   );
 }
