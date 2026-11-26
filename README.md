@@ -18,7 +18,7 @@ workflow — research, code generation, document building, scheduled automation,
 
 - **Node.js** (the version matching the Docker base image, currently 24+)
 - **pnpm** `10.28.0` (the pinned package manager)
-- The **`pi`** agent binary on your `PATH` (or set `PI_BIN`; `start_local.sh` installs it for you)
+- The **`pi`** agent binary, 1.6.0 or later, on your `PATH` (or set `PI_BIN`; `start_local.sh` installs it for you)
 - LLM access for `pi`: a provider key such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, or an
   LLM gateway via `PI_PROXY_URL` / `PI_PROXY_API_KEY` (see below)
 
@@ -156,7 +156,7 @@ the full list and defaults):
 | `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                     |
 | `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)       |
 | `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                            |
-| `PI_BIN`                                          | Path to the `pi` agent executable                              |
+| `PI_BIN`                                          | Path to the `pi` agent executable (1.6.0+, checked at startup) |
 | `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                |
 | `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                              |
 | `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets         |

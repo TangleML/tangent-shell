@@ -28,7 +28,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Pin the Pi coding agent so the `pi` binary is on PATH.
-RUN npm install -g @earendil-works/pi-coding-agent@0.84.4
+RUN npm install -g @earendil-works/pi-coding-agent@1.6.0
 
 # Pin qmd (used by the pi-memory extension at runtime): pi-memory shells out to
 # qmd subcommands and parses their --json output.

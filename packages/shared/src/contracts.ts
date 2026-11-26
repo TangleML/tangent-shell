@@ -1711,7 +1711,7 @@ export interface ConversationHistoryPayload {
  * - `"steer"`: nudge applied after the current tool call, before the next LLM
  *   call (true mid-run steering).
  * - `"followUp"`: queued until the run fully stops.
- * Ignored when the target agent is idle (always sent as a plain prompt).
+ * Ignored when the target agent is idle (Pi ignores `streamingBehavior` then).
  */
 export type MessageDelivery = "auto" | "steer" | "followUp";
 

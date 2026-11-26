@@ -129,9 +129,9 @@ sequenceDiagram
   deactivate PiManager
 ```
 
-If the relayed sub-agent reply arrives while Prime is mid-run, `sendToAgent`
-attaches `streamingBehavior: "followUp"` (the `"auto"` default) so Pi queues it
-rather than dropping it. Human nudges can instead pass `delivery: "steer"` to
+`sendToAgent` attaches `streamingBehavior: "followUp"` (the `"auto"` default) to
+every prompt, so a relayed sub-agent reply that arrives while Prime is mid-run is
+queued rather than rejected. Human nudges can instead pass `delivery: "steer"` to
 apply before the agent's next LLM call.
 
 ---
@@ -234,9 +234,9 @@ sequenceDiagram
   Handlers->>PiManager: abort(sessionId, agentId)
   activate PiManager
   PiManager->>PiManager: aborted = true
-  PiManager->>Sub: stdin abort
+  PiManager->>Sub: stdin clear_queue, abort
   activate Sub
-  Sub-->>PiManager: agent_end
+  Sub-->>PiManager: agent_end, agent_settled
   deactivate Sub
   PiManager->>PiManager: finalize skips relay (aborted)
   PiManager-->>UI: agent:activity null

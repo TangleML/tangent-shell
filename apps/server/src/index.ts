@@ -7,7 +7,12 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
-import { EMBED_ALLOWED_ORIGINS, MAX_JSON_BODY_BYTES, PORT } from "./config.ts";
+import {
+  EMBED_ALLOWED_ORIGINS,
+  MAX_JSON_BODY_BYTES,
+  PI_BIN,
+  PORT,
+} from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { AdmissionEngine } from "./conversation/admission.ts";
 import { ContextEngine, projectRoom } from "./conversation/context.ts";
@@ -32,6 +37,7 @@ import {
   type ConversationEventSink,
   PiAgentManager,
 } from "./pi/piAgentManager.ts";
+import { assertPiVersion } from "./pi/piVersion.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
@@ -86,6 +92,8 @@ import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 import { SqliteSharedFolderStore } from "./store/sqliteSharedFolderStore.ts";
 import { SqliteUsageStore } from "./store/sqliteUsageStore.ts";
+
+assertPiVersion(PI_BIN);
 
 // Opening the DB applies pending drizzle-kit migrations on startup. The single
 // shared connection backs every store: session metadata for the REST routes and
