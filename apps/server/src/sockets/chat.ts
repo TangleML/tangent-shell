@@ -129,8 +129,7 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   const tracked = new Set<string>();
 
   socket.on(SocketEvents.ChatJoin, (payload: ChatJoinPayload) => {
-    void handleChatJoin(socket, deps, author, payload);
-    void markPresent(deps, author, payload?.sessionId, tracked);
+    void handleChatJoin(socket, deps, author, payload, tracked);
   });
 
   socket.on(
@@ -235,6 +234,7 @@ async function handleChatJoin(
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   payload: ChatJoinPayload,
+  tracked: Set<string>,
 ): Promise<void> {
   const { store, pi, connectors, triggerEngine } = deps;
   const session = await store.getSession(payload?.sessionId);
@@ -250,6 +250,16 @@ async function handleChatJoin(
   await wakeOnJoin(deps, session);
 
   const authorized = await joinAuthorized(socket, deps, author, session);
+  // A human authorized to see the session — its owner, or an open-session guest
+  // — is listed on the roster even when no invite added them, so the attribution
+  // their messages carry has a Participant behind it. Done before presence so
+  // the connected transition it broadcasts lands on a row that already exists.
+  if (author.kind === "human" && authorized.size > 0)
+    await deps.participantService.ensureHuman(session.id, {
+      id: author.id,
+      displayName: author.name,
+    });
+  await markPresent(deps, author, session.id, tracked);
   socket.emit(
     SocketEvents.ChatHistory,
     await authorizedHistory(store, session.id, authorized),
@@ -481,9 +491,10 @@ function presenceKey(sessionId: string, participantId: string): string {
 }
 
 /**
- * Marks a connecting human present, if they are an invited Participant of this
- * session. Only their first live socket transitions them to `connected`; a
- * non-participant (a session's owner who was never invited) has no presence.
+ * Marks a connecting human present, once they are a Participant of this session
+ * — invited, or materialized on join by {@link handleChatJoin}. Only their first
+ * live socket transitions them to `connected`; a human the join did not
+ * materialize (a restricted session's uninvited visitor) has no presence.
  */
 async function markPresent(
   deps: ChatHandlerDeps,

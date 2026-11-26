@@ -218,6 +218,12 @@ function frameFor(message: ChatMessage, recipient: Membership): string {
   return `${message.author.name} posted in another conversation:`;
 }
 
+/** The speaker label a human's own-thread Message is prefixed with, so an agent
+ * reading its home Conversation can tell its humans apart. */
+function humanLabel(author: ChatAuthor): string {
+  return `${author.name}:`;
+}
+
 /**
  * The text one recipient's transport receives for a Message. The participant
  * that owns the Conversation (its subject) gets the content as written; one
@@ -225,6 +231,9 @@ function frameFor(message: ChatMessage, recipient: Membership): string {
  * baked into a wrapped relay string. Ownership is passed in rather than inferred
  * from the id, now that a Conversation id no longer equals its owner's id.
  * Framing is a projection, so what is persisted stays the author's own words.
+ * The owner's own thread is shared by every human in the session, so a human's
+ * Message is still labelled with its sender — otherwise the agent cannot tell
+ * one participant from another.
  *
  * An opaque member is sent the Message plain as well: framing situates a
  * Message within a transcript, and a member that sees none of the log — an
@@ -236,7 +245,11 @@ export function deliveryText(
   ownerParticipantId: string,
 ): string {
   const body = withAttachments(message.content, message.attachments);
-  if (recipient.participantId === ownerParticipantId) return body;
+  if (recipient.participantId === ownerParticipantId) {
+    return message.author.kind === "human"
+      ? `${humanLabel(message.author)}\n\n${body}`
+      : body;
+  }
   if (recipient.transcriptVisibility === "opaque") return body;
   return `${frameFor(message, recipient)}\n\n${body}`;
 }

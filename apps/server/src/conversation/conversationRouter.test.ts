@@ -334,6 +334,40 @@ test("an opaque member is sent the addressing Message plain, a shared one framed
   );
 });
 
+test("the owner is told who sent a human Message in its own thread", () => {
+  const owner: Membership = {
+    sessionId: "s1",
+    participantId: "prime",
+    conversationId: "prime",
+    reaction: "fromHumans",
+    ingress: "reaction",
+    admission: "queue",
+    transcriptVisibility: "shared",
+  };
+  const human: ChatMessage = {
+    id: "m1",
+    sessionId: "s1",
+    conversationId: "prime",
+    seq: 1,
+    author: { id: "ada@x", kind: "human", name: "Ada" },
+    source: { kind: "human" },
+    mentions: [],
+    content: "what is my name?",
+    createdAt: new Date().toISOString(),
+  };
+
+  assert.equal(deliveryText(human, owner, "prime"), "Ada:\n\nwhat is my name?");
+
+  const agent: ChatMessage = {
+    ...human,
+    author: { id: "prime", kind: "agent", name: "Prime", agentRole: "prime" },
+    source: { kind: "agent" },
+    content: "on it",
+  };
+  // An agent's own-thread Message carries no speaker label.
+  assert.equal(deliveryText(agent, owner, "prime"), "on it");
+});
+
 test("posting a Message with a correlationId opens an outstanding correlation", async () => {
   const h = makeRouterWithCorrelations();
   await withWorker(h.sessions);
@@ -432,7 +466,10 @@ test("the conversation's agent is sent command results with its next message, on
 
   assert.deepEqual(
     h.delivered.map(({ text }) => text),
-    [withCommandResults("which one failed?", [RAN_TRAIN]), "and now?"],
+    [
+      withCommandResults("Ada:\n\nwhich one failed?", [RAN_TRAIN]),
+      "Ada:\n\nand now?",
+    ],
   );
 });
 
@@ -475,7 +512,7 @@ test("command results wait for the next message the agent actually gets", async 
   );
   assert.deepEqual(
     h.delivered.map(({ text }) => text),
-    [withCommandResults("and now?", [RAN_TRAIN])],
+    [withCommandResults("Ada:\n\nand now?", [RAN_TRAIN])],
   );
 });
 
