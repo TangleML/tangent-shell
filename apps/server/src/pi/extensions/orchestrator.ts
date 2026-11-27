@@ -63,14 +63,18 @@ async function callApi(
 
 /** What `message_subagent` tells Prime for each server-reported outcome. */
 const DIRECTIVE_OUTCOMES: Record<string, string> = {
-  started: "Delivered: the sub-agent was idle, so this starts a new run.",
+  started: "delivered; it was idle, so this starts a new run.",
   steered:
-    "Steered into the sub-agent's current run: it reads this after its " +
-    "current tool call finishes.",
+    "steered into its current run; it reads this once the tool calls of " +
+    "its current turn finish.",
   queued:
-    "Queued until the sub-agent's current run ends: it has not read this " +
-    "yet, and a long run can delay it for hours. Send with delivery " +
-    "`steer` if it must act sooner.",
+    "queued until its current run ends; it has not read this yet, and a " +
+    "long run can delay it for hours. It will still be read then, so do " +
+    "not resend it. For a directive that can't wait, use delivery `steer` " +
+    "next time.",
+  sent:
+    "sent while it is mid-run; this kind of sub-agent takes no delivery " +
+    "mode, so it decides itself when to read it.",
 };
 
 function textResult(text: string) {
@@ -300,8 +304,8 @@ export default function (pi: ExtensionAPI) {
       "non-blocking: the sub-agent works asynchronously and its reply streams " +
       "into the room, then is summarized back to you. If the sub-agent is " +
       "mid-run, `delivery` decides when it reads the message: `steer` (the " +
-      "default) lands after its current tool call, so a correction reaches " +
-      "it now; `follow_up` waits until its whole run ends, which for a long " +
+      "default) lands once the tool calls of its current turn finish, so a " +
+      "correction reaches it now; `follow_up` waits until its whole run ends, which for a long " +
       "monitoring run can be hours. The result says which happened.",
     promptSnippet: "Send a directed task to a sub-agent (non-blocking)",
     parameters: Type.Object({
@@ -313,7 +317,8 @@ export default function (pi: ExtensionAPI) {
         Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
           description:
             "Only matters when the sub-agent is mid-run. `steer` (default): " +
-            "apply after its current tool call. `follow_up`: queue until its " +
+            "apply once the tool calls of its current turn finish. " +
+            "`follow_up`: queue until its " +
             "run fully stops — for work that should not interrupt it.",
         }),
       ),
@@ -331,8 +336,9 @@ export default function (pi: ExtensionAPI) {
           `Not delivered to sub-agent ${params.id}: ${data.error ?? "unknown reason"}`,
         );
       }
+      const outcome = DIRECTIVE_OUTCOMES[data.outcome ?? ""] ?? "sent.";
       return textResult(
-        `${DIRECTIVE_OUTCOMES[data.outcome] ?? `Sent to sub-agent ${params.id}.`} ` +
+        `Sub-agent ${params.id}: ${outcome} ` +
           `It will reach you when it reports back. If you have no other work ` +
           `in hand, end your turn now — do not poll or nudge it.`,
       );

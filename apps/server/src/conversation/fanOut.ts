@@ -61,6 +61,11 @@ export type Notify = (
 export interface FanOutResult {
   woke: string[];
   refused: { participantId: string; reason: string }[];
+  /**
+   * Members whose wake admission parked until their open Run settles. They are
+   * also in `woke`; this says the delivery has not happened yet.
+   */
+  held?: string[];
 }
 
 function keyFor(sessionId: string, id: string): string {
@@ -71,6 +76,12 @@ function keyFor(sessionId: string, id: string): string {
  * else none (an agent/automation wake keeps the recipient's last audience). */
 function audienceOf(message: ChatMessage): string | undefined {
   return message.source.kind === "human" ? message.author.id : undefined;
+}
+
+/** Records a wake admission parked: woken, but not delivered yet. */
+function markHeld(result: FanOutResult, participantId: string): void {
+  result.woke.push(participantId);
+  (result.held ??= []).push(participantId);
 }
 
 /** Marks every member a bound stopped as refused, with the reason it stopped. */
@@ -289,7 +300,7 @@ export class FanOutEngine {
       return;
     }
     if (decision.action === "held") {
-      result.woke.push(member.participantId);
+      markHeld(result, member.participantId);
       return;
     }
     this.deliverNow(member.participantId, performNow, result);

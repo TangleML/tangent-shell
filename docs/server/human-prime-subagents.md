@@ -168,11 +168,21 @@ This is non-blocking from Prime's perspective: the tool returns immediately and
 the sub-agent's reply later flows back through the relay loop.
 
 `delivery` only matters when the sub-agent is mid-run. It defaults to `steer`,
-which Pi applies after the current tool call, so a correction reaches a worker
-in a long monitoring run now rather than when that run ends. `follow_up` maps to
-`followUp` and waits until the run fully stops. The route reads whether the
-sub-agent had a Run open before posting, and `outcome` tells Prime what
-happened: `started` (it was idle), `steered`, or `queued`.
+which Pi applies once the tool calls of the current turn finish, before the next
+LLM call, so a correction reaches a worker in a long monitoring run now rather
+than when that run ends. `follow_up` maps to `followUp` and waits until the run
+fully stops. `outcome` tells Prime what actually happened:
+
+- `started` — the sub-agent was idle, so the directive opens a fresh run;
+- `steered` — handed to its run in flight as a steer;
+- `queued` — waits for the run to end, either as a follow-up or because the
+  sub-agent's admission policy (`coalesce`, `preempt`) held the wake, which the
+  fan-out reports as `held`;
+- `sent` — handed mid-run to a connector that takes no delivery mode (A2A,
+  external), which decides itself when to read it.
+
+The route reads whether the sub-agent had a Run open before posting, because the
+directive itself may open one.
 
 ---
 
