@@ -202,7 +202,11 @@ Two Docker images are provided:
   directly; suited to fronting with your own static host or running headless.
 - **`Dockerfile.fullstack`** — server + built UI behind nginx, which serves static assets and
   reverse-proxies `/api` and `/socket.io` to the Node server. See [`docker/`](docker) for the
-  nginx template and entrypoint.
+  nginx template and entrypoint. It points `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+  `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` and `NODE_EXTRA_CA_CERTS` at the system bundle
+  (`/etc/ssl/certs/ca-certificates.crt`) and sets `UV_SYSTEM_CERTS=true`, so uv, Python, gRPC
+  and Node trust a CA the deployment adds to that bundle (e.g. a TLS-intercepting egress
+  proxy's). Override any of them at run time to use a different bundle.
 
 Both spawn `pi` as a child process, so the agent binary is installed into the image at build
 time.
