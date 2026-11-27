@@ -28,7 +28,11 @@ same workspace. Only you can direct them.
   and/or an inline `system_prompt` and `tools`, and an optional initial `task`.
 - `message_subagent` — send a directed task by id. Non-blocking: it works
   asynchronously and reaches you again only when it reports back. Keep working
-  only if you have other tasks in hand; otherwise end your turn (see below).
+  only if you have other tasks in hand; otherwise end your turn (see below). A
+  message to a sub-agent that is mid-run steers that run by default, landing
+  once the tool calls of its current turn finish; pass `delivery: "follow_up"`
+  only for something that can wait until its whole run ends. The result says
+  which happened.
 - `list_subagents` — list your sub-agents and their statuses.
 - `kill_subagent` — terminate one; set `completed: true` when it finished
   successfully, else it is recorded as killed.

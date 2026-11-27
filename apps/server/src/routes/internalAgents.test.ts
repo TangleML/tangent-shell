@@ -27,7 +27,10 @@ import { connectorFor, type SubagentInfo } from "@tangent/shared/contracts.ts";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
-import type { ConversationRouter } from "../conversation/conversationRouter.ts";
+import type {
+  ConversationRouter,
+  CrossPostInput,
+} from "../conversation/conversationRouter.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
@@ -55,30 +58,62 @@ function spawned(id: string, conversationId: string): SpawnedSubagent {
   return { info, tools: [], systemPrompt: "", autoRelayToPrime: true };
 }
 
-/** A running internal-agents API over in-memory stores and stubbed connectors. */
-async function serve() {
-  const store = new InMemorySessionStore(new InMemoryParticipantStore());
-  const reactors = new ReactorRegistry(new InMemoryReactorStore());
+/** Who the stubs treat as mid-run, held by admission, or reached over A2A. */
+interface Scenario {
+  busy?: string[];
+  held?: string[];
+  a2a?: string[];
+}
 
-  const killed: string[] = [];
-  const connectors = {
+/** A router that records each cross-Conversation post and wakes no one, except
+ * that it reports the `held` participants as parked by admission. */
+function recordingRouter(
+  posted: CrossPostInput[],
+  held: string[],
+): ConversationRouter {
+  return {
+    postToConversation: async (input: CrossPostInput) => {
+      posted.push(input);
+      return { message: {}, woke: [], refused: [], held };
+    },
+  } as unknown as ConversationRouter;
+}
+
+/** Connectors that spawn and kill in memory; `a2a` participants resolve to the
+ * A2A connector, everyone else to Pi. */
+function stubbedConnectors(killed: string[], a2a: string[]): ConnectorRegistry {
+  return {
     spawner: () => ({
       spawn: (_sessionId: string, request: { name: string }) =>
         spawned(request.name, `conv-${request.name}`),
     }),
     resolve: (_sessionId: string, agentId: string) => ({
+      descriptor: connectorFor(a2a.includes(agentId) ? "a2a" : "pi-stdio"),
       kill: () => killed.push(agentId),
     }),
   } as unknown as ConnectorRegistry;
+}
 
-  const conversations = {
-    postToConversation: async () => ({ woke: [], refused: [] }),
-  } as unknown as ConversationRouter;
-
-  const runs = {
+/** A run registry where only the `busy` participants have a Run open. */
+function stubbedRuns(busy: string[]): RunRegistry {
+  return {
     audienceFor: () => undefined,
     recordAudience: () => {},
+    current: (_sessionId: string, participantId: string) =>
+      busy.includes(participantId) ? { id: "run-1" } : undefined,
   } as unknown as RunRegistry;
+}
+
+/** A running internal-agents API over in-memory stores and stubbed connectors. */
+async function serve(scenario: Scenario = {}) {
+  const store = new InMemorySessionStore(new InMemoryParticipantStore());
+  const reactors = new ReactorRegistry(new InMemoryReactorStore());
+
+  const killed: string[] = [];
+  const connectors = stubbedConnectors(killed, scenario.a2a ?? []);
+  const posted: CrossPostInput[] = [];
+  const conversations = recordingRouter(posted, scenario.held ?? []);
+  const runs = stubbedRuns(scenario.busy ?? []);
 
   const a2a = {} as unknown as A2aPeerGateway;
   const participants = {} as unknown as ParticipantService;
@@ -113,7 +148,7 @@ async function serve() {
       body: JSON.stringify(body),
     });
 
-  return { store, reactors, killed, post };
+  return { store, reactors, killed, posted, post };
 }
 
 /** Serves the internal agents API over `store`, with `live` as the connectors' roster. */
@@ -255,4 +290,88 @@ test("list_subagents includes finished sub-agents nobody has dismissed", async (
       ["sub-done", "completed"],
     ],
   );
+});
+
+test("a directive to a busy sub-agent steers its current run by default", async () => {
+  const { store, posted, post } = await serve({ busy: ["worker"] });
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "Stop retrying that query.",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "steered" });
+  assert.equal(posted.at(-1)?.delivery, "steer");
+});
+
+test("a follow-up directive to a busy sub-agent says it is queued", async () => {
+  const { store, posted, post } = await serve({ busy: ["worker"] });
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "When you're done, summarize.",
+    delivery: "followUp",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "queued" });
+  assert.equal(posted.at(-1)?.delivery, "followUp");
+});
+
+test("a directive to an idle sub-agent starts a run", async () => {
+  const { store, post } = await serve();
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "Begin.",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "started" });
+});
+
+test("a directive admission holds is reported queued, not steered", async () => {
+  const { store, post } = await serve({ busy: ["worker"], held: ["worker"] });
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "Stop retrying that query.",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "queued" });
+});
+
+test("a busy sub-agent whose connector can't steer is reported sent", async () => {
+  const { store, post } = await serve({ busy: ["peer"], a2a: ["peer"] });
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "peer",
+    text: "Stop retrying that query.",
+  });
+
+  assert.deepEqual(await res.json(), { ok: true, outcome: "sent" });
+});
+
+test("an empty directive is refused and posts nothing", async () => {
+  const { store, posted, post } = await serve();
+  const session = await store.createSession({ name: "S" });
+
+  const res = await post("/message", {
+    sessionId: session.id,
+    agentId: "worker",
+    text: "   ",
+  });
+
+  const body = (await res.json()) as { ok: boolean; error?: string };
+  assert.equal(body.ok, false);
+  assert.ok(body.error);
+  assert.equal(posted.length, 0);
 });

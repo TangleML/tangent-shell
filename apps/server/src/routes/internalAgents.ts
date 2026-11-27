@@ -1,5 +1,6 @@
 import {
   type ConnectorKind,
+  type MessageDelivery,
   PI_AGENT,
   type SubagentInfo,
 } from "@tangent/shared/contracts.ts";
@@ -11,7 +12,10 @@ import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
 import { ContextEngine, projectRoom } from "../conversation/context.ts";
-import type { ConversationRouter } from "../conversation/conversationRouter.ts";
+import type {
+  ConversationRouter,
+  CrossPostResult,
+} from "../conversation/conversationRouter.ts";
 import type { MembershipRegistry } from "../conversation/membershipRegistry.ts";
 import {
   homeConversationFor,
@@ -65,17 +69,47 @@ export const attachSchema = z.object({
 });
 export type AttachInput = z.infer<typeof attachSchema>;
 
-/** Deliver a Prime-issued directive to a sub-agent. */
-export const messageSchema = z.object({
+/** A sub-agent's report back to Prime. */
+export const reportSchema = z.object({
   sessionId: z.string(),
   agentId: z.string(),
   text: z.string(),
 });
+export type ReportInput = z.infer<typeof reportSchema>;
+
+/**
+ * Deliver a Prime-issued directive to a sub-agent. `delivery` says what a
+ * directive that finds the sub-agent mid-run does: `steer` (the default) lands
+ * after its current tool call, `followUp` waits until its run fully stops.
+ */
+export const messageSchema = reportSchema.extend({
+  delivery: z.enum(["steer", "followUp"]).optional(),
+});
 export type MessageInput = z.infer<typeof messageSchema>;
 
-/** A sub-agent's report back to Prime; same shape as a message. */
-export const reportSchema = messageSchema;
-export type ReportInput = z.infer<typeof reportSchema>;
+/**
+ * What became of a directive that was posted to a sub-agent:
+ * - `started`: it was idle, so the directive opens a fresh run;
+ * - `steered`: handed to its run in flight as a steer;
+ * - `queued`: held until that run ends, as a follow-up or by admission;
+ * - `sent`: handed to a far end that takes no delivery mode, which decides
+ *   itself when a mid-run message is read.
+ */
+export type DirectiveOutcome = "started" | "steered" | "queued" | "sent";
+
+/** Connectors that pass `delivery` through to the agent's runtime. */
+const STEERABLE: ReadonlySet<ConnectorKind> = new Set([
+  "pi-stdio",
+  "remote-env",
+]);
+
+/** What posting a directive did for its addressee. */
+interface DirectivePost {
+  /** Why it did not reach the addressee, when it did not. */
+  refused?: string;
+  /** Admission parked the wake until the addressee's open Run settles. */
+  held: boolean;
+}
 
 /** Terminate a sub-agent, optionally marking its work completed. */
 export const killSchema = z.object({
@@ -345,9 +379,10 @@ async function postDirective(
   conversationId: string,
   text: string | undefined,
   fromConversation: string,
-): Promise<string | undefined> {
-  if (!text?.trim()) return undefined;
-  const { message, refused } = await router.postToConversation({
+  delivery?: MessageDelivery,
+): Promise<DirectivePost> {
+  if (!text?.trim()) return { held: false };
+  const result = await router.postToConversation({
     sessionId,
     conversationId,
     fromConversation,
@@ -355,32 +390,78 @@ async function postDirective(
     content: text,
     mentions: [agentId],
     ingress: "tool",
+    delivery,
   });
+  return directivePost(result, agentId);
+}
+
+/** What a cross-Conversation post did for the directive's addressee. */
+function directivePost(
+  { message, refused, held = [] }: CrossPostResult,
+  agentId: string,
+): DirectivePost {
   // Nothing was posted at all: the refusal is about Prime, not the recipient.
-  if (!message) return refused[0]?.reason;
-  return refused.find((entry) => entry.participantId === agentId)?.reason;
+  if (!message) return { refused: refused[0]?.reason, held: false };
+  return {
+    refused: refused.find((entry) => entry.participantId === agentId)?.reason,
+    held: held.includes(agentId),
+  };
+}
+
+/**
+ * What a directive did. `busy` is read before posting, because the directive
+ * itself may open the Run; a held wake is queued whatever `delivery` asked for.
+ */
+function directiveOutcome(
+  busy: boolean,
+  held: boolean,
+  delivery: MessageDelivery,
+  kind: ConnectorKind,
+): DirectiveOutcome {
+  if (held) return "queued";
+  if (!busy) return "started";
+  if (!STEERABLE.has(kind)) return "sent";
+  return delivery === "steer" ? "steered" : "queued";
 }
 
 /**
  * Posts a Prime-issued directive into the sub-agent's Conversation. Prime hears
  * about a sub-agent that did not wake, because a directive that reaches nobody
- * looks exactly like one that worked.
+ * looks exactly like one that worked, and hears whether a busy sub-agent was
+ * steered or left to read it only once its current run ends.
  */
 async function handleMessage(
   store: SessionStore,
+  connectors: ConnectorRegistry,
   router: ConversationRouter,
+  runs: RunRegistry,
   body: MessageInput,
   res: Response,
 ): Promise<void> {
-  const refused = await postDirective(
+  if (!body.text.trim()) {
+    res.json({ ok: false, error: "The message is empty; nothing was sent." });
+    return;
+  }
+  const delivery = body.delivery ?? "steer";
+  const busy = Boolean(runs.current(body.sessionId, body.agentId));
+  const { refused, held } = await postDirective(
     router,
     body.sessionId,
     body.agentId,
     await homeConversationFor(store, body.sessionId, body.agentId),
     body.text,
     await orchestratorConversationFor(store, body.sessionId),
+    delivery,
   );
-  res.json({ ok: !refused, ...(refused ? { error: refused } : {}) });
+  if (refused) {
+    res.json({ ok: false, error: refused });
+    return;
+  }
+  const { kind } = connectors.resolve(body.sessionId, body.agentId).descriptor;
+  res.json({
+    ok: true,
+    outcome: directiveOutcome(busy, held, delivery, kind),
+  });
 }
 
 /**
@@ -527,7 +608,9 @@ export function createInternalAgentsRouter(
   router.post("/message", validate({ body: messageSchema }), (req, res) =>
     handleMessage(
       store,
+      connectors,
       conversations,
+      runs,
       getValidated<MessageInput>(req).body,
       res,
     ),

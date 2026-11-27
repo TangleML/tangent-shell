@@ -13,6 +13,7 @@ import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { DeliveryRequest, DeliveryResult } from "../connectors/types.ts";
 import { InMemoryReactorStore } from "../store/inMemoryReactorStore.ts";
 import type { Membership } from "../store/membershipStore.ts";
+import type { AdmissionEngine } from "./admission.ts";
 import { FanOutEngine } from "./fanOut.ts";
 import type { MembershipRegistry } from "./membershipRegistry.ts";
 import { ReactorRegistry } from "./reactorRegistry.ts";
@@ -84,6 +85,7 @@ const REFUSED: DeliveryResult = {
 function makeEngine(
   rows: Membership[],
   refuse: (participantId: string) => boolean = () => false,
+  admission?: AdmissionEngine,
 ) {
   const delivered: DeliveryRequest[] = [];
   const notices: {
@@ -112,6 +114,8 @@ function makeEngine(
     () => connectors,
     (_sessionId, conversationId, text, cause) =>
       notices.push({ conversationId, text, cause }),
+    undefined,
+    admission,
   );
 
   return { engine, delivered, notices };
@@ -702,4 +706,21 @@ test("an addressing message wakes a member while its join stays pending", async 
   );
   const view = await h.reactors.inspect(installed.id);
   assert.equal(view?.ready, false, "and the join is still waiting on 2 of 3");
+});
+
+test("a wake admission holds is reported held, and not delivered yet", async () => {
+  const holdAll = {
+    admit: () => ({ action: "held" }),
+  } as unknown as AdmissionEngine;
+  const h = makeEngine(
+    [membership("prime", "prime", "fromHumans+mentionsMe", "coalesce")],
+    undefined,
+    holdAll,
+  );
+
+  const result = await h.engine.fanOut({ message: message(), project });
+
+  assert.deepEqual(result.woke, ["prime"]);
+  assert.deepEqual(result.held, ["prime"]);
+  assert.equal(h.delivered.length, 0);
 });

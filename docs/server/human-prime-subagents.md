@@ -131,8 +131,9 @@ sequenceDiagram
 
 `sendToAgent` attaches `streamingBehavior: "followUp"` (the `"auto"` default) to
 every prompt, so a relayed sub-agent reply that arrives while Prime is mid-run is
-queued rather than rejected. Human nudges can instead pass `delivery: "steer"` to
-apply before the agent's next LLM call.
+queued rather than rejected. Human nudges, and Prime's `message_subagent` directives
+by default, instead pass `delivery: "steer"` to apply before the agent's next
+LLM call.
 
 ---
 
@@ -148,7 +149,7 @@ sequenceDiagram
   participant Handlers as ChatHandlers
   participant UI
 
-  Prime->>Internal: message_subagent({ id, message })
+  Prime->>Internal: message_subagent({ id, message, delivery? })
   activate Internal
   Internal->>PiManager: sendToAgent(id, message, surfaceAuthor=Prime)
   activate PiManager
@@ -157,7 +158,7 @@ sequenceDiagram
   PiManager->>Sub: stdin prompt(message)
   activate Sub
   deactivate PiManager
-  Internal-->>Prime: { ok: true }
+  Internal-->>Prime: { ok: true, outcome }
   deactivate Internal
   Sub-->>PiManager: streams reply -> relay loop (above)
   deactivate Sub
@@ -165,6 +166,23 @@ sequenceDiagram
 
 This is non-blocking from Prime's perspective: the tool returns immediately and
 the sub-agent's reply later flows back through the relay loop.
+
+`delivery` only matters when the sub-agent is mid-run. It defaults to `steer`,
+which Pi applies once the tool calls of the current turn finish, before the next
+LLM call, so a correction reaches a worker in a long monitoring run now rather
+than when that run ends. `follow_up` maps to `followUp` and waits until the run
+fully stops. `outcome` tells Prime what actually happened:
+
+- `started` — the sub-agent was idle, so the directive opens a fresh run;
+- `steered` — handed to its run in flight as a steer;
+- `queued` — waits for the run to end, either as a follow-up or because the
+  sub-agent's admission policy (`coalesce`, `preempt`) held the wake, which the
+  fan-out reports as `held`;
+- `sent` — handed mid-run to a connector that takes no delivery mode (A2A,
+  external), which decides itself when to read it.
+
+The route reads whether the sub-agent had a Run open before posting, because the
+directive itself may open one.
 
 ---
 
