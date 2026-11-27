@@ -7,6 +7,11 @@ import { type Response, Router } from "express";
 import { z } from "zod";
 
 import type { A2aPeerGateway } from "../a2a/a2aPeerGateway.ts";
+import {
+  type AgentCallerResolver,
+  assertedSessionAndAgent,
+  enforceAgentCaller,
+} from "../auth/agentCaller.ts";
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import { piCredential } from "../connectors/credentials.ts";
 import { subagentAuthor } from "../connectors/participantAuthor.ts";
@@ -497,10 +502,11 @@ export function createInternalAgentsRouter(
   reactors: ReactorRegistry,
   context?: ContextEngine,
   memberships?: MembershipRegistry,
+  agents?: AgentCallerResolver,
 ): Router {
   const router = Router();
 
-  router.use(requireCredential(piCredential));
+  router.use(requireCredential(piCredential), enforceAgentCaller(agents));
 
   router.post("/spawn", validate({ body: spawnSchema }), (req, res) =>
     handleSpawn(
@@ -533,14 +539,18 @@ export function createInternalAgentsRouter(
     ),
   );
 
-  router.post("/report", validate({ body: reportSchema }), (req, res) =>
-    handleReport(
-      store,
-      connectors,
-      conversations,
-      getValidated<ReportInput>(req).body,
-      res,
-    ),
+  router.post(
+    "/report",
+    enforceAgentCaller(agents, assertedSessionAndAgent()),
+    validate({ body: reportSchema }),
+    (req, res) =>
+      handleReport(
+        store,
+        connectors,
+        conversations,
+        getValidated<ReportInput>(req).body,
+        res,
+      ),
   );
 
   router.post("/kill", validate({ body: killSchema }), (req, res) =>
@@ -562,14 +572,18 @@ export function createInternalAgentsRouter(
     ),
   );
 
-  router.get("/room", validate({ query: roomQuerySchema }), (req, res) =>
-    handleRoom(
-      store,
-      getValidated<unknown, unknown, RoomQuery>(req).query,
-      res,
-      context,
-      memberships,
-    ),
+  router.get(
+    "/room",
+    enforceAgentCaller(agents, assertedSessionAndAgent("participantId")),
+    validate({ query: roomQuerySchema }),
+    (req, res) =>
+      handleRoom(
+        store,
+        getValidated<unknown, unknown, RoomQuery>(req).query,
+        res,
+        context,
+        memberships,
+      ),
   );
 
   return router;

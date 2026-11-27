@@ -2115,3 +2115,35 @@ test("an xAI-only install spawns Prime without a missing-credentials warning", a
     );
   });
 });
+
+test("each spawn mints its own agent token; a respawn rotates it and a kill forgets it", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const { pi, spawns } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+  const { info } = pi.spawnSubagent("s1", { name: "Worker" });
+
+  const primeToken = spawns[0].env?.TANGENT_AGENT_TOKEN;
+  const workerToken = spawns[1].env?.TANGENT_AGENT_TOKEN;
+  assert.ok(primeToken && workerToken);
+  assert.notEqual(primeToken, workerToken);
+  assert.deepEqual(pi.resolveAgentToken(primeToken), {
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+  });
+  assert.deepEqual(pi.resolveAgentToken(workerToken), {
+    sessionId: "s1",
+    agentId: info.id,
+  });
+  assert.equal(pi.resolveAgentToken("not-a-token"), undefined);
+
+  spawns[0].child.crash();
+  mock.timers.tick(1_000);
+  const rotated = spawns[2].env?.TANGENT_AGENT_TOKEN;
+  assert.ok(rotated);
+  assert.notEqual(rotated, primeToken);
+  assert.equal(pi.resolveAgentToken(primeToken), undefined);
+  assert.equal(pi.resolveAgentToken(rotated)?.agentId, PRIME_AGENT_ID);
+
+  pi.killAgent("s1", info.id);
+  assert.equal(pi.resolveAgentToken(workerToken), undefined);
+});

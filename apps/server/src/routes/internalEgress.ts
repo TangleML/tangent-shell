@@ -2,6 +2,10 @@ import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
 import {
+  type AgentCallerResolver,
+  enforceAgentCaller,
+} from "../auth/agentCaller.ts";
+import {
   EgressDeniedError,
   type EgressInput,
   type EgressRequestInit,
@@ -69,10 +73,12 @@ async function handleEgress(
  * same `INTERNAL_TOKEN` the orchestrator/memory extensions present), so
  * arbitrary local callers can't drive egress.
  */
-export function createInternalEgressRouter(): Router {
+export function createInternalEgressRouter(
+  agents?: AgentCallerResolver,
+): Router {
   const router = Router();
 
-  router.use(requireInternalToken);
+  router.use(requireInternalToken, enforceAgentCaller(agents));
 
   router.post(
     "/",

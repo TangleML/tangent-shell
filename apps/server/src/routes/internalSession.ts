@@ -1,6 +1,10 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import {
+  type AgentCallerResolver,
+  enforceAgentCaller,
+} from "../auth/agentCaller.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import {
@@ -158,9 +162,10 @@ export function createInternalSessionRouter(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
   emitSubagentDismissed: SubagentDismissedEmitter,
+  agents?: AgentCallerResolver,
 ): Router {
   const router = Router();
-  router.use(requireInternalToken);
+  router.use(requireInternalToken, enforceAgentCaller(agents));
 
   router.post(
     "/rename",

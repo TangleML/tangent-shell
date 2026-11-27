@@ -2,6 +2,10 @@ import { THINKING_LEVELS } from "@tangent/shared/contracts.ts";
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import {
+  type AgentCallerResolver,
+  enforceAgentCaller,
+} from "../auth/agentCaller.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
@@ -187,10 +191,11 @@ export function createInternalTriggersRouter(
   store: SessionStore,
   triggers: TriggerManager,
   triggerEngine: TriggerEngine,
+  agents?: AgentCallerResolver,
 ): Router {
   const router = Router();
 
-  router.use(requireInternalToken);
+  router.use(requireInternalToken, enforceAgentCaller(agents));
 
   router.post(
     "/create",
