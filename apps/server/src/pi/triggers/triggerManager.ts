@@ -14,6 +14,8 @@ import type {
   UpdateTriggerRequest,
 } from "@tangent/shared/contracts.ts";
 
+import type { RunDelegation } from "../../runs/runRegistry.ts";
+import type { TriggerDelegationStore } from "../../store/triggerDelegationStore.ts";
 import { TANGENT_DIRNAME } from "../config/bundleLoader.ts";
 
 /** Filename, under a session's `.tangent/`, that persists its triggers. */
@@ -46,6 +48,8 @@ export interface StoredTrigger {
   target: TriggerTarget;
   /** Secret embedded in the callback URL (callback kind only). */
   secret?: string;
+  participantId?: string;
+  delegationId?: string;
   createdAt: string;
   updatedAt: string;
   lastFiredAt?: string;
@@ -56,10 +60,39 @@ interface TriggerFile {
   triggers: StoredTrigger[];
 }
 
+/**
+ * A trigger as written before delegation tokens moved to the database. The
+ * token is lifted into the store on first read and the file rewritten without
+ * it.
+ */
+type LegacyStoredTrigger = StoredTrigger & { delegationToken?: string };
+
+/** What binds a trigger to the person it acts for, as the manager records it. */
+export interface TriggerBinding {
+  participantId: string;
+  delegationId?: string;
+  delegationToken?: string;
+}
+
 /** In-memory state for a single session's triggers. */
 interface SessionTriggerState {
   rootPath: string;
   triggers: Map<string, StoredTrigger>;
+}
+
+export type TriggerListener = (
+  sessionId: string,
+  stored: StoredTrigger,
+) => void;
+
+/**
+ * Told when a trigger leaves the store, or has its delegation superseded, so
+ * whoever holds the matching external grant can let it go. `onDelegationReplaced`
+ * receives the trigger as it was before the new delegation was recorded.
+ */
+export interface TriggerManagerHooks {
+  onRemoved?: TriggerListener;
+  onDelegationReplaced?: TriggerListener;
 }
 
 /** Relative path (from the session root) the compiled handler for `name` lives at. */
@@ -201,6 +234,44 @@ function refreshBundleTrigger(
   };
 }
 
+/**
+ * Refreshes or drops the stored bundle triggers against the re-declared set,
+ * consuming every name it meets from `declared` so only brand-new names remain
+ * there. Returns the triggers dropped.
+ */
+function reconcileDeclared(
+  triggers: Map<string, StoredTrigger>,
+  declared: Map<string, BundleTrigger>,
+  now: string,
+): StoredTrigger[] {
+  const dropped: StoredTrigger[] = [];
+  for (const [id, stored] of triggers) {
+    if (stored.source !== "bundle") {
+      declared.delete(stored.name);
+      continue;
+    }
+    const next = declared.get(stored.name);
+    declared.delete(stored.name);
+    if (next) triggers.set(id, refreshBundleTrigger(stored, next, now));
+    else {
+      triggers.delete(id);
+      dropped.push(stored);
+    }
+  }
+  return dropped;
+}
+
+/** Whether recording `next` lets go of a different delegation `stored` holds. */
+function dropsDelegation(
+  stored: StoredTrigger,
+  next: { delegationId?: string },
+): boolean {
+  return (
+    stored.delegationId !== undefined &&
+    stored.delegationId !== next.delegationId
+  );
+}
+
 /** Applies a mutable patch to a stored trigger in place. */
 function applyPatch(stored: StoredTrigger, patch: UpdateTriggerRequest): void {
   if (patch.enabled !== undefined) stored.enabled = patch.enabled;
@@ -221,6 +292,26 @@ function applyPatch(stored: StoredTrigger, patch: UpdateTriggerRequest): void {
  */
 export class TriggerManager {
   private readonly sessions = new Map<string, SessionTriggerState>();
+  private readonly tokens: TriggerDelegationStore | undefined;
+  private hooks: TriggerManagerHooks = {};
+
+  /** Without a token store, delegations are recorded but never fire. */
+  constructor(tokens?: TriggerDelegationStore) {
+    this.tokens = tokens;
+  }
+
+  /** Installs the listeners for triggers and delegations being let go. */
+  listen(hooks: TriggerManagerHooks): void {
+    this.hooks = hooks;
+  }
+
+  private notify(
+    hook: keyof TriggerManagerHooks,
+    sessionId: string,
+    stored: StoredTrigger,
+  ): void {
+    this.hooks[hook]?.(sessionId, stored);
+  }
 
   /** Absolute path to a session's triggers file. */
   private triggersFile(rootPath: string): string {
@@ -237,23 +328,68 @@ export class TriggerManager {
     if (existing) return existing;
 
     const triggers = new Map<string, StoredTrigger>();
-    for (const stored of this.read(rootPath)) triggers.set(stored.id, stored);
+    let imported = false;
+    for (const legacy of this.read(rootPath)) {
+      const { delegationToken, ...stored } = legacy;
+      if (delegationToken) {
+        this.importLegacyToken(sessionId, stored, delegationToken);
+        imported = true;
+      }
+      triggers.set(stored.id, stored);
+    }
     const state: SessionTriggerState = { rootPath, triggers };
     this.sessions.set(sessionId, state);
+    if (imported) this.persist(state);
     return state;
   }
 
-  /** Drops a session's in-memory state (disk file is left with the session). */
+  private importLegacyToken(
+    sessionId: string,
+    stored: StoredTrigger,
+    token: string,
+  ): void {
+    if (!stored.participantId || !stored.delegationId) return;
+    try {
+      this.tokens?.put({
+        sessionId,
+        triggerId: stored.id,
+        participantId: stored.participantId,
+        delegationId: stored.delegationId,
+        token,
+      });
+    } catch (err) {
+      console.error(
+        `[triggers] could not keep the legacy token of trigger ${stored.id} in session ${sessionId}; it is dropped:`,
+        err,
+      );
+    }
+  }
+
+  /**
+   * Forgets a deleted session's triggers, reporting each as removed. Only the
+   * in-memory state goes; the disk file is left with the session's folder.
+   */
   dispose(sessionId: string): void {
+    const state = this.sessions.get(sessionId);
     this.sessions.delete(sessionId);
+    for (const stored of state?.triggers.values() ?? []) {
+      this.forgetToken(sessionId, stored);
+      this.notify("onRemoved", sessionId, stored);
+    }
+  }
+
+  private forgetToken(sessionId: string, stored: StoredTrigger): void {
+    if (stored.delegationId) this.tokens?.delete(sessionId, stored.id);
   }
 
   /** Reads and parses the triggers file, returning `[]` when absent/invalid. */
-  private read(rootPath: string): StoredTrigger[] {
+  private read(rootPath: string): LegacyStoredTrigger[] {
     const file = this.triggersFile(rootPath);
     if (!existsSync(file)) return [];
     try {
-      const parsed = JSON.parse(readFileSync(file, "utf8")) as TriggerFile;
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+        triggers?: LegacyStoredTrigger[];
+      };
       return Array.isArray(parsed.triggers)
         ? parsed.triggers.map(normalizeTarget)
         : [];
@@ -394,6 +530,88 @@ export class TriggerManager {
     this.persist(state);
   }
 
+  /**
+   * Records who a trigger acts for and, when the backend issued one, the
+   * delegation it fires under. Neither reaches the wire contract, and the
+   * token reaches only the delegation store, never the triggers file.
+   */
+  setDelegation(
+    sessionId: string,
+    triggerId: string,
+    binding: TriggerBinding,
+  ): void {
+    const state = this.sessions.get(sessionId);
+    const stored = state?.triggers.get(triggerId);
+    if (!state || !stored) return;
+    const previous = { ...stored };
+    stored.participantId = binding.participantId;
+    stored.delegationId = binding.delegationId;
+    stored.updatedAt = new Date().toISOString();
+    this.persist(state);
+    this.storeToken(sessionId, stored, binding);
+    if (dropsDelegation(previous, binding)) {
+      this.notify("onDelegationReplaced", sessionId, previous);
+    }
+  }
+
+  /**
+   * Unbinds a trigger from the person it acted for, letting go of its
+   * delegation. A later binding starts from nothing, so the grant it held is
+   * never carried into work its holder did not ask for.
+   */
+  clearBinding(sessionId: string, triggerId: string): void {
+    const state = this.sessions.get(sessionId);
+    const stored = state?.triggers.get(triggerId);
+    if (!state || !stored) return;
+    const previous = { ...stored };
+    stored.participantId = undefined;
+    stored.delegationId = undefined;
+    stored.updatedAt = new Date().toISOString();
+    this.persist(state);
+    this.tokens?.delete(sessionId, stored.id);
+    if (previous.delegationId !== undefined) {
+      this.notify("onDelegationReplaced", sessionId, previous);
+    }
+  }
+
+  private storeToken(
+    sessionId: string,
+    stored: StoredTrigger,
+    binding: TriggerBinding,
+  ): void {
+    if (!binding.delegationId || !binding.delegationToken) {
+      this.tokens?.delete(sessionId, stored.id);
+      return;
+    }
+    this.tokens?.put({
+      sessionId,
+      triggerId: stored.id,
+      participantId: binding.participantId,
+      delegationId: binding.delegationId,
+      token: binding.delegationToken,
+    });
+  }
+
+  /**
+   * The grant a trigger's firing acts under: its stored token, provided it
+   * still belongs to the delegation the trigger records. Undefined for a
+   * trigger bound to nobody or holding no delegation.
+   */
+  delegationOf(
+    sessionId: string,
+    triggerId: string,
+  ): RunDelegation | undefined {
+    const stored = this.getStored(sessionId, triggerId);
+    const record = this.tokens?.get(sessionId, triggerId);
+    if (!stored?.participantId || !record) return undefined;
+    if (record.delegationId !== stored.delegationId) return undefined;
+    return {
+      triggerId,
+      participantId: stored.participantId,
+      token: record.token,
+    };
+  }
+
   /** Records the time a trigger last fired. */
   markFired(sessionId: string, triggerId: string): void {
     const state = this.sessions.get(sessionId);
@@ -406,9 +624,12 @@ export class TriggerManager {
   /** Deletes a trigger. Returns true when one was removed. */
   remove(sessionId: string, triggerId: string): boolean {
     const state = this.sessions.get(sessionId);
-    if (!state || !state.triggers.has(triggerId)) return false;
+    const stored = state?.triggers.get(triggerId);
+    if (!state || !stored) return false;
     state.triggers.delete(triggerId);
     this.persist(state);
+    this.forgetToken(sessionId, stored);
+    this.notify("onRemoved", sessionId, stored);
     return true;
   }
 
@@ -450,20 +671,15 @@ export class TriggerManager {
       (bundleTriggers ?? []).map((trigger) => [trigger.name, trigger]),
     );
     const now = new Date().toISOString();
-    for (const [id, stored] of state.triggers) {
-      if (stored.source !== "bundle") {
-        declared.delete(stored.name);
-        continue;
-      }
-      const next = declared.get(stored.name);
-      declared.delete(stored.name);
-      if (next) state.triggers.set(id, refreshBundleTrigger(stored, next, now));
-      else state.triggers.delete(id);
-    }
+    const dropped = reconcileDeclared(state.triggers, declared, now);
     for (const trigger of declared.values()) {
       const stored = bundleToStored(trigger, now);
       state.triggers.set(stored.id, stored);
     }
     this.persist(state);
+    for (const stored of dropped) {
+      this.forgetToken(sessionId, stored);
+      this.notify("onRemoved", sessionId, stored);
+    }
   }
 }

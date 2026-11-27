@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
 
-// The identity header is read once when `config.ts` loads, so it is pinned
-// before the module graph is imported.
+// The identity header and delegation path are read once when `config.ts`
+// loads, so both are pinned before the module graph is imported.
 process.env.EGRESS_IDENTITY_HEADER = "x-tangent-on-behalf-of";
+process.env.EGRESS_DELEGATION_PATH = "/api/tangent/delegations";
 
-const { resolveEgress } = await import("../bundleUi/egressAllowlist.ts");
+const { TANGLE_API_URL } = await import("../config.ts");
+const { EgressDeniedError, resolveEgress } =
+  await import("../bundleUi/egressAllowlist.ts");
 const { IdentityAssertionCache } = await import("./identityAssertions.ts");
 const {
   CallerRequiredError,
@@ -14,6 +17,7 @@ const {
   ParticipantAssertionExpiredError,
 } = await import("./egressIdentity.ts");
 
+import type { RunDelegation } from "../runs/runRegistry.ts";
 import type { AgentCaller } from "./agentCaller.ts";
 import type { EgressIdentityDeps } from "./egressIdentity.ts";
 
@@ -32,7 +36,10 @@ const BOB = jwt({ email: "bob@x", exp: SOON + 60 });
 /** Identity deps for a turn `participant` stands behind; Alice and Bob hold live assertions. */
 function deps(
   participant: string | undefined,
-  options: { expired?: string[] } = {},
+  options: {
+    delegation?: RunDelegation;
+    expired?: string[];
+  } = {},
 ): EgressIdentityDeps {
   const assertions = new IdentityAssertionCache();
   if (!options.expired?.includes("alice@x"))
@@ -43,6 +50,7 @@ function deps(
   return {
     runs: {
       audienceFor: () => participant,
+      delegationFor: () => options.delegation,
     },
     assertions,
   };
@@ -108,6 +116,22 @@ test("a participant whose assertion expired is a refusal, not a fall-back to the
   );
 });
 
+test("a turn opened by a trigger carries the delegation token for its creator", () => {
+  const delegation = {
+    triggerId: "t1",
+    participantId: "alice@x",
+    token: "delegation-token",
+  };
+  const delegated = deps("alice@x", { expired: ["alice@x"], delegation });
+  const chosen = chooseEgressIdentity(delegated, WORKER);
+  assert.deepEqual(chosen.applied, { kind: "participant", id: "alice@x" });
+  assert.equal(chosen.token, "delegation-token");
+
+  // A human who took over the trigger's turn acts under their own assertion.
+  const takenOver = deps("bob@x", { delegation });
+  assert.equal(chooseEgressIdentity(takenOver, WORKER).token, BOB);
+});
+
 test("describeTurnIdentity names the human behind the turn with their assertion's expiry", () => {
   assert.deepEqual(describeTurnIdentity(deps("alice@x"), WORKER), {
     participant: {
@@ -154,4 +178,41 @@ test("a UI caller never forwards an identity, even when handed a token", async (
     { identityToken: "real-token" },
   );
   assert.equal("x-tangent-on-behalf-of" in seen[0], false);
+});
+
+test("the delegation path is open to the server alone, for POST and DELETE <id>", async () => {
+  const seen = captureFetch(201);
+  const path = "/api/tangent/delegations";
+  await resolveEgress(
+    { target: "tangle", path },
+    { method: "POST", body: { scope: "trigger:t1" } },
+    "server",
+    { identityToken: ALICE },
+  );
+  assert.equal(seen[0]["x-tangent-on-behalf-of"], ALICE);
+  await resolveEgress(
+    { target: "tangle", path: `${path}/d1` },
+    { method: "DELETE" },
+    "server",
+  );
+  assert.equal(seen.length, 2);
+
+  for (const caller of ["agent", "ui"] as const) {
+    await assert.rejects(
+      resolveEgress(
+        `${TANGLE_API_URL}${path}`,
+        { method: "POST", body: {} },
+        caller,
+      ),
+      EgressDeniedError,
+    );
+  }
+  await assert.rejects(
+    resolveEgress(
+      { target: "tangle", path: `${path}/d1/extra` },
+      { method: "DELETE" },
+      "server",
+    ),
+    EgressDeniedError,
+  );
 });

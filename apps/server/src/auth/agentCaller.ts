@@ -85,6 +85,28 @@ function describeAsserted(asserted: AssertedIds): string {
 }
 
 /**
+ * Refuses a request that identified no agent, once `required()` says the
+ * deployment needs one: with identity forwarding configured, a trigger or
+ * egress call that cannot be tied to an agent must not act at all. Mounted
+ * after {@link enforceAgentCaller}, which resolves the token this reads.
+ */
+export function requireAgentCaller(required: () => boolean): RequestHandler {
+  return function guard(req: Request, res: Response, next: NextFunction): void {
+    if (!required() || req.agentCaller) {
+      next();
+      return;
+    }
+    console.warn(
+      `[agent-caller] refused ${req.method} ${req.path}: no agent token, and identity forwarding is configured`,
+    );
+    res.status(403).json({
+      error: "This call needs the calling agent's token.",
+      code: "caller_required",
+    });
+  };
+}
+
+/**
  * Holds a request to the identity its agent token proves. A request that
  * asserts a session or agent other than the token's is refused, as is one
  * whose token no live agent holds. One with no token at all passes through

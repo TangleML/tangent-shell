@@ -24,7 +24,7 @@ async function newRegistry() {
   const db = openDb(":memory:");
   const store = new SqliteRunStore(db);
   const session = await new SqliteSessionStore(db).createSession({ name: "S" });
-  return { runs: new RunRegistry(store), store, sessionId: session.id };
+  return { runs: new RunRegistry(store), store, sessionId: session.id, db };
 }
 
 /** Yields to the microtask queue so write-through persistence has landed. */
@@ -391,4 +391,113 @@ test("a run superseded by the next one hands nothing on either", async () => {
     ingress: "tool",
   });
   assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
+});
+
+test("a trigger's delegation is the run's alone, and dies with it like the set", async () => {
+  const h = await newRegistry();
+  const delegation = {
+    triggerId: "t1",
+    participantId: "alice@x",
+    token: "delegation-token",
+  };
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "schedule",
+    audienceParticipantId: "alice@x",
+    delegation,
+  });
+  assert.deepEqual(h.runs.delegationFor(h.sessionId, "sub-1"), delegation);
+  h.runs.join(h.sessionId, "sub-1", "bob@x");
+  assert.deepEqual(h.runs.delegationFor(h.sessionId, "sub-1"), delegation);
+
+  h.runs.settleOpenFor(h.sessionId, "sub-1", "completed");
+  assert.equal(h.runs.delegationFor(h.sessionId, "sub-1"), undefined);
+  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), undefined);
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "tool",
+  });
+  assert.equal(h.runs.delegationFor(h.sessionId, "sub-1"), undefined);
+  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), undefined);
+});
+
+test("a delegation without an audience is ignored; a relay carries one with its participant", async () => {
+  const h = await newRegistry();
+  const delegation = {
+    triggerId: "t1",
+    participantId: "alice@x",
+    token: "delegation-token",
+  };
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "schedule",
+    delegation,
+  });
+  assert.equal(h.runs.delegationFor(h.sessionId, "prime"), undefined);
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "tool",
+    relayedParticipantId: "alice@x",
+    delegation,
+  });
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
+  assert.deepEqual(h.runs.delegationFor(h.sessionId, "prime"), delegation);
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "tool",
+    delegation,
+  });
+  assert.equal(h.runs.delegationFor(h.sessionId, "prime"), undefined);
+});
+
+test("dropDelegation clears the grant from the session's run acting under that trigger, and no other", async () => {
+  const h = await newRegistry();
+  const other = await new SqliteSessionStore(h.db).createSession({ name: "O" });
+  const nightly = {
+    triggerId: "t1",
+    participantId: "alice@x",
+    token: "nightly-token",
+  };
+  const weekly = { ...nightly, triggerId: "t2", token: "weekly-token" };
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "schedule",
+    audienceParticipantId: "alice@x",
+    delegation: nightly,
+  });
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-2",
+    ingress: "schedule",
+    audienceParticipantId: "alice@x",
+    delegation: weekly,
+  });
+  h.runs.open({
+    sessionId: other.id,
+    participantId: "sub-1",
+    ingress: "schedule",
+    audienceParticipantId: "alice@x",
+    delegation: nightly,
+  });
+
+  h.runs.dropDelegation(h.sessionId, "t1");
+  assert.equal(h.runs.delegationFor(h.sessionId, "sub-1"), undefined);
+  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "alice@x");
+  assert.deepEqual(h.runs.delegationFor(h.sessionId, "sub-2"), weekly);
+  assert.deepEqual(h.runs.delegationFor(other.id, "sub-1"), nightly);
+
+  h.runs.dropDelegation(h.sessionId, "t1");
+  h.runs.dropDelegation(h.sessionId, "nobody");
 });

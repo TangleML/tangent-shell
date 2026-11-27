@@ -8,6 +8,7 @@ import type {
 
 import type { SubagentSpawnRequest } from "../pi/agentConfig.ts";
 import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
+import type { RunDelegation } from "../runs/runRegistry.ts";
 import type { SessionAgent } from "../store/sessionStore.ts";
 import type { ConnectorCredential } from "./credentials.ts";
 
@@ -45,6 +46,7 @@ export interface DeliveryRequest {
    * one agent's words to another. Seeds the Run it opens.
    */
   relayedParticipantId?: string;
+  delegation?: RunDelegation;
 }
 
 /** What became of a delivery. `reason` is set only when it was refused. */

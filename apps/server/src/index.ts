@@ -42,6 +42,7 @@ import {
   PiAgentManager,
 } from "./pi/piAgentManager.ts";
 import { assertPiVersion } from "./pi/piVersion.ts";
+import { TriggerDelegations } from "./pi/triggers/triggerDelegation.ts";
 import { TriggerEngine } from "./pi/triggers/triggerEngine.ts";
 import { TriggerManager } from "./pi/triggers/triggerManager.ts";
 import { RemoteEnvironmentGateway } from "./remote/remoteEnvironmentGateway.ts";
@@ -95,6 +96,7 @@ import { SqliteResourceStore } from "./store/sqliteResourceStore.ts";
 import { SqliteRunStore } from "./store/sqliteRunStore.ts";
 import { SqliteSessionStore } from "./store/sqliteSessionStore.ts";
 import { SqliteSharedFolderStore } from "./store/sqliteSharedFolderStore.ts";
+import { SqliteTriggerDelegationStore } from "./store/sqliteTriggerDelegationStore.ts";
 import { SqliteUsageStore } from "./store/sqliteUsageStore.ts";
 
 assertPiVersion(PI_BIN);
@@ -170,7 +172,7 @@ const memoryResolver = new MemoryResolver(
 );
 
 // Owns each session's triggers (schedule + callback) and their persistence.
-const triggers = new TriggerManager();
+const triggers = new TriggerManager(new SqliteTriggerDelegationStore(db));
 
 // Surfaces pending memory suggestions to the session room.
 const onMemorySuggestion = createMemorySuggestionHandler(io);
@@ -441,6 +443,8 @@ const relayReport = createRelayReport(connectors, conversations, store);
 
 // Drives schedule timers and callback firings, posting prompts into the target's
 // Conversation.
+// Mints the backend delegations a trigger fires under, when configured.
+const triggerDelegations = new TriggerDelegations();
 const triggerEngine = new TriggerEngine(
   io,
   store,
@@ -448,6 +452,8 @@ const triggerEngine = new TriggerEngine(
   triggers,
   conversations,
   participantService,
+  triggerDelegations,
+  runs,
 );
 
 app.get("/api/health", (_req, res) => {
@@ -493,6 +499,7 @@ app.use(
     usage,
     runStore,
     bundleKb,
+    { delegations: triggerDelegations, assertions: identityAssertions },
   ),
 );
 app.use(
@@ -563,12 +570,21 @@ app.use(
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
 app.use(
   "/internal/egress",
-  createInternalEgressRouter(pi, { runs, assertions: identityAssertions }),
+  createInternalEgressRouter(
+    pi,
+    { runs, assertions: identityAssertions },
+    (sessionId, delegation) =>
+      triggerEngine.dropLapsedDelegation(sessionId, delegation.triggerId),
+  ),
 );
 // Internal API for the triggers extension running inside each Pi process.
 app.use(
   "/internal/triggers",
-  createInternalTriggersRouter(store, triggers, triggerEngine, pi),
+  createInternalTriggersRouter(store, triggers, triggerEngine, pi, {
+    runs,
+    delegations: triggerDelegations,
+    assertions: identityAssertions,
+  }),
 );
 // Internal API for the memory extension running inside each Pi process.
 app.use(
