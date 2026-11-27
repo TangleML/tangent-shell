@@ -59,6 +59,7 @@ import {
   type SubagentSpawnRequest,
 } from "./agentConfig.ts";
 import { loadInstalledConfig } from "./config/bundleLoader.ts";
+import { hasAnyProviderApiKey } from "./defaultModel.ts";
 import type { HostResourcePreamble } from "./hostResourcePreamble.ts";
 import {
   type LaunchDebugInput,
@@ -502,26 +503,11 @@ function buildPiArgs(
 }
 
 /**
- * Whether a native provider key is set, meaning the proxy-provider extension
- * runs in direct mode and targets a provider's public API rather than a gateway.
- */
-function hasDirectProviderKey(): boolean {
-  return Boolean(
-    process.env.OPENAI_API_KEY ||
-    process.env.ANTHROPIC_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.GROQ_API_KEY ||
-    process.env.XAI_API_KEY,
-  );
-}
-
-/**
  * Warns once-per-spawn when Pi has no usable LLM credentials. In direct mode the
  * gateway env vars are irrelevant, so their absence is not worth warning about.
  */
 function warnMissingProxyEnv(): void {
-  if (hasDirectProviderKey()) return;
+  if (hasAnyProviderApiKey(process.env)) return;
 
   if (!process.env.PI_PROXY_API_KEY) {
     console.warn(

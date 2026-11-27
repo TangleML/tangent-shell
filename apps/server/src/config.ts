@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
-import {
-  DEFAULT_MODEL_ID,
-  DEFAULT_THINKING_LEVEL,
-} from "@tangent/shared/contracts.ts";
+import { DEFAULT_THINKING_LEVEL } from "@tangent/shared/contracts.ts";
 
 import { nestedRoots } from "./memory/paths.ts";
+import { defaultModelId } from "./pi/defaultModel.ts";
 
 function assertAbsoluteUrl(name: string, value: string): string {
   try {
@@ -163,13 +161,18 @@ export const PI_PROXY_URL = process.env.PI_PROXY_URL
 
 /**
  * Provider/model Pi is pinned to when spawned. In the container there is no
- * `~/.pi/agent/settings.json`, so these are passed explicitly to match the
- * shared default.
+ * `~/.pi/agent/settings.json`, so these are passed explicitly. The fallback
+ * follows whichever provider credentials are configured.
  */
-const [DEFAULT_PROVIDER, DEFAULT_MODEL] = DEFAULT_MODEL_ID.split("/");
+const [DEFAULT_PROVIDER, DEFAULT_MODEL] = defaultModelId(process.env).split(
+  "/",
+);
 
 export const PI_PROVIDER = process.env.PI_PROVIDER ?? DEFAULT_PROVIDER;
 export const PI_MODEL = process.env.PI_MODEL ?? DEFAULT_MODEL;
+
+/** `provider/model` an agent with no selection runs; reported to the UI picker. */
+export const PI_DEFAULT_MODEL_ID = `${PI_PROVIDER}/${PI_MODEL}`;
 
 /**
  * Default thinking depth Pi is spawned with via `--thinking` when an agent has
