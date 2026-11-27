@@ -112,7 +112,9 @@ set to `never` — moderation falls out of the same primitive that decides who w
 `deliveryText` ([conversationRouter.ts](../../apps/server/src/conversation/conversationRouter.ts))
 projects the text one recipient's transport receives:
 
-- The **owner** of the Conversation (its subject) gets the content as written.
+- The **owner** of the Conversation (its subject) gets the content as written,
+  with human-authored Messages prefixed by their sender's name (`Name:`) so the
+  agent can tell the session's humans apart.
 - A member woken **from another Conversation** gets provenance framing (`X posted
 in another conversation:` / `Sub-agent "Y" reported:`).
 - An **opaque** member (a far end outside Tangent, such as an A2A peer in a shared

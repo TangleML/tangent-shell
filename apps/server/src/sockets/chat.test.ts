@@ -6,6 +6,7 @@ import {
   type ChatAuthor,
   type ChatMessagePayload,
   connectorFor,
+  DEFAULT_USER,
   humanAuthor,
   type Session,
   SocketEvents,
@@ -13,6 +14,7 @@ import {
   type SubagentInfo,
   type SubagentRosterPayload,
   type UserIdentity,
+  userShortName,
 } from "@tangent/shared/contracts.ts";
 import type { Server, Socket } from "socket.io";
 
@@ -259,6 +261,7 @@ test("joining an archived session loads its triggers without waking it", async (
     participantService: {
       get: async () => undefined,
       membershipsOf: async () => [],
+      ensureHuman: async () => {},
     },
   } as unknown as ChatHandlerDeps;
   registerChatHandlers(deps);
@@ -344,6 +347,7 @@ test("closing the last browser socket detaches presence without cancelling the s
     participantService: {
       get: async () => ({ id: "human" }),
       membershipsOf: async () => [],
+      ensureHuman: async () => {},
       setPresence: async (_sessionId: string, _id: string, state: string) => {
         presence.push(state);
       },
@@ -357,6 +361,77 @@ test("closing the last browser socket detaches presence without cancelling the s
   socket.emit("disconnect");
   assert.deepEqual(presence, ["connected", "detached"]);
   assert.equal(cancellations, 0);
+});
+
+/** A join over mock deps that records who was materialized and marked present. */
+function joinHarness(target: Session) {
+  const io = new EventEmitter();
+  const socket = Object.assign(new EventEmitter(), {
+    handshake: { headers: {}, auth: {} },
+    join: async () => {},
+  });
+  const ensured: { id: string; displayName: string }[] = [];
+  const present: string[] = [];
+  const roster = new Map<string, { id: string }>();
+  const deps = {
+    io,
+    presence: new PresenceTracker(),
+    store: {
+      getSession: async () => target,
+      getSessionEnv: async () => undefined,
+      listAgents: async () => [primeAgent("prime")],
+      getMessages: async () => [],
+      getArtifacts: async () => [],
+    },
+    pi: {
+      ensure: async () => {},
+      listActivities: () => [],
+      getAgentSelection: () => undefined,
+    },
+    connectors: { revive: () => {}, list: () => [] },
+    triggerEngine: { sync: () => {}, list: () => [] },
+    participantService: {
+      get: async (_sessionId: string, id: string) => roster.get(id),
+      membershipsOf: async () => [],
+      ensureHuman: async (
+        _sessionId: string,
+        human: { id: string; displayName: string },
+      ) => {
+        ensured.push(human);
+        roster.set(human.id, { id: human.id });
+      },
+      setPresence: async (_sessionId: string, _id: string, state: string) => {
+        present.push(state);
+      },
+    },
+  } as unknown as ChatHandlerDeps;
+  registerChatHandlers(deps);
+  const run = async () => {
+    io.emit("connection", socket);
+    socket.emit(SocketEvents.ChatJoin, { sessionId: target.id });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+  return { run, ensured, present };
+}
+
+test("an authorized human is materialized on join and marked present", async () => {
+  const h = joinHarness(session(undefined));
+
+  await h.run();
+
+  assert.deepEqual(h.ensured, [
+    { id: DEFAULT_USER.email, displayName: userShortName(DEFAULT_USER) },
+  ]);
+  assert.deepEqual(h.present, ["connected"]);
+});
+
+test("a restricted session's uninvited visitor is not materialized", async () => {
+  const h = joinHarness(session(OWNER));
+
+  await h.run();
+
+  assert.deepEqual(h.ensured, []);
+  assert.deepEqual(h.present, []);
 });
 
 /**
@@ -435,6 +510,7 @@ function rosterDeps(
     participantService: {
       get: async () => undefined,
       membershipsOf: async () => [],
+      ensureHuman: async () => {},
     },
   } as unknown as ChatHandlerDeps;
 }
