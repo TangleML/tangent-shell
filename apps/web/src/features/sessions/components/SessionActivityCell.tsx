@@ -1,22 +1,50 @@
 import type { Session } from "@tangent/shared/contracts";
-import { InlineStack } from "@tangent/ui-primitives/layout";
+import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import { Text } from "@tangent/ui-primitives/typography";
 
-import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
+import {
+  useSessionAwaitingInput,
+  useSessionStatus,
+} from "@/features/sessions/model/sessionStatusContext";
+import {
+  awaitingInputLabel,
+  awaitingSinceLabel,
+} from "@/features/sessions/model/sessionStatusDisplay";
 import { Pill } from "@/shared/ui/patterns/pill";
 
 interface SessionActivityCellProps {
   session: Session;
 }
 
-/** Per-session activity badge: needs-attention, working, or task-complete. */
+/**
+ * Per-session activity badge: waiting on an answer, needs-attention, working,
+ * or task-complete. Prime's unanswered questions come first: they are what
+ * blocks it, and only a person can clear them.
+ */
 export function SessionActivityCell({ session }: SessionActivityCellProps) {
   const runStatus = useSessionStatus(session.id);
+  const awaiting = useSessionAwaitingInput(session.id);
   const {
     unreadCount = 0,
     hasError = false,
     activeAgentCount = 0,
   } = session.activity ?? {};
+
+  if (awaiting) {
+    const since = awaitingSinceLabel(awaiting);
+    // Stacked so the cell stays narrow enough not to wrap the pill.
+    return (
+      <BlockStack gap="0.5" inlineAlign="start">
+        <Pill size="xs" tone="warning">
+          Needs your answer
+        </Pill>
+        <Text size="xs" tone="subdued">
+          {awaitingInputLabel(awaiting)}
+          {since ? ` · since ${since}` : ""}
+        </Text>
+      </BlockStack>
+    );
+  }
 
   if (hasError) {
     return (

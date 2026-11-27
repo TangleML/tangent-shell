@@ -69,8 +69,8 @@ export const TRIGGERS_EXTENSION = path.join(
 
 /**
  * Absolute path to the session extension loaded into every Pi process. It
- * registers the Prime-only `rename_session` tool, letting Prime give the
- * session a concise, conversation-derived name.
+ * registers the artifact pin tools for every agent and Prime's session tools:
+ * `rename_session`, `dismiss_subagent`, `ask_question` and `cancel_question`.
  */
 export const SESSION_EXTENSION = path.join(
   import.meta.dirname,
@@ -353,6 +353,8 @@ const TOOL_FORMATTERS: Record<string, ArgFormatter> = {
     labelWith("Deleting trigger", str(a.name) ?? str(a.id), ""),
   rename_session: (a) => labelWith("Renaming session", str(a.name), ""),
   unpin_artifact: (a) => labelWith("Unpinning", str(a.path), ""),
+  ask_question: () => "Asking a question",
+  cancel_question: () => "Closing a question",
   dismiss_subagent: (a) =>
     labelWith("Dismissing sub-agent", str(a.agentId), ""),
 };

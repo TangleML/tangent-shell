@@ -4,9 +4,15 @@ import { type Ref, useEffect, useRef } from "react";
 
 import { agentBundleIconUrl } from "@/features/agent-bundles/api/agentBundlesApi";
 import { SessionActionsMenu } from "@/features/sessions/components/SessionActionsMenu";
-import { useSessionStatus } from "@/features/sessions/model/sessionStatusContext";
-import { SESSION_STATUS_DISPLAY } from "@/features/sessions/model/sessionStatusDisplay";
-import { ListItem } from "@/shared/ui/patterns/list-item";
+import {
+  useSessionAwaitingInput,
+  useSessionStatus,
+} from "@/features/sessions/model/sessionStatusContext";
+import {
+  awaitingInputLabel,
+  SESSION_STATUS_DISPLAY,
+} from "@/features/sessions/model/sessionStatusDisplay";
+import { ListItem, type ListItemFlair } from "@/shared/ui/patterns/list-item";
 
 interface SessionSwitcherListProps {
   sessions: Session[];
@@ -69,7 +75,15 @@ function SessionListItem({
   onDeleted,
 }: SessionListItemProps) {
   const status = useSessionStatus(session.id);
+  const awaiting = useSessionAwaitingInput(session.id);
   const { variant, label } = SESSION_STATUS_DISPLAY[status];
+  // Unanswered questions block Prime whatever its run status says.
+  const subtitle = awaiting
+    ? `Needs your answer · ${awaitingInputLabel(awaiting)}`
+    : label;
+  const flair: ListItemFlair = awaiting
+    ? { kind: "dot", variant: "away" }
+    : { kind: "dot", variant };
 
   return (
     <ListItem
@@ -83,8 +97,8 @@ function SessionListItem({
           : "MessageSquare"
       }
       title={session.name}
-      subtitle={label}
-      flair={{ kind: "dot", variant }}
+      subtitle={subtitle}
+      flair={flair}
       selected={selected}
       onOpen={() => onSelect(session.id)}
       menu={

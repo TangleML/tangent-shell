@@ -105,6 +105,11 @@ A stored `ReactionSpec` is one or more presets joined by `+`, read as a
 disjunction (`fromHumans+mentionsMe`). **Muting** a member is simply its reaction
 set to `never` — moderation falls out of the same primitive that decides who wakes.
 
+A system notice (a termination cause, a closed question) wakes no one, so a
+notice can't start a cascade. The one exception is a notice that `@mentions`
+participants: it wakes only those, and only if their predicate matches. An
+expired question uses this to wake the Prime that asked it.
+
 ---
 
 ## Transcript visibility and delivery projection
@@ -145,6 +150,53 @@ governs **surfacing and citation only** — not filesystem access. Agents read t
 workspace through tools against the session root, and a reference does not
 interpose on a read or write. Grants are **default-permissive**: a Membership with
 no grant rows surfaces the whole reference set, so an empty table changes nothing.
+
+---
+
+## Structured questions
+
+Prime asks people structured questions with its `ask_question` tool: 1–4
+items, each with a short `header`, the `question`, and 0 or 2–6 options
+(`multiSelect` optional, free text always allowed). The tool returns
+`terminate: true`, so Prime's turn ends right after asking.
+[QuestionRegistry](../../apps/server/src/conversation/questions.ts) posts the
+question as a Message in Prime's Conversation with `question` set (and
+`correlationId` equal to its id), and a Markdown fallback in `content`.
+
+A question is pending until one of these lands in its Conversation:
+
+| Closed by                        | Message                                                 | Wakes Prime |
+| -------------------------------- | ------------------------------------------------------- | ----------- |
+| A person's answer                | `answer` + `inReplyTo`, from the person                 | yes         |
+| Prime's `cancel_question`        | `questionClosed: cancelled` notice, with Prime's `note` | no          |
+| Expiry (24 h default, 1 min–7 d) | `questionClosed: expired` notice mentioning Prime       | yes         |
+
+A person's plain message does not close anything. It reaches Prime as usual,
+with a note listing the questions still open in that Conversation (ids and
+headers, added to what Prime is sent, not to the transcript), so Prime can
+close one the reply answered with `cancel_question`. Expiry is the backstop
+that keeps a question nobody closes from leaving `awaitingInput` set forever:
+its notice suggests going ahead with the option Prime marked "(Recommended)",
+if any, and nothing is accepted on Prime's behalf. A short `expiresInSeconds`
+means "ask, but don't wait long".
+
+The transcript is the store: the pending set is a fold over it
+(`pendingQuestions` in [shared/questions.ts](../../packages/shared/src/questions.ts),
+shared by the server and clients), rebuilt at boot for awake sessions, with
+expiry timers re-armed. A session has at most four pending questions. While any
+is pending, `SessionStatusPayload.awaitingInput { count, since }` is set in the
+lobby status and its snapshot, and the workflow view lists them under
+`questions`. Answers arrive over `chat:message` (see
+[ui-server-protocol.md](./ui-server-protocol.md)); the server validates them
+against the question and writes the text Prime reads.
+
+`peopleOnly` marks a question only a person may answer, such as an approval.
+Its answers must carry `answeredBy`: `person` when a person answered in the
+client, or `relayed` with who relayed it and where the person answered, when an
+agent passes on a person's own answer. The server refuses an answer without
+one, and Prime reads the attestation with the answer. It is a statement, not
+proof: the server can't tell a person's client from an agent's, so it holds
+agents to saying when they relay, and the web UI shows a relayed answer as one.
 
 ---
 

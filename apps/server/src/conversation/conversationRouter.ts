@@ -2,12 +2,16 @@ import { randomUUID } from "node:crypto";
 
 import {
   type Attachment,
+  type ChatAnswer,
   type ChatAuthor,
   type ChatCommandRun,
   type ChatMessage,
+  type ChatQuestion,
+  type ChatQuestionClosed,
   type MemoryHighlightScope,
   type MessageDelivery,
   type MessageSource,
+  type PendingQuestion,
   type RunId,
   type RunIngress,
   SocketEvents,
@@ -15,6 +19,7 @@ import {
   SYSTEM_AUTHOR,
   type TerminationCause,
 } from "@tangent/shared/contracts.ts";
+import { pendingNoteText } from "@tangent/shared/questions.ts";
 import type { Server } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
@@ -31,6 +36,7 @@ import {
   orchestratorConversationFor,
   participantForConversation,
 } from "./participantRegistry.ts";
+import type { QuestionRegistry } from "./questions.ts";
 import type { ReactorRegistry } from "./reactorRegistry.ts";
 import type { ResourceCatalog } from "./resourceCatalog.ts";
 
@@ -58,6 +64,9 @@ export interface PostInput {
   inReplyTo?: string;
   /** The structured cause this Message is the system notice of, when one. */
   cause?: TerminationCause;
+  question?: ChatQuestion;
+  answer?: ChatAnswer;
+  questionClosed?: ChatQuestionClosed;
   memory?: { scope: MemoryHighlightScope };
   /** Marks this Message as the result of a slash command the author ran. */
   command?: ChatCommandRun;
@@ -102,13 +111,23 @@ export interface CrossPostResult extends FanOutResult {
   message?: ChatMessage;
 }
 
+/** Optional Message fields copied from a post only when set. */
+const OPTIONAL_FIELDS = [
+  "thinking",
+  "memory",
+  "command",
+  "question",
+  "answer",
+  "questionClosed",
+] as const;
+
 /** Fields an empty value must omit rather than persist as empty. */
 function whatIsThere(input: PostInput): Partial<ChatMessage> {
   const fields: Partial<ChatMessage> = {};
-  if (input.thinking) fields.thinking = input.thinking;
+  for (const key of OPTIONAL_FIELDS) {
+    if (input[key]) Object.assign(fields, { [key]: input[key] });
+  }
   if (input.attachments?.length) fields.attachments = input.attachments;
-  if (input.memory) fields.memory = input.memory;
-  if (input.command) fields.command = input.command;
   return fields;
 }
 
@@ -177,6 +196,19 @@ function oneLine(value: object): string {
     /[\u2028\u2029]/g,
     (char) => `\\u${char.charCodeAt(0).toString(16)}`,
   );
+}
+
+/**
+ * Reminds the Conversation's agent of the questions it asked that are still
+ * open, after what it's sent: a person's reply may answer one in prose, and
+ * only the agent can tell, so it closes it with `cancel_question`.
+ */
+export function withPendingNote(
+  text: string,
+  pending: readonly PendingQuestion[],
+): string {
+  if (pending.length === 0) return text;
+  return `${text}\n\n${pendingNoteText(pending)}`;
 }
 
 /**
@@ -307,6 +339,7 @@ export class ConversationRouter {
   private readonly correlations?: CorrelationEngine;
   private readonly engine: FanOutEngine;
   private connectors?: ConnectorRegistry;
+  private questions?: QuestionRegistry;
   /**
    * Slash command results waiting for their Conversation's agent, which gets
    * them with the next Message it is sent. Held in memory: after a restart
@@ -381,6 +414,19 @@ export class ConversationRouter {
     this.connectors = connectors;
   }
 
+  /** Folds a posted Message into the request/reply and question state. */
+  private track(message: ChatMessage): void {
+    this.correlations?.openFromMessage(message);
+    this.correlations?.resolve(message);
+    this.questions?.observe(message);
+  }
+
+  /** Wires Prime's question registry, which folds every posted Message. */
+  useQuestions(questions: QuestionRegistry): void {
+    this.questions = questions;
+    questions.usePoster((input) => this.post(input));
+  }
+
   async post(input: PostInput): Promise<PostResult> {
     const seq =
       input.seq ??
@@ -391,8 +437,7 @@ export class ConversationRouter {
     await this.catalogContent(message);
     // A request opens a correlation and a reply resolves one — request/reply is
     // a fact about Messages, not a per-connector table.
-    this.correlations?.openFromMessage(message);
-    this.correlations?.resolve(message);
+    this.track(message);
     this.broadcast(message, input.broadcast);
     // A command's result is read with the next Message, so it wakes no one.
     if (message.command) {
@@ -420,6 +465,11 @@ export class ConversationRouter {
       message.conversationId,
     );
     const results = this.takeCommandResults(message);
+    const pending =
+      (await this.questions?.pendingIn(
+        message.sessionId,
+        message.conversationId,
+      )) ?? [];
     let delivered = false;
     try {
       const outcome = await this.engine.fanOut({
@@ -429,7 +479,7 @@ export class ConversationRouter {
         project: (msg, recipient) => {
           const text = deliveryText(msg, recipient, owner);
           return recipient.participantId === owner
-            ? withCommandResults(text, results)
+            ? withPendingNote(withCommandResults(text, results), pending)
             : text;
         },
       });

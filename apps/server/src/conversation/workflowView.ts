@@ -1,5 +1,6 @@
 import type {
   OutstandingCorrelation,
+  PendingQuestion,
   Resource,
   TerminationCause,
   WorkflowMembership,
@@ -41,6 +42,8 @@ export interface WorkflowViewDeps {
   waves: WaveReader;
   correlations: Pick<CorrelationEngine, "listForSession">;
   context: ContextEngine;
+  /** Prime's pending questions; omitted, the view carries none. */
+  questions?: { listPending(sessionId: string): Promise<PendingQuestion[]> };
 }
 
 /** What the view is asked for: a whole Session, one Conversation within it, or
@@ -218,6 +221,19 @@ async function collectRoom(
   };
 }
 
+/** The pending questions in the Session, or in the requested Conversation. */
+async function collectQuestions(
+  deps: WorkflowViewDeps,
+  request: WorkflowViewRequest,
+): Promise<PendingQuestion[] | undefined> {
+  if (!deps.questions) return undefined;
+  const pending = await deps.questions.listPending(request.sessionId);
+  const { conversationId } = request;
+  return conversationId
+    ? pending.filter((entry) => entry.conversationId === conversationId)
+    : pending;
+}
+
 /**
  * Folds the workflow state of a Conversation (or a whole Session, when none is
  * named) out of state the engines already keep: the membership roster with each
@@ -236,6 +252,7 @@ export async function workflowView(
   const digests = await collectDigests(deps, request, memberships);
   const causes = await collectCauses(deps, request);
   const room = await collectRoom(deps, request);
+  const questions = await collectQuestions(deps, request);
 
   const view: WorkflowView = {
     memberships,
@@ -246,6 +263,7 @@ export async function workflowView(
     digests,
     causes,
   };
+  if (questions) view.questions = questions;
   if (room) view.room = room;
   return view;
 }

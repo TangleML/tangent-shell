@@ -1328,6 +1328,8 @@ export interface WorkflowView {
   correlations: OutstandingCorrelation[];
   digests: Resource[];
   causes: TerminationCause[];
+  /** Prime's questions still waiting for an answer. */
+  questions?: PendingQuestion[];
   room?: WorkflowRoom;
 }
 
@@ -1462,6 +1464,104 @@ export type TerminationCause =
     } & CauseAttribution)
   | ({ kind: "wake-refused" } & CauseAttribution);
 
+/** One choice of a {@link QuestionItem}. */
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+/**
+ * One question of a {@link ChatQuestion}. Empty `options` means free text only;
+ * otherwise free text ("Other") is still always allowed. A label ending in
+ * "(Recommended)" marks Prime's recommendation and is listed first.
+ */
+export interface QuestionItem {
+  /** Unique within its {@link ChatQuestion}. */
+  id: string;
+  /** Short chip label, at most 12 characters. */
+  header: string;
+  question: string;
+  options: QuestionOption[];
+  multiSelect?: boolean;
+}
+
+/** A set of 1–4 questions Prime asked in one `ask_question` call. */
+export interface ChatQuestion {
+  id: string;
+  questions: QuestionItem[];
+  /**
+   * Only a person may answer, not an agent deciding for one. The server refuses
+   * an answer to it that carries no {@link AnswerAttestation}.
+   */
+  peopleOnly?: boolean;
+  /** ISO-8601 time after which the question closes as `expired`. */
+  expiresAt: string;
+  idempotencyKey?: string;
+}
+
+/** The answer to one {@link QuestionItem}: chosen labels and/or free text. */
+export interface QuestionItemAnswer {
+  /** The {@link QuestionItem.id} answered. */
+  id: string;
+  selected: string[];
+  other?: string;
+}
+
+/**
+ * Who gave an answer, as the answering client states it: a person answering in
+ * that client, or an agent passing on a person's own answer it got elsewhere.
+ * It is a statement, not proof, since the server can't tell a person's client
+ * from an agent's; an agent must not attest an answer it chose itself.
+ */
+export type AnswerAttestation =
+  | { kind: "person" }
+  | {
+      kind: "relayed";
+      /** Who relayed it, e.g. "pi-3 (PiForge)". */
+      by: string;
+      /** Where the person answered, e.g. the relaying tool's question id. */
+      ref: string;
+    };
+
+/** A person's answer to a {@link ChatQuestion}, one entry per item answered. */
+export interface ChatAnswer {
+  answers: QuestionItemAnswer[];
+  /** Who answered. Required for a `peopleOnly` question, optional otherwise. */
+  answeredBy?: AnswerAttestation;
+}
+
+/** What the server acknowledges a `chat:message` answer with. */
+export interface ChatAnswerAck {
+  ok: boolean;
+  /** Why the answer was refused, when it was. */
+  error?: string;
+}
+
+/**
+ * Why a question closed without a structured answer: it expired, or Prime
+ * cancelled it (for example because a person answered it in chat).
+ */
+export type QuestionCloseReason = "expired" | "cancelled";
+
+export interface ChatQuestionClosed {
+  reason: QuestionCloseReason;
+  /** Prime's reason for cancelling, when it gave one. */
+  note?: string;
+}
+
+/**
+ * A question still waiting for an answer, as folded from the transcript by
+ * `pendingQuestions` in `questions.ts`.
+ */
+export interface PendingQuestion {
+  question: ChatQuestion;
+  /** The Message that asked it. */
+  messageId: string;
+  conversationId: string;
+  /** When it was asked (ISO 8601). */
+  askedAt: string;
+}
+
 /** A single chat message. `content` is markdown. */
 export interface ChatMessage {
   id: string;
@@ -1520,6 +1620,15 @@ export interface ChatMessage {
   correlationId?: string;
   /** The `correlationId` this Message answers, when it answers a request. */
   inReplyTo?: string;
+  /**
+   * Structured questions Prime asked. `correlationId` equals `question.id`, and
+   * `content` is a Markdown fallback for clients that don't render questions.
+   */
+  question?: ChatQuestion;
+  /** A person's answer to the question named by `inReplyTo`. */
+  answer?: ChatAnswer;
+  /** System notice that the question named by `inReplyTo` closed unanswered. */
+  questionClosed?: ChatQuestionClosed;
   /**
    * The structured reason an abnormal termination happened, when this Message is
    * the system notice of one. Present only on `source.kind: "system"` cause
@@ -1742,6 +1851,14 @@ export interface ChatMessagePayload {
   attachments?: Attachment[];
   /** Posts `content` as this slash command's result instead of as a turn. */
   command?: ChatCommandRun;
+  /**
+   * The pending {@link ChatQuestion} id this payload answers. With `answer` the
+   * payload is an answer: `content` and `conversationId` are ignored, and the
+   * server acknowledges it with a {@link ChatAnswerAck} when the client asks.
+   */
+  inReplyTo?: string;
+  /** A structured answer; the server renders the text Prime reads from it. */
+  answer?: ChatAnswer;
 }
 
 /** Streamed terminal output from a Pi worker. Reserved/stub for Phase 2. */
@@ -2041,6 +2158,14 @@ export interface SessionStatusPayload {
    * now, so a list view can tell a run finished or failed since someone looked.
    */
   endedAt?: string;
+  /** Set while Prime has unanswered questions, whatever `status` says. */
+  awaitingInput?: AwaitingInput;
+}
+
+/** How many questions are pending in a session, and since when (ISO 8601). */
+export interface AwaitingInput {
+  count: number;
+  since: string;
 }
 
 /**

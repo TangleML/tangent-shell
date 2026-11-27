@@ -2115,3 +2115,26 @@ test("an xAI-only install spawns Prime without a missing-credentials warning", a
     );
   });
 });
+
+test("pending questions mark an idle session as awaiting input in the lobby", () => {
+  const { pi, statuses } = makeManager();
+  let awaiting: { count: number; since: string } | undefined = {
+    count: 1,
+    since: "2026-01-01T00:00:00.000Z",
+  };
+  pi.useAwaitingInput({
+    awaiting: (sessionId) => (sessionId === "s1" ? awaiting : undefined),
+    awaitingSessions: () => (awaiting ? ["s1"] : []),
+  });
+
+  pi.refreshStatus("s1");
+  assert.deepEqual(pi.getStatuses(), [
+    { sessionId: "s1", status: "idle", awaitingInput: awaiting },
+  ]);
+  assert.deepEqual(statuses.at(-1)?.awaitingInput, awaiting);
+
+  awaiting = undefined;
+  pi.refreshStatus("s1");
+  assert.deepEqual(pi.getStatuses(), []);
+  assert.deepEqual(statuses.at(-1), { sessionId: "s1", status: "idle" });
+});

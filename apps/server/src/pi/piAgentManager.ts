@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   type AgentActivity,
+  type AwaitingInput,
   capabilitiesForRole,
   type MessageDelivery,
   RESTORABLE_STATUSES,
@@ -170,8 +171,22 @@ interface LastEnd {
 /** Whether two lobby statuses would tell a list view the same thing. */
 function sameStatus(a: SessionStatusPayload, b: SessionStatusPayload): boolean {
   return (
-    a.status === b.status && a.failed === b.failed && a.endedAt === b.endedAt
+    a.status === b.status &&
+    a.failed === b.failed &&
+    a.endedAt === b.endedAt &&
+    sameAwaiting(a.awaitingInput, b.awaitingInput)
   );
+}
+
+function sameAwaiting(a?: AwaitingInput, b?: AwaitingInput): boolean {
+  if (!a || !b) return a === b;
+  return a.count === b.count && a.since === b.since;
+}
+
+/** Which sessions have Prime waiting on answers, for the lobby status. */
+export interface AwaitingInputSource {
+  awaiting(sessionId: string): AwaitingInput | undefined;
+  awaitingSessions(): string[];
 }
 
 function appendPreambles(config: AgentConfig, preambles: string[]): string {
@@ -1176,6 +1191,7 @@ export class PiAgentManager {
   private readonly maintenance = new Map<string, Maintenance>();
   private hasTranscript: (sessionId: string) => Promise<boolean> = async () =>
     false;
+  private awaitingInput?: AwaitingInputSource;
 
   constructor(
     handlers: ConversationEventSink,
@@ -1223,7 +1239,7 @@ export class PiAgentManager {
 
   private statusPayload(sessionId: string): SessionStatusPayload {
     const status = this.computeStatus(sessionId);
-    const payload: SessionStatusPayload = { sessionId, status };
+    const payload = this.withAwaiting({ sessionId, status });
     const end = this.lastEnd.get(sessionId);
     if (!end) return payload;
     if (status !== "busy") payload.endedAt = end.endedAt;
@@ -1232,6 +1248,11 @@ export class PiAgentManager {
       payload.failed = true;
     }
     return payload;
+  }
+
+  private withAwaiting(payload: SessionStatusPayload): SessionStatusPayload {
+    const awaitingInput = this.awaitingInput?.awaiting(payload.sessionId);
+    return awaitingInput ? { ...payload, awaitingInput } : payload;
   }
 
   /**
@@ -1243,10 +1264,14 @@ export class PiAgentManager {
     const sessionIds = new Set([
       ...this.sessions.keys(),
       ...this.lastEnd.keys(),
+      ...(this.awaitingInput?.awaitingSessions() ?? []),
     ]);
     return [...sessionIds]
       .map((sessionId) => this.statusPayload(sessionId))
-      .filter(({ status, endedAt }) => status !== "idle" || endedAt);
+      .filter(
+        ({ status, endedAt, awaitingInput }) =>
+          status !== "idle" || endedAt || awaitingInput,
+      );
   }
 
   /**
@@ -1298,7 +1323,11 @@ export class PiAgentManager {
       status: "idle",
     };
     if (sameStatus(last, payload)) return;
-    if (payload.status === "idle" && !payload.endedAt) {
+    if (
+      payload.status === "idle" &&
+      !payload.endedAt &&
+      !payload.awaitingInput
+    ) {
       this.lastEmitted.delete(sessionId);
     } else {
       this.lastEmitted.set(sessionId, payload);
@@ -2878,6 +2907,16 @@ export class PiAgentManager {
       agent.status = terminalStatus;
       this.handlers.onSubagentUpdate(sessionId, toSubagentInfo(agent));
     }
+    this.notifyStatus(sessionId);
+  }
+
+  /** Wires the pending-question source the lobby status reports. */
+  useAwaitingInput(source: AwaitingInputSource): void {
+    this.awaitingInput = source;
+  }
+
+  /** Re-emits a session's lobby status if it changed, e.g. a question closed. */
+  refreshStatus(sessionId: string): void {
     this.notifyStatus(sessionId);
   }
 

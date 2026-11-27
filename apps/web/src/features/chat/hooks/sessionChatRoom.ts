@@ -12,6 +12,8 @@ import {
   type ArtifactPinPayload,
   type ArtifactUnpinPayload,
   type Attachment,
+  type ChatAnswer,
+  type ChatAnswerAck,
   type ChatCommandRun,
   type ChatMessage,
   type ChatMessagePayload,
@@ -59,6 +61,9 @@ import {
   removeFromSet,
   type SessionChatSnapshot,
 } from "./sessionChatSnapshot";
+
+/** How long an answer waits for the server's acknowledgement. */
+const ANSWER_ACK_TIMEOUT_MS = 10_000;
 
 /**
  * One Socket.IO connection for a session's chat room, shared across React
@@ -132,6 +137,25 @@ class SessionChatRoom {
       ...(hasAttachments ? { attachments } : {}),
     };
     socket.emit(SocketEvents.ChatMessage, payload);
+  }
+
+  /**
+   * Answers one of Prime's pending questions; the server renders the text
+   * Prime reads. Rejects with the server's reason when it refuses the answer.
+   */
+  async answer(questionId: string, answer: ChatAnswer): Promise<void> {
+    const socket = this.socket;
+    if (!socket) throw new Error("The chat isn't connected.");
+    const payload: ChatMessagePayload = {
+      sessionId: this.sessionId,
+      content: "",
+      inReplyTo: questionId,
+      answer,
+    };
+    const ack: ChatAnswerAck = await socket
+      .timeout(ANSWER_ACK_TIMEOUT_MS)
+      .emitWithAck(SocketEvents.ChatMessage, payload);
+    if (!ack.ok) throw new Error(ack.error ?? "The answer wasn't accepted.");
   }
 
   /** Posts a slash command's result for everyone; it doesn't start the agent. */

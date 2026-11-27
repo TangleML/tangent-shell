@@ -1,6 +1,7 @@
 import { type Request, type Response, Router } from "express";
 import { z } from "zod";
 
+import type { QuestionRegistry } from "../conversation/questions.ts";
 import { requireInternalToken } from "../middleware/requireInternalToken.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import {
@@ -44,6 +45,119 @@ export const dismissSubagentSchema = z.object({
   agentId: z.string().trim().min(1),
 });
 export type DismissSubagentInput = z.infer<typeof dismissSubagentSchema>;
+
+const questionItemSchema = z.object({
+  id: z.string().trim().min(1).max(40).optional(),
+  header: z.string().trim().min(1),
+  question: z.string().trim().min(1).max(2_000),
+  options: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(200),
+        description: z.string().trim().max(500).optional(),
+      }),
+    )
+    .default([]),
+  multiSelect: z.boolean().optional(),
+});
+
+/** Ask-question body: Prime's `ask_question` call, before semantic checks. */
+export const askQuestionSchema = z.object({
+  sessionId: z.string(),
+  questions: z.array(questionItemSchema).min(1).max(4),
+  peopleOnly: z.boolean().optional(),
+  expiresInSeconds: z.number().int().positive().optional(),
+  idempotencyKey: z.string().trim().min(1).max(120).optional(),
+});
+export type AskQuestionInput = z.infer<typeof askQuestionSchema>;
+
+/** Cancel-question body: the pending question Prime closes, and why. */
+export const cancelQuestionSchema = z.object({
+  sessionId: z.string(),
+  questionId: z.string().trim().min(1),
+  reason: z.string().trim().max(500).optional(),
+});
+export type CancelQuestionInput = z.infer<typeof cancelQuestionSchema>;
+
+/** Items Prime left unnamed get positional ids (`q1`, `q2`, …). */
+async function handleAskQuestion(
+  store: SessionStore,
+  questions: QuestionRegistry,
+  body: AskQuestionInput,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
+  const outcome = await questions.ask({
+    ...body,
+    sessionId: session.id,
+    questions: body.questions.map((item, index) => ({
+      ...item,
+      id: item.id ?? `q${index + 1}`,
+    })),
+  });
+  if (!outcome.ok) {
+    res.status(400).json({ error: outcome.error });
+    return;
+  }
+  res.json(outcome);
+}
+
+async function handleCancelQuestion(
+  store: SessionStore,
+  questions: QuestionRegistry,
+  body: CancelQuestionInput,
+  res: Response,
+): Promise<void> {
+  const session = await loadSession(store, res, body.sessionId);
+  if (!session) return;
+  const outcome = await questions.cancel(
+    session.id,
+    body.questionId,
+    body.reason || undefined,
+  );
+  if (outcome === "answering") {
+    res.status(409).json({
+      error: "A person is answering that question right now; wait for it.",
+    });
+    return;
+  }
+  res.json({ ok: true, outcome });
+}
+
+/**
+ * `POST /ask-question` and `POST /cancel-question`: Prime's `ask_question` and
+ * `cancel_question` tools. A malformed question set is a 400 with the reason,
+ * which the tool hands back to Prime so it can fix the call.
+ */
+function mountQuestionRoutes(
+  router: Router,
+  store: SessionStore,
+  questions: QuestionRegistry,
+): void {
+  router.post(
+    "/ask-question",
+    validate({ body: askQuestionSchema }),
+    (req: Request, res: Response) =>
+      handleAskQuestion(
+        store,
+        questions,
+        getValidated<AskQuestionInput>(req).body,
+        res,
+      ),
+  );
+  router.post(
+    "/cancel-question",
+    validate({ body: cancelQuestionSchema }),
+    (req: Request, res: Response) =>
+      handleCancelQuestion(
+        store,
+        questions,
+        getValidated<CancelQuestionInput>(req).body,
+        res,
+      ),
+  );
+}
 
 /**
  * `POST /rename`: applies a session rename and pushes the updated record to the
@@ -148,19 +262,20 @@ async function handleDismissSubagent(
 /**
  * Internal API used only by the session extension running inside each Pi
  * process. It lets Prime rename the session (e.g. to a concise,
- * conversation-derived title) and dismiss finished sub-agents, lets any agent
- * pin/unpin artifacts for quick access, and serves Prime's selector-scoped
- * cross-session recall reads; the server owns the session record and
- * broadcasts changes to the room. Guarded by the same bearer token as the
- * other internal APIs so arbitrary local callers can't mutate a session.
+ * conversation-derived title), dismiss finished sub-agents and ask or withdraw
+ * structured questions, lets any agent pin/unpin artifacts for quick access,
+ * and serves Prime's selector-scoped cross-session recall reads; the server
+ * owns the session record and broadcasts changes to the room. Guarded by the
+ * same bearer token as the other internal APIs so arbitrary local callers can't
+ * mutate a session.
  */
 export function createInternalSessionRouter(
   store: SessionStore,
   emitUiCommand: UiCommandEmitter,
   emitSubagentDismissed: SubagentDismissedEmitter,
+  questions?: QuestionRegistry,
 ): Router {
-  const router = Router();
-  router.use(requireInternalToken);
+  const router = Router().use(requireInternalToken);
 
   router.post(
     "/rename",
@@ -209,7 +324,7 @@ export function createInternalSessionRouter(
         res,
       ),
   );
-
+  if (questions) mountQuestionRoutes(router, store, questions);
   mountSessionRecallRoutes(router, store);
 
   return router;

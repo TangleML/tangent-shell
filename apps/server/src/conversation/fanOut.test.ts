@@ -242,6 +242,24 @@ test("a system notice provokes nothing", async () => {
   assert.deepEqual(h.notices, [], "a notice about a stop cannot cause one");
 });
 
+test("a system notice that mentions a participant wakes only that participant", async () => {
+  const h = makeEngine([
+    membership("prime", "prime", "fromHumans+mentionsMe"),
+    membership("watcher", "prime", "always"),
+  ]);
+
+  const result = await h.engine.fanOut({
+    message: message({
+      author: { id: "system", kind: "agent", name: "System" },
+      source: { kind: "system" },
+      mentions: ["prime"],
+    }),
+    project,
+  });
+
+  assert.deepEqual(result.woke, ["prime"]);
+});
+
 test("a mentioned participant that does not react is said to have refused", async () => {
   const h = makeEngine([
     membership("sub-1", "sub-1", "never"),

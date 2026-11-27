@@ -33,11 +33,17 @@ import {
   participantForConversation,
 } from "../conversation/participantRegistry.ts";
 import type { ParticipantService } from "../conversation/participantService.ts";
+import type { QuestionRegistry } from "../conversation/questions.ts";
 import type { MemoryManager } from "../pi/memory.ts";
 import { type PiAgentManager, PRIME_AGENT_ID } from "../pi/piAgentManager.ts";
 import type { TriggerEngine } from "../pi/triggers/triggerEngine.ts";
 import type { Membership } from "../store/membershipStore.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
+import {
+  type AnswerAck,
+  handleChatAnswer,
+  isAnswerPayload,
+} from "./chatAnswers.ts";
 import {
   handleArtifactPin,
   handleArtifactUnpin,
@@ -77,6 +83,7 @@ export interface ChatHandlerDeps {
   emitSubagentDismissed: SubagentDismissedEmitter;
   participantService: ParticipantService;
   presence: PresenceTracker;
+  questions?: QuestionRegistry;
 }
 
 /**
@@ -112,6 +119,30 @@ async function handleAgentAbort(
   console.log(`[runs] cancel refused for ${participantId}: ${reason}`);
 }
 
+/**
+ * Handles `chat:message`. A failure is logged rather than left unhandled, so a
+ * bad payload can't take the server down; an answer may carry an ack.
+ */
+function listenForChatMessages(
+  socket: Socket,
+  deps: ChatHandlerDeps,
+  author: ChatAuthor,
+): void {
+  socket.on(
+    SocketEvents.ChatMessage,
+    (payload: ChatMessagePayload, ack?: unknown) =>
+      void handleChatMessage(
+        socket,
+        deps,
+        author,
+        payload,
+        typeof ack === "function" ? (ack as AnswerAck) : undefined,
+      ).catch((error: unknown) =>
+        console.error("[chat] posting a message failed:", error),
+      ),
+  );
+}
+
 /** Wires one connected socket's chat and agent listeners. */
 function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
   const { io, store, pi, connectors } = deps;
@@ -141,9 +172,7 @@ function wireSocket(socket: Socket, deps: ChatHandlerDeps): void {
 
   socket.on("disconnect", () => markAbsent(deps, tracked));
 
-  socket.on(SocketEvents.ChatMessage, (payload: ChatMessagePayload) =>
-    handleChatMessage(socket, deps, author, payload),
-  );
+  listenForChatMessages(socket, deps, author);
 
   socket.on(
     SocketEvents.AgentAbort,
@@ -534,10 +563,16 @@ export async function handleChatMessage(
   deps: ChatHandlerDeps,
   author: ChatAuthor,
   payload: ChatMessagePayload,
+  ack?: AnswerAck,
 ): Promise<void> {
   const session = await deps.store.getSession(payload?.sessionId);
   if (!session) {
-    socket.emit("error", { message: "Session not found" });
+    if (ack) ack({ ok: false, error: "Session not found" });
+    else socket.emit("error", { message: "Session not found" });
+    return;
+  }
+  if (isAnswerPayload(payload)) {
+    await handleChatAnswer(socket, deps, author, session, payload, ack);
     return;
   }
   await postChatMessage(deps, author, session, payload);
