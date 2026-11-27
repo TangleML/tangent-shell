@@ -11,12 +11,15 @@ import type { Server } from "socket.io";
 
 import type { ConnectorRegistry } from "../connectors/connectorRegistry.ts";
 import type { DeliveryRequest } from "../connectors/types.ts";
+import { PRIME_AGENT_ID } from "../pi/types.ts";
 import { RunRegistry } from "../runs/runRegistry.ts";
 import { InMemoryMembershipStore } from "../store/inMemoryMembershipStore.ts";
+import { InMemoryReactorStore } from "../store/inMemoryReactorStore.ts";
 import { InMemoryResourceStore } from "../store/inMemoryResourceStore.ts";
 import { InMemoryRunStore } from "../store/inMemoryRunStore.ts";
 import { InMemorySessionStore } from "../store/inMemorySessionStore.ts";
 import type { Membership } from "../store/membershipStore.ts";
+import { AdmissionEngine } from "./admission.ts";
 import {
   ConversationRouter,
   deliveryText,
@@ -25,6 +28,7 @@ import {
 } from "./conversationRouter.ts";
 import { type CorrelationClock, CorrelationEngine } from "./correlation.ts";
 import { MembershipRegistry } from "./membershipRegistry.ts";
+import { ReactorRegistry } from "./reactorRegistry.ts";
 import { ResourceCatalog } from "./resourceCatalog.ts";
 
 const WORKER: ChatAuthor = {
@@ -280,6 +284,60 @@ test("announceCause posts the structured cause as a system message in its conver
     "run-1",
   );
   assert.match(persisted[0].content, /run ended with an error/);
+});
+
+/** A router wired the way the server is (reactors and admission live), with
+ * Prime supervising the worker's thread as a spawn installs it. */
+async function makeSupervisedRouter() {
+  const h = makeRouter();
+  const runs = new RunRegistry(new InMemoryRunStore());
+  const reactors = new ReactorRegistry(new InMemoryReactorStore());
+  const router = new ConversationRouter(
+    h.io,
+    h.sessions,
+    h.memberships,
+    new ResourceCatalog(new InMemoryResourceStore()),
+    reactors,
+    undefined,
+    new AdmissionEngine(runs, () => ({ cancelled: true })),
+  );
+  router.useConnectors(h.connectors);
+  await withWorker(h.sessions);
+  await reactors.install({
+    sessionId: "s1",
+    participantId: PRIME_AGENT_ID,
+    spec: { name: "supervise" },
+    scope: {
+      memberships: [{ conversationId: "sub-1", participantId: PRIME_AGENT_ID }],
+      homeConversationId: PRIME_AGENT_ID,
+    },
+  });
+  return { ...h, router, runs };
+}
+
+test("a worker's run-error wakes its supervising Prime in Prime's own conversation", async () => {
+  const h = await makeSupervisedRouter();
+
+  h.router.announceCause("s1", {
+    kind: "run-error",
+    participantId: "sub-1",
+    conversationId: "sub-1",
+    runId: "run-1",
+    waveDepth: 0,
+    reason: "terminated",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.deepEqual(
+    h.delivered.map(({ participantId, conversationId }) => ({
+      participantId,
+      conversationId,
+    })),
+    [{ participantId: PRIME_AGENT_ID, conversationId: PRIME_AGENT_ID }],
+    "Prime is woken in its home, not only told in the worker's thread",
+  );
+  assert.match(h.delivered[0].text, /run-error/);
+  assert.match(h.delivered[0].text, /Reason: terminated/);
 });
 
 test("an ordinary post carries no cause on the envelope", async () => {

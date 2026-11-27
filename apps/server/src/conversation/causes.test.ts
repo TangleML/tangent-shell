@@ -6,7 +6,11 @@ import {
   type TerminationCause,
 } from "@tangent/shared/contracts.ts";
 
-import { describeCause } from "./causes.ts";
+import {
+  describeCause,
+  describeRunFailure,
+  MAX_RUN_FAILURE_REASON,
+} from "./causes.ts";
 
 /** The attribution every catalog kind carries, so a test says only what varies. */
 const WHERE = {
@@ -83,6 +87,75 @@ test("a correlation-timeout without a named recipient omits the 'to' clause", ()
     ...WHERE,
   });
   assert.match(text, /No answer arrived in time for prime's question\./);
+});
+
+test("a run-error names its reason when the settlement carried one", () => {
+  const text = describeCause({
+    kind: "run-error",
+    reason: "TimeoutError: request timed out",
+    ...WHERE,
+  });
+  assert.equal(
+    text,
+    "This agent's run ended with an error, so its work stopped without finishing. Reason: TimeoutError: request timed out",
+  );
+});
+
+test("a run-error without a reason keeps the plain sentence", () => {
+  assert.equal(
+    describeCause({ kind: "run-error", ...WHERE }),
+    "This agent's run ended with an error, so its work stopped without finishing.",
+  );
+});
+
+test("a run failure reads as the error's class and message on one line", () => {
+  class TimeoutError extends Error {
+    override name = "TimeoutError";
+  }
+  assert.equal(
+    describeRunFailure(new TimeoutError("stream\n  idle for 300s")),
+    "TimeoutError: stream idle for 300s",
+  );
+  assert.equal(describeRunFailure("terminated"), "terminated");
+  assert.equal(describeRunFailure(undefined), undefined);
+  assert.equal(describeRunFailure("  "), undefined);
+});
+
+test("a long run failure is cut to the limit", () => {
+  const reason = describeRunFailure(`Error: ${"x".repeat(2000)}`);
+  assert.ok(reason);
+  assert.equal(reason.length, MAX_RUN_FAILURE_REASON);
+  assert.ok(reason.endsWith("\u2026"));
+});
+
+test("a run failure never carries credentials", () => {
+  const leaks = [
+    "sk-ant-api03-abcdefghijklmnop",
+    "ghp_abcdefghijklmnopqrstuvwxyz0123",
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+    "hunter2pass",
+    "s3cr3tvalue",
+    "AIzaSyA1234567890abcdefghijklmnopqrstu",
+  ];
+  const reason = describeRunFailure(
+    new Error(
+      `401 from https://bot:hunter2pass@llm.example/v1?key=${leaks[5]} ` +
+        `Authorization: Bearer ${leaks[0]} api_key=${leaks[1]} ` +
+        `{"access_token": "${leaks[2]}", "client_secret": "${leaks[4]}"}`,
+    ),
+  );
+  assert.ok(reason);
+  for (const leak of leaks) {
+    assert.ok(!reason.includes(leak), `leaked ${leak}: ${reason}`);
+  }
+  assert.match(reason, /^Error: 401 from https:\/\/\[redacted\]@llm\.example/);
+  assert.match(reason, /Bearer \[redacted\]/);
+});
+
+test("credentials are redacted before the reason is cut", () => {
+  const token = `sk-${"a".repeat(600)}`;
+  const reason = describeRunFailure(`Error: ${token}`);
+  assert.equal(reason, "Error: [redacted]");
 });
 
 test("prime carries the supervisor capability, a sub-agent none", () => {

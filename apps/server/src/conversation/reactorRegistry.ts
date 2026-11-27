@@ -295,7 +295,15 @@ export class ReactorRegistry {
       record.sessionId,
       cause,
       record.participantId,
-    );
+    ).catch((err: unknown) => {
+      // The citation is a pointer, the wake is the point: a projection that
+      // fails must not leave the supervisor unaware its worker failed.
+      console.error(
+        `[reactors] supervise citation failed for ${record.participantId}:`,
+        err,
+      );
+      return undefined;
+    });
     return citation ? `${base}\n\n${citation}` : base;
   }
 
@@ -360,9 +368,12 @@ function wakeText(record: ReactorRecord, stimulus?: MessageFacts): string {
 }
 
 /** A short provenance line for a supervise wake: which cause fired, in which
- * Conversation. Reading the failed worker's transcript is 3.5's context work. */
+ * Conversation, and a failed Run's reason so the supervisor can tell a timeout
+ * from a crash. Reading the failed worker's transcript is 3.5's context work. */
 function superviseText(stimulus?: MessageFacts): string {
   const cause = stimulus?.cause;
   if (!cause) return "A worker you are supervising reported a failure.";
-  return `A worker you are supervising reported a failure (${cause.kind}) in conversation ${cause.conversationId}.`;
+  const line = `A worker you are supervising reported a failure (${cause.kind}) in conversation ${cause.conversationId}.`;
+  const reason = cause.kind === "run-error" ? cause.reason : undefined;
+  return reason ? `${line} Reason: ${reason}` : line;
 }

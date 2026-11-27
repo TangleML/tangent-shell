@@ -15,6 +15,7 @@ import {
 } from "./config.ts";
 import { createConnectorRegistry } from "./connectors/connectorRegistry.ts";
 import { AdmissionEngine } from "./conversation/admission.ts";
+import { describeRunFailure } from "./conversation/causes.ts";
 import { ContextEngine, projectRoom } from "./conversation/context.ts";
 import { ConversationRouter } from "./conversation/conversationRouter.ts";
 import { CorrelationEngine } from "./conversation/correlation.ts";
@@ -267,12 +268,15 @@ runs.useOnSettled((run, settlement) => {
   // A file an agent writes isn't announced, so a finished run may have added some.
   emitResourcesUpdated(run.sessionId);
   if (run.status === "failed") {
+    // The reason is what lets a reader tell a timeout from a crash.
+    const reason = describeRunFailure(settlement.error);
     conversations.announceCause(run.sessionId, {
       kind: "run-error",
       participantId: run.participantId,
       conversationId: run.homeConversationId,
       runId: run.id,
       waveDepth: conversations.waveDepth(run.sessionId, run.participantId),
+      ...(reason ? { reason } : {}),
     });
   }
   // A settled Run that left the participant idle with nothing held ends its

@@ -1452,7 +1452,15 @@ export type TerminationCause =
       budget: BudgetKind;
       limit: number;
     } & CauseAttribution)
-  | ({ kind: "run-error" } & CauseAttribution)
+  | ({
+      kind: "run-error";
+      /**
+       * Why the Run failed, when known: the error's class and message,
+       * truncated and with credentials redacted. Absent when the failure
+       * carried no error.
+       */
+      reason?: string;
+    } & CauseAttribution)
   | ({ kind: "connector-detached" } & CauseAttribution)
   | ({ kind: "admission-rejected"; policy: AdmissionPolicy } & CauseAttribution)
   | ({

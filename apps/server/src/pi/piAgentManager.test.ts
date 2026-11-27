@@ -1316,6 +1316,32 @@ test("a failed turn tells the lobby once, and stays failed until the session wor
   assert.deepEqual(h.statuses.at(-1), { sessionId: "s1", status: "busy" });
 });
 
+test("a failed model call settles its run with the error Pi reported", async () => {
+  const h = makeManager();
+  await h.pi.ensure("s1", "/tmp/s1");
+  const settled: { status: string; error: unknown }[] = [];
+  h.runs.useOnSettled((run, settlement) =>
+    settled.push({ status: run.status, error: settlement.error }),
+  );
+  h.pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "hello" });
+  const child = h.spawns[0].child;
+
+  startTurn(child);
+  emitPi(child, {
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: "",
+      stopReason: "error",
+      errorMessage: "terminated",
+    },
+  });
+  settle(child);
+  await flush();
+
+  assert.deepEqual(settled, [{ status: "failed", error: "terminated" }]);
+});
+
 test("a failure while another agent is still working survives until the session stops", async () => {
   const h = makeManager();
   await h.pi.ensure("s1", "/tmp/s1");
