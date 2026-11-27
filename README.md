@@ -163,6 +163,7 @@ the full list and defaults):
 | `TANGLE_TOKEN`                                    | Optional cookie string injected server-side for egress                                            |
 | `AUTH_JWT_TOKEN_COOKIE_NAME`                      | Optional auth cookie name for `/api/me`                                                           |
 | `AUTH_JWT_TOKEN_HEADER_NAME`                      | Optional auth header name, for proxies that drop cookies                                          |
+| `EGRESS_IDENTITY_HEADER`                          | Header the egress proxy forwards a participant's identity assertion in; empty never forwards      |
 | `TRUSTED_IDENTITY_HEADER`                         | Header a trusting front proxy stamps the participant's identity assertion into; empty trusts none |
 | `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                                                           |
 | `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh`                                    |

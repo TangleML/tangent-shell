@@ -2180,3 +2180,17 @@ test("a human message into a busy agent becomes the one its run acts for", async
   });
   assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
 });
+
+test("a relay into an idle agent opens a run acting for the participant it carried", async () => {
+  const { pi, runs } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+
+  pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "report",
+    ingress: "tool",
+    relayedParticipantId: "bob@x",
+  });
+  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
+});

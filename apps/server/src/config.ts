@@ -21,6 +21,14 @@ export function readHeaderName(name: string): string {
   return value;
 }
 
+/** Headers the egress proxy owns outright; none may double as the identity header. */
+const RESERVED_EGRESS_HEADERS = new Set([
+  "accept",
+  "content-type",
+  "cookie",
+  "authorization",
+]);
+
 function assertAbsoluteUrl(name: string, value: string): string {
   try {
     new URL(value);
@@ -298,6 +306,19 @@ export const ADMIN_EMAILS: ReadonlySet<string> = new Set(
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean),
 );
+
+/**
+ * Name of the header the egress proxy forwards a participant's identity
+ * assertion in, so the backend acts as that person rather than as the
+ * instance. Empty by default: nothing is forwarded and every egress call
+ * reports `appliedIdentity.kind = "instance"`.
+ */
+export const EGRESS_IDENTITY_HEADER = readHeaderName("EGRESS_IDENTITY_HEADER");
+if (RESERVED_EGRESS_HEADERS.has(EGRESS_IDENTITY_HEADER)) {
+  throw new Error(
+    `EGRESS_IDENTITY_HEADER must not be one of ${[...RESERVED_EGRESS_HEADERS].join(", ")}`,
+  );
+}
 
 /**
  * Base URL of the Tangle API reached by the bundle-UI/agent egress allowlist.

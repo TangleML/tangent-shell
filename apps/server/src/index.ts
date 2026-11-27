@@ -7,7 +7,10 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
-import { rememberIdentityAssertion } from "./auth/identityAssertions.ts";
+import {
+  identityAssertions,
+  rememberIdentityAssertion,
+} from "./auth/identityAssertions.ts";
 import {
   EMBED_ALLOWED_ORIGINS,
   MAX_JSON_BODY_BYTES,
@@ -558,7 +561,10 @@ app.use(
   createInternalExternalAgentsRouter(externalGateway),
 );
 // Internal egress proxy for bundle tool extensions (e.g. the Tangle API tool).
-app.use("/internal/egress", createInternalEgressRouter(pi));
+app.use(
+  "/internal/egress",
+  createInternalEgressRouter(pi, { runs, assertions: identityAssertions }),
+);
 // Internal API for the triggers extension running inside each Pi process.
 app.use(
   "/internal/triggers",

@@ -10,7 +10,7 @@
  * See `docs/bundle-ui/host-bridge.md` for the contract.
  */
 
-import { TANGLE_API_URL } from "../config.ts";
+import { EGRESS_IDENTITY_HEADER, TANGLE_API_URL } from "../config.ts";
 
 export interface EgressTargetRequest {
   target: "tangle";
@@ -34,6 +34,15 @@ export interface EgressResponse {
   headers: Record<string, string>;
   json?: unknown;
   text?: string;
+}
+
+/** Who is asking: a sandboxed bundle UI or an agent's tool extension. */
+export type EgressCaller = "ui" | "agent";
+
+/** Per-call choices that are the route's to make, never the caller's: the
+ * token forwarded under {@link EGRESS_IDENTITY_HEADER}, ignored for a UI caller. */
+export interface EgressOptions {
+  identityToken?: string;
 }
 
 /**
@@ -136,8 +145,17 @@ const ALLOWED_REQUEST_HEADERS = new Set(["accept", "content-type"]);
 /** Abort an upstream request that hangs longer than this. */
 const EGRESS_TIMEOUT_MS = 10_000;
 
+/** Stable codes an egress route answers a failed proxy call with. */
+export type EgressErrorCode =
+  | "egress_denied"
+  | "upstream_timeout"
+  | "upstream_unreachable"
+  | "egress_failed";
+
 /** Raised when a request targets a destination that is not allowlisted. */
 export class EgressDeniedError extends Error {
+  readonly code: EgressErrorCode = "egress_denied";
+
   constructor(input: string) {
     super(`bundle-ui egress destination "${input}" is not allowlisted`);
     this.name = "EgressDeniedError";
@@ -146,6 +164,8 @@ export class EgressDeniedError extends Error {
 
 /** Safe diagnostics for callers; underlying errors can contain credentials or URLs. */
 export class EgressUpstreamError extends Error {
+  readonly code: EgressErrorCode;
+
   constructor(cause: unknown) {
     const timedOut = cause instanceof Error && cause.name === "AbortError";
     super(
@@ -155,6 +175,7 @@ export class EgressUpstreamError extends Error {
       { cause },
     );
     this.name = "EgressUpstreamError";
+    this.code = timedOut ? "upstream_timeout" : "upstream_unreachable";
   }
 }
 
@@ -226,11 +247,16 @@ function isBodyRequest(
   return method !== "GET" && init.body !== undefined;
 }
 
-/** Merges safe caller headers with authoritative server credentials. */
+/**
+ * Merges safe caller headers with authoritative server credentials. The
+ * identity header is the server's alone: a caller's copy is dropped whatever
+ * the allowlist says, and the route-chosen token is set only after that.
+ */
 function buildHeaders(
   init: EgressRequestInit,
   rule: EgressRule,
   hasBody: boolean,
+  identityToken: string | undefined,
 ): Record<string, string> {
   const callerHeaders = Object.entries(init.headers ?? {})
     .map(([name, value]) => [name.toLowerCase(), value])
@@ -241,6 +267,17 @@ function buildHeaders(
     ...(rule.headers?.() ?? {}),
   };
   if (hasBody) headers["content-type"] = "application/json";
+  return withIdentity(headers, identityToken);
+}
+
+/** Replaces any identity header with the route's token, or with nothing. */
+function withIdentity(
+  headers: Record<string, string>,
+  identityToken: string | undefined,
+): Record<string, string> {
+  if (!EGRESS_IDENTITY_HEADER) return headers;
+  delete headers[EGRESS_IDENTITY_HEADER];
+  if (identityToken) headers[EGRESS_IDENTITY_HEADER] = identityToken;
   return headers;
 }
 
@@ -250,11 +287,12 @@ function buildRequestInit(
   init: EgressRequestInit,
   rule: EgressRule,
   signal: AbortSignal,
+  identityToken: string | undefined,
 ): RequestInit {
   const hasBody = isBodyRequest(method, init);
   return {
     method,
-    headers: buildHeaders(init, rule, hasBody),
+    headers: buildHeaders(init, rule, hasBody, identityToken),
     body: hasBody ? JSON.stringify(init.body) : undefined,
     signal,
   };
@@ -266,13 +304,14 @@ async function performFetch(
   method: NonNullable<EgressRequestInit["method"]>,
   init: EgressRequestInit,
   rule: EgressRule,
+  identityToken: string | undefined,
 ): Promise<EgressResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EGRESS_TIMEOUT_MS);
   try {
     const response = await fetch(
       url,
-      buildRequestInit(method, init, rule, controller.signal),
+      buildRequestInit(method, init, rule, controller.signal, identityToken),
     );
     return await toEgressResponse(response);
   } finally {
@@ -302,30 +341,64 @@ async function toEgressResponse(response: Response): Promise<EgressResponse> {
   };
 }
 
+/** Whether a rule is open to this caller; a UI caller never gets an agent-only rule. */
+function admits(rule: EgressRule, caller: EgressCaller): boolean {
+  return !rule.agentOnly || caller === "agent";
+}
+
+function methodOf(
+  init: EgressRequestInit,
+): NonNullable<EgressRequestInit["method"]> {
+  return init.method ?? "GET";
+}
+
+/** A UI caller never forwards an identity, whatever the route passed. */
+function identityFor(
+  caller: EgressCaller,
+  options: EgressOptions,
+): string | undefined {
+  return caller === "ui" ? undefined : options.identityToken;
+}
+
+/** The allowlist rule this caller may use for the request, if any. */
+function findRule(
+  method: NonNullable<EgressRequestInit["method"]>,
+  url: URL,
+  caller: EgressCaller,
+): EgressRule | undefined {
+  return EGRESS_RULES.find(
+    (entry) =>
+      admits(entry, caller) && entry.method === method && entry.matches(url),
+  );
+}
+
 /**
  * Resolves an allowlisted egress request by performing the real network call
  * server-side. Throws {@link EgressDeniedError} when `input` cannot resolve to a
  * registered destination for this host-selected caller. UI callers cannot opt
- * into agent-only rules through the request body. Upstream failures map to a 502
- * with safe diagnostics; backend status codes and bodies are preserved.
+ * into agent-only rules through the request body, and never forward an
+ * identity. Upstream failures map to a 502 with safe diagnostics; backend
+ * status codes and bodies are preserved.
  */
 export async function resolveEgress(
   input: EgressInput,
   init: EgressRequestInit = {},
-  caller: "ui" | "agent" = "ui",
+  caller: EgressCaller = "ui",
+  options: EgressOptions = {},
 ): Promise<EgressResponse> {
-  const method = init.method ?? "GET";
+  const method = methodOf(init);
   const url = resolveUrl(input, init.query);
-  const rule = EGRESS_RULES.find(
-    (entry) =>
-      (!entry.agentOnly || caller === "agent") &&
-      entry.method === method &&
-      entry.matches(url),
-  );
+  const rule = findRule(method, url, caller);
   if (!rule) throw new EgressDeniedError(formatDeniedInput(input));
 
   try {
-    return await performFetch(url, method, init, rule);
+    return await performFetch(
+      url,
+      method,
+      init,
+      rule,
+      identityFor(caller, options),
+    );
   } catch (error) {
     console.warn(
       `[egress] ${method} ${url.origin}${url.pathname} failed: ${describeFailure(error)}`,
