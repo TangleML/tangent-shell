@@ -125,6 +125,25 @@ test("settle stamps the terminal status on the run handed to the listener", asyn
   assert.deepEqual(seen, ["failed"]);
 });
 
+test("a failed run hands its listener the error it failed with", async () => {
+  const h = await newRegistry();
+  const errors: unknown[] = [];
+  h.runs.useOnSettled((_run, settlement) => errors.push(settlement.error));
+  const open = () =>
+    h.runs.open({
+      sessionId: h.sessionId,
+      participantId: "prime",
+      ingress: "reaction",
+    });
+
+  const boom = new Error("boom");
+  h.runs.settle(open().id, "failed", boom);
+  open();
+  h.runs.settleOpenFor(h.sessionId, "prime", "failed");
+
+  assert.deepEqual(errors, [boom, undefined]);
+});
+
 test("the listener is told when a run settled only because the next one opened", async () => {
   const h = await newRegistry();
   const superseded: boolean[] = [];

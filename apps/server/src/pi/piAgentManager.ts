@@ -1114,6 +1114,19 @@ function buildAgentProcess(
 }
 
 /**
+ * Records whether an assistant message's model call failed, and with what. Only
+ * the latest message counts, so a call Pi retried and got through doesn't fail
+ * the run.
+ */
+function recordModelOutcome(
+  agent: AgentProcess,
+  message: PiStdoutEvent["message"],
+): void {
+  agent.modelFailed = message?.stopReason === "error";
+  agent.modelError = agent.modelFailed ? message?.errorMessage : undefined;
+}
+
+/**
  * Manages a roster of long-lived `pi --mode rpc` child processes per session:
  * one Prime agent plus the sub-agents Prime spawns at runtime.
  *
@@ -2517,9 +2530,7 @@ export class PiAgentManager {
       this.finalizeMessage(sessionId, agent, descriptor, event);
     }
 
-    // Only the latest message counts, so a call Pi retried and got through
-    // doesn't fail the run.
-    agent.modelFailed = event.message?.stopReason === "error";
+    recordModelOutcome(agent, event.message);
     agent.currentMessageId = null;
     agent.startEmitted = false;
     agent.accum = "";
@@ -2669,7 +2680,13 @@ export class PiAgentManager {
       console.error(
         `[pi:${sessionId}:${agent.agentId}] prompt rejected: ${String(event.error)}`,
       );
-      this.dropPrompt(sessionId, agent, prompt, "failed");
+      this.dropPrompt(
+        sessionId,
+        agent,
+        prompt,
+        "failed",
+        `Pi rejected the prompt: ${String(event.error)}`,
+      );
       return;
     }
     const disposition = readDisposition(event.data);
@@ -2704,13 +2721,14 @@ export class PiAgentManager {
     agent: AgentProcess,
     prompt: SentPrompt,
     status: SettledStatus,
+    error?: unknown,
   ): void {
     const current = this.runs.current(sessionId, agent.agentId);
     const opened = current !== undefined && current.id === prompt.runId;
     if (current && !opened) return;
     // Freed before the Run settles, so a wake released on settle finds it idle.
     agent.busy = agent.sent.size > 0;
-    if (opened) this.runs.settle(current.id, status);
+    if (opened) this.runs.settle(current.id, status, error);
     this.notifyStatus(sessionId);
   }
 
@@ -2774,12 +2792,14 @@ export class PiAgentManager {
   ): void {
     const cancelled = agent.aborted || event.aborted === true;
     const failed = agent.modelFailed;
+    const failure = failed ? agent.modelError : undefined;
     // A prompt Pi has yet to answer may still start a run.
     agent.busy = agent.sent.size > 0;
     // Cleared before the Run settles, so a wake released on settle goes to Pi
     // and opens its own Run ahead of the prompts held during the abort.
     agent.aborted = false;
     agent.modelFailed = false;
+    agent.modelError = undefined;
 
     // Emitted before the Run settles, so the run's last event still carries its
     // id. An aborted run was cut short: that is a cancellation, not a finish. A
@@ -2789,6 +2809,7 @@ export class PiAgentManager {
       sessionId,
       agent.agentId,
       cancelled ? "cancelled" : failed ? "failed" : "completed",
+      cancelled ? undefined : failure,
     );
     // After settling, so the lobby hears once how the run ended.
     this.notifyStatus(sessionId);
@@ -2847,6 +2868,7 @@ export class PiAgentManager {
     agent.busy = false;
     agent.aborted = false;
     agent.modelFailed = false;
+    agent.modelError = undefined;
     const descriptor = {
       agentId: agent.agentId,
       role: agent.role,
@@ -2855,7 +2877,7 @@ export class PiAgentManager {
     };
     this.emit(sessionId, descriptor, { type: "error", messageId, message });
     this.emitActivity(sessionId, agent, null);
-    this.runs.settleOpenFor(sessionId, agent.agentId, "failed");
+    this.runs.settleOpenFor(sessionId, agent.agentId, "failed", message);
     this.notifyStatus(sessionId);
   }
 

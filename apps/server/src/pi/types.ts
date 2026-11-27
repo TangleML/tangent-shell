@@ -172,6 +172,9 @@ export interface AgentProcess {
    * failed, so the run settles `failed` rather than `completed`.
    */
   modelFailed: boolean;
+  /** The error Pi reported for that failed model call, when it gave one, so
+   * the failed Run says why. */
+  modelError?: string;
   /** The id of the assistant message currently streaming, if any. */
   currentMessageId: string | null;
   /**
@@ -302,6 +305,8 @@ export interface PiStdoutEvent {
     role?: string;
     content?: unknown;
     stopReason?: string;
+    /** Why the model call failed, alongside a `stopReason` of `error`. */
+    errorMessage?: string;
     usage?: MessageUsage;
   };
   /** Present on `tool_execution_*` events. */

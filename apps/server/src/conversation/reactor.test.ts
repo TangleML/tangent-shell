@@ -287,6 +287,43 @@ test("supervise may span the many conversations it watches, and wakes on a cause
   assert.match(wakes[0].text, /B3/);
 });
 
+test("a supervise wake on a failed run carries the run's reason", async () => {
+  const registry = new ReactorRegistry(new InMemoryReactorStore());
+  const wakes: ReactorWake[] = [];
+  registry.useDelivery(async (wake) => {
+    wakes.push(wake);
+    return true;
+  });
+  await registry.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "supervise" },
+    scope: {
+      memberships: [{ conversationId: "B1", participantId: "prime" }],
+      homeConversationId: "A",
+    },
+  });
+
+  await registry.observe(
+    "s1",
+    "B1",
+    facts({
+      authorId: "w1",
+      cause: {
+        kind: "run-error",
+        participantId: "w1",
+        conversationId: "B1",
+        waveDepth: 0,
+        reason: "TimeoutError: request timed out",
+      },
+    }),
+  );
+
+  assert.equal(wakes.length, 1);
+  assert.match(wakes[0].text, /\(run-error\) in conversation B1/);
+  assert.match(wakes[0].text, /Reason: TimeoutError: request timed out/);
+});
+
 test("a supervise wake cites the context projection when one is wired", async () => {
   const registry = new ReactorRegistry(new InMemoryReactorStore());
   const wakes: ReactorWake[] = [];

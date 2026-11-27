@@ -40,6 +40,9 @@ export type SettledStatus = Exclude<RunStatus, "running">;
 export interface Settlement {
   /** Settled only because its participant's next Run was opening. */
   superseded: boolean;
+  /** What a `failed` Run failed with, when its connector knew: an `Error` or
+   * the text the failure was reported as. */
+  error?: unknown;
 }
 
 /** Composite key of the at-most-one Run a participant has open. */
@@ -191,11 +194,15 @@ export class RunRegistry {
     return open;
   }
 
-  /** Settles a Run, recording which terminal state it reached. */
-  settle(runId: RunId, status: SettledStatus): void {
+  /** Settles a Run, recording which terminal state it reached and, for a
+   * failure, the error it failed with. */
+  settle(runId: RunId, status: SettledStatus, error?: unknown): void {
     const run = this.byId.get(runId);
     if (!run) return;
-    this.finish(run, status, { superseded: false });
+    this.finish(run, status, {
+      superseded: false,
+      ...(error === undefined ? {} : { error }),
+    });
   }
 
   private finish(
@@ -218,10 +225,11 @@ export class RunRegistry {
     sessionId: string,
     participantId: string,
     status: SettledStatus,
+    error?: unknown,
   ): void {
     const run = this.current(sessionId, participantId);
     if (!run) return;
-    this.settle(run.id, status);
+    this.settle(run.id, status, error);
   }
 
   /** Records a connector's resume cursor against an open Run. */

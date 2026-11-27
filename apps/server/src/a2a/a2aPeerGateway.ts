@@ -430,7 +430,7 @@ export class A2aPeerGateway {
       messageId: turn.started ? turn.messageId : undefined,
       message: `${turn.tab.name} stopped responding: ${message}`,
     });
-    this.runs.settle(turn.run.id, "failed");
+    this.runs.settle(turn.run.id, "failed", err);
     turn.tab.peer = undefined;
     turn.tab.taskId = undefined;
     this.markDetached(turn.sessionId, turn.tab);
