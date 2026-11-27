@@ -20,8 +20,10 @@ import { getValidated, validate } from "../middleware/validate.ts";
 import type { ResourceGatewayDeps } from "../remote/remoteEnvironmentGateway.ts";
 import type { SessionStore } from "../store/sessionStore.ts";
 import {
+  abortOnClientClose,
   type DeliveriesBody,
   deliveriesSchema,
+  DELIVERY_POLL_MS,
   type EventBody,
   eventSchema,
   handleDeliveries,
@@ -59,12 +61,10 @@ interface ScopedRequest extends Request {
   scopedClaims?: ScopedTokenClaims;
 }
 
-/** An AbortSignal that fires when the request's connection closes, so a parked
- * long-poll frees its server-side waiter instead of lingering to its timeout. */
-function abortOnClose(req: Request): AbortSignal {
-  const controller = new AbortController();
-  req.on("close", () => controller.abort());
-  return controller.signal;
+/** Tunables for the attach API; tests shorten the long-poll budget. */
+export interface AttachRouterOptions {
+  /** How long a `/deliveries` poll parks before answering empty. */
+  deliveryPollMs?: number;
 }
 
 /**
@@ -76,6 +76,7 @@ function abortOnClose(req: Request): AbortSignal {
 function mountDeliveries(
   router: Router,
   gateway: ExternalSubagentGateway,
+  pollMs: number,
 ): void {
   router.post(
     "/deliveries",
@@ -86,7 +87,8 @@ function mountDeliveries(
         gateway,
         getValidated<DeliveriesBody>(req).body,
         res,
-        abortOnClose(req),
+        abortOnClientClose(res),
+        pollMs,
       ),
   );
 }
@@ -211,6 +213,7 @@ export function createAttachRouter(
   conversations: ConversationRouter,
   resources: ResourceGatewayDeps,
   scoped: ScopedTokenCredential = scopedRemoteEnvCredential,
+  options: AttachRouterOptions = {},
 ): Router {
   const router = Router();
   router.use(requireScopedToken(scoped));
@@ -242,7 +245,7 @@ export function createAttachRouter(
         res,
       ),
   );
-  mountDeliveries(router, gateway);
+  mountDeliveries(router, gateway, options.deliveryPollMs ?? DELIVERY_POLL_MS);
   turn<RunBody>("/run", runSchema, handleOpenRun);
   turn<RunEndBody>("/run/end", runEndSchema, handleRunEnd);
   turn<EventBody>("/event", eventSchema, handleEvent);
@@ -261,7 +264,6 @@ export function createAttachRouter(
       ),
   );
   mountResourceRoutes(router, resources);
-
   return router;
 }
 

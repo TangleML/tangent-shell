@@ -161,6 +161,10 @@ export const createTriggerSchema = z.object({
   enabled: z.boolean().optional(),
   target: z.enum(["prime", "subagent"]).optional(),
   subagent: triggerSubagentSchema.optional(),
+  /** Lifetime limits: an absolute expiry, a duration from now, a fire budget. */
+  expiresAt: z.string().optional(),
+  expiresIn: z.string().optional(),
+  maxFires: z.number().int().positive().optional(),
 });
 export type CreateTriggerInput = z.infer<typeof createTriggerSchema>;
 
@@ -170,6 +174,10 @@ export const updateTriggerSchema = z.object({
   prompt: z.string().optional(),
   title: z.string().optional(),
   schedule: triggerScheduleSchema.optional(),
+  /** Lifetime limits; `null` removes an expiry or fire budget. */
+  expiresAt: z.string().nullable().optional(),
+  expiresIn: z.string().optional(),
+  maxFires: z.number().int().positive().nullable().optional(),
 });
 export type UpdateTriggerInput = z.infer<typeof updateTriggerSchema>;
 

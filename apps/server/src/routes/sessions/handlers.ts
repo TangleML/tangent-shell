@@ -518,14 +518,16 @@ export interface SessionUpdateDeps {
 /**
  * Archiving puts a session to sleep: its Pi processes stop, live sub-agents are
  * persisted `detached` so a later wake revives them, and schedules disarm.
- * Unarchiving only re-arms schedules; agents wake on the next message.
+ * Unarchiving re-arms schedules (retiring only expired, spent or ended ones,
+ * not ones whose sub-agent the archive detached); agents wake on the next
+ * message.
  */
 async function applyArchiveState(
   deps: SessionUpdateDeps,
   session: Session,
 ): Promise<void> {
   if (!session.archived) {
-    deps.triggerEngine.sync(session.id, session.rootPath);
+    await deps.triggerEngine.sync(session.id, session.rootPath, "resume");
     return;
   }
   for (const agentId of deps.pi.sleep(session.id)) {

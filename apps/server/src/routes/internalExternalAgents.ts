@@ -5,6 +5,7 @@ import type { ExternalSubagentGateway } from "../external/externalSubagentGatewa
 import { requireCredential } from "../middleware/requireCredential.ts";
 import { getValidated, validate } from "../middleware/validate.ts";
 import {
+  abortOnClientClose,
   type DeliveriesBody,
   deliveriesSchema,
   type EventBody,
@@ -49,19 +50,13 @@ export function createInternalExternalAgentsRouter(
   );
 
   // The outbound leg.
-  router.post(
-    "/deliveries",
-    validate({ body: deliveriesSchema }),
-    (req, res) => {
-      const controller = new AbortController();
-      req.on("close", () => controller.abort());
-      return handleDeliveries(
-        gateway,
-        getValidated<DeliveriesBody>(req).body,
-        res,
-        controller.signal,
-      );
-    },
+  router.post("/deliveries", validate({ body: deliveriesSchema }), (req, res) =>
+    handleDeliveries(
+      gateway,
+      getValidated<DeliveriesBody>(req).body,
+      res,
+      abortOnClientClose(res),
+    ),
   );
 
   // A turn of external work is a Run: the driving tool declares its start and

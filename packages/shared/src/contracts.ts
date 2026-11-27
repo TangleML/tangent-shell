@@ -462,6 +462,28 @@ export interface TriggerSchedule {
 }
 
 /**
+ * Why the server switched a trigger off on its own (it stays listed, disabled,
+ * until someone re-enables or deletes it):
+ * - `expired` — its `expiresAt` passed.
+ * - `max-fires` — it delivered `maxFires` prompts.
+ * - `target-ended` — its dedicated sub-agent completed, was killed, or errored.
+ * - `target-detached` — its dedicated sub-agent dropped (e.g. a server restart)
+ *   and the trigger had no `expiresAt` saying it should outlive that.
+ */
+export type TriggerDisabledReason =
+  | "expired"
+  | "max-fires"
+  | "target-ended"
+  | "target-detached";
+
+/**
+ * What a compiled trigger handler may return: the prompt to deliver (a string
+ * or `{ prompt }`), or `{ skip: true }` when a deterministic check found
+ * nothing worth an agent turn, so the tick is dropped without waking anyone.
+ */
+export type TriggerHandlerResult = string | { prompt: string } | { skip: true };
+
+/**
  * A per-session trigger: turns an external signal into a prompt delivered to
  * Prime. Bundle-declared triggers may carry a compiled transform handler;
  * runtime-created triggers use a prompt template only.
@@ -498,6 +520,14 @@ export interface Trigger {
   updatedAt: string;
   /** ISO-8601 timestamp of the most recent firing, if any. */
   lastFiredAt?: string;
+  /** ISO-8601 time after which the trigger switches itself off. */
+  expiresAt?: string;
+  /** Prompts the trigger may deliver before it switches itself off. */
+  maxFires?: number;
+  /** Prompts delivered so far (skipped handler ticks don't count). */
+  fireCount?: number;
+  /** Set when the server disabled the trigger on its own; cleared on enable. */
+  disabledReason?: TriggerDisabledReason;
 }
 
 /**
@@ -651,6 +681,16 @@ export interface CreateTriggerRequest {
   target?: TriggerTargetKind;
   /** Sub-agent spec used when `target` is `subagent`. */
   subagent?: TriggerSubagentSpec;
+  /** ISO-8601 time after which the trigger switches itself off. */
+  expiresAt?: string;
+  /**
+   * Lifetime as a duration from now (`"6h"`, `"2d"`), resolved server-side to
+   * `expiresAt`, so an agent without a reliable clock can bound a watch.
+   * Ignored when `expiresAt` is set.
+   */
+  expiresIn?: string;
+  /** Prompts the trigger may deliver before it switches itself off. */
+  maxFires?: number;
 }
 
 /** Payload to update a mutable trigger field. */
@@ -659,6 +699,12 @@ export interface UpdateTriggerRequest {
   prompt?: string;
   title?: string;
   schedule?: TriggerSchedule;
+  /** New expiry (ISO-8601); `null` removes it. */
+  expiresAt?: string | null;
+  /** New expiry as a duration from now; ignored when `expiresAt` is given. */
+  expiresIn?: string;
+  /** New fire budget; `null` removes it. */
+  maxFires?: number | null;
 }
 
 /**

@@ -131,6 +131,25 @@ export function registerResponse(res: Response, result: RegisterResult): void {
 }
 
 /**
+ * An AbortSignal that fires when a parked long-poll's client goes away, so its
+ * server-side waiter is freed instead of lingering to its timeout (and
+ * swallowing the next delivery for a driver that is no longer listening).
+ *
+ * Listens on the **response**, not the request: on Node 24 / Express 5 the
+ * request's `close` fires as soon as its body has been read, which would abort
+ * every poll the moment it parked and send the driver into a hot loop. The
+ * response's `close` fires when the connection drops before an answer (or once
+ * the answer is sent, when there is nothing left to abort).
+ */
+export function abortOnClientClose(res: Response): AbortSignal {
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) controller.abort();
+  });
+  return controller.signal;
+}
+
+/**
  * Hands the session's queued messages to its driver. The driver holds the only
  * route to the runtime, so it asks for work rather than being dialed; a poll
  * that waits out its budget is answered empty and the driver asks again.
@@ -140,15 +159,12 @@ export async function handleDeliveries(
   body: DeliveriesBody,
   res: Response,
   signal?: AbortSignal,
+  timeoutMs: number = DELIVERY_POLL_MS,
 ): Promise<void> {
-  const deliveries = await gateway.takeDeliveries(
-    body.sessionId,
-    DELIVERY_POLL_MS,
-    {
-      agentId: body.agentId,
-      signal,
-    },
-  );
+  const deliveries = await gateway.takeDeliveries(body.sessionId, timeoutMs, {
+    agentId: body.agentId,
+    signal,
+  });
   res.json({ deliveries });
 }
 

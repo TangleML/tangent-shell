@@ -60,7 +60,7 @@ async function handleCreateTrigger(
   }
 }
 
-/** Updates a mutable trigger field (enabled/prompt/title/schedule). */
+/** Updates a mutable trigger field (enabled/prompt/title/schedule/lifetime). */
 async function handleUpdateTrigger(
   store: SessionStore,
   triggers: TriggerManager,
@@ -72,7 +72,13 @@ async function handleUpdateTrigger(
   const session = await loadSession(store, res, params.id);
   if (!session) return;
   triggers.register(session.id, session.rootPath);
-  const trigger = triggers.update(session.id, params.triggerId, body);
+  let trigger;
+  try {
+    trigger = triggers.update(session.id, params.triggerId, body);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+    return;
+  }
   if (!trigger) {
     res.status(404).json({ error: "Trigger not found" });
     return;

@@ -55,6 +55,16 @@ function textResult(text: string) {
   return { content: [{ type: "text", text }], details: {} };
 }
 
+/** "until <expiry>", "for N fires", both, or "until disabled". */
+function lifetimeText(trigger: { expiresAt?: string; maxFires?: number }) {
+  const parts: string[] = [];
+  if (trigger.expiresAt) parts.push(`until ${trigger.expiresAt}`);
+  if (trigger.maxFires !== undefined) {
+    parts.push(`for at most ${trigger.maxFires} firing(s)`);
+  }
+  return parts.length ? parts.join(", ") : "until disabled";
+}
+
 export default function (pi: ExtensionAPI) {
   // Triggers are a Prime-only orchestration concern; sub-agents get nothing.
   if (ROLE !== "prime") return;
@@ -74,8 +84,13 @@ export default function (pi: ExtensionAPI) {
       "(its name/template/system_prompt/tools). Set `target` to `prime` to " +
       "route firings to yourself instead — this is DISCOURAGED; prefer a " +
       "dedicated sub-agent so trigger work doesn't interrupt the human " +
-      "conversation. Returns the trigger, including the callback URL for " +
-      "callback triggers.",
+      "conversation. Bound every polling schedule: set `expires_in` (e.g. " +
+      '"6h", "2d") and/or `max_fires` so it switches itself off — a watch ' +
+      "that is never disabled keeps waking its sub-agent for days. A trigger " +
+      "is also switched off automatically when its sub-agent completes or is " +
+      "killed, and a schedule without `expires_in` does not survive a server " +
+      "restart. Returns the trigger, including the callback URL for callback " +
+      "triggers.",
     promptSnippet: "Create a schedule or callback trigger for this session",
     parameters: Type.Object({
       name: Type.String({
@@ -151,6 +166,20 @@ export default function (pi: ExtensionAPI) {
       enabled: Type.Optional(
         Type.Boolean({ description: "Arm the trigger now (default true)." }),
       ),
+      expires_in: Type.Optional(
+        Type.String({
+          description:
+            'Lifetime from now, e.g. "6h", "2d", "30m". The trigger switches ' +
+            "itself off after it. Strongly recommended for every schedule.",
+        }),
+      ),
+      max_fires: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          description:
+            "Most prompts the trigger may deliver before it switches itself off.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
       const subagent = params.subagent
@@ -174,12 +203,16 @@ export default function (pi: ExtensionAPI) {
         subagent,
         schedule: params.schedule,
         enabled: params.enabled,
+        expiresIn: params.expires_in,
+        maxFires: params.max_fires,
       })) as {
         trigger: {
           name: string;
           kind: string;
           callbackPath?: string;
           target?: { type: string; agentName?: string };
+          expiresAt?: string;
+          maxFires?: number;
         };
       };
 
@@ -188,6 +221,7 @@ export default function (pi: ExtensionAPI) {
         trigger.target?.type === "subagent"
           ? `Sub-agent "${trigger.target.agentName ?? trigger.name}" will react to it`
           : "It will be delivered to you (Prime)";
+      const until = lifetimeText(trigger);
 
       if (trigger.kind === "callback" && trigger.callbackPath) {
         return textResult(
@@ -198,7 +232,7 @@ export default function (pi: ExtensionAPI) {
       }
       return textResult(
         `Created schedule trigger "${trigger.name}". ${handledBy} on its ` +
-          `schedule until disabled.`,
+          `schedule ${until}.`,
       );
     },
   });
@@ -222,6 +256,10 @@ export default function (pi: ExtensionAPI) {
           schedule?: { every?: string; cron?: string };
           callbackPath?: string;
           target?: { type: string; agentName?: string };
+          expiresAt?: string;
+          maxFires?: number;
+          fireCount?: number;
+          disabledReason?: string;
         }>;
       };
 
@@ -229,7 +267,11 @@ export default function (pi: ExtensionAPI) {
         return textResult("No triggers have been created yet.");
       }
       const lines = data.triggers.map((t) => {
-        const state = t.enabled ? "enabled" : "disabled";
+        const state = t.enabled
+          ? "enabled"
+          : t.disabledReason
+            ? `disabled: ${t.disabledReason}`
+            : "disabled";
         const detail =
           t.kind === "schedule"
             ? `every ${t.schedule?.every ?? t.schedule?.cron ?? "?"}`
@@ -238,7 +280,14 @@ export default function (pi: ExtensionAPI) {
           t.target?.type === "subagent"
             ? `→ sub-agent "${t.target.agentName ?? t.name}"`
             : "→ Prime";
-        return `- ${t.name} (${t.kind}, ${state}) — ${detail} ${target}`;
+        const fired =
+          t.maxFires !== undefined
+            ? `, fired ${t.fireCount ?? 0}/${t.maxFires}`
+            : t.fireCount
+              ? `, fired ${t.fireCount}`
+              : "";
+        const expires = t.expiresAt ? `, expires ${t.expiresAt}` : "";
+        return `- ${t.name} (${t.kind}, ${state}${fired}${expires}) — ${detail} ${target}`;
       });
       return textResult(lines.join("\n"));
     },
@@ -247,16 +296,25 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "enable_trigger",
     label: "Enable Trigger",
-    description: "Enable (arm) a trigger by name.",
+    description:
+      "Enable (arm) a trigger by name, e.g. one the server switched off " +
+      "because it expired, used its fires, or lost its sub-agent. Pass " +
+      "`expires_in` to give it a fresh lifetime (an expired trigger needs one).",
     promptSnippet: "Enable a trigger by name",
     parameters: Type.Object({
       name: Type.String({ description: "The trigger's name." }),
+      expires_in: Type.Optional(
+        Type.String({
+          description: 'New lifetime from now, e.g. "6h", "2d".',
+        }),
+      ),
     }),
     async execute(_toolCallId, params) {
       await callApi("POST", "update", {
         sessionId: SESSION_ID,
         name: params.name,
         enabled: true,
+        expiresIn: params.expires_in,
       });
       return textResult(`Enabled trigger "${params.name}".`);
     },

@@ -7,6 +7,7 @@ import { BUNDLE_DIRS } from "@tangent/shared/configBundle.ts";
 import type {
   CreateTriggerRequest,
   Trigger,
+  TriggerDisabledReason,
   TriggerKind,
   TriggerSchedule,
   TriggerSource,
@@ -15,6 +16,7 @@ import type {
 } from "@tangent/shared/contracts.ts";
 
 import { TANGENT_DIRNAME } from "../config/bundleLoader.ts";
+import { resolveExpiry, validateMaxFires } from "./triggerLifecycle.ts";
 
 /** Filename, under a session's `.tangent/`, that persists its triggers. */
 const TRIGGERS_FILENAME = "triggers.json";
@@ -49,6 +51,14 @@ export interface StoredTrigger {
   createdAt: string;
   updatedAt: string;
   lastFiredAt?: string;
+  /** ISO time after which the trigger switches itself off. */
+  expiresAt?: string;
+  /** Prompts the trigger may deliver before it switches itself off. */
+  maxFires?: number;
+  /** Prompts delivered so far. */
+  fireCount?: number;
+  /** Why the server disabled the trigger on its own, if it did. */
+  disabledReason?: TriggerDisabledReason;
 }
 
 /** On-disk shape of `<root>/.tangent/triggers.json`. */
@@ -151,6 +161,10 @@ function toContract(sessionId: string, t: StoredTrigger): Trigger {
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
     lastFiredAt: t.lastFiredAt,
+    expiresAt: t.expiresAt,
+    maxFires: t.maxFires,
+    fireCount: t.fireCount,
+    disabledReason: t.disabledReason,
   };
 }
 
@@ -181,8 +195,9 @@ function bundleToStored(
 
 /**
  * Refreshes a bundle trigger from its re-declared version. The bundle owns the
- * definition; the session keeps its id, enable toggle, target, history and (for
- * an unchanged kind) its callback secret, so existing callback URLs stay valid.
+ * definition; the session keeps its id, enable toggle, target, history, its
+ * lifetime limits and (for an unchanged kind) its callback secret, so existing
+ * callback URLs stay valid.
  */
 function refreshBundleTrigger(
   stored: StoredTrigger,
@@ -198,18 +213,100 @@ function refreshBundleTrigger(
     secret: stored.kind === fresh.kind ? stored.secret : fresh.secret,
     createdAt: stored.createdAt,
     lastFiredAt: stored.lastFiredAt,
+    expiresAt: stored.expiresAt,
+    maxFires: stored.maxFires,
+    fireCount: stored.fireCount,
+    disabledReason: stored.disabledReason,
   };
 }
 
-/** Applies a mutable patch to a stored trigger in place. */
+/** Applies a patch's lifetime fields (expiry, fire budget), validating them. */
+function applyLifetimePatch(
+  stored: StoredTrigger,
+  patch: UpdateTriggerRequest,
+): void {
+  if (patch.expiresAt === null) stored.expiresAt = undefined;
+  else if (patch.expiresAt !== undefined || patch.expiresIn !== undefined) {
+    stored.expiresAt = resolveExpiry(patch.expiresAt, patch.expiresIn);
+  }
+  if (patch.maxFires === null) stored.maxFires = undefined;
+  else if (patch.maxFires !== undefined) {
+    stored.maxFires = validateMaxFires(patch.maxFires);
+  }
+}
+
+/**
+ * Applies a mutable patch to a stored trigger in place. Throws (leaving the
+ * trigger untouched) on an invalid lifetime. Re-enabling clears the reason the
+ * server disabled it and, when its fire budget was spent, starts a fresh one.
+ */
 function applyPatch(stored: StoredTrigger, patch: UpdateTriggerRequest): void {
-  if (patch.enabled !== undefined) stored.enabled = patch.enabled;
+  const next = { ...stored };
+  applyLifetimePatch(next, patch);
+  applyEnabledPatch(next, patch.enabled);
+  applyTextPatch(next, patch);
+  next.updatedAt = new Date().toISOString();
+  Object.assign(stored, next);
+}
+
+/** Retirement reasons after which the trigger's sub-agent is not reused. */
+const FORGETS_WORKER = new Set<TriggerDisabledReason>([
+  "target-ended",
+  "target-detached",
+]);
+
+/**
+ * A target without its recorded live sub-agent, so the next firing spawns a
+ * fresh one from the spec. Prime targets are returned as is.
+ */
+function withoutLiveAgent(target: TriggerTarget): TriggerTarget {
+  if (target.type !== "subagent") return target;
+  return { type: "subagent", spec: target.spec };
+}
+
+/**
+ * Refuses to re-enable a trigger whose lifetime is already over (it would only
+ * be retired again on its next tick): the caller must pass a new expiry.
+ */
+function assertUnexpired(stored: StoredTrigger): void {
+  if (!stored.expiresAt || Date.parse(stored.expiresAt) > Date.now()) return;
+  throw new Error(
+    "this trigger has expired; pass a new `expiresAt` or `expiresIn` to re-enable it",
+  );
+}
+
+/**
+ * Applies an enable toggle. Enabling refuses an expired trigger, clears the
+ * server's disable reason and, when the fire budget was spent, starts a fresh
+ * one.
+ */
+function applyEnabledPatch(
+  stored: StoredTrigger,
+  enabled: boolean | undefined,
+): void {
+  if (enabled === undefined) return;
+  stored.enabled = enabled;
+  if (!enabled) return;
+  assertUnexpired(stored);
+  stored.disabledReason = undefined;
+  if (
+    stored.maxFires !== undefined &&
+    (stored.fireCount ?? 0) >= stored.maxFires
+  ) {
+    stored.fireCount = 0;
+  }
+}
+
+/** Applies a patch's prompt, title and schedule. */
+function applyTextPatch(
+  stored: StoredTrigger,
+  patch: UpdateTriggerRequest,
+): void {
   if (patch.prompt !== undefined) stored.prompt = patch.prompt.trim();
   if (patch.title !== undefined) stored.title = text(patch.title) || undefined;
   if (patch.schedule !== undefined) {
     stored.schedule = normalizeSchedule(patch.schedule);
   }
-  stored.updatedAt = new Date().toISOString();
 }
 
 /**
@@ -339,6 +436,9 @@ export class TriggerManager {
       );
     }
 
+    const expiresAt = resolveExpiry(req.expiresAt, req.expiresIn);
+    const maxFires = validateMaxFires(req.maxFires);
+
     const now = new Date().toISOString();
     const stored: StoredTrigger = {
       id: randomUUID(),
@@ -353,6 +453,8 @@ export class TriggerManager {
       secret: newSecret(req.kind),
       createdAt: now,
       updatedAt: now,
+      expiresAt,
+      maxFires,
     };
 
     state.triggers.set(stored.id, stored);
@@ -360,7 +462,10 @@ export class TriggerManager {
     return toContract(sessionId, stored);
   }
 
-  /** Applies a mutable patch (enabled/prompt/title/schedule) to a trigger. */
+  /**
+   * Applies a mutable patch (enabled/prompt/title/schedule/lifetime) to a
+   * trigger. Throws on an invalid lifetime.
+   */
   update(
     sessionId: string,
     triggerId: string,
@@ -394,13 +499,54 @@ export class TriggerManager {
     this.persist(state);
   }
 
-  /** Records the time a trigger last fired. */
+  /** Records a delivered firing: its time, and one more against the budget. */
   markFired(sessionId: string, triggerId: string): void {
     const state = this.sessions.get(sessionId);
     const stored = state?.triggers.get(triggerId);
     if (!state || !stored) return;
     stored.lastFiredAt = new Date().toISOString();
+    stored.fireCount = (stored.fireCount ?? 0) + 1;
     this.persist(state);
+  }
+
+  /**
+   * Switches a trigger off on the server's own account, recording why. Returns
+   * the updated contract, or `undefined` when there was nothing to switch off.
+   */
+  retire(
+    sessionId: string,
+    triggerId: string,
+    reason: TriggerDisabledReason,
+  ): Trigger | undefined {
+    const state = this.sessions.get(sessionId);
+    const stored = state?.triggers.get(triggerId);
+    if (!state || !stored || !stored.enabled) return undefined;
+    stored.enabled = false;
+    stored.disabledReason = reason;
+    // A sub-agent that ended (or went dormant, and is closed out) can't be
+    // reused: forget it, so re-enabling spawns a fresh worker instead of
+    // being retired again.
+    if (FORGETS_WORKER.has(reason)) {
+      stored.target = withoutLiveAgent(stored.target);
+    }
+    stored.updatedAt = new Date().toISOString();
+    this.persist(state);
+    return toContract(sessionId, stored);
+  }
+
+  /**
+   * Forgets a trigger's recorded sub-agent (it ended while the trigger was
+   * off), so re-enabling it spawns a fresh worker. Returns true on a change.
+   */
+  forgetTargetAgent(sessionId: string, triggerId: string): boolean {
+    const state = this.sessions.get(sessionId);
+    const stored = state?.triggers.get(triggerId);
+    if (!state || !stored || stored.target.type !== "subagent") return false;
+    if (!stored.target.agentId) return false;
+    stored.target = withoutLiveAgent(stored.target);
+    stored.updatedAt = new Date().toISOString();
+    this.persist(state);
+    return true;
   }
 
   /** Deletes a trigger. Returns true when one was removed. */
