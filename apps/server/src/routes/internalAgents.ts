@@ -341,7 +341,7 @@ async function handleAttach(
  * Prime writes this from its own Conversation, so it is a cross-Conversation
  * post: authorized by Prime's Membership in the sub-agent's thread, recorded as
  * having arrived from elsewhere, and kept inside the wave Prime is already in.
- * It relays Prime's participant: the sub-agent works for the person Prime's
+ * It relays Prime's identity set: the sub-agent works for the people Prime's
  * turn is working for.
  */
 async function postDirective(
@@ -362,7 +362,7 @@ async function postDirective(
     content: text,
     mentions: [agentId],
     ingress: "tool",
-    relayedParticipantId: runs.audienceFor(sessionId, PI_AGENT.id),
+    audienceParticipants: runs.participantsFor(sessionId, PI_AGENT.id),
   });
   // Nothing was posted at all: the refusal is about Prime, not the recipient.
   if (!message) return refused[0]?.reason;
@@ -396,8 +396,8 @@ async function handleMessage(
 /**
  * Posts a sub-agent's report into its own thread, addressed to Prime. A thin
  * alias over the same post `/message` makes: `message_prime` reaches Prime by
- * addressing it, not by a dedicated relay. The report carries the person the
- * sub-agent's Run acted for, so Prime's wake acts for them too.
+ * addressing it, not by a dedicated relay. The report carries the identity set
+ * of the sub-agent's Run, so Prime's wake acts for the same people.
  */
 async function handleReport(
   store: SessionStore,
@@ -421,7 +421,7 @@ async function handleReport(
     content: text,
     mentions: [(await orchestratorIdentity(store, sessionId)).orchestratorId],
     ingress: "tool",
-    relayedParticipantId: runs.audienceFor(sessionId, agentId),
+    audienceParticipants: runs.participantsFor(sessionId, agentId),
   });
   res.json({ ok: true });
 }

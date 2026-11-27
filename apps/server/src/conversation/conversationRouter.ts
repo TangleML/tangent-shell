@@ -75,12 +75,12 @@ export interface PostInput {
   audienceParticipantId?: string;
   delegation?: RunDelegation;
   /**
-   * The human the author's Run acts for, when an agent posted this. A relay:
-   * whoever this Message wakes acts for the same person. Read by the poster
-   * while the Run is still open, because the Run may settle before the
+   * The identity set the author's Run acts for, when an agent posted this. A
+   * relay: whoever this Message wakes acts for the same people. Read by the
+   * poster while the Run is still open, because the Run may settle before the
    * fan-out runs.
    */
-  relayedParticipantId?: string;
+  audienceParticipants?: readonly string[];
   /**
    * Set false for output that must not wake anyone — a cancelled turn, whose
    * content is history rather than a request.
@@ -436,7 +436,7 @@ export class ConversationRouter {
         message,
         ingress: input.ingress,
         delivery: input.delivery,
-        relayedParticipantId: input.relayedParticipantId,
+        audienceParticipants: input.audienceParticipants,
         audienceParticipantId: input.audienceParticipantId,
         delegation: input.delegation,
         project: (msg, recipient) => {

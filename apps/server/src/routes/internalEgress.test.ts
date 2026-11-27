@@ -42,9 +42,9 @@ interface Served {
   lapsed: { sessionId: string; delegation: RunDelegation }[];
 }
 
-/** Serves the egress route for one live agent whose turn `participant` stands behind. */
+/** Serves the egress route for one live agent whose turn has `participants`. */
 function serve(
-  participant: string | undefined,
+  participants: string[],
   options: { delegation?: RunDelegation; hold?: string[] } = {},
 ): Served {
   const agents: AgentCallerResolver = {
@@ -67,7 +67,7 @@ function serve(
       agents,
       {
         runs: {
-          audienceFor: () => participant,
+          participantsFor: () => [...participants],
           delegationFor: () => options.delegation,
         },
         assertions,
@@ -126,7 +126,7 @@ const DELEGATION: RunDelegation = {
 };
 
 test("a known agent's call runs as the acting participant, and says so", async () => {
-  const { post } = serve("bob@x");
+  const { post } = serve(["alice@x", "bob@x"]);
   const seen = upstream();
 
   const res = await post({ input: RUNS }, "worker-token");
@@ -139,10 +139,36 @@ test("a known agent's call runs as the acting participant, and says so", async (
   assert.deepEqual(seen, [BOB]);
 });
 
+test("onBehalfOf must name a member of the turn", async () => {
+  const { post } = serve(["alice@x", "bob@x"]);
+  const seen = upstream();
+
+  const alice = await post(
+    { input: RUNS, onBehalfOf: "alice@x" },
+    "worker-token",
+  );
+  assert.deepEqual(
+    ((await alice.json()) as { appliedIdentity: unknown }).appliedIdentity,
+    { kind: "participant", id: "alice@x" },
+  );
+  assert.deepEqual(seen, [ALICE]);
+
+  const mallory = await post(
+    { input: RUNS, onBehalfOf: "mallory@x" },
+    "worker-token",
+  );
+  assert.equal(mallory.status, 403);
+  assert.equal(
+    ((await mallory.json()) as { code: string }).code,
+    "participant_not_in_turn",
+  );
+  assert.equal(seen.length, 1, "a refused call never reaches the backend");
+});
+
 test("an expired assertion refuses the call; only a turn with nobody behind it runs as the instance", async () => {
   const seen = upstream();
 
-  const expired = serve("alice@x", { hold: [] });
+  const expired = serve(["alice@x"], { hold: [] });
   const refused = await expired.post({ input: RUNS }, "worker-token");
   assert.equal(refused.status, 403);
   assert.equal(
@@ -150,7 +176,7 @@ test("an expired assertion refuses the call; only a turn with nobody behind it r
     "participant_assertion_expired",
   );
 
-  const nobody = serve(undefined);
+  const nobody = serve([]);
   const body = (await (
     await nobody.post({ input: RUNS }, "worker-token")
   ).json()) as {
@@ -169,7 +195,7 @@ test("an expired assertion refuses the call; only a turn with nobody behind it r
 
 test("a call that does not identify its agent is refused, never run as the instance", async () => {
   const seen = upstream();
-  const { post } = serve("alice@x");
+  const { post } = serve(["alice@x"]);
 
   const anonymous = await post({ input: RUNS });
   assert.equal(anonymous.status, 403);
@@ -188,7 +214,7 @@ test("a call that does not identify its agent is refused, never run as the insta
 });
 
 test("a trigger's turn forwards its delegation token", async () => {
-  const { post } = serve("alice@x", {
+  const { post } = serve(["alice@x"], {
     hold: [],
     delegation: DELEGATION,
   });
@@ -204,7 +230,7 @@ test("a trigger's turn forwards its delegation token", async () => {
 });
 
 test("an upstream 401 keeps its status in the envelope, with the applied identity", async () => {
-  const { post } = serve("alice@x");
+  const { post } = serve(["alice@x"]);
   upstream(401);
   const res = await post({ input: RUNS }, "worker-token");
   assert.equal(res.status, 200);
@@ -222,7 +248,7 @@ test("an upstream 401 keeps its status in the envelope, with the applied identit
 });
 
 test("an upstream 401 evicts the assertion it refused, and only that one", async () => {
-  const { post, assertions } = serve("bob@x");
+  const { post, assertions } = serve(["alice@x", "bob@x"]);
   upstream(401);
 
   const res = await post({ input: RUNS }, "worker-token");
@@ -239,7 +265,7 @@ test("an upstream 401 evicts the assertion it refused, and only that one", async
 });
 
 test("an upstream 401 whose identity assertion error says the delegation lapsed hands it over", async () => {
-  const { post, lapsed } = serve("alice@x", {
+  const { post, lapsed } = serve(["alice@x"], {
     hold: [],
     delegation: DELEGATION,
   });
@@ -262,7 +288,7 @@ test("an upstream 401 whose identity assertion error says the delegation lapsed 
 });
 
 test("an upstream 401 with any other reason, wording or shape drops no delegation", async () => {
-  const { post, lapsed } = serve("alice@x", {
+  const { post, lapsed } = serve(["alice@x"], {
     hold: [],
     delegation: DELEGATION,
   });
@@ -286,7 +312,7 @@ test("an upstream 401 with any other reason, wording or shape drops no delegatio
 });
 
 test("proxy errors carry stable codes", async () => {
-  const { post } = serve("alice@x");
+  const { post } = serve(["alice@x"]);
 
   const denied = await post(
     { input: "https://elsewhere.example/api" },
@@ -309,20 +335,21 @@ test("proxy errors carry stable codes", async () => {
   );
 });
 
-test("GET /identity describes the human behind the caller's turn, or nobody", async () => {
-  const { identity } = serve("alice@x");
+test("GET /identity describes the caller's turn, or nobody's", async () => {
+  const { identity } = serve(["alice@x", "carol@x"], { hold: ["alice@x"] });
 
-  assert.deepEqual(await (await identity("worker-token")).json(), {
-    participant: {
-      id: "alice@x",
-      assertionExpiresAt: new Date(SOON * 1000).toISOString(),
-    },
+  const known = (await (await identity("worker-token")).json()) as {
+    participants: { id: string; assertionExpiresAt?: string }[];
+    acting: string | null;
+  };
+  assert.equal(known.acting, "carol@x");
+  assert.deepEqual(known.participants, [
+    { id: "alice@x", assertionExpiresAt: new Date(SOON * 1000).toISOString() },
+    { id: "carol@x" },
+  ]);
+
+  assert.deepEqual(await (await identity()).json(), {
+    participants: [],
+    acting: null,
   });
-
-  const unheld = serve("carol@x", { hold: ["alice@x"] });
-  assert.deepEqual(await (await unheld.identity("worker-token")).json(), {
-    participant: { id: "carol@x" },
-  });
-
-  assert.deepEqual(await (await identity()).json(), { participant: null });
 });

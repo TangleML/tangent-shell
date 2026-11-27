@@ -74,7 +74,7 @@ function spawned(id: string, conversationId: string): SpawnedSubagent {
 /** A running internal-agents API over in-memory stores and stubbed connectors. */
 async function serve(
   agents?: AgentCallerResolver,
-  audiences: Record<string, string> = {},
+  identitySet: Record<string, readonly string[]> = {},
 ) {
   const store = new InMemorySessionStore(new InMemoryParticipantStore());
   const reactors = new ReactorRegistry(new InMemoryReactorStore());
@@ -94,7 +94,7 @@ async function serve(
   const posted: {
     conversationId: string;
     mentions?: string[];
-    relayedParticipantId?: string;
+    audienceParticipants?: readonly string[];
   }[] = [];
   const conversations = {
     post: async (input: (typeof posted)[number]) => {
@@ -108,7 +108,11 @@ async function serve(
   } as unknown as ConversationRouter;
 
   const runs = {
-    audienceFor: (_sessionId: string, agentId: string) => audiences[agentId],
+    participantsFor: (_sessionId: string, agentId: string) => [
+      ...(identitySet[agentId] ?? []),
+    ],
+    audienceFor: (_sessionId: string, agentId: string) =>
+      identitySet[agentId]?.at(-1),
   } as unknown as RunRegistry;
 
   const a2a = {} as unknown as A2aPeerGateway;
@@ -359,9 +363,9 @@ test("a report must come from the sub-agent it is attributed to", async () => {
   );
 });
 
-test("a spawn's first task and a directive relay the orchestrator's participant", async () => {
+test("a spawn's first task and a directive relay the orchestrator's identity set", async () => {
   const { store, posted, post } = await serve(undefined, {
-    [PI_AGENT.id]: "bob@x",
+    [PI_AGENT.id]: ["alice@x", "bob@x"],
   });
   const session = await store.createSession({ name: "S" });
 
@@ -372,7 +376,7 @@ test("a spawn's first task and a directive relay the orchestrator's participant"
   });
   assert.equal(res.status, 200);
   await waitFor(() => posted.length === 1);
-  assert.equal(posted[0].relayedParticipantId, "bob@x");
+  assert.deepEqual(posted[0].audienceParticipants, ["alice@x", "bob@x"]);
 
   const directive = await post("/message", {
     sessionId: session.id,
@@ -380,10 +384,10 @@ test("a spawn's first task and a directive relay the orchestrator's participant"
     text: "more",
   });
   assert.equal(directive.status, 200);
-  assert.equal(posted[1].relayedParticipantId, "bob@x");
+  assert.deepEqual(posted[1].audienceParticipants, ["alice@x", "bob@x"]);
 });
 
-test("a sub-agent's report carries its own run's participant to the orchestrator", async () => {
+test("a sub-agent's report carries its own run's identity set to the orchestrator", async () => {
   const session = "s-report";
   const { posted, post } = await serve(
     {
@@ -392,7 +396,7 @@ test("a sub-agent's report carries its own run's participant to the orchestrator
           ? { sessionId: session, agentId: "worker" }
           : undefined,
     },
-    { [PI_AGENT.id]: "prime-only@x", worker: "alice@x" },
+    { [PI_AGENT.id]: ["prime-only@x"], worker: ["alice@x"] },
   );
 
   const res = await post(
@@ -401,16 +405,16 @@ test("a sub-agent's report carries its own run's participant to the orchestrator
     "worker-token",
   );
   assert.equal(res.status, 200);
-  assert.equal(posted[0].relayedParticipantId, "alice@x");
+  assert.deepEqual(posted[0].audienceParticipants, ["alice@x"]);
 });
 
-test("a report from a sub-agent whose run acts for nobody carries no participant", async () => {
+test("a report from a sub-agent whose run acts for nobody carries an empty set", async () => {
   const session = "s-report-empty";
   const { posted, post } = await serve(
     {
       resolveAgentToken: () => ({ sessionId: session, agentId: "worker" }),
     },
-    { [PI_AGENT.id]: "alice@x" },
+    { [PI_AGENT.id]: ["alice@x"] },
   );
 
   const res = await post(
@@ -419,5 +423,5 @@ test("a report from a sub-agent whose run acts for nobody carries no participant
     "worker-token",
   );
   assert.equal(res.status, 200);
-  assert.equal(posted[0].relayedParticipantId, undefined);
+  assert.deepEqual(posted[0].audienceParticipants, []);
 });

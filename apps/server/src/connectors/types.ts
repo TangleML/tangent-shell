@@ -42,10 +42,10 @@ export interface DeliveryRequest {
    */
   audienceParticipantId?: string;
   /**
-   * The human the sending agent's Run acted for, when this delivery relays
-   * one agent's words to another. Seeds the Run it opens.
+   * The identity set the sending agent's Run carried, when this delivery
+   * relays one agent's words to another. Seeds the Run it opens.
    */
-  relayedParticipantId?: string;
+  audienceParticipants?: readonly string[];
   delegation?: RunDelegation;
 }
 

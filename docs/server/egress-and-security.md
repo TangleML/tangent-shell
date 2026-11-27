@@ -118,19 +118,20 @@ its last request is more than 30 minutes old: `GET /api/sessions/<id>` when it
 is in a session (the one read that records a bearer, and which a front proxy
 restamps like any other request), else `GET /api/me`.
 
-A Run acts for one human ([`RunRegistry`](../../server/src/runs/runRegistry.ts)).
-A human message that opens a Run makes its author that person; one that steers
-or follows up a Run in flight takes over. The audience lives and dies with its
-Run: nothing is inherited from the participant's earlier Runs, so an agent or
-automation wake that nobody stands behind opens a Run for nobody and acts as
-the instance. The one way an audience travels is a relay — when one agent's Run
-writes to another, the Message carries the sender's person and the Run it wakes
-opens for them: a sub-agent's report (`/internal/agents/report`) and its
-finalized turn carry its Run's person to the orchestrator, and the
+A Run carries an identity set: the ordered list of humans who wrote into the
+turn ([`RunRegistry`](../../server/src/runs/runRegistry.ts)). A human message
+that opens a Run sets it to `[author]`; one that steers or follows up a Run in
+flight appends the author (or moves them to the end). The set lives and dies
+with its Run: nothing is inherited from the participant's earlier Runs, so an
+agent or automation wake that nobody stands behind opens a Run with an empty
+set and acts as the instance. The one way a set travels is a relay — when one
+agent's Run writes to another, the Message carries the sender's set and the Run
+it wakes opens with it: a sub-agent's report (`/internal/agents/report`) and
+its finalized turn carry its Run's set to the orchestrator, and the
 orchestrator's directives (`/internal/agents/message`, a spawn's first task)
-carry its Run's person to the sub-agent. A relay that lands in a busy agent's
-turn leaves that turn's person unchanged. The person a Run acts for is also the
-one remote tools route to.
+carry its Run's set to the sub-agent. A relay that lands in a busy agent's turn
+leaves that turn's set unchanged. The most recent member is the acting default
+— the person remote tools route to.
 
 The cache keeps the assertion that is worth most. The source ranks first: an
 assertion from the trusted header replaces a bearer token for the same
@@ -225,20 +226,21 @@ The trust chain, link by link:
    identity assertion into `TRUSTED_IDENTITY_HEADER` on every request, stripping
    any copy the client sent. The server reads it unverified and keeps the latest
    one per participant in the identity assertion cache, with its expiry.
-2. A chat message opens or joins a Run, and the Run records the human behind
-   the turn (see [Who a request is from](#who-a-request-is-from)).
+2. A chat message opens or joins a Run, and the Run's identity set records who
+   wrote into the turn (see [Who a request is from](#who-a-request-is-from)).
 3. The agent's tool extension calls `POST /internal/egress` presenting its own
    `x-tangent-agent-token`. The token resolves to the agent, the agent to its
-   open Run, the Run to the person behind it.
-4. The route takes that person's cached assertion (or the Run's trigger
-   delegation), and
+   open Run, the Run to its identity set.
+4. The route picks the acting participant — `onBehalfOf` when the body names a
+   member of the set, else the most recent member — takes their cached
+   assertion (or the Run's trigger delegation), and
    [`resolveEgress`](../../server/src/bundleUi/egressAllowlist.ts) sends it
    under `EGRESS_IDENTITY_HEADER` after dropping any caller copy. The backend
    verifies it and acts as that person. A participant who cannot be carried —
    their assertion has expired and the turn holds no delegation for them — is
    a refusal, `403 { code: "participant_assertion_expired" }`, never a quiet
    fall-back to the instance: the instance credential is used only for a Run
-   nobody stands behind, or when forwarding is not configured.
+   with an empty identity set, or when forwarding is not configured.
 5. A backend `401` is charged to the token that was sent: a refused assertion
    is dropped from the cache, so the next call is refused as
    `participant_assertion_expired` instead of failing the same way. The backend answers a refused identity
@@ -257,21 +259,22 @@ The response envelope says who the call ran as:
 the header is configured, a call that presents no agent token is refused rather
 than run as the instance, so a missing token can never widen what an agent may
 do. Proxy errors carry a stable `code`: `egress_denied`,
-`participant_assertion_expired` and `caller_required` (403), `agent_unknown`
-(401, from the agent-token guard),
+`participant_not_in_turn`, `participant_assertion_expired` and
+`caller_required` (403), `agent_unknown` (401, from the agent-token guard),
 `upstream_timeout`, `upstream_unreachable` and `egress_failed` (502). A bundle
 tool that sees `participant_assertion_expired` should tell the user their
 identity assertion has expired and to reload the page, not retry as anyone
-else. `GET /internal/egress/identity` returns the human behind the caller's
-turn with their assertion's expiry, so a tool can tell the user who it is about
-to act as.
+else. `GET /internal/egress/identity`
+returns the caller's set with each member's assertion expiry and the acting
+member, so a tool can tell the user who it is about to act as.
 
-What agents can and cannot do: an agent acts as the human behind its turn and
-as nobody else; it cannot name a participant, cannot set the identity header
-itself (a caller copy is always dropped), and never sees the assertion or a
-trigger's delegation token: the assertion stays in the server's cache and the
-token in the server database. When two people write into one turn, the later
-writer is the one it acts for. The bundle-UI proxy
+What agents can and cannot do: an agent can act as a participant who wrote into
+its turn, and can choose among them with `onBehalfOf`; it cannot name anyone
+else, cannot set the identity header itself (a caller copy is always dropped),
+and never sees the assertion or a trigger's delegation token: the assertion
+stays in the server's cache and the token in the server database. The identity
+set is most-recent-wins: when two people write into one turn the later writer
+is the default, and either can be named explicitly. The bundle-UI proxy
 (`POST /api/agent-bundles/ui-egress`) never forwards an identity.
 
 Triggers outlive assertions. When an agent creates a trigger during a turn with
@@ -285,15 +288,15 @@ server refuses to boot with one but not the other), the server calls
 server database, never into the workspace an agent can read (a `triggers.json`
 written before this split is migrated on first load and rewritten without the
 token). A firing's prompt carries the creator and the delegation: when it
-finds its target idle, the Run it opens acts for `participantId` and forwards
-the delegation token instead of an assertion; when it lands in a turn already
-in flight, the prompt is only posted into that turn — the creator does not
-become the Run's participant and the delegation is not applied, so a
+finds its target idle, the Run it opens has identity set `[participantId]` and
+forwards the delegation token instead of an assertion; when it lands in a turn
+already in flight, the prompt is only posted into that turn — the creator is
+not added to the Run's identity set and the delegation is not applied, so a
 schedule can never lend its creator's identity to work someone else started.
 A sub-agent hosted in a connected remote environment gets the same treatment —
 the Run the firing opens for it carries the creator and the delegation; the
 token stays on the server and never rides the remote protocol. The delegation
-dies with its Run, like the participant itself: the participant's next wake
+dies with its Run, like the identity set itself: the participant's next wake
 starts from nothing. Removing the trigger — from the UI, by the agent, or by
 deleting its session — revokes the delegation with a best-effort `DELETE` and
 deletes the token row, as does replacing it with a newer one. A registration

@@ -123,8 +123,8 @@ export interface RemoteSendOptions {
   /** The human whose message this is, when it came from a person; stamped on the
    * Run this opens so remote tools route to their host. */
   audienceParticipantId?: string;
-  /** The human a relay from another agent's Run carries. */
-  relayedParticipantId?: string;
+  /** The identity set a relay from another agent's Run carries. */
+  audienceParticipants?: readonly string[];
   delegation?: RunDelegation;
 }
 
@@ -532,7 +532,7 @@ export class RemoteEnvironmentGateway {
       homeConversationId: this.homeConversationOf(sessionId, agentId),
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
-      relayedParticipantId: options.relayedParticipantId,
+      audienceParticipants: options.audienceParticipants,
       delegation: options.delegation,
     });
     const command: RemoteMessageCommand = {
@@ -1232,7 +1232,7 @@ export class RemoteEnvironmentGateway {
     const subagent = this.sessions.get(payload.sessionId)?.get(payload.agentId);
     if (!subagent || subagent.environmentId !== environmentId) return;
     this.markAttached(payload.sessionId, subagent);
-    const relayedParticipantId = this.runs.audienceFor(
+    const audienceParticipants = this.runs.participantsFor(
       payload.sessionId,
       payload.agentId,
     );
@@ -1252,7 +1252,7 @@ export class RemoteEnvironmentGateway {
           .orchestratorId,
       ],
       ingress: "tool",
-      relayedParticipantId,
+      audienceParticipants,
     });
   }
 

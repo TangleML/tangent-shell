@@ -13,6 +13,7 @@ import {
   describeTurnIdentity,
   type EgressIdentityDeps,
   ParticipantAssertionExpiredError,
+  ParticipantNotInTurnError,
 } from "../auth/egressIdentity.ts";
 import {
   type IdentityAssertionCache,
@@ -33,6 +34,8 @@ import type { RunDelegation } from "../runs/runRegistry.ts";
  * Egress request body. `init` is a structural {@link EgressRequestInit} passed
  * straight through to {@link resolveEgress}, so it is typed via `z.custom`
  * rather than re-described, keeping the validated value assignable as is.
+ * `onBehalfOf` names a member of the caller's identity set to act as instead
+ * of the most recent one.
  */
 const egressInputSchema = z.union([
   z.string().min(1),
@@ -45,6 +48,7 @@ const egressInputSchema = z.union([
 const egressBodySchema = z.object({
   input: egressInputSchema,
   init: z.custom<EgressRequestInit>().optional(),
+  onBehalfOf: z.string().min(1).optional(),
 });
 type EgressBody = z.infer<typeof egressBodySchema>;
 
@@ -129,6 +133,7 @@ function sendEgressError(err: unknown, res: Response): void {
     return;
   }
   if (
+    err instanceof ParticipantNotInTurnError ||
     err instanceof ParticipantAssertionExpiredError ||
     err instanceof CallerRequiredError
   ) {
@@ -146,7 +151,7 @@ function sendEgressError(err: unknown, res: Response): void {
 
 /**
  * Resolves the requested destination against the egress allowlist as the
- * human behind the caller's turn, and reports who the call ran as. A backend
+ * caller's chosen participant, and reports who the call ran as. A backend
  * status is preserved in the envelope (an upstream 401 is a 200 here), so the
  * applied identity rides along with it either way.
  */
@@ -155,10 +160,10 @@ async function handleEgress(
   req: Request,
   res: Response,
 ): Promise<void> {
-  const { input, init } = getValidated<EgressBody>(req).body;
+  const { input, init, onBehalfOf } = getValidated<EgressBody>(req).body;
   try {
     const caller = agentCallerFrom(req);
-    const chosen = chooseEgressIdentity(deps.identity, caller);
+    const chosen = chooseEgressIdentity(deps.identity, caller, onBehalfOf);
     const result = await resolveEgress(input, init, "agent", {
       identityToken: chosen.token,
     });
@@ -187,7 +192,7 @@ async function handleEgress(
 export function createInternalEgressRouter(
   agents?: AgentCallerResolver,
   identity: EgressIdentityDeps = {
-    runs: { audienceFor: () => undefined, delegationFor: () => undefined },
+    runs: { participantsFor: () => [], delegationFor: () => undefined },
   },
   onDelegationLapsed?: OnDelegationLapsed,
 ): Router {

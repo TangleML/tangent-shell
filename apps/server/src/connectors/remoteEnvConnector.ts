@@ -79,7 +79,7 @@ export class RemoteEnvConnector implements Connector {
       delivery: request.delivery,
       ingress: request.ingress,
       audienceParticipantId: request.audienceParticipantId,
-      relayedParticipantId: request.relayedParticipantId,
+      audienceParticipants: request.audienceParticipants,
       delegation: request.delegation,
     });
     if (delivered) return { delivered: true };
