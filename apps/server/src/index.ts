@@ -441,20 +441,8 @@ const triggerEngine = new TriggerEngine(
   participantService,
 );
 
-app.get("/api/health", (req, res) => {
-  const cookies = Object.fromEntries(
-    (req.headers.cookie ?? "")
-      .split(";")
-      .map((pair) => pair.trim())
-      .filter(Boolean)
-      .map((pair) => {
-        const idx = pair.indexOf("=");
-        return idx === -1
-          ? [pair, ""]
-          : [pair.slice(0, idx), pair.slice(idx + 1)];
-      }),
-  );
-  res.json({ ok: true, headers: req.headers, cookies });
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true });
 });
 
 app.use(
