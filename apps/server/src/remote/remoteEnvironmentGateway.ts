@@ -70,6 +70,7 @@ import type { SpawnedSubagent } from "../pi/piAgentManager.ts";
 import type { AgentDescriptor, ConversationEventSink } from "../pi/types.ts";
 import type { RunRegistry } from "../runs/runRegistry.ts";
 import type { SessionAgent, SessionStore } from "../store/sessionStore.ts";
+import { normalizeRemoteToolArguments } from "./remoteToolArguments.ts";
 
 /** Default and maximum number of transcript messages a room read returns. */
 const DEFAULT_ROOM_LIMIT = 30;
@@ -1064,8 +1065,9 @@ export class RemoteEnvironmentGateway {
   /**
    * Invokes one registered tool on the prompting person's environment and
    * resolves with its result. Rejects when their host is not connected, the tool
-   * is not in any of their catalogs, or the environment does not ack before the
-   * timeout.
+   * is not in any of their catalogs, the arguments are not a JSON object (a
+   * JSON-encoded object string is decoded first), or the environment does not
+   * ack before the timeout.
    */
   async callTool(
     sessionId: string,
@@ -1093,7 +1095,7 @@ export class RemoteEnvironmentGateway {
       sessionId,
       agentId,
       name,
-      arguments: args,
+      arguments: normalizeRemoteToolArguments(args),
     };
     const candidates = target.map((e) => e.environmentId).join(",");
     const started = Date.now();

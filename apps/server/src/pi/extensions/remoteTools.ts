@@ -179,10 +179,13 @@ export default function (pi: ExtensionAPI) {
       name: Type.String({
         description: "The tool name from list_remote_tools.",
       }),
+      // An object schema, not `Type.Unknown`: with no type to go on, models
+      // send the arguments JSON-encoded as a string, which hosts reject as
+      // missing arguments. The server still decodes such a string defensively.
       arguments: Type.Optional(
-        Type.Unknown({
+        Type.Record(Type.String(), Type.Unknown(), {
           description:
-            "The tool's arguments as a JSON object matching its inputSchema.",
+            "The tool's arguments as an object (not a JSON-encoded string) matching its inputSchema. Omit or pass {} for a tool that takes none.",
         }),
       ),
     }),
