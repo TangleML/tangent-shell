@@ -127,6 +127,20 @@ ENV QMD_STATE_ROOT=/tmp/qmd-state
 ENV HOME=/tmp
 ENV PI_BIN=pi
 
+# Trust the system CA bundle everywhere. Tools that ship their own roots (uv,
+# Python requests, gRPC, Node) otherwise ignore it, so a CA a deployment adds
+# to the bundle at container start (e.g. an egress proxy's CA appended to
+# ca-certificates.crt) is not trusted and installs/reads fail with
+# UnknownIssuer / CERTIFICATE_VERIFY_FAILED. Each tool reads the file when it
+# starts, so additions made before the server starts are picked up. Without
+# such a CA this is the stock Debian bundle (Mozilla roots), so nothing
+# changes for deployments that don't intercept TLS.
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ENV UV_SYSTEM_CERTS=true
+
 # Compiled server bundle (+ runtime assets) and the built static UI.
 COPY --from=builder /app/apps/server/dist ./dist
 COPY --from=builder /app/apps/web/dist ./ui-dist
