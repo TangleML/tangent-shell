@@ -364,6 +364,46 @@ test("a supervise wake cites the context projection when one is wired", async ()
   assert.match(wakes[0].text, /memory:\/\/digest\/B1\/1-3/);
 });
 
+test("a supervise wake still lands when its citation fails", async () => {
+  const registry = new ReactorRegistry(new InMemoryReactorStore());
+  const wakes: ReactorWake[] = [];
+  registry.useDelivery(async (wake) => {
+    wakes.push(wake);
+    return true;
+  });
+  registry.useSuperviseCitation(async () => {
+    throw new Error("projection failed");
+  });
+  await registry.install({
+    sessionId: "s1",
+    participantId: "prime",
+    spec: { name: "supervise" },
+    scope: {
+      memberships: [{ conversationId: "B1", participantId: "prime" }],
+      homeConversationId: "A",
+    },
+  });
+
+  await registry.observe(
+    "s1",
+    "B1",
+    facts({
+      authorId: "system",
+      cause: {
+        kind: "run-error",
+        participantId: "w1",
+        conversationId: "B1",
+        waveDepth: 0,
+        reason: "terminated",
+      },
+    }),
+  );
+
+  assert.equal(wakes.length, 1, "the supervisor still hears of the failure");
+  assert.match(wakes[0].text, /run-error/);
+  assert.match(wakes[0].text, /Reason: terminated/);
+});
+
 test("a reactor over an unreadable spec never readies", () => {
   // A misconfigured awaitAll (no targets) is rejected at install rather than
   // treated as vacuously ready — an empty set must not wake on the first message.

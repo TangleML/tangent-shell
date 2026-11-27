@@ -295,7 +295,15 @@ export class ReactorRegistry {
       record.sessionId,
       cause,
       record.participantId,
-    );
+    ).catch((err: unknown) => {
+      // The citation is a pointer, the wake is the point: a projection that
+      // fails must not leave the supervisor unaware its worker failed.
+      console.error(
+        `[reactors] supervise citation failed for ${record.participantId}:`,
+        err,
+      );
+      return undefined;
+    });
     return citation ? `${base}\n\n${citation}` : base;
   }
 
