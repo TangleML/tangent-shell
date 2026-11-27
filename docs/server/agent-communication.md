@@ -319,6 +319,13 @@ self-description in the connection handshake `metadata` (see
   `message_prime`-style reports are fed into Prime via a `deliverToPrime`
   callback wired to `pi.sendToAgent(sessionId, PRIME_AGENT_ID, ...)`. A room
   read is answered (Socket.IO ack) from `store.getMessages`.
+- **Runs:** each `message` carries a `promptId`. A host that reports its runs
+  (`remote:run-event`: what it did with each message, and the run settling)
+  gets the Run boundaries a local `pi` gets, followed by `RemoteRuns`
+  (`apps/server/src/remote/remoteRuns.ts`): a Run opens when a message finds
+  the agent idle or starts a run, and lasts until the agent settles. A host
+  that doesn't keeps a Run per message, settled by the next message, a status
+  change, or the environment dropping. The local agent host reports its runs.
 - **Remote side:** `@tangent/remote-subagent` (`packages/remote-subagent`) is a
   thin connector SDK: it manages the connection, dispatches `spawn`/`message`/
   `kill` to user-supplied handlers, and exposes helpers to stream events,

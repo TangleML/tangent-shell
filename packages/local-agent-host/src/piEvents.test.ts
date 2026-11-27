@@ -8,6 +8,7 @@ import {
   createStreamState,
   parsePiLine,
   type PiStdoutEvent,
+  runEventFor,
   translatePiEvent,
 } from "./piEvents.ts";
 
@@ -16,6 +17,11 @@ const newId = () => "msg-1";
 function run(events: PiStdoutEvent[]) {
   const state = createStreamState();
   return events.flatMap((event) => translatePiEvent(state, event, newId));
+}
+
+function runEvents(events: PiStdoutEvent[]) {
+  const state = createStreamState();
+  return events.flatMap((event) => runEventFor(state, event) ?? []);
 }
 
 const assistant = (text: string) => ({
@@ -237,4 +243,73 @@ test("pi args honor a local model override, default tools, and the proxy", () =>
     "--extension",
     "/ext/proxyProvider.ts",
   ]);
+});
+
+test("reports each prompt's answer and how the run settled", () => {
+  assert.deepEqual(
+    runEvents([
+      {
+        type: "response",
+        id: "p1",
+        command: "prompt",
+        success: true,
+        data: { disposition: "started" },
+      },
+      { type: "agent_start" },
+      { type: "message_end", message: assistant("hi") },
+      { type: "agent_end" },
+      { type: "agent_settled", aborted: false },
+    ]),
+    [
+      {
+        type: "prompt-answered",
+        promptId: "p1",
+        success: true,
+        disposition: "started",
+      },
+      { type: "settled", aborted: false, failed: false },
+    ],
+  );
+});
+
+test("a run whose last model call failed settles failed, and the next starts clean", () => {
+  const failedCall = { ...assistant(""), stopReason: "error" };
+  assert.deepEqual(
+    runEvents([
+      { type: "message_end", message: failedCall },
+      { type: "agent_settled" },
+      { type: "message_end", message: failedCall },
+      { type: "message_end", message: assistant("retried") },
+      { type: "agent_settled" },
+      { type: "agent_settled", aborted: true },
+    ]),
+    [
+      { type: "settled", aborted: false, failed: true },
+      { type: "settled", aborted: false, failed: false },
+      { type: "settled", aborted: true, failed: false },
+    ],
+  );
+});
+
+test("a rejected prompt is reported with its error, and other answers are not", () => {
+  assert.deepEqual(
+    runEvents([
+      {
+        type: "response",
+        id: "p1",
+        command: "prompt",
+        success: false,
+        error: "busy",
+      },
+      { type: "response", id: "a1", command: "abort", success: true },
+    ]),
+    [
+      {
+        type: "prompt-answered",
+        promptId: "p1",
+        success: false,
+        error: "busy",
+      },
+    ],
+  );
 });

@@ -98,7 +98,7 @@ never its free-text body:
 | `always`     | every Message in the Conversation (self excluded) |
 | `fromHumans` | the author is a human                             |
 | `mentionsMe` | the participant is `@mentioned`                   |
-| `atRunEnd`   | the Message ends its Run                          |
+| `atRunEnd`   | the Message is a finalized turn of a Run          |
 | `never`      | never (a muted or contribute-only member)         |
 
 A stored `ReactionSpec` is one or more presets joined by `+`, read as a

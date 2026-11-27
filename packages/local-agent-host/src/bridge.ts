@@ -51,7 +51,7 @@ export interface HostedAgent {
   sessionId: string;
   agentId: string;
   name: string;
-  /** The Run of the latest message, echoed on every event it produces. */
+  /** The Run of the latest message that opened one, echoed on every event. */
   runId?: RunId;
   /** Set once the server asked for the kill, so the exit is not an error. */
   stopping: boolean;
@@ -252,6 +252,8 @@ export class LocalAgentBridge {
           event,
           hosted.runId,
         ),
+      onRunEvent: (event) =>
+        this.client?.runEvent(hosted.sessionId, hosted.agentId, event),
       onExit: (reason) => this.onAgentExit(hosted, reason),
       onLog: (line) => this.options.log(`[${hosted.name}] ${line}`),
     });
@@ -275,8 +277,9 @@ export class LocalAgentBridge {
       this.options.log(`message for unknown sub-agent ${command.agentId}`);
       return;
     }
-    hosted.runId = command.runId;
-    hosted.agent.prompt(command.text, command.delivery);
+    // A message sent mid-run opens no Run, so the run in flight keeps its own.
+    if (command.runId) hosted.runId = command.runId;
+    hosted.agent.prompt(command.text, command.delivery, command.promptId);
   }
 
   private onKill(command: RemoteKillCommand): void {

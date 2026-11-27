@@ -36,6 +36,8 @@ import {
   type RemoteResourceReadResponse,
   type RemoteRoomReadRequest,
   type RemoteRoomReadResponse,
+  type RemoteRunEvent,
+  type RemoteRunEventPayload,
   type RemoteSpawnCommand,
   type RemoteSubagentUpdatePayload,
   type RemoteToolCallRequest,
@@ -152,6 +154,8 @@ export interface RemoteEnvironmentClient {
     event: RemoteAgentEvent,
     runId?: RunId,
   ): void;
+  /** Report where a sub-agent's run stands, so the server can follow its Runs. */
+  runEvent(sessionId: string, agentId: string, event: RemoteRunEvent): void;
   /** Push a sub-agent's lifecycle status change to the server. */
   subagentUpdate(
     sessionId: string,
@@ -361,6 +365,10 @@ export function connectRemoteEnvironment(
       };
       socket.emit(RemoteEnvEvents.AgentEvent, payload);
     },
+    runEvent(sessionId, agentId, event) {
+      const payload: RemoteRunEventPayload = { sessionId, agentId, event };
+      socket.emit(RemoteEnvEvents.RunEvent, payload);
+    },
     subagentUpdate(sessionId, agentId, status) {
       const payload: RemoteSubagentUpdatePayload = {
         sessionId,
@@ -463,6 +471,7 @@ export type {
   RemoteKillCommand,
   RemoteMessageCommand,
   RemoteResourceInput,
+  RemoteRunEvent,
   RemoteSpawnCommand,
   RemoteToolCallRequest,
   RemoteToolCallResponse,

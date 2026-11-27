@@ -60,6 +60,8 @@ export const RemoteEnvEvents = {
   Kill: "remote:kill",
   /** remote -> server: a streamed agent event (start/delta/end/...). */
   AgentEvent: "remote:agent-event",
+  /** remote -> server: where a sub-agent's run stands (see {@link RemoteRunEvent}). */
+  RunEvent: "remote:run-event",
   /** remote -> server: a sub-agent's lifecycle status change. */
   SubagentUpdate: "remote:subagent-update",
   /** remote -> server: a sub-agent's directed report to Prime. */
@@ -123,8 +125,11 @@ export interface RemoteMessageCommand {
   agentId: string;
   text: string;
   delivery: MessageDelivery;
-  /** The Run this message is work for, to echo back on its events. */
+  /** The Run this message is work for, to echo back on its events. Absent when
+   * the sub-agent is mid-run, until it says the message started a run. */
   runId?: RunId;
+  /** The id to send the agent this message under, reported back with its answer. */
+  promptId?: string;
 }
 
 /** server -> remote: terminate a remote sub-agent. */
@@ -162,6 +167,31 @@ export interface RemoteAgentEventPayload {
    * Run that participant has open.
    */
   runId?: RunId;
+}
+
+/**
+ * Where a remote sub-agent's run stands, mirroring what Pi reports: what it did
+ * with a message (`started` a run, `queued` it into the one in flight, or
+ * `handled` it with no run; `success: false` when rejected), and the run
+ * settling, however many turns it took. The server follows a sub-agent's Runs
+ * this way once it has answered a message with a `disposition`; until then it
+ * opens a Run for every message it sends.
+ */
+export type RemoteRunEvent =
+  | {
+      type: "prompt-answered";
+      promptId: string;
+      success: boolean;
+      disposition?: "started" | "queued" | "handled";
+      error?: string;
+    }
+  | { type: "settled"; aborted: boolean; failed: boolean };
+
+/** remote -> server: a {@link RemoteRunEvent}, tagged with its agent. */
+export interface RemoteRunEventPayload {
+  sessionId: string;
+  agentId: string;
+  event: RemoteRunEvent;
 }
 
 /** remote -> server: a remote sub-agent's lifecycle status change. */
