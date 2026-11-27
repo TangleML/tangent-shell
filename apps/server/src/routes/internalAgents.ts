@@ -126,6 +126,7 @@ function spawnKind(environment: SpawnInput["environment"]): ConnectorKind {
 async function postInitialTask(
   store: SessionStore,
   router: ConversationRouter,
+  runs: RunRegistry,
   body: SpawnInput,
   info: SubagentInfo,
 ): Promise<void> {
@@ -135,6 +136,7 @@ async function postInitialTask(
   );
   await postDirective(
     router,
+    runs,
     body.sessionId,
     info.id,
     info.conversationId,
@@ -278,9 +280,6 @@ async function handleSpawn(
       audienceParticipantId,
     });
     const { info } = spawnResult;
-    if (audienceParticipantId) {
-      runs.recordAudience(body.sessionId, info.id, audienceParticipantId);
-    }
     await store.recordAgent(body.sessionId, subagentRecord(body, spawnResult));
     // Watch the sub-agent's thread before its first task runs, so any cause it
     // surfaces wakes the orchestrator to re-assess. Best-effort inside.
@@ -293,7 +292,7 @@ async function handleSpawn(
     res.json({ subagent: info });
     // Answered first: the sub-agent exists either way, and a failure to post its
     // first task must not read as a failed spawn Prime might retry.
-    await postInitialTask(store, router, body, info);
+    await postInitialTask(store, router, runs, body, info);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -342,9 +341,12 @@ async function handleAttach(
  * Prime writes this from its own Conversation, so it is a cross-Conversation
  * post: authorized by Prime's Membership in the sub-agent's thread, recorded as
  * having arrived from elsewhere, and kept inside the wave Prime is already in.
+ * It relays Prime's participant: the sub-agent works for the person Prime's
+ * turn is working for.
  */
 async function postDirective(
   router: ConversationRouter,
+  runs: RunRegistry,
   sessionId: string,
   agentId: string,
   conversationId: string,
@@ -360,6 +362,7 @@ async function postDirective(
     content: text,
     mentions: [agentId],
     ingress: "tool",
+    relayedParticipantId: runs.audienceFor(sessionId, PI_AGENT.id),
   });
   // Nothing was posted at all: the refusal is about Prime, not the recipient.
   if (!message) return refused[0]?.reason;
@@ -374,11 +377,13 @@ async function postDirective(
 async function handleMessage(
   store: SessionStore,
   router: ConversationRouter,
+  runs: RunRegistry,
   body: MessageInput,
   res: Response,
 ): Promise<void> {
   const refused = await postDirective(
     router,
+    runs,
     body.sessionId,
     body.agentId,
     await homeConversationFor(store, body.sessionId, body.agentId),
@@ -391,12 +396,14 @@ async function handleMessage(
 /**
  * Posts a sub-agent's report into its own thread, addressed to Prime. A thin
  * alias over the same post `/message` makes: `message_prime` reaches Prime by
- * addressing it, not by a dedicated relay.
+ * addressing it, not by a dedicated relay. The report carries the person the
+ * sub-agent's Run acted for, so Prime's wake acts for them too.
  */
 async function handleReport(
   store: SessionStore,
   connectors: ConnectorRegistry,
   router: ConversationRouter,
+  runs: RunRegistry,
   body: ReportInput,
   res: Response,
 ): Promise<void> {
@@ -414,6 +421,7 @@ async function handleReport(
     content: text,
     mentions: [(await orchestratorIdentity(store, sessionId)).orchestratorId],
     ingress: "tool",
+    relayedParticipantId: runs.audienceFor(sessionId, agentId),
   });
   res.json({ ok: true });
 }
@@ -534,6 +542,7 @@ export function createInternalAgentsRouter(
     handleMessage(
       store,
       conversations,
+      runs,
       getValidated<MessageInput>(req).body,
       res,
     ),
@@ -548,6 +557,7 @@ export function createInternalAgentsRouter(
         store,
         connectors,
         conversations,
+        runs,
         getValidated<ReportInput>(req).body,
         res,
       ),

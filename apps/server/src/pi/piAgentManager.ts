@@ -270,6 +270,9 @@ export interface SendToAgentOptions {
   /** The human whose message this is, when it came from a person; stamped on the
    * Run this opens so remote tools route to their host. */
   audienceParticipantId?: string;
+  /** The human a relay from another agent's Run carries. Seeds the Run this
+   * opens; a Run in flight keeps acting for whoever it already did. */
+  relayedParticipantId?: string;
 }
 
 /** A session's selector tags, read synchronously at spawn. */
@@ -1780,8 +1783,9 @@ export class PiAgentManager {
    *
    * A message that finds the agent idle opens a Run with `ingress`; one that
    * finds it mid-run joins the Run in flight, because Pi folds a steer or
-   * follow-up into the run it is already taking. Pi's answer to the prompt
-   * corrects either guess (see {@link onPromptAnswered}).
+   * follow-up into the run it is already taking — and a human who does so
+   * becomes the one the Run acts for. Pi's answer to the prompt corrects
+   * either guess (see {@link onPromptAnswered}).
    */
   sendToAgent(options: SendToAgentOptions): void {
     if (this.holdDuringMaintenance(options)) return;
@@ -1808,10 +1812,14 @@ export class PiAgentManager {
       streamingBehavior: streamingBehavior(options.delivery ?? "auto"),
       ingress: options.ingress ?? "reaction",
       audienceParticipantId: options.audienceParticipantId,
+      relayedParticipantId: options.relayedParticipantId,
     });
   }
 
-  /** Writes a prompt, opening its Run when it finds the agent idle. */
+  /**
+   * Writes a prompt, opening its Run when it finds the agent idle. A human's
+   * prompt that finds it busy joins the Run in flight instead.
+   */
   private deliverPrompt(
     sessionId: string,
     agent: AgentProcess,
@@ -1826,8 +1834,22 @@ export class PiAgentManager {
     }
     // Opened now rather than on Pi's answer, so admission sees the agent busy.
     if (!agent.busy) prompt.runId = this.openRun(sessionId, agent, prompt);
+    else this.joinRun(sessionId, agent, prompt);
     this.writePrompt(sessionId, agent, text, prompt);
     this.notifyStatus(sessionId);
+  }
+
+  /**
+   * Makes the human behind a prompt that found its agent busy the one its open
+   * Run acts for. An agent's or automation's prompt changes nothing.
+   */
+  private joinRun(
+    sessionId: string,
+    agent: AgentProcess,
+    prompt: SentPrompt,
+  ): void {
+    if (!prompt.audienceParticipantId) return;
+    this.runs.join(sessionId, agent.agentId, prompt.audienceParticipantId);
   }
 
   /** Opens a Run for an agent, for the prompt it serves when there is one. */
@@ -1842,6 +1864,7 @@ export class PiAgentManager {
       homeConversationId: agent.homeConversationId,
       ingress: prompt?.ingress ?? "reaction",
       audienceParticipantId: prompt?.audienceParticipantId,
+      relayedParticipantId: prompt?.relayedParticipantId,
     }).id;
   }
 

@@ -7,6 +7,7 @@ import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 
 import { A2aPeerGateway } from "./a2a/a2aPeerGateway.ts";
+import { rememberIdentityAssertion } from "./auth/identityAssertions.ts";
 import {
   EMBED_ALLOWED_ORIGINS,
   MAX_JSON_BODY_BYTES,
@@ -123,6 +124,11 @@ const app = express();
 // /api; runs before body parsing so preflight OPTIONS short-circuit cheaply.
 app.use(createEmbedCors(EMBED_ALLOWED_ORIGINS));
 app.use(express.json({ limit: MAX_JSON_BODY_BYTES }));
+// Every request refreshes the identity assertion a trusting front proxy
+// stamped on it, so a later call made on that person's behalf carries the
+// newest one. A token the client carried itself is only kept once a socket
+// joins a session as that person (sockets/chat.ts).
+app.use("/api", rememberIdentityAssertion);
 
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
@@ -291,7 +297,7 @@ runs.useOnSettled((run, settlement) => {
 // messages land the same way whether it runs locally (PiAgentManager), in a
 // remote environment, or entirely outside Tangent.
 const agentHandlers: ConversationEventSink = {
-  onAgentEvent: createAgentEventHandler(io, store, conversations),
+  onAgentEvent: createAgentEventHandler(io, store, conversations, runs),
   onSubagentUpdate: createSubagentUpdateHandler(io, store, conversations),
   onAgentMessage: createAgentMessageHandler(conversations),
   onSessionStatus: createSessionStatusHandler(io),

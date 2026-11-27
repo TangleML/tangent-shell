@@ -34,6 +34,7 @@ import {
   handleUpdateSession,
   handleUploadFiles,
   type SessionCreateDeps,
+  type SessionReadDeps,
   uploadFiles,
 } from "./handlers.ts";
 import { registerParticipantRoutes } from "./participants.ts";
@@ -101,13 +102,22 @@ function registerSessionItemRoutes(
   store: SessionStore,
   pi: PiAgentManager,
   triggerEngine: TriggerEngine,
+  participants: ParticipantService,
 ): void {
+  const read: SessionReadDeps = {
+    store,
+    identityProbe: {
+      isSessionMember: async (sessionId, email) =>
+        (await participants.membershipsOf(sessionId, email)).length > 0,
+    },
+  };
   router.get(
     "/:id",
     validate({ params: sessionParamsSchema }),
     (req: Request, res: Response) =>
       handleGetSession(
-        store,
+        read,
+        req,
         getValidated<unknown, SessionParams>(req).params.id,
         res,
       ),
@@ -207,7 +217,7 @@ export function createSessionsRouter(
   };
 
   registerSessionCollectionRoutes(router, createDeps);
-  registerSessionItemRoutes(router, store, pi, triggerEngine);
+  registerSessionItemRoutes(router, store, pi, triggerEngine, participants);
   registerSessionUsageRoute(router, store, usage, runStore);
   registerSessionActivityRoutes(router, store);
   registerBundleRoutes(router, {

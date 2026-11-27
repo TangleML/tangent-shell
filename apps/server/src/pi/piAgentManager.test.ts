@@ -2147,3 +2147,36 @@ test("each spawn mints its own agent token; a respawn rotates it and a kill forg
   pi.killAgent("s1", info.id);
   assert.equal(pi.resolveAgentToken(workerToken), undefined);
 });
+
+test("a human message into a busy agent becomes the one its run acts for", async () => {
+  const { pi, runs } = makeManager();
+  await pi.ensure("s1", "/tmp/s1");
+
+  pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "start",
+    audienceParticipantId: "alice@x",
+  });
+  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "alice@x");
+
+  pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "also this",
+    delivery: "steer",
+    audienceParticipantId: "bob@x",
+  });
+  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
+
+  pi.sendToAgent({ sessionId: "s1", agentId: PRIME_AGENT_ID, text: "agent" });
+  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
+
+  pi.sendToAgent({
+    sessionId: "s1",
+    agentId: PRIME_AGENT_ID,
+    text: "a relay",
+    relayedParticipantId: "carol@x",
+  });
+  assert.equal(runs.audienceFor("s1", PRIME_AGENT_ID), "bob@x");
+});

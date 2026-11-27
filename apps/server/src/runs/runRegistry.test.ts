@@ -225,7 +225,7 @@ test("a human wake stamps the run's audience", async () => {
   assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
 });
 
-test("an agent wake inherits the participant's last human audience", async () => {
+test("an agent wake with no relayed participant acts for nobody, whoever woke the run before", async () => {
   const h = await newRegistry();
 
   h.runs.open({
@@ -240,7 +240,7 @@ test("an agent wake inherits the participant's last human audience", async () =>
     ingress: "reaction",
   });
 
-  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
 });
 
 test("a later human wake retargets the audience", async () => {
@@ -274,10 +274,121 @@ test("audience is unknown until a human has ever woken the participant", async (
   assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
 });
 
-test("recordAudience seeds a sub-agent's audience without opening a run", async () => {
+test("a relay opens a run acting for the participant it carried", async () => {
   const h = await newRegistry();
 
-  h.runs.recordAudience(h.sessionId, "sub-1", "alice@x");
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "sub-1",
+    ingress: "tool",
+    relayedParticipantId: "bob@x",
+  });
 
-  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "alice@x");
+  assert.equal(h.runs.audienceFor(h.sessionId, "sub-1"), "bob@x");
+});
+
+test("a human's prompt opens the run for its author even when a relay rides along", async () => {
+  const h = await newRegistry();
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "carol@x",
+    relayedParticipantId: "alice@x",
+  });
+
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "carol@x");
+});
+
+test("a human who steers a run in flight becomes the one it acts for", async () => {
+  const h = await newRegistry();
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+
+  h.runs.join(h.sessionId, "prime", "bob@x");
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "bob@x");
+
+  h.runs.join(h.sessionId, "prime", "alice@x");
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "alice@x");
+});
+
+test("a human message that opens a run acts for its author alone", async () => {
+  const h = await newRegistry();
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.join(h.sessionId, "prime", "bob@x");
+  h.runs.settleOpenFor(h.sessionId, "prime", "completed");
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "carol@x",
+  });
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), "carol@x");
+});
+
+test("the audience dies with its run: a settled run lends the next wake nobody", async () => {
+  const h = await newRegistry();
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.join(h.sessionId, "prime", "bob@x");
+  h.runs.settleOpenFor(h.sessionId, "prime", "completed");
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "tool",
+  });
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
+  assert.equal(h.runs.audienceFor(h.sessionId, "nobody"), undefined);
+});
+
+test("joining an idle participant is a no-op: the message opens a run instead", async () => {
+  const h = await newRegistry();
+
+  h.runs.join(h.sessionId, "prime", "bob@x");
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.settleOpenFor(h.sessionId, "prime", "completed");
+  h.runs.join(h.sessionId, "prime", "bob@x");
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
+});
+
+test("a run superseded by the next one hands nothing on either", async () => {
+  const h = await newRegistry();
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "reaction",
+    audienceParticipantId: "alice@x",
+  });
+  h.runs.join(h.sessionId, "prime", "bob@x");
+
+  h.runs.open({
+    sessionId: h.sessionId,
+    participantId: "prime",
+    ingress: "tool",
+  });
+  assert.equal(h.runs.audienceFor(h.sessionId, "prime"), undefined);
 });

@@ -26,11 +26,18 @@ export interface OpenRunInput {
   cursor?: string;
   /**
    * The human whose prompt opened this Run, when a human woke the participant.
-   * A routing hint (not attribution): remote tools called during the Run target
-   * this person's host environment. Absent for an agent/automation wake, which
-   * inherits the participant's last human audience instead.
+   * The Run acts for them: remote tools called during the Run target this
+   * person's host, and calls made on someone's behalf act as them.
    */
   audienceParticipantId?: string;
+  /**
+   * The human a relay carries: when one agent's Run messages another (a
+   * sub-agent's report, an orchestrator's directive), the person behind the
+   * sending Run becomes the person behind the Run it wakes. A wake with
+   * neither this nor an audience acts for nobody; a participant's earlier Runs
+   * lend it no one.
+   */
+  relayedParticipantId?: string;
 }
 
 /** The terminal states {@link RunRegistry.settle} accepts. */
@@ -66,9 +73,8 @@ export class RunRegistry {
   private readonly byParticipant = new Map<string, Run>();
   /** The same runs by id, so a client-supplied run id resolves directly. */
   private readonly byId = new Map<RunId, Run>();
-  /** The last human audience each participant had, by `(session, participant)`, so
-   * an agent/automation wake inherits it rather than routing to nobody. */
-  private readonly lastAudience = new Map<string, string>();
+  /** The human each open Run acts for, by run id; it dies with the Run. */
+  private readonly audienceByRun = new Map<RunId, string>();
   /** Notified after a Run settles, so a participant becoming idle can release a
    * wake that was held behind it. */
   private onSettled?: (run: Run, settlement: Settlement) => void;
@@ -91,11 +97,6 @@ export class RunRegistry {
   open(input: OpenRunInput): Run {
     const previous = this.current(input.sessionId, input.participantId);
     if (previous) this.finish(previous, "completed", { superseded: true });
-    this.stampAudience(
-      input.sessionId,
-      input.participantId,
-      input.audienceParticipantId,
-    );
 
     const now = new Date().toISOString();
     const run: Run = {
@@ -113,6 +114,8 @@ export class RunRegistry {
 
     this.byParticipant.set(keyFor(run.sessionId, run.participantId), run);
     this.byId.set(run.id, run);
+    const audience = input.audienceParticipantId ?? input.relayedParticipantId;
+    if (audience) this.audienceByRun.set(run.id, audience);
     void this.store
       .createRun({
         id: run.id,
@@ -133,44 +136,22 @@ export class RunRegistry {
   }
 
   /**
-   * Records the human whose prompt this Run serves. A human wake sets it; an
-   * agent/automation wake (no audience) keeps the participant's last human
-   * audience, so a follow-on turn still routes to the same person.
+   * Makes a human who wrote into a Run already in flight (a steer or
+   * follow-up) the one it acts for. Nothing to join when the participant is
+   * idle: the message opens a Run instead.
    */
-  private stampAudience(
-    sessionId: string,
-    participantId: string,
-    audienceParticipantId: string | undefined,
-  ): void {
-    if (!audienceParticipantId) return;
-    this.lastAudience.set(
-      keyFor(sessionId, participantId),
-      audienceParticipantId,
-    );
+  join(sessionId: string, participantId: string, humanId: string): void {
+    const run = this.current(sessionId, participantId);
+    if (run) this.audienceByRun.set(run.id, humanId);
   }
 
   /**
-   * Seeds a participant's audience without opening a Run — used when a sub-agent
-   * inherits the audience of whoever asked Prime to spawn it, so its first turn
-   * already routes to that person.
-   */
-  recordAudience(
-    sessionId: string,
-    participantId: string,
-    audienceParticipantId: string,
-  ): void {
-    this.lastAudience.set(
-      keyFor(sessionId, participantId),
-      audienceParticipantId,
-    );
-  }
-
-  /**
-   * The human whose prompt this participant is working for: the last human
-   * audience it had. Undefined when no human has ever woken it.
+   * The human this participant's open Run acts for. Undefined between Runs,
+   * and for a Run no human stands behind.
    */
   audienceFor(sessionId: string, participantId: string): string | undefined {
-    return this.lastAudience.get(keyFor(sessionId, participantId));
+    const run = this.current(sessionId, participantId);
+    return run && this.audienceByRun.get(run.id);
   }
 
   /** An open Run by id. Settled Runs live only in the store. */
@@ -252,6 +233,7 @@ export class RunRegistry {
   /** Drops a Run from both indexes. */
   private forget(run: Run): void {
     this.byId.delete(run.id);
+    this.audienceByRun.delete(run.id);
     const key = keyFor(run.sessionId, run.participantId);
     if (this.byParticipant.get(key)?.id === run.id) {
       this.byParticipant.delete(key);

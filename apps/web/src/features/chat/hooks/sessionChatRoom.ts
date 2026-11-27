@@ -41,6 +41,7 @@ import {
 } from "@/features/chat/model/agentStatusQueryKeys";
 import { SessionQueryKeys } from "@/features/sessions/model/sessionQueryKeys";
 import { queryClient } from "@/shared/api/queryClient";
+import { refreshIdentityIfStale } from "@/shared/lib/identityRefresh";
 import { createSocket } from "@/shared/lib/socket";
 
 import {
@@ -131,7 +132,9 @@ class SessionChatRoom {
       delivery: options?.delivery ?? "auto",
       ...(hasAttachments ? { attachments } : {}),
     };
-    socket.emit(SocketEvents.ChatMessage, payload);
+    void refreshIdentityIfStale(this.sessionId).then(() =>
+      socket.emit(SocketEvents.ChatMessage, payload),
+    );
   }
 
   /** Posts a slash command's result for everyone; it doesn't start the agent. */

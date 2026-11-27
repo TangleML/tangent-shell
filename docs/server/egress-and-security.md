@@ -71,6 +71,73 @@ sequenceDiagram
 
 ---
 
+## Who a request is from
+
+[`resolveIdentity`](../../server/src/auth/identity.ts) reads the caller of an
+HTTP request or Socket.IO handshake from the first configured source that
+carries a token, in trust order:
+
+1. `TRUSTED_IDENTITY_HEADER` — a participant identity assertion stamped by a
+   trusting front proxy. It outranks everything because the proxy that sets it
+   also strips any copy a client sent; without such a proxy leave it empty.
+2. `Authorization: Bearer` (or the handshake `auth.token`) — honoured only when
+   `EMBED_ALLOWED_ORIGINS` is non-empty, the one deployment where a cross-origin
+   host has to carry its own token.
+3. `AUTH_JWT_TOKEN_HEADER_NAME`, then `AUTH_JWT_TOKEN_COOKIE_NAME`.
+
+No source is signature-checked here; the claims (`email` or `sub`, names) are
+read as presented, and the backend is the only verifier. A token whose `exp`
+has passed identifies nobody, on HTTP and on the socket handshake alike: the
+request or connection falls back to the anonymous default user rather than to a
+lower-ranked source. When a token has no `email` claim the server uses `sub` as
+the participant id, so an identity assertion issuer must put the participant's
+email in `sub`: an opaque subject would be shown and compared as if it were an
+email.
+
+Tokens from the first two sources are also kept, per participant, in the
+in-memory [identity assertion cache](../../server/src/auth/identityAssertions.ts)
+along with their `exp`, and dropped once expired. The two sources enter it
+differently:
+
+- A proxy-stamped assertion is recorded from every `/api` request and socket
+  handshake, before any route runs: the proxy already authenticated the person.
+- A bearer token is recorded only after a session has admitted its holder as
+  that person: when a socket join or subscribe resolves to at least one
+  authorized Conversation (`sockets/chat.ts`), or when `GET /api/sessions/:id`
+  is called for a session the caller may read — open, their own, or one they
+  hold a Membership in (`routes/sessions/identityProbe.ts`). No other HTTP
+  route records a bearer; `GET /api/me` in particular does not. It must also
+  carry an `exp` no more than 65 minutes out, the lifetime the backend mints
+  assertions for; a bearer without `exp`, or with a longer one, is never kept.
+  Until then the email it claims is only a claim, and recording it would let
+  anyone who can reach `/api` park a token under someone else's address.
+
+The web client keeps the assertion fresh by probing before a chat message when
+its last request is more than 30 minutes old: `GET /api/sessions/<id>` when it
+is in a session (the one read that records a bearer, and which a front proxy
+restamps like any other request), else `GET /api/me`.
+
+A Run acts for one human ([`RunRegistry`](../../server/src/runs/runRegistry.ts)).
+A human message that opens a Run makes its author that person; one that steers
+or follows up a Run in flight takes over. The audience lives and dies with its
+Run: nothing is inherited from the participant's earlier Runs, so an agent or
+automation wake that nobody stands behind opens a Run for nobody and acts as
+the instance. The one way an audience travels is a relay — when one agent's Run
+writes to another, the Message carries the sender's person and the Run it wakes
+opens for them: a sub-agent's report (`/internal/agents/report`) and its
+finalized turn carry its Run's person to the orchestrator, and the
+orchestrator's directives (`/internal/agents/message`, a spawn's first task)
+carry its Run's person to the sub-agent. A relay that lands in a busy agent's
+turn leaves that turn's person unchanged. The person a Run acts for is also the
+one remote tools route to.
+
+The cache keeps the assertion that is worth most. The source ranks first: an
+assertion from the trusted header replaces a bearer token for the same
+participant and is never replaced by one, whatever their expiries. Within a
+source, no token replaces one that expires later than it does.
+
+---
+
 ## The egress allowlist proxy
 
 Agents and sandboxed bundle-UI components must never hold outbound credentials
@@ -189,6 +256,9 @@ restart.
   bundle-author code (same trust model as Pi tool extensions).
 - **CORS** — Socket.IO is configured with `cors: { origin: true }` to ease local
   dev where the UI is proxied by Vite (same-origin in practice).
+- **Health check** — `GET /api/health` answers `{ ok: true }` and nothing else:
+  it used to echo the request headers and cookies, which handed the identity
+  assertion, the authorization header and the auth cookie back to whoever asked.
 
 ---
 
