@@ -60,7 +60,7 @@ function handleClose(
 /**
  * Internal API used by a bundle extension (running inside a Pi process) to open
  * and close a generic MCP relay channel bound to its session. Guarded by the
- * same bearer token as the other internal APIs. Aquifer-agnostic: the extension
+ * same bearer token as the other internal APIs. Runtime-agnostic: the extension
  * owns the remote runtime; the server only relays to the session's Prime.
  *
  * A peer's `ask_prime` no longer has a poll/answer pair here: a question is a

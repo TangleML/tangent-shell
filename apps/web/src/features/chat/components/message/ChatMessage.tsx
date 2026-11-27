@@ -14,6 +14,7 @@ import { QuotableMessage } from "../quote/QuotableMessage";
 import { AgentThinking } from "./AgentThinking";
 import { CommandResultMessage } from "./CommandResultMessage";
 import { MemoryMessage } from "./MemoryMessage";
+import { MessageActions } from "./MessageActions";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageAvatar } from "./MessageAvatar";
 import type { MessageBubbleVariant } from "./MessageBubble";
@@ -29,6 +30,7 @@ import { ThinkingOnlyMessage } from "./ThinkingOnlyMessage";
 interface ChatMessageProps {
   sessionId: string;
   message: ChatMessageType;
+  messageLink?: string;
   /** The orchestrator's home Conversation, for the "from Prime's thread" label. */
   primaryConversationId: string;
   isOwn: boolean;
@@ -51,6 +53,7 @@ interface ChatMessageProps {
 function ChatMessageContent({
   sessionId,
   message,
+  messageLink,
   primaryConversationId,
   isOwn,
   isStreaming = false,
@@ -61,12 +64,21 @@ function ChatMessageContent({
   onTogglePinArtifact,
   onCollapse,
 }: ChatMessageProps) {
+  const thinkingOnly = isThinkingOnly(message);
+  const actions = (
+    <MessageActions
+      content={message.memory || thinkingOnly ? undefined : message.content}
+      messageLink={messageLink}
+      onCollapse={onCollapse}
+    />
+  );
+
   if (message.memory)
     return (
       <MemoryMessage
         sessionId={sessionId}
         message={message}
-        onCollapse={onCollapse}
+        actions={actions}
       />
     );
 
@@ -76,7 +88,7 @@ function ChatMessageContent({
         sessionId={sessionId}
         message={message}
         question={message.question}
-        onCollapse={onCollapse}
+        actions={actions}
       />
     );
 
@@ -88,7 +100,7 @@ function ChatMessageContent({
         command={message.command}
         isOwn={isOwn}
         onOpenArtifact={onOpenArtifact}
-        onCollapse={onCollapse}
+        actions={actions}
       />
     );
 
@@ -105,6 +117,7 @@ function ChatMessageContent({
         onOpenArtifact={onOpenArtifact}
         pinnedPaths={pinnedPaths}
         onTogglePinArtifact={onTogglePinArtifact}
+        actions={actions}
         onCollapse={onCollapse}
       />
     );
@@ -118,14 +131,14 @@ function ChatMessageContent({
   const roleLabel = roleLabelFor(message);
   const attachments = message.attachments ?? [];
 
-  if (isThinkingOnly(message)) {
+  if (thinkingOnly) {
     return (
       <ThinkingOnlyMessage
         message={message}
         variant={variant}
         roleLabel={roleLabel}
         isStreaming={isStreaming}
-        onCollapse={onCollapse}
+        actions={actions}
       />
     );
   }
@@ -147,9 +160,8 @@ function ChatMessageContent({
           authorName={isOwn ? "You" : message.author.name}
           roleLabel={roleLabel}
           createdAt={message.createdAt}
-          content={message.content}
           origin={originLabelFor(message, primaryConversationId)}
-          onCollapse={onCollapse}
+          actions={actions}
         />
       }
     >

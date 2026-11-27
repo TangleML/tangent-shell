@@ -13,7 +13,7 @@
  *
  * - Gateway — when both `PI_PROXY_URL` and `PI_PROXY_API_KEY` are set, every
  *   provider is routed through that single proxy via its per-vendor sub-paths
- *   (the Shopify llm-gateway layout). This is the deployed default.
+ *   (`/v1`, `/apis/anthropic`, `/apis/google/v1`, `/vendors/<vendor>/...`).
  * - Direct — when either is missing, each provider is registered straight
  *   against its own public API using the well-known key/base-URL env vars
  *   (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …). This lets a plain checkout talk

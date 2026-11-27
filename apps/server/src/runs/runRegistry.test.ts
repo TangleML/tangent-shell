@@ -169,17 +169,17 @@ test("a connector's cursor and external id round-trip through the store", async 
     sessionId: h.sessionId,
     participantId: "worker-1",
     ingress: "tool",
-    externalId: "aquifer-session-1",
+    externalId: "remote-session-1",
     cursor: "0",
   });
   h.runs.setCursor(run.id, "42");
-  h.runs.setExternalId(run.id, "aquifer-session-2");
+  h.runs.setExternalId(run.id, "remote-session-2");
   await flush();
 
   assert.equal(h.runs.current(h.sessionId, "worker-1")?.cursor, "42");
   const stored = await h.store.getRun(run.id);
   assert.equal(stored?.cursor, "42");
-  assert.equal(stored?.externalId, "aquifer-session-2");
+  assert.equal(stored?.externalId, "remote-session-2");
 });
 
 test("failStaleRuns settles runs a previous process left running", async () => {

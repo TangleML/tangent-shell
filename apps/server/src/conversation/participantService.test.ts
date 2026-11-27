@@ -81,14 +81,14 @@ test("invite creates an away human keyed by email, with memberships", async () =
   const { service, session } = await harness();
 
   const participant = await service.invite(session.id, {
-    email: "a@shopify.com",
+    email: "a@example.com",
     conversationIds: ["prime"],
   });
 
-  assert.equal(participant.id, "a@shopify.com");
+  assert.equal(participant.id, "a@example.com");
   assert.equal(participant.kind, "human");
   assert.equal(participant.presence, "away");
-  const memberships = await service.membershipsOf(session.id, "a@shopify.com");
+  const memberships = await service.membershipsOf(session.id, "a@example.com");
   assert.deepEqual(
     memberships.map((m) => m.conversationId),
     ["prime"],
@@ -102,27 +102,27 @@ test("inviting into Prime's conversation keeps Prime a member", async () => {
   const primeConversationId = prime.homeConversationId;
 
   await service.invite(session.id, {
-    email: "a@shopify.com",
+    email: "a@example.com",
     conversationIds: [primeConversationId],
   });
 
   const members = await memberships.membersOf(session.id, primeConversationId);
   const ids = members.map((m) => m.participantId).sort();
-  assert.deepEqual(ids, ["a@shopify.com", "prime"]);
+  assert.deepEqual(ids, ["a@example.com", "prime"]);
 });
 
 test("an invited human's membership is inert, so fan-out never wakes them", async () => {
   const { service, memberships, session } = await harness();
 
   await service.invite(session.id, {
-    email: "a@shopify.com",
+    email: "a@example.com",
     conversationIds: ["prime"],
   });
 
   const membership = await memberships.memberIn(
     session.id,
     "prime",
-    "a@shopify.com",
+    "a@example.com",
   );
   assert.equal(membership?.reaction, "never");
 });
@@ -130,52 +130,52 @@ test("an invited human's membership is inert, so fan-out never wakes them", asyn
 test("revoke removes memberships, retains the row, and broadcasts detached", async () => {
   const { service, session, presenceEvents } = await harness();
   await service.invite(session.id, {
-    email: "a@shopify.com",
+    email: "a@example.com",
     conversationIds: ["prime"],
   });
 
-  await service.revoke(session.id, "a@shopify.com");
+  await service.revoke(session.id, "a@example.com");
 
-  const participant = await service.get(session.id, "a@shopify.com");
+  const participant = await service.get(session.id, "a@example.com");
   assert.ok(participant, "a revoked participant is retained");
   assert.ok(participant.revokedAt);
   assert.equal(participant.presence, "detached");
   assert.deepEqual(
-    await service.membershipsOf(session.id, "a@shopify.com"),
+    await service.membershipsOf(session.id, "a@example.com"),
     [],
   );
   assert.deepEqual(presenceEvents.at(-1), {
     sessionId: session.id,
-    participantId: "a@shopify.com",
+    participantId: "a@example.com",
     presence: "detached",
   });
 });
 
 test("re-inviting a revoked human clears the revocation", async () => {
   const { service, session } = await harness();
-  await service.invite(session.id, { email: "a@shopify.com" });
-  await service.revoke(session.id, "a@shopify.com");
+  await service.invite(session.id, { email: "a@example.com" });
+  await service.revoke(session.id, "a@example.com");
 
-  await service.invite(session.id, { email: "a@shopify.com" });
+  await service.invite(session.id, { email: "a@example.com" });
 
-  const participant = await service.get(session.id, "a@shopify.com");
+  const participant = await service.get(session.id, "a@example.com");
   assert.equal(participant?.revokedAt, undefined);
   assert.equal(participant?.presence, "away");
 });
 
 test("join then leave adds and removes a single membership", async () => {
   const { service, session } = await harness();
-  await service.invite(session.id, { email: "a@shopify.com" });
+  await service.invite(session.id, { email: "a@example.com" });
 
-  await service.join(session.id, "a@shopify.com", "prime");
+  await service.join(session.id, "a@example.com", "prime");
   assert.equal(
-    (await service.membershipsOf(session.id, "a@shopify.com")).length,
+    (await service.membershipsOf(session.id, "a@example.com")).length,
     1,
   );
 
-  await service.leave(session.id, "a@shopify.com", "prime");
+  await service.leave(session.id, "a@example.com", "prime");
   assert.deepEqual(
-    await service.membershipsOf(session.id, "a@shopify.com"),
+    await service.membershipsOf(session.id, "a@example.com"),
     [],
   );
 });
@@ -318,15 +318,15 @@ test("muting preserves the reaction so unmute restores the exact standing", asyn
 
 test("setPresence writes, broadcasts, and skips a no-op transition", async () => {
   const { service, session, presenceEvents } = await harness();
-  await service.invite(session.id, { email: "a@shopify.com" });
+  await service.invite(session.id, { email: "a@example.com" });
 
-  await service.setPresence(session.id, "a@shopify.com", "connected");
-  await service.setPresence(session.id, "a@shopify.com", "connected");
+  await service.setPresence(session.id, "a@example.com", "connected");
+  await service.setPresence(session.id, "a@example.com", "connected");
 
-  const participant = await service.get(session.id, "a@shopify.com");
+  const participant = await service.get(session.id, "a@example.com");
   assert.equal(participant?.presence, "connected");
   const forThisPerson = presenceEvents.filter(
-    (p) => p.participantId === "a@shopify.com",
+    (p) => p.participantId === "a@example.com",
   );
   assert.equal(
     forThisPerson.length,
@@ -337,11 +337,11 @@ test("setPresence writes, broadcasts, and skips a no-op transition", async () =>
 
 test("setPresence ignores a revoked participant", async () => {
   const { service, session } = await harness();
-  await service.invite(session.id, { email: "a@shopify.com" });
-  await service.revoke(session.id, "a@shopify.com");
+  await service.invite(session.id, { email: "a@example.com" });
+  await service.revoke(session.id, "a@example.com");
 
-  await service.setPresence(session.id, "a@shopify.com", "connected");
+  await service.setPresence(session.id, "a@example.com", "connected");
 
-  const participant = await service.get(session.id, "a@shopify.com");
+  const participant = await service.get(session.id, "a@example.com");
   assert.equal(participant?.presence, "detached");
 });

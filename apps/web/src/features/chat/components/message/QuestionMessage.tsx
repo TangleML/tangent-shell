@@ -14,11 +14,10 @@ import { Icon } from "@tangent/ui-primitives/icon";
 import { BlockStack, InlineStack } from "@tangent/ui-primitives/layout";
 import { Textarea } from "@tangent/ui-primitives/textarea";
 import { Paragraph, Text } from "@tangent/ui-primitives/typography";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { useSessionChat } from "@/features/chat/hooks/useSessionChat";
 
-import { HeaderCollapseButton } from "./HeaderCollapseButton";
 import { MessageAvatar } from "./MessageAvatar";
 import { MessageLayout } from "./MessageLayout";
 
@@ -26,7 +25,8 @@ interface QuestionMessageProps {
   sessionId: string;
   message: ChatMessage;
   question: ChatQuestion;
-  onCollapse?: () => void;
+  /** Copy, link and collapse controls shown in the header. */
+  actions?: ReactNode;
 }
 
 interface ItemDraft {
@@ -248,7 +248,7 @@ export function QuestionMessage({
   sessionId,
   message,
   question,
-  onCollapse,
+  actions,
 }: QuestionMessageProps) {
   const { messagesFor, answer } = useSessionChat(sessionId);
   const messages = messagesFor(message.conversationId);
@@ -303,7 +303,7 @@ export function QuestionMessage({
                 : `${message.author.name} asked`}
             </Text>
           </InlineStack>
-          <HeaderCollapseButton onCollapse={onCollapse} />
+          {actions}
         </InlineStack>
       }
     >

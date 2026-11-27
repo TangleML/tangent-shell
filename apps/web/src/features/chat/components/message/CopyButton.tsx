@@ -1,35 +1,52 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { IconButton } from "@/shared/ui/patterns/icon-button";
 
-type CopiedFormat = "plain" | "markdown" | null;
-
 interface CopyButtonProps {
   content: string;
+  kind?: "markdown" | "link";
 }
 
-export function CopyButton({ content }: CopyButtonProps) {
-  const [copied, setCopied] = useState<CopiedFormat>(null);
-  const disabled = !content.trim();
+const BUTTON_STATES = {
+  markdown: { label: "Copy as Markdown", icon: "Copy" },
+  link: { label: "Copy link to message", icon: "Link" },
+  copied: { label: "Copied", icon: "Check" },
+  failed: { label: "Could not copy", icon: "CircleAlert" },
+} as const;
 
-  async function copyText(text: string, format: Exclude<CopiedFormat, null>) {
+export function CopyButton({ content, kind = "markdown" }: CopyButtonProps) {
+  const [feedback, setFeedback] = useState<"copied" | "failed" | null>(null);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = setTimeout(() => setFeedback(null), 1500);
+    return () => clearTimeout(timer);
+  }, [feedback]);
+
+  async function copy() {
+    setFeedback(null);
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(format);
-      setTimeout(() => setCopied(null), 1500);
+      await navigator.clipboard.writeText(content);
+      setFeedback("copied");
     } catch {
-      // Clipboard access can be denied (e.g. insecure context); fail silently.
+      setFeedback("failed");
     }
   }
 
+  const { label, icon } = BUTTON_STATES[feedback ?? kind];
   return (
-    <IconButton
-      icon={copied === "markdown" ? "Check" : "Copy"}
-      size="xs"
-      variant="ghost"
-      disabled={disabled}
-      aria-label={copied === "markdown" ? "Copied" : "Copy as Markdown"}
-      onClick={() => copyText(content, "markdown")}
-    />
+    <>
+      <IconButton
+        icon={icon}
+        size="xs"
+        tone={feedback === "failed" ? "critical" : undefined}
+        disabled={!content.trim()}
+        title={label}
+        aria-label={BUTTON_STATES[kind].label}
+        onClick={copy}
+      />
+      <span className="sr-only" role="status">
+        {feedback && label}
+      </span>
+    </>
   );
 }

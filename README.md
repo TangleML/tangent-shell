@@ -18,9 +18,28 @@ workflow — research, code generation, document building, scheduled automation,
 
 - **Node.js** (the version matching the Docker base image, currently 24+)
 - **pnpm** `10.28.0` (the pinned package manager)
-- The **`pi`** agent binary on your `PATH` (or set `PI_BIN`; `start_local.sh` installs it for you)
+- The **`pi`** agent binary, 1.6.0 or later, on your `PATH` (or set `PI_BIN`; `start_local.sh` installs it for you)
 - LLM access for `pi`: a provider key such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, or an
   LLM gateway via `PI_PROXY_URL` / `PI_PROXY_API_KEY` (see below)
+
+### Quick start
+
+From a fresh clone to a running shell in one command:
+
+```bash
+OPENAI_API_KEY=sk-... ./start_local.sh        # or ANTHROPIC_API_KEY=sk-ant-...
+```
+
+`start_local.sh` installs dependencies, fetches the `pi` binary if it isn't already on your
+`PATH`, seeds the example agent bundles, writes a local `.env`, and starts the UI at
+**http://127.0.0.1:9010** (server on port `8787`, Tangle API assumed at
+**http://127.0.0.1:8000**).
+
+LLM access is read from well-known provider variables: set `OPENAI_API_KEY` and/or
+`ANHROPIC_API_KEY` (with optional `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`) to call a provider
+directly, or set `PI_PROXY_URL` + `PI_PROXY_API_KEY` to route through an LLM gateway.T Ports,
+model, and paths are overridable — see the top of the script. Prefer to run the steps yourself?
+Use the manual flow below.
 
 ### Install and run
 
@@ -137,7 +156,7 @@ the full list and defaults):
 | `AGENT_BUNDLES_ROOT`                              | Bundle marketplace storage                                     |
 | `SHARED_ROOT`                                     | Root directory for cross-session shared folders (mounts)       |
 | `GLOBAL_MEMORY_DIR`                               | Global (cross-session) memory store                            |
-| `PI_BIN`                                          | Path to the `pi` agent executable                              |
+| `PI_BIN`                                          | Path to the `pi` agent executable (1.6.0+, checked at startup) |
 | `PI_PROVIDER` / `PI_MODEL` / `PI_THINKING`        | Default LLM provider, model, and thinking level                |
 | `PI_PROXY_URL` / `PI_PROXY_API_KEY`               | LLM proxy endpoint and credential                              |
 | `TANGLE_API_URL`                                  | Tangle API base URL used by server-side egress targets         |
@@ -146,6 +165,7 @@ the full list and defaults):
 | `AUTH_JWT_TOKEN_HEADER_NAME`                      | Optional auth header name, for proxies that drop cookies       |
 | `TANGENT_INTERNAL_URL` / `TANGENT_INTERNAL_TOKEN` | Internal agent API URL and bearer token                        |
 | `INSTANCE_PROXY_URL`                              | Optional deployment proxy URL consumed by `docker/instance.sh` |
+| `DEV_ALLOWED_HOSTS`                               | Comma-separated extra hostnames the web dev server accepts     |
 
 Bundle UI extensions should call logical egress targets such as
 `{ target: "tangle", path: "/api/..." }`; the server resolves the actual base URL from

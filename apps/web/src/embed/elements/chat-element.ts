@@ -1,5 +1,6 @@
 import { createElement, type ReactNode } from "react";
 
+import type { MessageLinkProps } from "@/features/chat/components/message/ChatMessageList";
 import {
   createHostSlotRegistry,
   HostExtensionsContext,
@@ -18,11 +19,9 @@ import { EmbeddedElement } from "./embeddedElement";
 const TAG = "tangent-chat";
 
 /**
- * Mounts the embedded chat surface. `sessionId`, `agentId`, `initialPrompt`,
- * `autoFocus`, `references`, and `commands` are properties; `open-artifact`,
- * `send-prompt`, `open-agent`, `remove-agent`, and `resources-change` are
- * emitted as composed `CustomEvent`s for the npm wrapper to surface as `on*`
- * props.
+ * Mounts an embedded chat. Hosts set the session, agent, and optional inputs
+ * as element properties. Chat actions such as `open-artifact` and `send-prompt`
+ * bubble as composed events for the React wrapper's callbacks.
  */
 export class TangentChatElement extends EmbeddedElement {
   private currentSessionId = "";
@@ -31,11 +30,20 @@ export class TangentChatElement extends EmbeddedElement {
   private shouldAutoFocus = false;
   private currentReferences: EmbedReferencePayload[] = [];
   private currentCommands: EmbedCommandPayload[] = [];
+  private messageLink: MessageLinkProps["getMessageLink"];
+  private currentTargetMessageId?: string;
+  private currentTargetAgentId?: string;
   private readonly hostSlots = createHostSlotRegistry();
   private hostExtUnsubscribe: (() => void) | null = null;
 
   static get observedAttributes(): string[] {
-    return ["session-id", "agent-id", "auto-focus"];
+    return [
+      "session-id",
+      "agent-id",
+      "auto-focus",
+      "target-message-id",
+      "target-agent-id",
+    ];
   }
 
   protected get tag(): string {
@@ -80,6 +88,36 @@ export class TangentChatElement extends EmbeddedElement {
     return this.currentAgentId;
   }
 
+  /** Builds a host URL for a message in the thread displayed by this element. */
+  set getMessageLink(value: MessageLinkProps["getMessageLink"]) {
+    if (this.messageLink === value) return;
+    this.messageLink = value;
+    this.rerender();
+  }
+  get getMessageLink(): MessageLinkProps["getMessageLink"] {
+    return this.messageLink;
+  }
+
+  /** Scrolls to this message once its thread history is available. */
+  set targetMessageId(value: string | undefined) {
+    if (this.currentTargetMessageId === value) return;
+    this.currentTargetMessageId = value;
+    this.rerender();
+  }
+  get targetMessageId(): string | undefined {
+    return this.currentTargetMessageId;
+  }
+
+  /** Asks Prime to open this sub-agent through the host's normal open-agent event. */
+  set targetAgentId(value: string | undefined) {
+    if (this.currentTargetAgentId === value) return;
+    this.currentTargetAgentId = value;
+    this.rerender();
+  }
+  get targetAgentId(): string | undefined {
+    return this.currentTargetAgentId;
+  }
+
   set initialPrompt(value: string | undefined) {
     this.queuedInitialPrompt = value || undefined;
     this.rerender();
@@ -112,9 +150,15 @@ export class TangentChatElement extends EmbeddedElement {
     return this.currentCommands;
   }
 
-  attributeChangedCallback(name: string, _prev: string, next: string): void {
+  attributeChangedCallback(
+    name: string,
+    _prev: string | null,
+    next: string | null,
+  ): void {
     if (name === "session-id") this.sessionId = next ?? "";
     if (name === "agent-id") this.agentId = next ?? "";
+    if (name === "target-message-id") this.targetMessageId = next || undefined;
+    if (name === "target-agent-id") this.targetAgentId = next || undefined;
     if (name === "auto-focus")
       this.autoFocus = next != null && next !== "false";
   }
@@ -141,6 +185,9 @@ export class TangentChatElement extends EmbeddedElement {
       createElement(EmbeddedChat, {
         sessionId: this.currentSessionId,
         agentId: this.currentAgentId || undefined,
+        getMessageLink: this.messageLink,
+        targetMessageId: this.currentTargetMessageId,
+        targetAgentId: this.currentTargetAgentId,
         autoFocus: this.shouldAutoFocus,
         runtime,
         onOpenArtifact: (url: string, title: string) =>

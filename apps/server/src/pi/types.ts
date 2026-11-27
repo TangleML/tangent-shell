@@ -118,6 +118,15 @@ export interface ConversationEventSink {
   onSessionStatus: SessionStatusHandler;
 }
 
+/** A prompt written to Pi, until Pi answers what it did with it. */
+export interface SentPrompt {
+  streamingBehavior: "steer" | "followUp";
+  ingress: RunIngress;
+  audienceParticipantId?: string;
+  /** The Run it opened by finding the agent idle. */
+  runId?: RunId;
+}
+
 export interface AgentProcess {
   agentId: string;
   role: AgentRole;
@@ -140,22 +149,23 @@ export interface AgentProcess {
   config: AgentConfig;
   child: ChildProcessWithoutNullStreams;
   busy: boolean;
+  /** Prompts written to Pi, by command id, until Pi answers each. */
+  sent: Map<string, SentPrompt>;
+  /** Prompts sent while an abort is landing, written once Pi answers it. */
+  heldPrompts: { text: string; prompt: SentPrompt }[];
   /**
-   * Set when the current run was aborted by the user (via the `abort` RPC
-   * command). Carried onto the finalized `end` event so a half-finished reply is
-   * persisted without waking anyone, then reset for the next run.
+   * Set from an `abort` RPC command until Pi settles or answers it. Carried
+   * onto the finalized `end` event so a half-finished reply is persisted
+   * without waking anyone.
    */
   aborted: boolean;
+  /** The id of the latest `abort` command written to Pi, until Pi answers it. */
+  pendingAbortId: string | null;
   /**
    * Whether the run's latest assistant message ended because the model call
    * failed, so the run settles `failed` rather than `completed`.
    */
   modelFailed: boolean;
-  /**
-   * Set while a turn that ended on a failed model call waits to hear whether
-   * Pi is retrying it, before the run is settled as failed.
-   */
-  pendingEnd: ReturnType<typeof setTimeout> | null;
   /** The id of the assistant message currently streaming, if any. */
   currentMessageId: string | null;
   /**
@@ -292,8 +302,14 @@ export interface PiStdoutEvent {
   steering?: unknown;
   /** Present on `queue_update` events: pending follow-up messages. */
   followUp?: unknown;
-  /** Present on `agent_end` in newer Pi: it is about to retry the turn. */
-  willRetry?: boolean;
-  /** Present on `auto_retry_end`: whether a retry got through. */
+  /** Present on `response` events: the id and type of the command answered. */
+  id?: unknown;
+  command?: string;
+  /** Present on `response` events: whether the command was accepted, and its
+   * result (a prompt's `disposition`) or `error`. */
   success?: boolean;
+  data?: unknown;
+  error?: unknown;
+  /** Present on `agent_settled` events: whether the run was aborted. */
+  aborted?: boolean;
 }

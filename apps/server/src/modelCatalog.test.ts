@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { piEnv } from "@tangent/local-agent-host/piAdapter.ts";
@@ -11,7 +14,10 @@ import {
   supportedThinkingLevels,
 } from "@tangent/shared/modelCatalog.ts";
 
-import { catalogRequestHeaders } from "./modelCatalog.ts";
+import {
+  catalogRequestHeaders,
+  loadConfiguredCatalog,
+} from "./modelCatalog.ts";
 import serverProvider from "./pi/extensions/proxyProvider.ts";
 
 const model = {
@@ -159,11 +165,34 @@ test("thinking depth clamps to the nearest level the model supports", () => {
   assert.equal(nearestThinkingLevel("minimal", []), "minimal");
 });
 
+test("a configured catalog requires the LLM gateway it routes models through", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "catalog-"));
+  const file = path.join(dir, "models.json");
+  await writeFile(file, JSON.stringify(fixture));
+
+  await assert.rejects(
+    loadConfiguredCatalog({ TANGENT_MODEL_CATALOG_FILE: file }),
+    /set PI_PROXY_URL/,
+  );
+  await assert.rejects(
+    loadConfiguredCatalog({
+      TANGENT_MODEL_CATALOG_URL: "https://tangle.example.com/api/models",
+    }),
+    /set PI_PROXY_URL/,
+  );
+  const catalog = await loadConfiguredCatalog({
+    TANGENT_MODEL_CATALOG_FILE: file,
+    PI_PROXY_URL: "https://gateway.example.com",
+  });
+  assert.equal(catalog?.defaults.tangent, model.tangentModelId);
+  assert.equal(await loadConfiguredCatalog({}), undefined);
+});
+
 test("a catalog on the Tangle API origin is fetched with the Tangle cookie", () => {
   const tangle = "https://tangle.example.com";
   const onTangle = new URL(`${tangle}/api/models`);
   const elsewhere = new URL("https://other.example.com/models");
-  const cookie = "MINERVA_TOKEN=session";
+  const cookie = "SSO_TOKEN=session";
   assert.deepEqual(
     catalogRequestHeaders(onTangle, { TANGLE_TOKEN: cookie }, tangle),
     { cookie },

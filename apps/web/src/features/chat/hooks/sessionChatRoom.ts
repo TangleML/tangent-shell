@@ -420,7 +420,7 @@ class SessionChatRoom {
           streamingMessageIds: addToSet(prev.streamingMessageIds, message.id),
           messagesByConversation: appendToConversation(
             prev.messagesByConversation,
-            message,
+            { ...message, streamingPlaceholder: true },
           ),
         }));
         const agentId = this.agentIdOf(message.conversationId);

@@ -1,4 +1,5 @@
 import type { ChatCommandRun } from "@tangent/shared/contracts";
+import type { ReactNode } from "react";
 
 import type { ChatMessage as ChatMessageType } from "@/features/chat/model/types";
 import { apiUrl } from "@/shared/lib/basePath";
@@ -12,7 +13,7 @@ interface CommandResultMessageProps {
   command: ChatCommandRun;
   isOwn: boolean;
   onOpenArtifact?: (url: string, title: string) => void;
-  onCollapse?: () => void;
+  actions: ReactNode;
 }
 
 /**
@@ -26,7 +27,7 @@ export function CommandResultMessage({
   command: { name, args },
   isOwn,
   onOpenArtifact,
-  onCollapse,
+  actions,
 }: CommandResultMessageProps) {
   const who = isOwn ? "You" : message.author.name;
 
@@ -35,8 +36,7 @@ export function CommandResultMessage({
       icon="SquareSlash"
       title={`${who} ran /${name}${args ? ` ${args}` : ""}`}
       createdAt={message.createdAt}
-      content={message.content}
-      onCollapse={onCollapse}
+      actions={actions}
     >
       <Markdown
         size="sm"
